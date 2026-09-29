@@ -1,0 +1,38 @@
+# 行尾纪律（development/README.md："全部锁文件与清单统一 LF；
+# Windows 换行不得影响 digest 与 lock 字节"）。
+#
+# 为什么需要这个文件：Windows 开发机上的编辑器与 git 的 core.autocrlf 会把
+# 文本文件转成 CRLF。对 ngm 而言这不只是风格问题——
+#   - `gofmt -l` 与 golangci-lint 会把 CRLF 的 Go 文件判为未格式化（CI 红）
+#   - golden 文件按字节比对，CRLF 会让快照永久失配
+#   - M2 的 archiveDigest 依赖字节级一致
+# 显式声明 eol=lf 后，无论开发者如何配置 core.autocrlf，仓库内与工作树都是 LF。
+
+* text=auto eol=lf
+
+# Go 源码
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+
+# 文档与配置
+*.md   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Golden 文件：字节级比对对象，绝不允许隐式转换
+*.golden text eol=lf
+
+# 脚本
+*.sh    text eol=lf
+*.ps1   text eol=lf
+
+# 二进制（不做任何转换）
+*.exe   binary
+*.bin   binary
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.zip   binary
+*.gz    binary

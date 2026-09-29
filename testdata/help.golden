@@ -1,0 +1,28 @@
+ngm — Git-first Dependency Provenance Layer
+
+USAGE:
+  ngm <command> [options]
+
+COMMANDS:
+  init           初始化项目
+  add            添加依赖
+  install        解析并安装依赖
+  update         更新依赖 ref
+  remove         移除依赖
+  verify         检查 ref 漂移与 digest 重放
+  audit          供应链审计（OSV.dev，v0.2）
+  why            为什么装了这个依赖
+  tree           依赖树可视化
+  outdated       检查新版本
+  typecheck      类型检查（adapter）
+  build          构建（adapter）
+  css            CSS 编译（adapter）
+  mappings       mappings 管理
+  integrations   构建工具集成脚手架（v0.3）
+  cache          缓存维护
+  config         配置管理
+  engines        引擎管理
+
+FLAGS:
+  --version      输出版本信息（含 git 短哈希与构建时间）
+  --help, -h     输出本帮助

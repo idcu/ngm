@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "mappings": [
+    {
+      "from": "github:org/logger",
+      "to": "./ngm.vendor/github.com/org/logger",
+      "main": "./dist/logger.js",
+      "types": "./dist/logger.d.ts"
+    },
+    {
+      "from": "github:org/noentry",
+      "to": "./ngm.vendor/github.com/org/noentry"
+    },
+    {
+      "from": "github:org/utils",
+      "to": "./ngm.vendor/github.com/org/utils",
+      "main": "./index.ts",
+      "types": "./index.d.ts"
+    }
+  ]
+}

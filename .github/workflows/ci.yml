@@ -1,0 +1,188 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 三平台 matrix 与 development/README.md 的硬性要求对齐
+# （"macOS / Linux / Windows 三平台均需通过测试"）
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  build-test:
+    name: build/vet/test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          go version
+          git --version
+
+      - name: go build ./...
+        run: go build ./...
+
+      - name: go vet ./...
+        run: go vet ./...
+
+      - name: go test ./...
+        run: go test -count=1 ./...
+
+  # 格式与行尾门禁。
+  #
+  # 两条独立防线：
+  #   - gofmt：Go 1.19+ 也会重排文档注释缩进，仅靠"看起来没问题"不够
+  #   - CRLF 检测：gofmt 只覆盖 .go；.md/.yml/.golden 的行尾需要单独守。
+  #     golden 是字节比对对象，CRLF 会让快照永久失配（详见 .gitattributes）
+  fmt-check:
+    name: gofmt + line-ending check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gofmt -l (must be empty)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "gofmt: clean"
+
+      - name: no CRLF in text files (must be empty)
+        run: |
+          # -I 跳过二进制；-U 关闭"文本模式"以免漏掉 \r
+          offenders="$(grep -rlIU $'\r' \
+            --include='*.go' --include='*.md' --include='*.yml' \
+            --include='*.yaml' --include='*.mod' --include='*.sum' \
+            --include='*.json' --include='*.golden' --include='*.sh' \
+            . || true)"
+          if [ -n "$offenders" ]; then
+            echo "::error::CRLF line endings found (must be LF):"
+            echo "$offenders"
+            exit 1
+          fi
+          echo "line endings: LF everywhere"
+
+  # 数据竞争检测：涉及 mirror 懒加载与 argparse 的代码在多 goroutine 下有共享状态，
+  # 单一 job 跑 -race 即可（-race 需要 cgo，ubuntu 镜像自带 gcc）。
+  race:
+    name: go test -race
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go test -race ./...
+        run: go test -count=1 -race ./...
+
+  # 阶段可执行验收（每个里程碑一个 TestMXAcceptance）。
+  # 验收以 Go 测试实现（cmd/ngm/acceptance_mX_test.go），因此三平台一致可跑：
+  #   M1 = Git 层（归一化 / refType / mirror / 凭证纪律）
+  #   M2 = archiveDigest（清单格式 / 冻结向量 / CRLF 原样 / LFS·gitlink 拒绝 / content store）
+  #   M3 = 依赖图 + 确定性 lock（传递依赖 / root wins / 冲突 / 可复现 lock / install 尊重 lock）
+  #   M4 = vendor 4 层 + mappings（link tree / linkMode 矩阵 / 全量哈希一致 / mappings 校验）
+  #   M5 = verify（三级检查 / 漂移分类 / 退出码矩阵 / 离线快照 / 内容去重不误报）
+  #   M6 = adapter 与构建命令（清单 / argv 翻译 / 回退 / self stub / engines 命令）
+  #   M7 = 端到端验收（quickstart 全流程：init → add → install → verify → build）
+  acceptance:
+    name: acceptance M1–M7 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: run milestone acceptance
+        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$' -v ./cmd/ngm
+
+  # 真实引擎集成（M6）：hermetic 那一组用假引擎覆盖协议，这里用**真实的 esbuild**
+  # 证明 adapter 与真工具的对接确实成立——包括把 ngm.mappings.json 变成
+  # `--alias:` 让裸导入 `github:org/repo` 解析进 ngm.vendor。
+  #
+  # 为什么不并进上面那组：那组必须**离线、无外部工具**才能在任意机器上复现；
+  # 混进来会让它在没装 esbuild 的机器上被静默跳过，验收变成假象。
+  engine-adapter:
+    name: engine integration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: install esbuild
+        run: npm install --global esbuild
+      - name: show engine version
+        run: esbuild --version
+      - name: real esbuild acceptance (adapter + quickstart, bundle executed by node)
+        run: go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain' -v ./cmd/ngm
+
+  # 文档链接检查：仅当 docs/ 目录存在时启用。
+  # M0 阶段 docs/ 是空仓；ngm-doc 文档暂未合并进来。
+  # 一旦 ngm-doc 进入本仓（或以 submodule 引入），本任务自动启用。
+  docs-links:
+    name: docs link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check docs links (bash)
+        shell: bash
+        run: |
+          if [ -d docs ]; then
+            bash scripts/check-docs-links.sh docs
+          else
+            echo "no docs/ directory yet; will be enabled after ngm-doc merge"
+          fi
+
+  # lock 字节可复现回归（M3 起生效）。
+  # 这条纪律是 v0.1 的退出标准之一，因此独立成一个 job（而不是混在 acceptance 里
+  # 被一长串 -run 表达式掩盖）。同一 ngm.json + 同一上游状态 → 除 resolvedAt 外
+  # 字节级一致。
+  lock-reproducibility:
+    name: lock byte reproducibility (M3+)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: two installs must agree modulo resolvedAt
+        run: go test -count=1 -run 'TestM3Acceptance/lock_is_reproducible' -v ./cmd/ngm

@@ -1,0 +1,21 @@
+# 构建产物。**必须锚定到仓库根**：git 的裸模式（不带 `/`）会匹配任意层级的
+# 同名文件或目录——裸 `ngm` 会连 cmd/ngm/ 一起忽略，导致整个 main 包与全部
+# 验收测试不入库，克隆出来根本无法构建。
+/bin/
+/ngm
+/ngm.exe
+*.test
+*.out
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/dist/
+/build/
+
+# Local user data (mirrors, content store, cache) — never commit
+/.ngm-local/

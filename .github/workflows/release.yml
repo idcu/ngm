@@ -1,0 +1,51 @@
+name: Release
+
+# 打 tag 即发布：产物命名与校验文件见 guides/installation.md。
+on:
+  push:
+    tags: ['v*']
+
+# 创建 release 需要写权限（默认的 GITHUB_TOKEN 在 tag 事件下是只读的）
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  release:
+    name: build and publish assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 取全量历史：build-release.sh 用 `git rev-parse --short HEAD` 注入短哈希，
+          # 浅克隆下这个值会是错的（甚至是空的）。
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # 发布前先跑测试：产物一旦推出去就是可下载的二进制，绕过验收直接发布
+      # 等于把 v0.1 的退出标准交给运气。
+      - name: test before packaging
+        run: go test -count=1 ./...
+
+      # bash 显式调用而不是 ./script：Windows 上创建的脚本文件没有可执行位，
+      # 提交到 git 后 checkout 出来仍是 100644，直接执行会 permission denied。
+      - name: build artifacts
+        run: |
+          version="${GITHUB_REF_NAME#v}"   # v0.1.0 -> 0.1.0（--version 不带 v 前缀）
+          VERSION="$version" COMMIT="$(git rev-parse --short HEAD)" \
+            bash scripts/build-release.sh
+
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/ngm-* dist/SHA256SUMS
