@@ -26,7 +26,17 @@ func ReadProjectFile(path string) (*ProjectFile, error) {
 		return nil, errs.Wrap(errs.CodeConfigInvalid, "open "+path, "", err)
 	}
 	defer f.Close()
-	return decodeProject(f, path)
+	p, err := decodeProject(f, path)
+	if err != nil {
+		// 按 validate.go 的约定：校验错误由**调用方**包装成 CodeConfigInvalid（exit 3）。
+		//
+		// 不在这里包装的后果（v0.2 验收时实测发现）：同一个非法 ngm.json，
+		// `ngm config validate` 是 exit 3（它自己包了一层），而 `ngm install`
+		// 却是 exit 1——CI 无法靠退出码区分"配置写错了"与"程序自己崩了"。
+		return nil, errs.Wrap(errs.CodeConfigInvalid, "invalid "+path,
+			"fix the reported field, or run `ngm config validate` for details", err)
+	}
+	return p, nil
 }
 
 // WriteProjectFile 以确定格式写回 ngm.json。

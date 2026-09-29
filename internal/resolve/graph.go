@@ -75,7 +75,10 @@ type Node struct {
 	RootDeclared bool
 	// Depth 是距根的距离（根节点为 0）。
 	Depth int
-	// RequiredBy 是引入该节点的依赖名，根直接引用时记为 "(root)"。
+	// RequiredBy 是引入该节点的**节点 Key**（根直接引用时记为 "(root)"）。
+	//
+	// 用 Key 而非 Name：monorepo 子路径下 Name 会重复，来源链必须能唯一定位节点。
+	// 非 monorepo 节点的 Key 就等于 Name，因此既有输出与提示不受影响。
 	RequiredBy []string
 	// IgnoredRefs 记录因 root wins 而未生效的传递声明（用于提示用户）。
 	IgnoredRefs []string
@@ -122,13 +125,26 @@ type GraphOptions struct {
 	Secrets []string
 	// Concurrency 是层内并发度；<=0 时使用 DefaultConcurrency。
 	Concurrency int
+	// CheckRepo 是**供应链策略的注入点**（见 ADR-009）。
+	//
+	// 由调用方注入（通常为 supplychain.Policy.CheckRepo 的方法值），
+	// 使 resolve 包无需依赖 config / supplychain——注意 import 方向：
+	// config 依赖 resolve 做校验，resolve 不能反过来引用它们。
+	//
+	// host 为裸主机名、repoPath 为 `org/repo`。nil 表示未配置策略（不门禁）。
+	// 判定在**每层开头、任何远端访问之前**执行；命中即返回 exit 3 并附完整来源链。
+	CheckRepo func(host, repoPath string) error
 }
 
 // frontierItem 是待解析/待展开的一项。
 type frontierItem struct {
 	spec  DepSpec
 	depth int
-	from  string
+	// from 是**引入该项的节点 Key**（根直接声明时为 rootMarker）。
+	//
+	// 存 Key 而不是 Name：monorepo 子路径下同一仓库的多个节点 Name 相同、Key 不同，
+	// 用 Name 回溯来源会指错节点（见 ADR-009 与 v0.2 计划的设计复核结论）。
+	from string
 }
 
 // ResolveGraph 从根声明出发做广度优先解析，产出完整依赖图。
@@ -169,6 +185,16 @@ func ResolveGraph(ctx context.Context, roots []DepSpec, opts GraphOptions) (*Gra
 	}
 
 	for len(frontier) > 0 {
+		// 供应链策略门禁：在**任何远端访问之前**判定（ADR-009 第 1 条）。
+		//
+		// 放在这里而不是解析之后有两点考虑：一是解析会触网，不该为一个必然被拒的
+		// 依赖去访问远端；二是拒绝信息要附来源链，而链上的父节点此刻已在 seen 里。
+		if opts.CheckRepo != nil {
+			if err := checkFrontierPolicy(frontier, seen, opts.CheckRepo); err != nil {
+				return nil, err
+			}
+		}
+
 		batch, err := mergeFrontier(frontier, rootSet)
 		if err != nil {
 			return nil, err
@@ -219,7 +245,7 @@ func ResolveGraph(ctx context.Context, roots []DepSpec, opts GraphOptions) (*Gra
 					}
 					child = rootDecl
 				}
-				next = append(next, frontierItem{spec: child, depth: node.Depth + 1, from: node.Name})
+				next = append(next, frontierItem{spec: child, depth: node.Depth + 1, from: node.Key})
 			}
 		}
 		frontier = next

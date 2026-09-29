@@ -124,7 +124,15 @@ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
 func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest bool, stdout, stderr io.Writer) int {
-	g, err := resolve.ResolveGraph(ctx, roots, env.GraphOptions())
+	// 供应链策略在解析阶段生效（ADR-009）：命中即 exit 3 并附来源链
+	opts := env.GraphOptions()
+	check, perr := policyChecker(pf)
+	if perr != nil {
+		return runErr(ctx, stdout, stderr, perr)
+	}
+	opts.CheckRepo = check
+
+	g, err := resolve.ResolveGraph(ctx, roots, opts)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}

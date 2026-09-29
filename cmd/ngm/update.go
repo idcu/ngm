@@ -99,6 +99,13 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if *offline {
 		opts.EnsureMirror = offlineEnsureMirror(env)
 	}
+	// 供应链策略在解析阶段生效（ADR-009）。它与 --offline 无关：
+	// 策略判定是纯本地的，不该因为断网就被跳过——那会让离线成为绕过策略的通道。
+	check, perr := policyChecker(pf)
+	if perr != nil {
+		return runErr(ctx, stdout, stderr, perr)
+	}
+	opts.CheckRepo = check
 	g, rerr := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
 	if rerr != nil {
 		return runErr(ctx, stdout, stderr, rerr)
