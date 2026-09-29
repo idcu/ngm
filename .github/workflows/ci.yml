@@ -150,7 +150,27 @@ jobs:
       - name: show engine version
         run: esbuild --version
       - name: real esbuild acceptance (adapter + quickstart, bundle executed by node)
-        run: go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain' -v ./cmd/ngm
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain' -v ./cmd/ngm 2>&1 | tee "$RUNNER_TEMP/engine.log"
+      # 临时诊断：同上，定位后移除。
+      - name: surface failure as annotations (temporary)
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/engine.log"
+          start=$(grep -n -m1 -E 'FAIL: Test|--- FAIL|cannot find|no such|panic:' "$log" | cut -d: -f1 | head -n1)
+          if [ -n "$start" ]; then
+            sed -n "${start},$((start + 30))p" "$log" > "$RUNNER_TEMP/engine-err.txt"
+          else
+            tail -n 30 "$log" > "$RUNNER_TEMP/engine-err.txt"
+          fi
+          split -l 10 "$RUNNER_TEMP/engine-err.txt" "$RUNNER_TEMP/part-"
+          for f in "$RUNNER_TEMP"/part-*; do
+            msg=$(sed 's/%/%25/g; s/\r//g; $!s/$/%0A/g' "$f" | tr -d '\n')
+            echo "::error::$msg"
+          done
 
   # 文档链接检查：仅当 docs/ 目录存在时启用。
   # M0 阶段 docs/ 是空仓；ngm-doc 文档暂未合并进来。
@@ -187,4 +207,25 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: two installs must agree modulo resolvedAt
-        run: go test -count=1 -run 'TestM3Acceptance/lock_is_reproducible' -v ./cmd/ngm
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -run 'TestM3Acceptance/lock_is_reproducible' -v ./cmd/ngm 2>&1 | tee "$RUNNER_TEMP/m3.log"
+      # 临时诊断：Actions 日志接口需要 admin 权限，匿名读不到；把失败尾部发到
+      # annotations（匿名 API 可读）。定位根因后移除本步骤。
+      - name: surface failure as annotations (temporary)
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/m3.log"
+          start=$(grep -n -m1 -E 'not reproducible beyond|install: ' "$log" | cut -d: -f1 | head -n1)
+          if [ -n "$start" ]; then
+            sed -n "${start},$((start + 30))p" "$log" > "$RUNNER_TEMP/m3-err.txt"
+          else
+            tail -n 30 "$log" > "$RUNNER_TEMP/m3-err.txt"
+          fi
+          split -l 10 "$RUNNER_TEMP/m3-err.txt" "$RUNNER_TEMP/part-"
+          for f in "$RUNNER_TEMP"/part-*; do
+            msg=$(sed 's/%/%25/g; s/\r//g; $!s/$/%0A/g' "$f" | tr -d '\n')
+            echo "::error::$msg"
+          done
