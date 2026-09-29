@@ -72,11 +72,12 @@ jobs:
 
       - name: 安装 ngm
         run: |
-          # 首个 release 发布后可直接下载预编译二进制（地址格式见 guides/installation.md）：
-          #   curl -L "<release 地址>/ngm-linux-amd64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm
-          # 目前尚未发布 release，先用源码构建：
-          git clone --depth 1 https://gitee.com/idcu/ngm.git /tmp/ngm
-          cd /tmp/ngm && go build -o /usr/local/bin/ngm ./cmd/ngm
+          # 预编译二进制（v0.1.0 起可用）。国内把前缀换成 Gitee 发行版：
+          #   https://gitee.com/idcu/ngm/releases/download/v0.1.0
+          # 两个源的产物字节相同，共用同一份 SHA256SUMS。
+          BASE=https://github.com/idcu/ngm/releases/latest/download
+          curl -L "$BASE/ngm-linux-amd64" -o /usr/local/bin/ngm
+          chmod +x /usr/local/bin/ngm
 
       - name: 安装 Git 依赖
         # --frozen-lockfile / --offline 属 v0.2；v0.1 的 ngm install 只有 --dir / --digest

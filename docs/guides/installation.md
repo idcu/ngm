@@ -1,8 +1,8 @@
 # 安装指南
 
 > 本页的命令与输出示例取自实际运行，并由 CI 的快照测试守护。
-> **预编译二进制尚未发布**：发布流水线已就绪（打 tag 即产出六平台产物 + `SHA256SUMS`），
-> 但还没有正式 release。在此之前请用「方式二：从源码编译」。
+> **预编译二进制已随 `v0.1.0` 发布**：六个平台 + `SHA256SUMS`。
+> 国内下载优先用「方式一」里的 Gitee 发行版；若该发行版尚无附件，退回 GitHub 或「方式二」。
 
 ---
 
@@ -21,6 +21,17 @@
 
 ### 方式一：下载预编译二进制
 
+> **先选下载源**：
+>
+> | 你的网络 | 用哪个 | 地址前缀 |
+> |---------|--------|---------|
+> | 国内 | **Gitee 发行版**（推荐） | `https://gitee.com/idcu/ngm/releases/download/v0.1.0` |
+> | 海外 / 想始终取最新 | GitHub Release（上游） | `https://github.com/idcu/ngm/releases/latest/download` |
+>
+> 两个源的产物**字节完全相同**，共用同一份 `SHA256SUMS`，可以互相校验。
+> Gitee 的附件在每次发布后同步上传，因此只有**版本固定**地址（Gitee 没有 `latest/download` 形态）；
+> 若该地址 404，说明这一版的附件还没上传——改用 GitHub 或「方式二」。
+
 产物命名统一为 **`ngm-<os>-<arch>[.exe]`**，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
 
 | 平台 | 文件名 |
@@ -37,19 +48,27 @@
 > 用 `GOOS`/`GOARCH` 与 Go 生态其余工具保持一致。
 
 ```bash
+# 先把 BASE 换成你选的下载源前缀：
+#   Gitee（国内推荐）: BASE=https://gitee.com/idcu/ngm/releases/download/v0.1.0
+#   GitHub（上游）   : BASE=https://github.com/idcu/ngm/releases/latest/download
+
 # macOS (Apple silicon)
-curl -L https://github.com/idcu/ngm/releases/latest/download/ngm-darwin-arm64 -o /usr/local/bin/ngm
-chmod +x /usr/local/bin/ngm
+curl -L "$BASE/ngm-darwin-arm64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm
 
 # Linux (x86-64)
-curl -L https://github.com/idcu/ngm/releases/latest/download/ngm-linux-amd64 -o /usr/local/bin/ngm
-chmod +x /usr/local/bin/ngm
-
-# Windows (PowerShell)
-Invoke-WebRequest -Uri "https://github.com/idcu/ngm/releases/latest/download/ngm-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\ngm\ngm.exe"
+curl -L "$BASE/ngm-linux-amd64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm
 ```
 
-每个 release 同时附带 `SHA256SUMS`（每行 `<hex>  <文件名>`）。校验下载：
+Windows（PowerShell）：
+
+```powershell
+# 国内用 Gitee；换成 GitHub 时改这一行即可
+$BASE = "https://gitee.com/idcu/ngm/releases/download/v0.1.0"
+Invoke-WebRequest -Uri "$BASE/ngm-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\ngm\ngm.exe"
+```
+
+每个 release 都附带 `SHA256SUMS`（每行 `<hex>  <文件名>`，上表六个产物全部在内）。
+**两个下载源用的是同一份校验文件**，所以从哪里下载都一样：
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS      # Linux

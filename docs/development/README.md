@@ -1,7 +1,8 @@
 # 开发总览
 
-> **当前阶段：v0.1 已完成**——代码仓首个提交 `a47b0ad` 已推送 Gitee 主仓并镜像到 GitHub，
-> CI（GitHub Actions）三平台 15 个 job 全绿；**v0.2 尚未开始**；**尚未打 tag、尚未发布 release**。
+> **当前阶段：v0.1 已完成并已发布**——首个提交 `a47b0ad` 已推送 Gitee 主仓并镜像到 GitHub，
+> CI（GitHub Actions）三平台 15 个 job 全绿；**`v0.1.0` 已发布**（六平台二进制 + `SHA256SUMS`，共 25.05 MB）。
+> **v0.2 尚未开始**。
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -150,6 +151,25 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 - 进入 v0.2 前，先完成 v0.1 复盘：用实测结果复核性能目标与设计假设，必要时先修 ADR
   - ✅ 已完成：[v0.1 复盘](./v0.1-retrospective.md)（四条退出标准达成；性能 5 条中 2 条未达标，
     根因与 v0.2 行动项已记录）
+
+---
+
+## 发布清单（每个版本）
+
+发布由**打 tag 触发**，但 Gitee 侧的附件是**手动**的——别漏掉第 4 步：
+
+1. `git tag -a v0.x.y -m "..."`，然后 `git push origin v0.x.y`
+2. Gitee 镜像把 tag 推到 GitHub → `release.yml` 自动执行：**先跑全量测试**，再交叉编译六平台，
+   最后 `gh release create` 发布（含 `SHA256SUMS`）
+3. 核对 GitHub release 的 7 个 asset（6 个二进制 + `SHA256SUMS`）
+4. **把这 7 个文件从 GitHub release 上传到 Gitee 发行版**（在 Gitee 无 API token 时，这是最短且最稳的路径）。
+   上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
+5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）
+
+> **Gitee 免费额度的容量**（已核实）：单附件 ≤ 100MB、仓库附件总量 ≤ 1GB，
+> 且**仓库附件与发行版附件合并计算**。v0.1.0 实测 7 个产物共 **25.05 MB**
+> （单文件 4.06–4.35MB；`build-release.sh` 刻意不 strip，用体积换 panic 栈可诊断性），
+> 因此约可容纳 40 个版本——短期不需要为此做任何取舍。
 
 ---
 
