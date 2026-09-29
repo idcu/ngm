@@ -225,7 +225,7 @@ my-app/
 |------|------|------|
 | [guides/](./guides/) | 安装 / 快速上手 / 配置 / 依赖管理 / 构建 / CLI 参考 / 术语表 / Node vs Deno / 测试 / 发布 / 迁移 | 使用者 |
 | [architecture/](./architecture/) | 总览 / 运行时模型 / 信任模型 / vendor 4 层 / 引擎 adapter / 供应链 / 依赖解析 / 锁定 / 安全 / 可观测性 | 贡献者 |
-| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 008）与 ADR 流程 | 贡献者 |
+| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 009）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | 能力矩阵 / 健康度指标 / 路线图 | 维护者 |
 | [development/](./development/) | 开发总览 / v0.1 ~ v0.3 实施计划 / v0.1 复盘 | 维护者 |

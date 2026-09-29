@@ -101,20 +101,17 @@ func Verify(graph *DependencyGraph) (*VerifyReport, error) {
 
 ### drift 分类
 
-```go
-func classifyDrift(dep *Dependency) DriftKind {
-    switch dep.RefType {
-    case RefTypeBranch:
-        // branch 前进 = 预期更新
-        return DriftExpected
-    case RefTypeTag:
-        // tag 重打 = 非预期漂移
-        return DriftUnexpected
-    case RefTypeCommit:
-        // commit 改写（force push）= 严重
-        return DriftCritical
-    }
-}
+> **分类依据是祖先关系，不是 refType。** 下面这段伪代码曾经按 refType 直接映射，
+> 但那样无法处理"branch 被 force push（历史被改写）"——从外部现象看，它和"branch 前进"一模一样。
+> 唯一事实源是[可观测性 · 「预期更新」 vs 「非预期漂移」](../architecture/observability.md)，
+> 实现见 `internal/verify`（用 `git merge-base --is-ancestor` 判定）：
+
+```
+branch，且旧 commit 是新 commit 的祖先   → expected    （branch 前进）
+branch，但祖先关系不成立                 → unexpected  （历史被改写）
+tag / commit 的 ref 指向了别的 commit    → unexpected  （tag 重打 / ref 被删除或改名）
+digest 重放不匹配                       → critical    （不可被降级为 expected）
+无法证明祖先关系（对象缺失等）            → unexpected  （保守：不能让 force push 悄悄过关）
 ```
 
 `DriftExpected` 不计入非零退出码（`--strict` 时除外），通过文本输出与 `--json` 的 `driftKind` 报告，见[信任模型](../architecture/trust-model.md)。

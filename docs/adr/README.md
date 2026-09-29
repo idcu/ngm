@@ -16,6 +16,7 @@
 | [ADR-006](./adr-006-lytd-merge.md) | 为什么 lytd 并入 ngm | 已定（v2 修订） |
 | [ADR-007](./adr-007-runtime-node-deno.md) | Node 还是 Deno？ | 已定 |
 | [ADR-008](./adr-008-archive-digest.md) | archiveDigest 的定义 | 已定 |
+| [ADR-009](./adr-009-supply-chain-policy.md) | 供应链策略的执行时机与失败语义 | 已定（v0.2 首个决策） |
 
 ---
 

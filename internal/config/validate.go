@@ -102,9 +102,36 @@ func validateDepPath(p string) error {
 	return nil
 }
 
-// Validate 校验 SupplyChainConfig。仅校验 v0.1 字段（postInstallPolicy）；
-// v0.2 完整校验另见 Documentation 模块。
+// Validate 校验 SupplyChainConfig 的**全部字段**（v0.2 起）。
+//
+// 为什么校验放在配置加载时：策略是安全门禁，非法取值必须在**任何网络访问之前**以 exit 3 失败。
+// 这正是 ADR-009 要求的"策略与网络解耦"——不该为了发现一个写错的 host 先碰一次远端。
+//
+// 这里只校验**形状**（取值是否合法），不校验**语义**（该 host 是否可达、该 repo 是否存在）。
+// 语义判定与门禁执行属 internal/supplychain（见 ADR-009）。
 func (s *SupplyChainConfig) Validate() error {
+	for i, h := range s.AllowedGitHosts {
+		if err := validateAllowedHost(h); err != nil {
+			return fmt.Errorf("allowedGitHosts[%d]: %w", i, err)
+		}
+	}
+	for i, p := range s.AllowlistRepos {
+		if err := validateRepoPattern(p); err != nil {
+			return fmt.Errorf("allowlistRepos[%d]: %w", i, err)
+		}
+	}
+	if s.MinimumReleaseAge != "" {
+		if _, err := ParseISODuration(s.MinimumReleaseAge); err != nil {
+			return fmt.Errorf("minimumReleaseAge: %w", err)
+		}
+	}
+	for i, sev := range s.OSVIgnoreSeverities {
+		if !isOSVSeverity(sev) {
+			return fmt.Errorf(
+				"osvIgnoreSeverities[%d]: %q invalid; must be one of {LOW, MEDIUM, HIGH, CRITICAL}",
+				i, sev)
+		}
+	}
 	if s.PostInstallPolicy != "" {
 		switch s.PostInstallPolicy {
 		case "deny", "prompt", "allow":
@@ -116,6 +143,88 @@ func (s *SupplyChainConfig) Validate() error {
 		}
 	}
 	return nil
+}
+
+// validateAllowedHost 校验 allowedGitHosts 的一个条目。
+//
+// **不允许通配符**：host 走精确匹配（ADR-009）。要按通配授权请用 allowlistRepos——
+// 把 `*` 写进 host 是常见误解，报错里直接点明比让它静默匹配不上更有用。
+func validateAllowedHost(h string) error {
+	if h == "" {
+		return errors.New("host must not be empty")
+	}
+	if strings.Contains(h, "*") {
+		return fmt.Errorf(
+			"%q contains a wildcard, but hosts are matched exactly; "+
+				"use allowlistRepos for glob patterns (e.g. github.com/my-org/*)", h)
+	}
+	if strings.Contains(h, "://") {
+		return fmt.Errorf("%q looks like a URL; give the bare host instead (e.g. github.com)", h)
+	}
+	if strings.ContainsAny(h, "/ \t") || strings.HasPrefix(h, ".") || strings.HasSuffix(h, ".") {
+		return fmt.Errorf("%q is not a bare host name (expected something like github.com)", h)
+	}
+	return nil
+}
+
+// validateRepoPattern 校验 allowlistRepos 的一个条目。
+//
+// 形状为 `host/org/repo`，`*` 不跨 `/`（ADR-009）。要求至少一个 `/`：
+// 只有 host 的条目应当写进 allowedGitHosts，两者的语义不同，不要混用。
+func validateRepoPattern(p string) error {
+	if p == "" {
+		return errors.New("pattern must not be empty")
+	}
+	if strings.Contains(p, "://") {
+		return fmt.Errorf("%q looks like a URL; write it as host/org/repo (e.g. github.com/my-org/*)", p)
+	}
+	if strings.ContainsAny(p, " \t") {
+		return fmt.Errorf("%q contains whitespace", p)
+	}
+	if !strings.Contains(p, "/") {
+		return fmt.Errorf(
+			"%q has no '/': a repo pattern is host/org/repo (e.g. github.com/my-org/*); "+
+				"to allow a whole host, use allowedGitHosts", p)
+	}
+	if strings.Trim(p, "/*") == "" {
+		return fmt.Errorf(
+			"%q allows everything, which is the same as having no allowlist; "+
+				"remove allowlistRepos if that is what you want", p)
+	}
+	return nil
+}
+
+// isOSVSeverity 判断是否为合法的 OSV 严重级别（ASCII 大小写不敏感）。
+func isOSVSeverity(s string) bool {
+	for _, want := range []string{"LOW", "MEDIUM", "HIGH", "CRITICAL"} {
+		if eqFoldASCII(s, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// eqFoldASCII 做 ASCII 大小写不敏感比较。
+//
+// 配置取值都是 ASCII，因此不引入 strings.EqualFold 之外的依赖——这里直接用最简单、
+// 无分配的实现，避免为一个 6 行的判断拉进不必要的东西。
+func eqFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		x, y := a[i], b[i]
+		if 'a' <= x && x <= 'z' {
+			x -= 'a' - 'A'
+		}
+		if 'a' <= y && y <= 'z' {
+			y -= 'a' - 'A'
+		}
+		if x != y {
+			return false
+		}
+	}
+	return true
 }
 
 // Validate 校验 VendorConfig 字段语义。

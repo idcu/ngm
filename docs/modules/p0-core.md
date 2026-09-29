@@ -40,8 +40,9 @@ internal/                # 12 个包，按职责划分
 
 > 本页是模块结构的**唯一事实源**，但只精确到**包级**——文件级结构请直接读代码（本文不再维护一份会迅速腐坏的文件清单）。
 >
-> **尚未创建的包**（属规划，不在上面的树里）：`internal/supplychain/`（策略引擎 / OSV / audit，P3，v0.2）、
-> `internal/observability/`（why / tree / outdated，v0.2）。
+> **包的存在状态**：`internal/supplychain/` 已在 v0.2 创建（当前含策略加载与白名单匹配：
+> `policy.go` / `allowlist.go`；OSV 查询与 audit 报告仍待建）；`internal/observability/`
+> （why / tree / outdated，v0.2）**尚未创建**。
 >
 > 归属约定：`audit` 的实现归 `internal/supplychain/`（P3）；`ngm verify` 的检查与判定在 `internal/verify/`，
 > 而"落地树 vs content store 的逐文件比对"在 `internal/vendor/integrity.go`；CLI 入口统一在 `cmd/ngm/`。
