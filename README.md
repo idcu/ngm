@@ -7,9 +7,8 @@ ngm is a Node.js / Deno package manager with **provable** Git dependency trackin
 Status: **v0.1 complete (M0 … M7)**. All four v0.1 exit criteria are met with executable evidence:
 `ngm install` works end to end, `ngm.lock` is byte-identical across platforms, `ngm verify` tells a
 re-tagged tag apart from an advanced branch, and a digest replay mismatch blocks the build.
-See `development/v0.1-retrospective.md` for the measured results — including the two performance
-targets that were **not** met (`verify` at 100 dependencies). The v0.1 documents are maintained
-outside this repository for now and will be merged under `docs/`.
+See [`docs/development/v0.1-retrospective.md`](./docs/development/v0.1-retrospective.md) for the measured
+results — including the two performance targets that were **not** met (`verify` at 100 dependencies).
 
 ---
 
@@ -149,7 +148,7 @@ go build -o ngm ./cmd/ngm
 
 ## Roadmap
 
-The complete v0.1 plan lives in `docs/development/` (not yet merged into this repository). At a glance:
+The complete v0.1 plan lives in [`docs/development/`](./docs/development/). At a glance:
 
 | Milestone | Capability | State |
 |-----------|------------|-------|

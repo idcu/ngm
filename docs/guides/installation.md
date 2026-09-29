@@ -1,0 +1,150 @@
+# 安装指南
+
+> 本页的命令与输出示例取自实际运行，并由 CI 的快照测试守护。
+> **预编译二进制尚未发布**：发布流水线已就绪（打 tag 即产出六平台产物 + `SHA256SUMS`），
+> 但还没有正式 release。在此之前请用「方式二：从源码编译」。
+
+---
+
+## 前置要求
+
+| 工具 | 版本要求 | 说明 |
+|------|---------|------|
+| Go | >= 1.22 | 编译 ngm（ngm 本身运行时不需要 Go） |
+| Git | >= 2.30 | 拉取依赖 |
+| Node.js | >= 22.0.0 | 用户项目运行时（可选，Deno 项目不需要） |
+| Deno | >= 2.0 | 用户项目运行时（可选，Node 项目不需要） |
+
+---
+
+## 安装方式
+
+### 方式一：下载预编译二进制
+
+产物命名统一为 **`ngm-<os>-<arch>[.exe]`**，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
+
+| 平台 | 文件名 |
+|------|--------|
+| Linux x86-64 | `ngm-linux-amd64` |
+| Linux ARM64 | `ngm-linux-arm64` |
+| macOS Intel | `ngm-darwin-amd64` |
+| macOS Apple silicon | `ngm-darwin-arm64` |
+| Windows x86-64 | `ngm-windows-amd64.exe` |
+| Windows ARM64 | `ngm-windows-arm64.exe` |
+
+> 命名刻意不依赖 `uname`：`uname -m` 给的是 `x86_64` / `aarch64`，与 Go 的 `amd64` / `arm64`
+> 并不一致（且 macOS 的 `arm64` 与 Linux 的 `aarch64` 同名不同字），靠它拼出的下载地址会 404。
+> 用 `GOOS`/`GOARCH` 与 Go 生态其余工具保持一致。
+
+```bash
+# macOS (Apple silicon)
+curl -L https://github.com/idcu/ngm/releases/latest/download/ngm-darwin-arm64 -o /usr/local/bin/ngm
+chmod +x /usr/local/bin/ngm
+
+# Linux (x86-64)
+curl -L https://github.com/idcu/ngm/releases/latest/download/ngm-linux-amd64 -o /usr/local/bin/ngm
+chmod +x /usr/local/bin/ngm
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/idcu/ngm/releases/latest/download/ngm-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\ngm\ngm.exe"
+```
+
+每个 release 同时附带 `SHA256SUMS`（每行 `<hex>  <文件名>`）。校验下载：
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS      # Linux
+shasum -a 256 -c --ignore-missing SHA256SUMS  # macOS
+```
+
+### 方式二：从源码编译
+
+```bash
+git clone https://gitee.com/idcu/ngm.git
+cd ngm
+go build -o ngm ./cmd/ngm
+mv ngm /usr/local/bin/
+```
+
+> 主仓在 Gitee（国内可直连）；GitHub 镜像为 `https://github.com/idcu/ngm.git`，两者内容与 tag 一致（tag 由主仓镜像推送）。
+
+### 方式三：包管理器（未来）
+
+```bash
+# Homebrew（规划中）
+brew install ngm
+
+# Scoop（规划中）
+scoop install ngm
+
+# npm（规划中，仅分发二进制）
+npm install -g @ngm/cli
+```
+
+---
+
+## 验证安装
+
+```bash
+ngm --version
+# ngm 0.1.0 (git:abc1234, built: 2026-09-29T10:00:00Z)
+
+ngm --help
+# ngm — Git-first Dependency Provenance Layer
+#
+# USAGE:
+#   ngm <command> [options]
+#
+# COMMANDS:
+#   init           初始化项目
+#   add            添加依赖
+#   install        解析并安装依赖
+#   update         更新依赖 ref
+#   remove         移除依赖
+#   verify         检查 ref 漂移与 digest 重放
+#   audit          供应链审计（OSV.dev，v0.2）
+#   why            为什么装了这个依赖
+#   tree           依赖树可视化
+#   outdated       检查新版本
+#   typecheck      类型检查（adapter）
+#   build          构建（adapter）
+#   css            CSS 编译（adapter）
+#   mappings       mappings 管理
+#   integrations   构建工具集成脚手架（v0.3）
+#   cache          缓存维护
+#   config         配置管理
+#   engines        引擎管理
+#
+# FLAGS:
+#   --version      输出版本信息（含 git 短哈希与构建时间）
+#   --help, -h     输出本帮助
+```
+
+`--version` 的三个字段都由构建时注入（`-ldflags -X`）：`git:` 是**短**哈希，`built:` 是
+构建时刻（RFC3339 UTC）。本地未经注入的构建输出 `ngm 0.0.0-dev (git:dev, built: unknown)`——
+CI 用快照测试守护这份输出，任何格式漂移都会在 PR 阶段被拦下。
+
+---
+
+## 选择宿主运行时
+
+ngm 不替你选运行时。初始化时指定：
+
+```bash
+# Node.js 项目
+ngm init github.com/my-org/my-app --runtime=node
+
+# Deno 项目
+ngm init github.com/my-org/my-app --runtime=deno
+```
+
+`<name>` 是项目标识（推荐 Git URL 形式，写入 `ngm.json` 的 `name` 字段）；也可先用目录名，之后在 ngm.json 中补全。这会生成对应的 `ngm.json` 模板。
+
+> Deno 版本注意：作为**用户项目运行时** Deno >= 2.0 即可；若使用 `deno bundle` 作为构建引擎，需要 Deno 2.4+（实验特性），2.0–2.3 请改用 esbuild adapter。
+
+---
+
+## 相关文档
+
+- [快速上手](./quickstart.md)
+- [配置详解](./configuration.md)
+- [Node vs Deno](./node-vs-deno.md)

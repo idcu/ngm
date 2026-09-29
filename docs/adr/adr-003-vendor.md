@@ -1,0 +1,90 @@
+# ADR-003：为什么纯 vendor/ 目录
+
+- **状态**：已定（v2 修订：4 层 vendor 模型）
+- **日期**：2026-09-29（v2 修订：2026-09-29）
+- **范围**：依赖落地方式与目录布局
+
+---
+
+## 背景
+
+原方案把 vendor/ 当作"一团目录拷贝"。v2 竞品分析发现：
+
+- pnpm 已有 content-addressable store + hardlink，磁盘效率高于全量 vendor 副本
+- npm 2026 支持 `file:` 本地包 + workspace
+- Bun 的 install 已经极快（无变更约 12ms）
+
+所以"vendor/ 省磁盘"不成立。vendor 的价值必须重新定义。
+
+---
+
+## 决策
+
+**ngm 使用 vendor/ 目录落地依赖，但拆为 4 层模型。**
+
+vendor 的价值不是"省磁盘"，而是**可审计、可提交、可离线**。
+
+---
+
+## 4 层 vendor 模型
+
+```
+~/.ngm/
+├── mirror/        # 层 1：Git 裸仓库镜像（origin fetch 结果）
+├── content/       # 层 2：内容寻址的不可变内容树（按 archiveDigest 寻址，已解包）
+└── cache/         # 层 4：可丢弃缓存（ref metadata / OSV 响应 / tmp）
+
+project/
+├── ngm.json
+├── ngm.lock
+└── ngm.vendor/    # 层 3：链接树（逐文件 hardlink 指向层 2）
+    └── github.com/my-org/utils/   # 普通目录，文件 hardlink 自 content
+```
+
+| 层 | 作用 | 对应竞品思想 |
+|---|---|---|
+| mirror | 避免重复 clone；为 digest 重放提供完整对象库 | git remote 镜像 |
+| content store | 内容寻址的内容树，去重 | pnpm content-addressable store |
+| link tree | 项目里看到普通目录（逐文件 hardlink，失败按 linkMode 降级） | hardlink，不占多份磁盘 |
+| cache | 可随时清空，不影响可证明性 | pnpm store / yarn cache |
+
+> 目录不能 hardlink，因此 link tree 是"逐文件 hardlink + 真实目录结构"；详见 [vendor 4 层](../architecture/vendor-layers.md)。
+
+---
+
+## vendor 的三种模式
+
+| 模式 | 配置 | 适用场景 | 代价 |
+|------|------|---------|------|
+| 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 重新引入 pnpm 式缓存管理问题，削弱隔离收益 |
+| 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
+| 提交 vendor/ | `"mode": "local", "commit": true` | 离线交付、审计门禁、镜像 | 仓库体积、clone 时间、依赖更新 diff |
+
+**没有普遍最优解**。构建镜像、离线交付和审计门禁才需要提交 vendor/。
+
+---
+
+## 诚实说明
+
+1. **vendor/ 不必然省磁盘**：pnpm 的 content store + hardlink 通常更省空间
+2. **全量副本跨项目重复**：每个项目一份 vendor 副本，monorepo 下膨胀明显
+3. **提交 vendor/ 让 git 膨胀**：大依赖（如带 native 模块的包）不适合提交
+4. **hardlink 有平台限制**：需要同卷文件系统（Windows 需 NTFS），不支持时自动降级为复制
+5. **content store 只增不减**：v0.1 不提供 store GC，`ngm cache clean` 只能清缓存层（v0.2 规划 `ngm store gc`）
+
+---
+
+## 后果
+
+- vendor 不是"拷文件"，而是 4 层协作
+- 默认 local 模式，不强制提交
+- 提交 vendor 是"审计/离线"的可选项，不是默认答案
+- content store 层借鉴 pnpm 思路，不宣称创新
+
+---
+
+## 相关文档
+
+- [架构：vendor 4 层](../architecture/vendor-layers.md)
+- [配置详解](../guides/configuration.md)
+- [ADR-002：为什么直接拉 Git 仓库](./adr-002-git-direct.md)
