@@ -80,6 +80,18 @@ func (p *Policy) VerifyOnLock() bool {
 	return p != nil && p.verifyOnLock
 }
 
+// IgnoredSeverities 返回策略忽略的严重级别（osvIgnoreSeverities，已归一化为大写）。
+//
+// 由 audit 用来过滤结果。放在这里而不是让调用方去读 config，
+// 是为了让"策略怎么说"只有一个出口——忽略名单将来若要加语义（例如按 CVE 豁免），
+// 只改本包即可。
+func (p *Policy) IgnoredSeverities() []string {
+	if p == nil {
+		return nil
+	}
+	return p.ignoreSevs
+}
+
 // PostInstallPolicy 返回原始取值（deny / prompt / allow）。
 func (p *Policy) PostInstallPolicy() string {
 	if p == nil || p.postInstall == "" {

@@ -49,8 +49,8 @@ refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 4 层落地
 | 锁定机制 | commit + archiveDigest + resolvedAt | archive 与 commit 解耦验证 |
 | vendor 4 层 | mirror / content store / hardlink tree / cache | 借鉴 pnpm 但服务于可审计目标 |
 | 引擎层 | 统一 interface，第三方优先 | adapter 类型与内置清单唯一维护在[引擎 adapter](./engine-adapter.md)；v0.1 只内置 esbuild |
-| 供应链策略（planned v0.2） | JSON-first 策略引擎 + audit(OSV) + 白名单 | **v0.1 只解析字段、不生效**；共享同一依赖图与策略状态 |
-| 可观测性 | `verify`（done v0.1）；`why` / `tree` / `outdated` / `audit`（planned v0.2） | verify 区分"预期更新"与"非预期漂移" |
+| 供应链策略 | JSON-first 策略引擎 + audit(OSV) + 白名单 | v0.2：白名单与 minimumReleaseAge 已生效；postinstall 执行入口收窄到 v0.3（[ADR-009](./adr/adr-009-supply-chain-policy.md)） |
+| 可观测性 | `verify`（done v0.1）、`audit`（done v0.2）；`why` / `tree` / `outdated`（planned v0.2） | verify 区分"预期更新"与"非预期漂移" |
 
 ---
 

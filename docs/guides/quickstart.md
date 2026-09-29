@@ -117,8 +117,8 @@ ngm install
 # 检查漂移
 ngm verify
 
-# 审计（v0.2；现在跑会得到 exit 3 —— 那表示"未实现"，不是"没问题"）
-# ngm audit
+# 审计已知漏洞（OSV.dev；结果缓存 24 小时，--offline 时只读缓存）
+ngm audit
 
 # 构建
 ngm build --engine=esbuild

@@ -181,9 +181,13 @@ Deno 的 default-deny 哲学：默认不让依赖跑代码。
 
 ## audit 命令
 
-> **planned (v0.2)——尚未实现**。`ngm audit` 当前返回 `exit 3`（`subcommand not implemented`）；
-> 本节的报告格式与退出码是**规划稿**。
-> 同理，本页描述的 `supplyChain` 策略字段在 v0.1 **只被解析与校验，不参与门禁**（见[配置详解 · 成熟度](../guides/configuration.md)）。
+> **done (v0.2)**。`ngm audit` 已实现：按 lock 中的 **commit** 查询 OSV.dev（不是按版本——
+> "版本没变、commit 变了"正是投毒的常见形态），结果缓存 24 小时，
+> 支持 `--offline`（只读缓存）、`--no-cache`、`--json`。本节的报告格式与退出码即当前行为。
+>
+> 两点仍需说明：`supplyChain` 里只有 `osvIgnoreSeverities` 参与 audit（过滤严重级别），
+> 其余字段的生效情况见[配置详解 · 成熟度](../guides/configuration.md)；而"审计通过"表示
+> **库里没有关于这个 commit 的记录**，不等于安全——见下方覆盖局限。
 
 ```bash
 ngm audit

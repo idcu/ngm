@@ -80,8 +80,8 @@ ngm install
 # 2. 检查漂移
 ngm verify
 
-# 3. 审计漏洞（v0.2；现在跑会得到 exit 3）
-# ngm audit
+# 3. 审计已知漏洞（需要网络；--offline 时只读缓存，未命中会 exit 4）
+ngm audit
 
 # 4. 跑测试（用 Vitest / Deno test）
 vitest run

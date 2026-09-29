@@ -56,7 +56,10 @@ func TestDispatch_NotImplementedYet(t *testing.T) {
 	// 刻意覆盖**全部**剩余占位命令而不是挑一个：M6 之后
 	// build / typecheck / css / engines 已实现，只测其中一个会让这条纪律
 	// 在下一个里程碑无声失效。
-	for _, name := range []string{"audit", "why", "tree", "outdated", "integrations"} {
+	//
+	// `audit` 已在 v0.2 实现（见 TestV02SupplyChainAcceptance），故**移出**本清单——
+	// 这条纪律靠"清单必须与实现同步"才有意义，命令实现后就要从这里删掉。
+	for _, name := range []string{"why", "tree", "outdated", "integrations"} {
 		out := &bytes.Buffer{}
 		errBuf := &bytes.Buffer{}
 		if code := dispatch([]string{name}, out, errBuf); code != 3 {

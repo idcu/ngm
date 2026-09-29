@@ -11,8 +11,8 @@
 | `ngm audit` | 已知漏洞扫描（OSV.dev） | planned (v0.2) | 当前 `exit 3`；规划 0/1/3/4 |
 
 > **标 `planned` 的四条命令尚未实现**：调用时会明确返回 `exit 3` 与可读提示，不会静默成功。
-> 因此下文「ngm why / tree / outdated / audit」各节的**输出示例是规划稿，不是当前真实输出**——
-> 只有「ngm verify」一节描述的是已实现行为。
+> 因此下文「ngm why / tree / outdated」各节的**输出示例是规划稿，不是当前真实输出**；
+> 「ngm verify」（v0.1）与「ngm audit」（v0.2）两节描述的是**已实现行为**。
 
 ---
 

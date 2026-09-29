@@ -32,7 +32,7 @@ var commands = []*commandSpec{
 	{Name: "update", Run: runUpdate},
 	{Name: "remove", Run: runRemove},
 	{Name: "verify", Run: runVerify},
-	{Name: "audit", Run: notImplementedYet},
+	{Name: "audit", Run: runAudit},
 	{Name: "why", Run: notImplementedYet},
 	{Name: "tree", Run: notImplementedYet},
 	{Name: "outdated", Run: notImplementedYet},

@@ -160,7 +160,11 @@ my-app/
 
 按能力矩阵的口径，Type Check 与 CSS 属 `planned (v0.2)`——不要把它们当作可用能力。
 
-**规划中**（用到会明确 `exit 3`，不会静默成功）：`ngm audit`、`ngm why`、`ngm tree`、`ngm outdated`（v0.2）、`ngm integrations`（v0.3）。
+**v0.2 已落地**：`ngm audit` —— 按 lock 中的 commit 查 OSV.dev，结果缓存 24 小时，支持
+`--offline`（只读缓存）、`--no-cache`、`--json`。注意"审计通过"的含义是**库里没有关于这个
+commit 的记录**，不等于安全——覆盖局限会写进每一份报告。
+
+**规划中**（用到会明确 `exit 3`，不会静默成功）：`ngm why`、`ngm tree`、`ngm outdated`（v0.2）、`ngm integrations`（v0.3）。
 逐项成熟度以[能力矩阵](./internals/capability-matrix.md)为准。
 
 ---

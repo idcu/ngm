@@ -295,9 +295,10 @@ Deno 的 default-deny 哲学：默认不让依赖跑代码。
 | 子模块 | 成熟度 | 备注 |
 |--------|--------|------|
 | verify | done (v0.1) | **核心差异化** |
-| audit | planned (v0.2) | OSV.dev 集成 |
-| minimumReleaseAge | planned (v0.2) | |
-| 白名单 | planned (v0.2) | |
+| audit | done (v0.2) | OSV.dev 集成；按 commit 查询 + 24h 缓存 |
+| minimumReleaseAge | done (v0.2) | 时间源为 committer date（见下） |
+| 白名单 | done (v0.2) | 对传递依赖生效；解析阶段判定 |
+| postinstall 执行入口 | **收窄到 v0.3** | 见 ADR-009：需沙箱前置 |
 | postinstall 策略 | planned (v0.2) | 当前行为：ngm 不执行依赖脚本 |
 | 策略引擎 | planned (v0.2) | JSON-first；v0.1 只解析与校验字段 |
 

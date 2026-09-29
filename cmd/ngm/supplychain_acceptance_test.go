@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +12,15 @@ import (
 
 	"github.com/idcu/ngm/internal/testutils"
 )
+
+// keysOf 仅为让失败信息可读：列出 JSON 报告里实际有哪些顶层键。
+func keysOf(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
 
 // 组 A（v0.2）的端到端验收：供应链策略从 ngm.json 读入，在解析阶段生效。
 //
@@ -154,6 +166,94 @@ func TestV02SupplyChainAcceptance(t *testing.T) {
 
 		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
 			t.Fatalf("an allowlisted repository must not be blocked by the age gate, got %d:\n%s", code, out)
+		}
+	})
+
+	t.Run("audit reports a known vulnerability with exit 1", func(t *testing.T) {
+		isolateUserEnv(t)
+
+		scUpstream(t, "github:sc/vuln", "export const v = 1\n", "")
+		proj := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:sc/vuln@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+			t.Fatalf("install: %s", out)
+		}
+
+		// OSV 替身：对任何 commit 都返回一条 HIGH
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w,
+				`{"vulns":[{"id":"GHSA-accept-1","summary":"acceptance finding","severity":"HIGH"}]}`)
+		}))
+		t.Cleanup(srv.Close)
+		t.Setenv("NGM_OSV_URL", srv.URL)
+
+		code, out := runCaptureCode(t, "audit", "--dir="+proj)
+		if code != 1 {
+			t.Fatalf("a known vulnerability must exit 1, got %d:\n%s", code, out)
+		}
+		if !strings.Contains(out, "GHSA-accept-1") {
+			t.Errorf("the report should name the advisory; got:\n%s", out)
+		}
+		// 覆盖局限必须跟着报告一起出现——否则"通过"会被读成"安全"
+		if !strings.Contains(out, "zero-day") {
+			t.Errorf("the report must carry the coverage note; got:\n%s", out)
+		}
+	})
+
+	t.Run("audit --json is machine readable", func(t *testing.T) {
+		isolateUserEnv(t)
+
+		scUpstream(t, "github:sc/clean", "export const c = 1\n", "")
+		proj := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:sc/clean@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+			t.Fatalf("install: %s", out)
+		}
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{}`)
+		}))
+		t.Cleanup(srv.Close)
+		t.Setenv("NGM_OSV_URL", srv.URL)
+
+		code, out := runCaptureCode(t, "audit", "--json", "--dir="+proj)
+		if code != 0 {
+			t.Fatalf("a clean audit must exit 0, got %d:\n%s", code, out)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+			t.Fatalf("--json output must be parseable: %v\n%s", err, out)
+		}
+		if _, ok := parsed["exitCode"]; !ok {
+			t.Errorf("the json report should carry exitCode; got keys: %v", keysOf(parsed))
+		}
+		if _, ok := parsed["coverageNote"]; !ok {
+			t.Errorf("the json report should carry coverageNote; got keys: %v", keysOf(parsed))
+		}
+	})
+
+	t.Run("audit fails instead of reporting clean when the query cannot run", func(t *testing.T) {
+		isolateUserEnv(t)
+
+		scUpstream(t, "github:sc/offline", "export const o = 1\n", "")
+		proj := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:sc/offline@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+			t.Fatalf("install: %s", out)
+		}
+
+		// 离线且无缓存：不能报"干净"
+		code, out := runCaptureCode(t, "audit", "--offline", "--dir="+proj)
+		if code != 4 {
+			t.Fatalf("an offline query failure must exit 4, got %d:\n%s", code, out)
 		}
 	})
 

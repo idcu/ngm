@@ -40,9 +40,9 @@ internal/                # 12 个包，按职责划分
 
 > 本页是模块结构的**唯一事实源**，但只精确到**包级**——文件级结构请直接读代码（本文不再维护一份会迅速腐坏的文件清单）。
 >
-> **包的存在状态**：`internal/supplychain/` 已在 v0.2 创建（当前含策略加载与白名单匹配：
-> `policy.go` / `allowlist.go`；OSV 查询与 audit 报告仍待建）；`internal/observability/`
-> （why / tree / outdated，v0.2）**尚未创建**。
+> **包的存在状态**：`internal/supplychain/` 已在 v0.2 创建（`policy.go` / `allowlist.go` /
+> `minimumage.go` / `osv.go` / `audit.go` / `report.go`；postinstall 的**执行入口**收窄到 v0.3）；
+> `internal/observability/`（why / tree / outdated，v0.2）**尚未创建**。
 >
 > 归属约定：`audit` 的实现归 `internal/supplychain/`（P3）；`ngm verify` 的检查与判定在 `internal/verify/`，
 > 而"落地树 vs content store 的逐文件比对"在 `internal/vendor/integrity.go`；CLI 入口统一在 `cmd/ngm/`。
@@ -119,7 +119,7 @@ const (
 | verify | done (v0.1) | **核心差异化** |
 | engine adapter | done (v0.1)（仅 esbuild） | subprocess 优先；tsc / deno / postcss 属 v0.2 |
 | mappings | done (v0.1) | 供外部构建工具读取 |
-| audit | planned (v0.2) | OSV.dev 集成；**实现归 P3**，此处仅为索引 |
+| audit | done (v0.2) | OSV.dev 集成；实现归 `internal/supplychain/`（P3） |
 
 > 成熟度口径与唯一事实源[能力矩阵](../internals/capability-matrix.md)一致；本表只做索引，不重新定义归属。
 

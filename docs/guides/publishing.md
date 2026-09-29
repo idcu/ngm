@@ -89,8 +89,9 @@ jobs:
       - name: verify
         run: ngm verify
 
-      # v0.2 起再加一步「ngm audit」（OSV 漏洞扫描）。
-      # 现在写上去会让流水线以 exit 3 失败——那是"未实现"，不是"没问题"。
+      - name: audit
+        # 有已知漏洞 → exit 1；查询失败 → exit 4（不会把失败伪装成"干净"）
+        run: ngm audit
 
       - name: build
         run: ngm build --engine=esbuild
