@@ -109,6 +109,11 @@ func TestV02EngineAdaptersAcceptance(t *testing.T) {
 			t.Fatalf("validate --json is not valid JSON: %v\n%s", err, jout)
 		}
 		for _, is := range payload.Issues {
+			// 只拦"未安装"这一类：装了的时候 validate 还会补一条版本比对信息，
+			// 那是有意为之，不是本用例要固定的东西。
+			if is.Kind != "unavailable" {
+				continue
+			}
 			if strings.HasPrefix(is.Entry, "typescript/") || strings.HasPrefix(is.Entry, "postcss/") {
 				t.Errorf("an optional engine missing from this machine must not be an issue: %+v", is)
 			}

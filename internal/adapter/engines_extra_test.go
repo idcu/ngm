@@ -197,9 +197,16 @@ func TestBuiltinCatalog_ExcludesDeno(t *testing.T) {
 	}
 }
 
-// 这条固定 E 组最关键的取舍：内置了 tsc / postcss，但"没装"不能变成 issue
+// 这条固定 E 组最关键的取舍：内置了 tsc / postcss，但"没装"不能变成 issue。
+//
+// 只针对 IssueUnavailable 断言：设计保证的是"未安装不算问题"，而不是
+// "永远没有任何问题"。若本机装了 tsc，validate 还会补一条**版本**比对信息
+// （那个是有意为之），把两者混为一谈会让这条测试依赖机器的软件清单。
 func TestValidate_OptionalEnginesDoNotFailWhenMissing(t *testing.T) {
 	for _, is := range BuiltinCatalog().Validate() {
+		if is.Kind != IssueUnavailable {
+			continue
+		}
 		if strings.HasPrefix(is.Entry, "typescript/") || strings.HasPrefix(is.Entry, "postcss/") {
 			t.Errorf("an optional engine that is not installed must not be an issue: %+v", is)
 		}

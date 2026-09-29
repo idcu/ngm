@@ -42,7 +42,28 @@ jobs:
         run: go vet ./...
 
       - name: go test ./...
-        run: go test -count=1 ./...
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 ./... 2>&1 | tee "$RUNNER_TEMP/gotest.log"
+      # 临时诊断：日志接口需要 admin 权限，匿名读不到；把失败尾部发到
+      # annotations（匿名 API 可读）。定位根因后移除本步骤。
+      - name: surface failure as annotations (temporary)
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/gotest.log"
+          start=$(grep -n -m1 -E '^--- FAIL|^FAIL|^# ' "$log" | cut -d: -f1 | head -n1)
+          if [ -n "$start" ]; then
+            sed -n "${start},$((start + 30))p" "$log" > "$RUNNER_TEMP/err.txt"
+          else
+            tail -n 30 "$log" > "$RUNNER_TEMP/err.txt"
+          fi
+          split -l 10 "$RUNNER_TEMP/err.txt" "$RUNNER_TEMP/part-"
+          for f in "$RUNNER_TEMP"/part-*; do
+            msg=$(sed 's/%/%25/g; s/\r//g; $!s/$/%0A/g' "$f" | tr -d '\n')
+            echo "::error::$msg"
+          done
 
   # 格式与行尾门禁。
   #
