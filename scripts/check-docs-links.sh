@@ -31,9 +31,15 @@ for f in "${files[@]}"; do
 
   # 提取所有 [label](path) 中的 path
   while IFS= read -r line; do
-    # 简单提取：grep 中括号内的非空白、非 ')'
-    target="${line%%)*}"
-    target="${target##*[}"
+    # 从 grep 输出 "行号:[label](target)" 中取出 target：
+    # 截到最后一个 '('，再剥掉末尾的 ')'。
+    #
+    # 这里曾经截到 '['（而非 '('），于是 label 被当成路径的一部分——
+    # 例如 [架构总览](../architecture/overview.md) 会解析为 "架构总览](../architecture/overview.md"。
+    # 缺陷一直潜伏，因为 docs/ 此前不存在、本脚本从未真正执行过；
+    # 文档并入 docs/ 后它第一次运行就红了 CI。
+    target="${line##*\(}"
+    target="${target%%)*}"
     # 忽略带 http(s)/ / mailto: / # 的
     case "$target" in
       ""|"#"*) continue ;;
