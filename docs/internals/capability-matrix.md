@@ -17,7 +17,7 @@
 | ref 漂移检测 | verify | done (v0.1) | Yarn immutable | ngm 区分预期/非预期 |
 | 供应链门禁 | JSON-first 策略 | **部分 done (v0.2)** | pnpm/Deno/npm | 白名单与 minimumReleaseAge 已生效；postinstall 执行入口收窄到 v0.3（[ADR-009](../adr/adr-009-supply-chain-policy.md)） |
 | OSV 集成 | audit | done (v0.2) | npm/yarn audit | **按 commit 查询**，而非按版本 |
-| 可观测性 | why/tree/outdated | planned (v0.2) | pnpm | 通用能力 |
+| 可观测性 | why/tree/outdated | done (v0.2) | pnpm | why 给出**全部**来源路径；outdated 查不到时报 unknown 而非"最新" |
 
 ---
 

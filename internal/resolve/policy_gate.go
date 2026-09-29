@@ -56,7 +56,7 @@ func provenanceChain(seen map[string]*Node, it frontierItem, extraPaths int) str
 	var path []string
 	cur := it.from
 	// 上限用于防御环：正常图按 Key 去重不会成环，但这里不该依赖上游的正确性
-	for i := 0; i < 256 && cur != "" && cur != rootMarker; i++ {
+	for i := 0; i < 256 && cur != "" && cur != RootMarker; i++ {
 		path = append(path, cur)
 		n, ok := seen[cur]
 		if !ok || len(n.RequiredBy) == 0 {
@@ -69,7 +69,7 @@ func provenanceChain(seen map[string]*Node, it frontierItem, extraPaths int) str
 		path[i], path[j] = path[j], path[i]
 	}
 
-	out := append([]string{rootMarker}, path...)
+	out := append([]string{RootMarker}, path...)
 	out = append(out, it.spec.Key())
 	chain := strings.Join(out, " → ")
 

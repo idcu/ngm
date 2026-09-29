@@ -164,7 +164,7 @@ my-app/
 `--offline`（只读缓存）、`--no-cache`、`--json`。注意"审计通过"的含义是**库里没有关于这个
 commit 的记录**，不等于安全——覆盖局限会写进每一份报告。
 
-**规划中**（用到会明确 `exit 3`，不会静默成功）：`ngm why`、`ngm tree`、`ngm outdated`（v0.2）、`ngm integrations`（v0.3）。
+**规划中**（用到会明确 `exit 3`，不会静默成功）：`ngm integrations`（v0.3）。
 逐项成熟度以[能力矩阵](./internals/capability-matrix.md)为准。
 
 ---

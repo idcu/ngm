@@ -22,10 +22,12 @@
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
 | `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
-| `ngm install [--frozen-lockfile] [--offline]` | CI 模式安装（禁止解析新 ref / 禁止联网） | v0.2 | [锁定机制](../architecture/locking.md) |
-| `ngm audit` | OSV 漏洞扫描 | v0.2 | [供应链防护](../architecture/supply-chain.md) |
-| `ngm why <dep>` / `ngm tree` / `ngm outdated` | 依赖洞察 | v0.2 | [可观测性](../architecture/observability.md) |
-| `ngm integrations add <tool>` | 生成构建工具集成配置 | v0.3 | [P5 — 外部工具集成](../modules/p5-integrations.md) |
+| `ngm audit [<dep>...] [--json] [--offline] [--no-cache]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存） | **v0.2 已实现** | [供应链防护](../architecture/supply-chain.md) |
+| `ngm why <dep> [--json]` | 该依赖的来源路径（有多个父节点时列出全部） | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
+| `ngm tree [--osv] [--offline] [--json]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv` | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
+| `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新" | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
+| `ngm install [--frozen-lockfile] [--offline]` | CI 模式安装（禁止解析新 ref / 禁止联网） | planned v0.2 | [锁定机制](../architecture/locking.md) |
+| `ngm integrations add <tool>` | 生成构建工具集成配置 | planned v0.3 | [P5 — 外部工具集成](../modules/p5-integrations.md) |
 **content store 的回收尚未排期**：v0.1 的 store 只增不减，`ngm cache clean` 只清缓存层
 （不影响可证明性）。store GC 不在 v0.2 范围内，等需要时再排——这里**不预告具体命令名**，
 以免文档承诺一个不存在的 `ngm store gc`。

@@ -24,8 +24,11 @@ const UpstreamPackageJSON = "package.json"
 // DefaultConcurrency 是默认解析并发度（modules/p0-core.md §3：默认 4 并发）。
 const DefaultConcurrency = 4
 
-// rootMarker 是 RequiredBy 中代表"根声明直接引用"的标记。
-const rootMarker = "(root)"
+// RootMarker 是 RequiredBy 中代表"根声明直接引用"的标记。
+//
+// 导出给 observability（tree / why）使用：它们要判断某个父节点是不是根，
+// 而这个标记值必须只有一个定义处。
+const RootMarker = "(root)"
 
 // DepSpec 是一条依赖声明（来自根 ngm.json 或上游 ngm.json）。
 //
@@ -140,7 +143,7 @@ type GraphOptions struct {
 type frontierItem struct {
 	spec  DepSpec
 	depth int
-	// from 是**引入该项的节点 Key**（根直接声明时为 rootMarker）。
+	// from 是**引入该项的节点 Key**（根直接声明时为 RootMarker）。
 	//
 	// 存 Key 而不是 Name：monorepo 子路径下同一仓库的多个节点 Name 相同、Key 不同，
 	// 用 Name 回溯来源会指错节点（见 ADR-009 与 v0.2 计划的设计复核结论）。
@@ -181,7 +184,7 @@ func ResolveGraph(ctx context.Context, roots []DepSpec, opts GraphOptions) (*Gra
 
 	frontier := make([]frontierItem, 0, len(roots))
 	for _, r := range roots {
-		frontier = append(frontier, frontierItem{spec: r, depth: 0, from: rootMarker})
+		frontier = append(frontier, frontierItem{spec: r, depth: 0, from: RootMarker})
 	}
 
 	for len(frontier) > 0 {
@@ -420,7 +423,7 @@ func mergeIntoExisting(existing, incoming *Node) error {
 		existing.Repo = incoming.Repo
 		existing.RootDeclared = true
 		existing.Depth = 0
-		existing.RequiredBy = appendUnique(existing.RequiredBy, rootMarker)
+		existing.RequiredBy = appendUnique(existing.RequiredBy, RootMarker)
 		return nil
 	}
 
