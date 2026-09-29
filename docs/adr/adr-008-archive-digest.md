@@ -5,6 +5,11 @@
 - **范围**：依赖内容摘要的生成、归一化与验证
 - **关联**：ADR-004 要求"archiveDigest 必须有定义，否则可证明无定义"；本 ADR 给出定义
 
+> **结论**：digest 基于**本地生成的规范化内容清单**（path / mode / blob-sha256），
+> 而**不是** tar/zip 归档字节流；清单由 ngm 从本地 mirror 生成，不依赖 Git host 的归档 API。
+> **代价**：与外部体系**不互通**——npm/pnpm 的 `integrity`、Git host 的归档摘要都无法直接比对；
+> 清单规范一旦升级，同一 commit 的 digest 会变，只能靠 `lockfileVersion` 绑定来管理迁移。
+
 ---
 
 ## 背景

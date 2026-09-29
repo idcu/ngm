@@ -142,7 +142,9 @@ jobs:
           cache: true
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 与文档声明的宿主运行时下限（Node >= 22，见 guides/installation.md）保持一致。
+          # 用 20 来测等于在测一个我们并不支持的环境——声明的下限就从未被验证过。
+          node-version: '22'
       - name: install esbuild
         run: npm install --global esbuild
       - name: show engine version

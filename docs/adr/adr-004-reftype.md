@@ -4,6 +4,11 @@
 - **日期**：2026-09-29
 - **范围**：依赖锁定粒度与 ref 语义
 
+> **结论**：声明层 `refType` 必填（commit / tag / branch），锁定层统一记录实际解析到的 commit。
+> 让声明自描述，不靠推断——`@main` 无法区分 tag 叫 main 还是 branch 叫 main。
+> **代价**：每个依赖多一个必填字段（写起来更啰嗦）；只能锁定**已存在**的 commit，
+> 上游 force push 后旧 commit 可能从远端消失，此时只能靠本地 mirror / vendor 兜底。
+
 ---
 
 ## 背景

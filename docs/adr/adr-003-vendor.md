@@ -4,6 +4,12 @@
 - **日期**：2026-09-29（v2 修订：2026-09-29）
 - **范围**：依赖落地方式与目录布局
 
+> **结论**：用 `vendor/` 落地依赖，但拆为 4 层（mirror / content store / link tree / cache）。
+> vendor 的价值是**可审计、可提交、可离线**——不是省磁盘。
+> **代价**：跨项目重复存储（省磁盘这一项 pnpm 的 content store 做得更好）；提交 vendor 会让仓库体积膨胀；
+> 默认的 hardlink 落地与 content store **共享 inode**，就地编辑 vendor 文件会同时污染层 2，
+> 只能靠 `ngm verify --deep` 发现。
+
 ---
 
 ## 背景
