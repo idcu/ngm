@@ -8,7 +8,10 @@ on:
 # 三平台 matrix 与 development/README.md 的硬性要求对齐
 # （"macOS / Linux / Windows 三平台均需通过测试"）
 env:
-  GO_VERSION: '1.22'
+  # 1.22 构建的可执行文件在 2026-09 更新后的 macOS 镜像上无法加载
+  # （内核报 "missing LC_UID Load Command" 并以 abort trap 杀掉进程，
+  # 测试二进制启动即崩、0.002s FAIL）。升到当前稳定版。
+  GO_VERSION: '1.27'
 
 jobs:
   build-test:

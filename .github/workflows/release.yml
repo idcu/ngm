@@ -10,7 +10,9 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: '1.22'
+  # 与 ci.yml 保持一致：旧工具链构建的 macOS 二进制在新内核上无法加载，
+  # 发布产物必须用能通过三平台验收的同一版本构建。
+  GO_VERSION: '1.27'
 
 jobs:
   release:
