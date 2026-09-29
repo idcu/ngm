@@ -200,7 +200,7 @@ func (e *subprocessEngine) Compile(ctx context.Context, input []byte, opts CSSOp
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
-	out := &CSSResult{}
+	out := &CSSResult{Warnings: inv.Notes}
 	if opts.Outfile != "" {
 		out.Outfile = opts.Outfile
 	} else {
@@ -481,6 +481,8 @@ type invocation struct {
 	// 用标记而不是直接放字节：builder 只负责"怎么调"，输入内容由能力方法
 	// 提供，两者分离才能让 --dry-run 复用同一份 argv（dry-run 没有输入）。
 	ReadsStdin bool
+	// Notes 是 builder 想告诉用户的说明（例如本次忽略了某个选项及原因）。
+	Notes []string
 }
 
 // buildRequest 汇总一次 argv 生成的输入。
@@ -499,7 +501,10 @@ type buildRequest struct {
 // 未登记的引擎名落到 generic（P4 的 subprocess 协议最小集），
 // 这就是"用户自定义引擎无需改 ngm 代码即可接入"的实现方式。
 var builders = map[string]func(Entry, buildRequest) (invocation, error){
-	"esbuild": esbuildInvocation,
+	"esbuild":    esbuildInvocation,
+	"typescript": typescriptInvocation,
+	"deno":       denoInvocation,
+	"postcss":    postcssInvocation,
 }
 
 // buildInvocation 生成一次调用的 argv。

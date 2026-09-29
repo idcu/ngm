@@ -69,6 +69,17 @@ type Entry struct {
 	SupportedInput []string `json:"supportedInput,omitempty"`
 	// DefaultOptions 是默认选项，可被 ngm.json 的 engines.<kind>.options 覆盖。
 	DefaultOptions map[string]any `json:"defaultOptions,omitempty"`
+	// Optional 为 true 表示该条目**不要求本机安装**。
+	//
+	// 背景：v0.2 E 组把 tsc / postcss 纳入内置清单（它们已适配，理应可被发现），
+	// 但并非每个项目都需要类型检查或用 postcss 编译 CSS。若把它们当作"必须有"，
+	// `ngm engines validate` 会因为"你没装 tsc"而对**所有**用户报 exit 5——
+	// 那是一条假警报：不装 tsc 的人根本没打算做类型检查。
+	//
+	// 真正用到却没装时，命令本身会在那一刻失败并给出安装提示（exit 5 + hint），
+	// 那才是该报错的时机。版本探测不受影响：装了就探测并比对声明版本。
+	Optional bool `json:"optional,omitempty"`
+
 	// Stub 为 true 表示该条目不产出生产产物（仅 dry-run / 兜底）。
 	//
 	// 这是 ngm 侧的扩展字段：ADR-005 要求 self 引擎"只做兜底、dry-run、
@@ -170,6 +181,35 @@ func BuiltinCatalog() *Catalog {
 			Command: "esbuild", Version: "0.24.0",
 			SupportedInput: []string{".ts", ".tsx", ".js", ".jsx"},
 			DefaultOptions: map[string]any{"target": "es2020"},
+		},
+	} {
+		e.Builtin = true
+		c.Engines = append(c.Engines, e)
+	}
+
+	// v0.2 E 组新增：tsc 与 postcss 已适配，因此进入内置清单
+	// （engine-adapter.md 的口径是"清单里出现的引擎必须已经适配"）。
+	//
+	// 一律 Optional：见 Entry.Optional——未安装不算 issue。
+	// **deno 刻意不进内置清单**：它的 bundle 是 Deno >= 2.4 的实验特性，
+	// 且一旦内置就会在 typeCheck 的默认选择里排在 tsc 前面（按名字排序），
+	// 让多数 TS 项目意外用上 deno。需要 deno 的用户在 ngm.engines.json 里
+	// 显式声明——argv 翻译已经支持它。
+	for _, e := range []Entry{
+		{
+			Name: "typescript", Kind: KindTypeCheck, Adapter: AdapterSubprocess,
+			Command: "tsc", Version: "5.6.0", Optional: true,
+			SupportedInput: []string{".ts", ".tsx"},
+		},
+		{
+			Name: "typescript", Kind: KindTypeDecl, Adapter: AdapterSubprocess,
+			Command: "tsc --emitDeclarationOnly", Version: "5.6.0", Optional: true,
+			SupportedInput: []string{".ts", ".tsx"},
+		},
+		{
+			Name: "postcss", Kind: KindCSS, Adapter: AdapterSubprocess,
+			Command: "postcss", Version: "8.4.0", Optional: true,
+			SupportedInput: []string{".css"},
 		},
 	} {
 		e.Builtin = true
@@ -347,14 +387,32 @@ const (
 	IssueUnavailable IssueKind = "unavailable"
 	// IssueUnimplemented adapter 类型本 build 未实现 → exit 5。
 	IssueUnimplemented IssueKind = "unimplemented"
+	// IssueVersion 清单声明的版本与本机实际版本不一致 → **信息**，退出码 0。
+	//
+	// 刻意不是错误：旧版本的引擎通常照样能跑，把"声明 5.6.0、实际 5.3.0"
+	// 判为失败会让 validate 变成版本管理器而非校验器。它存在是为了让
+	// `--json` 与 human 输出把这件事**说出来**，而不是藏着。
+	IssueVersion IssueKind = "version"
 )
 
 // ExitCode 返回该问题类别对应的 ngm 退出码。
 func (k IssueKind) ExitCode() int {
-	if k == IssueSchema {
+	switch k {
+	case IssueSchema:
 		return errs.CodeConfigInvalid.ExitCode()
+	case IssueVersion:
+		return 0
+	default:
+		return errs.CodeEngineNotFound.ExitCode()
 	}
-	return errs.CodeEngineNotFound.ExitCode()
+}
+
+// probeVersion 探测条目对应程序的实际版本。
+//
+// 复用 subprocess 驱动而不是另写一份：探测方式必须与引擎被调用的方式一致
+// （同一个 program + 同一段前缀参数），否则"声明 vs 实际"的比较没有意义。
+func probeVersion(e Entry) (string, error) {
+	return newSubprocessEngine(e, "").Version()
 }
 
 // Issue 是清单校验发现的一个问题。
@@ -439,9 +497,23 @@ func (c *Catalog) Validate() []Issue {
 						Message: "subprocess entries need a non-empty `command`"})
 					continue
 				}
+				// 注意：可用性检查之后**不能**提前 continue——后面的 stub / 重名
+				// 校验仍要执行。一个条目可以同时"没装"且"写法错误"，
+				// 只报前者会让用户修完安装再撞上第二个问题。
 				if _, err := exec.LookPath(e.Program); err != nil {
-					issues = append(issues, Issue{Entry: label, Kind: IssueUnavailable,
-						Message: fmt.Sprintf("`%s` was not found on PATH", e.Program)})
+					if !e.Optional {
+						// 可选引擎未安装不是问题：用到它的那一刻自然会失败并给出提示，
+						// 在这里报会让"没装 tsc"变成一条与用户无关的红。
+						issues = append(issues, Issue{Entry: label, Kind: IssueUnavailable,
+							Message: fmt.Sprintf("`%s` was not found on PATH", e.Program)})
+					}
+				} else if v, verr := probeVersion(e); verr == nil && v != "" && e.Version != "" &&
+					!strings.HasPrefix(v, e.Version) {
+					// 已安装：探测实际版本并与清单声明比对（v0.2 计划"validate 覆盖版本探测"）。
+					// 版本不一致是**信息**而非失败（旧版本常常照样能跑），走 IssueVersion。
+					issues = append(issues, Issue{Entry: label, Kind: IssueVersion,
+						Message: fmt.Sprintf("catalog declares version %s, `%s` reports %q",
+							e.Version, e.Program, v)})
 				}
 			}
 		}

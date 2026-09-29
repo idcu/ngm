@@ -195,6 +195,12 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if cerr != nil {
 		return runErr(ctx, stdout, stderr, cerr)
 	}
+	// 引擎的说明原样转发（与 build 一致）。
+	// 这里不能省：postcss 没有内建压缩，它会用这条通道明说"--minify 被忽略了"，
+	// 吞掉它等于替用户决定"不必知道"。
+	for _, w := range res.Warnings {
+		fmt.Fprintln(stderr, w)
+	}
 	if res.Outfile != "" {
 		fmt.Fprintf(stdout, "compiled %s → %s\n", input, res.Outfile)
 		return 0

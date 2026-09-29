@@ -152,13 +152,18 @@ my-app/
 | 缓存维护 | `ngm cache clean` | 清缓存层，不影响可证明性 |
 | 配置与引擎 | `ngm config` / `ngm engines` | 校验与查看 |
 
-**`ngm typecheck` / `ngm css` 现在都用不了**，但两种失败要分清（很容易误读）：
+**v0.2 已补上这两个引擎**：`ngm typecheck` 内置 `typescript`（tsc，装了就能用）；
+`ngm css` 内置 `esbuild` 与 `postcss`。三者未安装时是 `exit 5` 并给出安装命令——
+**那是"没有可用引擎"，不是"检查通过"**。
 
-- **未声明对应引擎**（默认状态）→ `exit 3`：`ngm.json` 里没有 `typeCheck` / `css` 引擎，命令报缺配置
-- **声明了但引擎干不了这事** → `exit 5`：内置引擎只有 esbuild（`bundle` / `transform`），
-  它只剥掉类型标注、不做校验，拿它顶类型检查只会得到明确的 `exit 5`
+仍要分清两类失败（很容易误读）：
 
-按能力矩阵的口径，Type Check 与 CSS 属 `planned (v0.2)`——不要把它们当作可用能力。
+- **未声明对应引擎** → `exit 3`（缺配置）
+- **声明了但引擎干不了这事** → `exit 5`：例如拿 esbuild 顶类型检查——它只剥掉类型标注、
+  不做校验，ngm 明确拒绝而不是静默当作通过
+
+`deno` 已适配但**需自行声明**（它的 bundle 是 Deno ≥ 2.4 的实验特性，且内置会抢掉
+typeCheck 的默认顺序），见[引擎 adapter](./architecture/engine-adapter.md)。
 
 **v0.2 已落地**：`ngm audit` —— 按 lock 中的 commit 查 OSV.dev，结果缓存 24 小时，支持
 `--offline`（只读缓存）、`--no-cache`、`--json`。注意"审计通过"的含义是**库里没有关于这个

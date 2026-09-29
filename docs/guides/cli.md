@@ -16,8 +16,8 @@
 | `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm verify [<dep>...] [--offline] [--deep] [--json] [--strict] [--allow-drift]` | ref 漂移 + digest 重放检查 | v0.1 | [信任模型](../architecture/trust-model.md) |
 | `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run]` | 构建（adapter） | v0.1 | [构建](./build.md) |
-| `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter；v0.1 无适配引擎） | v0.1 | [构建](./build.md) |
-| `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter；v0.1 无适配引擎） | v0.1 | [构建](./build.md) |
+| `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（`typescript` = tsc，未装则 exit 5） | [构建](./build.md) |
+| `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter） | v0.1（`esbuild`）；v0.2 增 `postcss`（无内建压缩，`--minify` 会被明确告知忽略） | [构建](./build.md) |
 | `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
 | `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |

@@ -75,11 +75,17 @@ type CSSEngine interface {
 
 ## 引擎清单（JSON）
 
-> **成熟度**：下面是**清单格式的示例**，不是 v0.1 的内置清单。
-> v0.1 内置只有 **esbuild**（`bundle` + `transform`）与 `self`（仅用于 `--dry-run` / 离线 stub）；
-> 示例中的 `typescript` / `deno` / `postcss` 属 `planned (v0.2)`。
-> 它们**刻意不预置**——预置一个尚未适配的引擎会让 `ngm engines list` 说谎，
-> 用户要到真正需要类型检查时才发现它不可用。
+> **成熟度**：下面是**清单的格式示例**，已接近 v0.2 的内置清单。
+>
+> v0.2 E 组已适配 `typescript`（tsc）与 `postcss`，两者**进入内置清单**（见下）。
+> `deno` 已适配但**刻意不进内置清单**：它的 bundle 是 Deno ≥ 2.4 的实验特性，
+> 且一旦内置就会在 typeCheck 的默认顺序里排到 tsc 前面（条目按名字排序），
+> 让多数 TS 项目意外用上 deno。需要它就在 `ngm.engines.json` 里显式声明——
+> argv 翻译已经支持。
+>
+> 新增的内置条目一律 `optional`：**没装不算 issue**。"你没装 tsc"不该让
+> `ngm engines validate` 对所有用户报 exit 5——不装 tsc 的人根本没打算类型检查。
+> 真正用到却没装时，命令本身会在那一刻失败并给出安装提示。
 
 ```json
 {
@@ -151,8 +157,9 @@ type CSSEngine interface {
 
 **注意**：同一个引擎（esbuild）可以注册多个 kind（`transform` + `bundle`），条目按 `(name, kind)` 唯一。
 
-**内置清单只收录已适配的引擎**；上例中的 `typescript` / `deno` / `postcss` 是 v0.2 的目标条目，
-v0.1 的 `ngm engines validate` 不会因为清单格式里出现过它们就认为可用。
+**内置清单只收录已适配的引擎**——因此 v0.2 起 `typescript` 与 `postcss` 才进来（此前它们只是示例条目）。
+`ngm engines validate` 不会因为清单里出现过就认为可用：它真的去 PATH 找可执行文件，
+只是对 `optional` 条目"没找到"不报为 issue（见上）。
 
 ---
 

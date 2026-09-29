@@ -28,9 +28,9 @@
 | Transform | subprocess | esbuild | done (v0.1) | 有实现，尚无命令暴露（见复盘 §6） |
 | Bundle | subprocess | esbuild | done (v0.1) | `ngm build` |
 | Tree-Shaking | 不内置 | esbuild 原生 | n/a | 依赖引擎 |
-| Type Check | subprocess | tsc / deno | planned (v0.2) | v0.1 声明后明确 exit 5，不静默降级 |
-| .d.ts 生成 | subprocess | tsc | planned (v0.2) | 同上 |
-| CSS/SCSS | subprocess | postcss | planned (v0.2) | 同上 |
+| Type Check | subprocess | tsc / deno | done (v0.2) | tsc 内置（`optional`，未装不算 issue）；deno 需自行声明 |
+| .d.ts 生成 | subprocess | tsc | done (v0.2) | 同上 |
+| CSS/SCSS | subprocess | postcss / esbuild | done (v0.2) | postcss 无内建压缩，`--minify` 会**明确告知**被忽略 |
 
 ---
 
