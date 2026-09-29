@@ -101,14 +101,18 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	// 供应链策略在解析阶段生效（ADR-009）。它与 --offline 无关：
 	// 策略判定是纯本地的，不该因为断网就被跳过——那会让离线成为绕过策略的通道。
-	check, perr := policyChecker(pf)
+	pol, perr := projectPolicy(pf)
 	if perr != nil {
 		return runErr(ctx, stdout, stderr, perr)
 	}
-	opts.CheckRepo = check
+	opts.CheckRepo = pol.CheckRepo
 	g, rerr := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
 	if rerr != nil {
 		return runErr(ctx, stdout, stderr, rerr)
+	}
+	// 晾晒期只能在解析**之后**判定：时间源是 commit 的 committer date
+	if err := checkReleaseAges(ctx, env, g, pol); err != nil {
+		return runErr(ctx, stdout, stderr, err)
 	}
 	for _, w := range g.Warnings {
 		fmt.Fprintf(stderr, "warning: %s\n", w)

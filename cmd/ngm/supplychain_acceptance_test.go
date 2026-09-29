@@ -117,6 +117,46 @@ func TestV02SupplyChainAcceptance(t *testing.T) {
 		}
 	})
 
+	t.Run("a dependency younger than the minimum release age is blocked", func(t *testing.T) {
+		isolateUserEnv(t)
+
+		// fixture 是刚刚提交的，必然比任何晾晒期都新
+		scUpstream(t, "github:sc/fresh", "export const fresh = 1\n", "")
+		proj := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:sc/fresh@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		writeSupplyChain(t, proj, `{"minimumReleaseAge":"P30D"}`)
+
+		code, out := runCaptureCode(t, "install", "--dir="+proj)
+		if code != 3 {
+			t.Fatalf("a too-young dependency must exit 3, got %d:\n%s", code, out)
+		}
+		if !strings.Contains(out, "younger than") {
+			t.Errorf("the error should say why it was blocked; got:\n%s", out)
+		}
+		// 报错必须给出最早可用的时间，否则用户无从决定"等还是走例外"
+		if !strings.Contains(out, "wait until") {
+			t.Errorf("the error should state when it becomes usable; got:\n%s", out)
+		}
+	})
+
+	t.Run("an allowlisted repository bypasses the release age gate", func(t *testing.T) {
+		isolateUserEnv(t)
+
+		scUpstream(t, "github:sc/urgent", "export const urgent = 1\n", "")
+		proj := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:sc/urgent@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		// 同一个"刚刚提交"的依赖，但被显式放行 → 紧急通道生效
+		writeSupplyChain(t, proj, `{"minimumReleaseAge":"P30D","allowlistRepos":["github.com/sc/urgent"]}`)
+
+		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+			t.Fatalf("an allowlisted repository must not be blocked by the age gate, got %d:\n%s", code, out)
+		}
+	})
+
 	t.Run("a policy that allows everything declared is not in the way", func(t *testing.T) {
 		isolateUserEnv(t)
 

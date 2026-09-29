@@ -124,16 +124,20 @@ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
 func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest bool, stdout, stderr io.Writer) int {
-	// 供应链策略在解析阶段生效（ADR-009）：命中即 exit 3 并附来源链
-	opts := env.GraphOptions()
-	check, perr := policyChecker(pf)
+	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
+	pol, perr := projectPolicy(pf)
 	if perr != nil {
 		return runErr(ctx, stdout, stderr, perr)
 	}
-	opts.CheckRepo = check
+	opts := env.GraphOptions()
+	opts.CheckRepo = pol.CheckRepo
 
 	g, err := resolve.ResolveGraph(ctx, roots, opts)
 	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	// 晾晒期只能在解析**之后**判定：时间源是 commit 的 committer date
+	if err := checkReleaseAges(ctx, env, g, pol); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
