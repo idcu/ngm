@@ -469,6 +469,12 @@ func TestM6Acceptance(t *testing.T) {
 			t.Fatalf("validate --json is not valid JSON: %v\n%s", err, jout)
 		}
 		for _, is := range payload.Issues {
+			// 版本比对是**信息**（kind=version，退出码 0）：本机装的引擎版本与
+			// 内置清单声明的不同很常见（CI 镜像就自带 tsc），它不是"清单不干净"。
+			// 这条断言只关心 schema 与可用性两类问题。
+			if is.Kind == "version" {
+				continue
+			}
 			if !strings.HasPrefix(is.Entry, "esbuild/") {
 				t.Errorf("unexpected issue in a clean catalog: %+v", is)
 			}
