@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -98,6 +99,16 @@ func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	res, cerr := ec.runner.Check(ctx, sel, entry, opts)
 	if cerr != nil {
 		// 引擎非零退出即"发现类型问题"，退出码 1（见 runChain）。
+		//
+		// 但这是**有内容**的失败：诊断必须展示在与成功路径相同的位置。
+		// 只报"引擎退出 1"等于把类型检查的产物丢掉——用户拿不到该改哪一行。
+		// （tsc 把 `error TS…` 写在 stdout，所以两边都要看。）
+		var ee *adapter.EngineError
+		if errors.As(cerr, &ee) {
+			for _, line := range ee.Diagnostics() {
+				fmt.Fprintln(stdout, line)
+			}
+		}
 		return runErr(ctx, stdout, stderr, cerr)
 	}
 

@@ -236,6 +236,13 @@ type EngineError struct {
 	// 刻意保留：引擎自己的诊断（esbuild 的行列号与代码片段）比 ngm 的
 	// 转述有用得多。ngm 只加"哪个引擎、怎么调的"这层上下文。
 	Stderr string
+	// Stdout 是引擎失败时写到 **stdout** 的内容。
+	//
+	// 存在的理由是一个真实缺陷：类型检查器未必把诊断写在 stderr——
+	// **tsc 把 `error TS2322: …` 写在 stdout**。只保留 stderr 会让失败看起来
+	// 像"引擎莫名退出 1"，而类型检查器最有价值的产物恰恰就是那条诊断。
+	// 协议里"stdout 是产物、stderr 是诊断"是**约定**，不是引擎的保证。
+	Stdout string
 	// Retryable 表示同一引擎重试可能成功（临时资源占用、用户中断等）。
 	//
 	// v0.1 **不**做自动重试（development/v0.1-plan.md 的全局注意事项：
@@ -249,7 +256,7 @@ type EngineError struct {
 	Hint string
 }
 
-// Error 实现 error。消息里同时给出退出码与原始 stderr 尾部。
+// Error 实现 error。消息里同时给出退出码与引擎的原始输出。
 func (e *EngineError) Error() string {
 	msg := e.Message
 	if e.Code >= 0 {
@@ -258,7 +265,22 @@ func (e *EngineError) Error() string {
 	if s := strings.TrimSpace(e.Stderr); s != "" {
 		msg += "\n" + s
 	}
+	if s := strings.TrimSpace(e.Stdout); s != "" {
+		msg += "\n" + s
+	}
 	return msg
+}
+
+// Diagnostics 返回引擎本次的输出行（stdout 在前、stderr 在后，各自按行拆分）。
+//
+// 给 CLI 用：类型检查的"失败"是**有内容**的失败，调用方需要把引擎的诊断
+// 展示在与其成功路径相同的位置，而不是让用户只看到"引擎退出 1"。
+func (e *EngineError) Diagnostics() []string {
+	if e == nil {
+		return nil
+	}
+	out := stderrLines([]byte(e.Stdout))
+	return append(out, stderrLines([]byte(e.Stderr))...)
 }
 
 // AsNgmError 把引擎失败映射到 ngm 的退出码契约（architecture/observability.md）。

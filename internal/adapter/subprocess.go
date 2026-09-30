@@ -297,8 +297,11 @@ func runProcess(ctx context.Context, program string, args []string, dir string, 
 	if errors.As(err, &exitErr) {
 		res.ExitCode = exitErr.ExitCode()
 		return res, &EngineError{
-			Code:     res.ExitCode,
-			Message:  fmt.Sprintf("%s failed", program),
+			Code:    res.ExitCode,
+			Message: fmt.Sprintf("%s failed", program),
+			// stdout 一并保留：协议说"诊断走 stderr"，但 tsc 把类型错误写在
+			// stdout。丢掉它等于把类型检查的产物扔掉。
+			Stdout:   string(stdout.Bytes()),
 			Stderr:   string(stderr.Bytes()),
 			Fallback: true,
 		}
