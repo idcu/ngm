@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/git"
 	"github.com/idcu/ngm/internal/lock"
@@ -16,7 +17,7 @@ import (
 const verifyUsage = `ngm verify — check ref drift and replay archiveDigest
 
 USAGE:
-  ngm verify [<dep>...] [--dir=<dir>] [--offline] [--deep] [--strict] [--allow-drift] [--json]
+  ngm verify [<dep>...] [--dir=<dir>] [--offline] [--deep] [--strict] [--allow-drift] [--json] [--sandbox]
 
 ARGS:
   <dep>   verify only these dependency slugs (default: everything in ngm.lock)
@@ -31,6 +32,11 @@ FLAGS:
   --strict       treat expected updates (a branch that advanced) as failures
   --allow-drift  do not fail on unexpected drift (critical still returns 2)
   --json         write a machine-readable report to stdout (CI should use this)
+  --sandbox      additionally run each dependency's own verify.js inside a Deno
+                 sandbox, with no network, no run, no env and read access limited
+                 to that dependency's own vendor subtree.
+                 It only ever adds: a script that fails returns 2, a script that
+                 passes changes nothing ngm concluded (ADR-012)
 
 CHECK LEVELS (architecture/observability.md):
   ref      re-resolve refType and compare with the commit pinned in ngm.lock
@@ -41,9 +47,12 @@ CHECK LEVELS (architecture/observability.md):
 EXIT CODES:
   0  everything matches (or only expected updates, unless --strict)
   1  unexpected drift: a tag was moved, or a branch history was rewritten
-  2  integrity failure: digest replay mismatch, or tampered content/vendor bytes
-  3  configuration or lock error
+  2  integrity failure: digest replay mismatch, tampered bytes, or a dependency's
+     own verify.js failing / timing out under --sandbox
+  3  configuration or lock error (including a permission denial)
   4  Git or network failure (including --offline with a cold mirror)
+  5  --sandbox was requested, some dependency provides verify.js, and Deno is
+     missing or too old — ngm does not run such a script outside a sandbox
 
 driftKind in --json: expected | unexpected | critical
 `
@@ -63,6 +72,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	strict := fs.Bool("strict", false, "treat expected updates as failures")
 	allowDrift := fs.Bool("allow-drift", false, "do not fail on unexpected drift")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
+	sandbox := fs.Bool("sandbox", false, "run dependency self-check scripts in a Deno sandbox")
 	fs.Usage = func() { fmt.Fprint(stderr, verifyUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
@@ -72,6 +82,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		{Name: "strict", Bool: true},
 		{Name: "allow-drift", Bool: true},
 		{Name: "json", Bool: true},
+		{Name: "sandbox", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -138,14 +149,39 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
 			return 1
 		}
-		return rep.Summary.ExitCode
+		return verifyWithSandbox(ctx, env, pf, lf, rep.Summary.ExitCode, *sandbox, stdout, stderr)
 	}
 
 	for i := range rep.Dependencies {
 		renderVerifyDep(stdout, &rep.Dependencies[i])
 	}
 	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline))
-	return rep.Summary.ExitCode
+	return verifyWithSandbox(ctx, env, pf, lf, rep.Summary.ExitCode, *sandbox, stdout, stderr)
+}
+
+// verifyWithSandbox 在常规判定之后追加"依赖自检"这一层（`--sandbox`）。
+//
+// 关键性质：它**只追加**。常规 verify 的判定对象与结论完全不变，沙箱只是多跑了一层；
+// 而脚本失败会把退出码提升为 2（完整性/信任类，`--allow-drift` 无效）。
+func verifyWithSandbox(
+	ctx context.Context,
+	env *projectEnv,
+	pf *config.ProjectFile,
+	lf *lock.File,
+	baseCode int,
+	sandbox bool,
+	stdout, stderr io.Writer,
+) int {
+	if !sandbox {
+		return baseCode
+	}
+
+	fmt.Fprintln(stdout, "\n— dependency self-checks (--sandbox) —")
+	serr := runSandboxChecks(ctx, env, pf, lf, stdout, stderr)
+	if serr != nil {
+		return runErr(ctx, stdout, stderr, serr)
+	}
+	return baseCode
 }
 
 // renderVerifyDep 渲染单个依赖的结果。

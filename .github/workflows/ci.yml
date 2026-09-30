@@ -124,7 +124,7 @@ jobs:
       - name: run milestone acceptance
         # v0.2 起验收测试改按版本分组命名，这里一并列出——只跑 M1–M7 会让
         # 后续版本的端到端验收"在 CI 里存在但从不显式执行"，红灯时也看不出是哪一组。
-        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance|TestV03PermissionsAcceptance|TestV03CredentialDiscipline' -v ./cmd/ngm
+        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance|TestV03PermissionsAcceptance|TestV03CredentialDiscipline|TestV03SandboxAcceptance' -v ./cmd/ngm
 
   # 真实引擎集成（M6）：hermetic 那一组用假引擎覆盖协议，这里用**真实的 esbuild**
   # 证明 adapter 与真工具的对接确实成立——包括把 ngm.mappings.json 变成
@@ -154,6 +154,13 @@ jobs:
         # tsc 与 postcss 自 v0.2 起是内置引擎，但它们的**真实**兼容性此前
         # 从未被 CI 证明过（假引擎会接受任何参数，真实工具不会）。
         run: npm install --global esbuild typescript postcss-cli postcss
+      - uses: denoland/setup-deno@v2
+        with:
+          # 不钉版本：沙箱按**能力**探测（--allow-read=<dir> 与 --deny-*），
+          # 写死版本号会在能跑的版本上拒绝运行、在不能跑的版本上放行（ADR-012 决策 6）。
+          deno-version: v1.x
+      - name: show deno version
+        run: deno --version
       - name: show engine versions
         run: |
           esbuild --version
@@ -162,10 +169,11 @@ jobs:
       - name: real engine acceptance
         # TestV03IntegrationsRealTools 在这里而不是 hermetic 组：它要真的跑
         # esbuild 打包与 tsc 类型检查——那正是"生成的配置能用"的唯一证明。
+        # TestV03SandboxRealDeno 同理：沙箱的逃逸阻断只有真 Deno 能证明。
         shell: bash
         run: |
           set -o pipefail
-          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools' -v ./cmd/ngm | tee real-engine.log
+          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools|TestV03SandboxRealDeno' -v ./cmd/ngm | tee real-engine.log
           # 本 job 明确装了 esbuild / typescript / postcss，因此任何 skip 都说明
           # 环境没装配好。不检查的话，"工具缺失 → 全部 skip → CI 绿"会让整份
           # 真工具验收变成假象——绿的是空集，而不是通过。

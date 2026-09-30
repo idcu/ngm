@@ -275,6 +275,27 @@ func (pol *Policy) DeniedEnvVars() []string {
 	return out
 }
 
+// AllowedTargets 返回某命名空间下**被显式允许**的目标（已排序、已去重）。
+//
+// 用途是沙箱：它从用户已经做过的授权里继承，而不是自己发明一套需求
+// （ADR-012 决策 3——沙箱不新造权限语言）。继承的含义是"你能访问的，脚本也能"，
+// 而脚本自己那棵 vendor 树的读权限由调用方另行加入。
+func (pol *Policy) AllowedTargets(ns Namespace) []string {
+	if pol == nil {
+		return nil
+	}
+	out := make([]string, 0, len(pol.allow))
+	for key := range pol.allow {
+		p, err := Parse(key)
+		if err != nil || p.Namespace != ns {
+			continue
+		}
+		out = append(out, p.Target)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Conflicts 返回同时出现在 allow 与 deny 里的权限（deny 生效）。
 //
 // 供 `ngm config validate` 提示：这种配置多半是误写，而它的表现是
