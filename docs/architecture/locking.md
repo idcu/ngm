@@ -111,11 +111,16 @@ vendor 落地的可复现定义：相同 lock + 相同 content store → 相同 
 - 可审计：PR review 能看到依赖变化
 - CI 可复现：配合 content store 或 vendor，环境无网络也能安装与构建
 
-**`install --frozen-lockfile`（CI 模式，planned v0.2）**：禁止解析新 ref、禁止修改 lock file；lock 缺失或与 ngm.json 不一致立即失败（exit 3）。它**不禁止网络**——content store 未命中时仍需下载依赖。完全离线用 `ngm install --offline`（未命中即失败，exit 4）。
+**`install --frozen-lockfile`（CI 模式，v0.2 已实现）**：禁止解析新 ref、禁止修改 lock file；lock 缺失或与 ngm.json 不一致立即失败（exit 3）。它**不禁止网络**——content store 未命中时仍需下载依赖。
 
-> v0.1 的 `ngm install` 只有 `--dir` / `--digest`；这两个 flag 属 v0.2；v0.1 的 `--offline` 只适用于
-> `ngm update` 与 `ngm verify`。此处仍保留语义描述，是因为 lock 的**可复现目标**在 v0.1 已经成立
-> （lock 字节跨平台一致 + vendor 落地后构建不依赖网络），缺的只是"一条命令锁死"的 CI 形态。
+**`install --offline`（v0.2 已实现）**：禁止一切网络访问；content store 与 mirror 都缺失时失败（exit 4）。注意它**不等于**"装出来的东西差不多"——离线装不上就是装不上。
+
+**`--frozen-lockfile --offline`（CI 首选）**：完全离线、完全由已提交的 lock 决定。前提是把 `ngm.lock` 提交进仓库，并让 content store 可用（CI 上可缓存 `~/.ngm/content`）。
+
+> 为什么 frozen 与 offline 要分成两个 flag：它们约束的是**两件不同的事**——
+> frozen 约束"装什么"（不许重新决定 commit），offline 约束"怎么拿"（不许联网）。
+> 只想要可复现性时用前者即可（它仍可从网络取内容）；合并使用才得到"完全离线且可复现"。
+> v0.1 的 `ngm install` 只有 `--dir` / `--digest`，`--offline` 只适用于 `ngm update` 与 `ngm verify`。
 
 ---
 

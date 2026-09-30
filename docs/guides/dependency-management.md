@@ -65,10 +65,12 @@ ngm install
 
 > 术语（`refType` / `archiveDigest` / `vendor 4 层`）见[术语表](./glossary.md)。
 
-### install 的 `--frozen-lockfile` / `--offline`（planned v0.2）
+### install 的 `--frozen-lockfile` / `--offline`（v0.2 已实现）
 
 > **v0.1 的 `ngm install` 只有 `--dir` / `--digest`**：下面三条命令属 v0.2，现在照抄会因用法错误得到 `exit 3`。
-> v0.1 的 `--offline` 只适用于 `ngm update` 与 `ngm verify`。
+> 两个 flag 约束的是两件不同的事：frozen 管"装什么"（不许重新决定 commit），
+> offline 管"怎么拿"（不许联网）。只想要可复现性用前者即可（它仍可从网络取内容）；
+> 合并使用才得到"完全离线且可复现"。
 
 ```bash
 ngm install --frozen-lockfile            # 不解析新 ref、不改 lock；允许网络

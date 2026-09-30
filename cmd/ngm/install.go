@@ -19,20 +19,35 @@ import (
 const installUsage = `ngm install — resolve dependencies and produce ngm.lock
 
 USAGE:
-  ngm install [--dir=<dir>] [--digest]
+  ngm install [--dir=<dir>] [--digest] [--frozen-lockfile] [--offline]
 
 FLAGS:
-  --dir       project directory containing ngm.json (default: .)
-  --digest    also print each dependency's archiveDigest
+  --dir               project directory containing ngm.json (default: .)
+  --digest            also print each dependency's archiveDigest
+  --frozen-lockfile   never resolve a new ref and never write ngm.lock
+  --offline           never touch the network
 
 BEHAVIOR (architecture/locking.md §更新策略):
   no ngm.lock   resolve from ngm.json → write lock → populate content store
   has ngm.lock  trust the lock (do NOT re-resolve refs); verify it still matches
                 ngm.json, and make sure the content store is populated
 
-NOTES:
-  ngm.lock must be committed to Git.
-  --frozen-lockfile / --offline are v0.2 features (see roadmap).
+CI MODES (v0.2 F):
+  --frozen-lockfile         fail (exit 3) if ngm.lock is missing or does not
+                            match ngm.json. Downloading is still allowed: a cold
+                            content store may fetch. What it forbids is deciding
+                            a new commit - that must come from the committed lock.
+  --offline                 no network at all. A cold content store and a cold
+                            mirror both fail (exit 4): "offline" must never mean
+                            "installed something slightly different".
+  --frozen-lockfile --offline
+                            fully reproducible offline install - the CI default.
+                            Needs ngm.lock committed and a warm content store.
+
+EXIT CODES:
+  0  installed
+  3  --frozen-lockfile and the lock is missing or out of sync with ngm.json
+  4  --offline and a required resource is not available locally
 `
 
 // runInstall 处理 `ngm install`。
@@ -45,10 +60,13 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs := newFlagSet("install")
 	dirFlag := fs.String("dir", ".", "project directory")
 	digestFlag := fs.Bool("digest", false, "also print each archiveDigest")
+	frozen := fs.Bool("frozen-lockfile", false, "never resolve a new ref or write ngm.lock")
+	offline := fs.Bool("offline", false, "never touch the network")
 	fs.Usage = func() { fmt.Fprint(stderr, installUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "dir"}, {Name: "digest", Bool: true},
+		{Name: "frozen-lockfile", Bool: true}, {Name: "offline", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -72,18 +90,44 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runErr(ctx, stdout, stderr, err)
 	}
 
+	// --frozen-lockfile 是 CI 的核心承诺："装出来的东西必须与提交的 lock 一致"。
+	// 因此缺 lock、或 lock 与声明不一致，都必须**失败**（exit 3）而不是退化成
+	// 重新解析——后者会让 CI 在没人改 lock 的情况下装出别的内容，
+	// 而"lock 已提交、安装即可复现"这个前提也就被悄悄绕过了。
+	if *frozen {
+		if lf == nil {
+			return runErr(ctx, stdout, stderr, errs.New(
+				errs.CodeConfigInvalid,
+				"--frozen-lockfile: no ngm.lock at "+env.LockPath(),
+				"commit ngm.lock to the repository, or run `ngm install` without --frozen-lockfile to create it"))
+		}
+		if missing := lockManifestMismatch(lf, roots); len(missing) > 0 {
+			return runErr(ctx, stdout, stderr, errs.New(
+				errs.CodeConfigInvalid,
+				"--frozen-lockfile: ngm.lock does not match ngm.json ("+strings.Join(missing, ", ")+")",
+				"run `ngm update` and commit the lock, or drop --frozen-lockfile"))
+		}
+	}
+	// 离线且没有 lock：无从解析（读上游 manifest 需要网络），也不能凭空造一个
+	if *offline && lf == nil {
+		return runErr(ctx, stdout, stderr, errs.New(
+			errs.CodeGitFetch,
+			"--offline: no ngm.lock to install from",
+			"commit ngm.lock; an offline install can only materialise what the lock already pins"))
+	}
+
 	// 决策：lock 是否仍与 ngm.json 一致？
 	if lf != nil {
 		missing := lockManifestMismatch(lf, roots)
 		if len(missing) == 0 {
-			return installFromLock(ctx, env, pf, lf, *digestFlag, stdout, stderr)
+			return installFromLock(ctx, env, pf, lf, *digestFlag, *offline, stdout, stderr)
 		}
 		fmt.Fprintf(stdout,
 			"ngm.lock does not match ngm.json (%s); re-resolving\n",
 			strings.Join(missing, ", "))
 	}
 
-	return installFresh(ctx, env, pf, roots, *digestFlag, stdout, stderr)
+	return installFresh(ctx, env, pf, roots, *digestFlag, *offline, stdout, stderr)
 }
 
 // materializeVendor 落地 vendor 树并写出 ngm.mappings.json。
@@ -123,7 +167,7 @@ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
 }
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
-func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest bool, stdout, stderr io.Writer) int {
+func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest, offline bool, stdout, stderr io.Writer) int {
 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
@@ -131,6 +175,10 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	}
 	opts := env.GraphOptions()
 	opts.CheckRepo = pol.CheckRepo
+	if offline {
+		// 解析要读上游 manifest，离线时只能来自本地 mirror（与 verify 同一语义）
+		opts.EnsureMirror = offlineEnsureMirror(env)
+	}
 
 	g, err := resolve.ResolveGraph(ctx, roots, opts)
 	if err != nil {
@@ -205,9 +253,16 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 // installFromLock 尊重既有 lock：不重新解析 ref，只确保内容就绪。
 //
 // 这是 v0.1 的可复现性核心——同一 lock 在不同机器上必须安装出相同内容。
-func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest bool, stdout, stderr io.Writer) int {
+func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest, offline bool, stdout, stderr io.Writer) int {
 	items := make([]digestNode, 0, len(lf.Dependencies))
 	fromStore := 0
+
+	// --offline 的"绝不触网"在这里落地：换成一个只认既有 mirror 的实现，
+	// mirror 冷就直接 exit 4（而不是退化成 clone）。
+	ensure := env.EnsureMirror
+	if offline {
+		ensure = offlineEnsureMirror(env)
+	}
 
 	for i := range lf.Dependencies {
 		d := &lf.Dependencies[i]
@@ -233,7 +288,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		}
 
 		// 未命中：需要 mirror（已就绪时只做增量 fetch，缺失时才 clone）
-		mirrorPath, merr := env.EnsureMirror(ctx, repo)
+		mirrorPath, merr := ensure(ctx, repo)
 		if merr != nil {
 			return runErr(ctx, stdout, stderr, merr)
 		}

@@ -110,8 +110,8 @@ ngm install
 git add ngm.json ngm.lock
 git commit -m "chore: add dependencies"
 
-# CI 安装（不修改 lock）—— `--frozen-lockfile` 属 v0.2，见路线图
-# ngm install --frozen-lockfile
+# CI 安装（不修改 lock，lock 与声明不一致则失败）
+ngm install --frozen-lockfile
 ngm install
 
 # 检查漂移

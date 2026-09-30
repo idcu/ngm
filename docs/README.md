@@ -116,7 +116,8 @@ ngm build --outfile=dist/app.js
 ```
 
 > 完整的 5 分钟流程（含 `ngm build` 的实际输出）见[快速上手](./guides/quickstart.md)，
-> 并由 CI 的端到端验收守护。`ngm install --frozen-lockfile` / `--offline` 属 v0.2。
+> 并由 CI 的端到端验收守护。CI 上用 `ngm install --frozen-lockfile --offline`：
+> frozen 锁死"装什么"（不许重新解析 ref），offline 锁死"怎么拿"（不许联网）。
 
 ### 项目结构
 
@@ -207,7 +208,7 @@ commit 的记录**，不等于安全——覆盖局限会写进每一份报告�
 
 | # | 问题 | 当前答案 | 出处 |
 |---|------|---------|------|
-| 1 | 同一 commit 是否能在断网、Git host 故障和 token 失效时继续**构建**？ | 可以：vendor 落地后构建不依赖网络。完全离线的*安装*需等 v0.2 的 `install --offline` | [vendor 4 层](./architecture/vendor-layers.md) |
+| 1 | 同一 commit 是否能在断网、Git host 故障和 token 失效时继续**构建**？ | 可以：vendor 落地后构建不依赖网络。完全离线的*安装*用 `install --frozen-lockfile --offline`（v0.2 已实现） | [vendor 4 层](./architecture/vendor-layers.md) |
 | 2 | branch 前进时，`verify` 是否区分"预期更新"与"非预期漂移"？ | 区分：`driftKind`（`expected` / `unexpected` / `critical`），预期更新默认不阻断 | [信任模型](./architecture/trust-model.md) |
 | 3 | 传递性 Git 依赖是否也进入 lock、verify（与 v0.2 的 OSV）范围？ | 进入；v0.1 只识别上游 `ngm.json` 声明，上游 `package.json` 里的 Git 依赖不自动递归 | [依赖解析](./architecture/dependency-resolution.md) |
 | 4 | `archiveDigest` 的 origin、normalization 和算法是否明确定义？ | 已定义：本地生成的规范化内容清单（path / mode / blob-sha256）+ sha256 | [ADR-008](./adr/adr-008-archive-digest.md) |

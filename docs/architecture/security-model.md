@@ -144,10 +144,10 @@ ngm verify --sandbox
 - `1`（非预期漂移）默认阻断，`--allow-drift` 可降级为 0
 - `0` **不等于**"一切正常"：branch 前进（预期更新）也是 0，要严格拦下需 `--strict`
 
-### `install --frozen-lockfile` / `install --offline`（planned v0.2）
+### `install --frozen-lockfile` / `install --offline`（v0.2 已实现）
 
-> **尚未实现**。v0.1 的 `ngm install` 只有 `--dir` / `--digest` 两个 flag；下面三条命令是 v0.2 的目标形态。
-> v0.1 的 `--offline` 只适用于 `ngm update` 与 `ngm verify`。
+下面三条命令即当前真实行为。两个 flag 约束的是两件事：frozen 管"装什么"，
+offline 管"怎么拿"；CI 上通常合并使用。
 
 ```bash
 ngm install --frozen-lockfile            # 不解析新 ref、不改 lock；允许网络下载

@@ -26,7 +26,7 @@
 | `ngm why <dep> [--json]` | 该依赖的来源路径（有多个父节点时列出全部） | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm tree [--osv] [--offline] [--json]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv` | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新" | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
-| `ngm install [--frozen-lockfile] [--offline]` | CI 模式安装（禁止解析新 ref / 禁止联网） | planned v0.2 | [锁定机制](../architecture/locking.md) |
+| `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
 | `ngm integrations add <tool>` | 生成构建工具集成配置 | planned v0.3 | [P5 — 外部工具集成](../modules/p5-integrations.md) |
 **content store 的回收尚未排期**：v0.1 的 store 只增不减，`ngm cache clean` 只清缓存层
 （不影响可证明性）。store GC 不在 v0.2 范围内，等需要时再排——这里**不预告具体命令名**，
@@ -42,8 +42,8 @@
 
 - **退出码**：0 成功 / 1 策略失败（含引擎运行失败）/ 2 完整性失败 / 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用；完整定义见[可观测性](../architecture/observability.md)
 - **配置文件**：`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json` / `~/.ngm/config.json`，见[配置详解](./configuration.md)
-- **`--offline`**（v0.1 适用于 `update` / `verify`）：禁止网络访问，只用本地 mirror；资源未命中即失败（exit 4）。
-  `install --offline` 属 v0.2。
+- **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
+  适用于 `verify` / `update` / `install` / `audit` / `outdated`。
 - **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
 
 ---
@@ -58,10 +58,10 @@ ngm verify --json      # 读 driftKind 与退出码：0 通过 / 1 非预期漂�
 ngm build --outfile=dist/app.js
 ```
 
-完全离线可复现（`--frozen-lockfile` / `install --offline` 属 v0.2）：
+完全离线可复现（v0.2 已实现）：
 
 ```bash
-ngm install            # v0.2: ngm install --frozen-lockfile --offline
+ngm install --frozen-lockfile --offline
 ngm verify --json
 ```
 

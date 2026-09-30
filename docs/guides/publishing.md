@@ -80,8 +80,8 @@ jobs:
           chmod +x /usr/local/bin/ngm
 
       - name: 安装 Git 依赖
-        # --frozen-lockfile / --offline 属 v0.2；v0.1 的 ngm install 只有 --dir / --digest
-        run: ngm install
+        # frozen 锁死"装什么"（不许重新解析 ref），offline 锁死"怎么拿"（不许联网）
+        run: ngm install --frozen-lockfile --offline
 
       - name: 安装 registry 依赖
         run: pnpm install --frozen-lockfile
