@@ -77,8 +77,8 @@ func runSandboxChecks(ctx context.Context, env *projectEnv, pf *config.ProjectFi
 		needs := security.Needs{
 			ReadDirs: []string{s.dir},
 			NetHosts: env.Policy.AllowedTargets(security.Net),
-			RunExes:  env.Policy.AllowedTargets(security.Run),
 			EnvVars:  env.Policy.AllowedTargets(security.Env),
+			// 不继承 `run:`：沙箱里一律不派生进程（见 security.Grants 的说明）。
 		}
 		grants, gerr := env.Policy.PlanSandbox(needs)
 		if gerr != nil {

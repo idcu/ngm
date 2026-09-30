@@ -28,22 +28,24 @@ const SandboxScriptName = "verify.js"
 const SandboxTimeout = 30 * time.Second
 
 // Needs 描述一次沙箱执行**想要**什么。它是需求，不是授权。
+//
+// 注意**没有**"要执行某个程序"这一项：沙箱里一律不派生进程，见 DenoArgs 的说明。
 type Needs struct {
 	// ReadDirs 是脚本需要读取的目录。
 	ReadDirs []string
 	// NetHosts 是脚本需要访问的主机。
 	NetHosts []string
-	// RunExes 是脚本需要执行的程序。
-	RunExes []string
 	// EnvVars 是脚本需要读取的环境变量名。
 	EnvVars []string
 }
 
 // Grants 是**实际授予**的权限（Needs 与策略求交后的结果）。
+//
+// 同样没有"可执行的程序"：这是**类型层面**的保证——调用方无法表达
+// "给这个脚本 --allow-run"，因为那会让沙箱形同虚设（见 DenoArgs）。
 type Grants struct {
 	Read []string
 	Net  []string
-	Run  []string
 	Env  []string
 }
 
@@ -51,6 +53,14 @@ type Grants struct {
 //
 // 它是"沙箱权限从 ngm 词表映射过来"这句话的可执行形式：
 // 沙箱**不新造**权限语言（ADR-012 决策 3），只把同一套词表翻译成 Deno 的 flag。
+//
+// 但**默认档位不照搬**，两处刻意更严：
+//
+//   - 读：默认允许（否则没有任何脚本能跑起来——它连自己都读不到）
+//   - 网络与环境变量：**必须显式出现在 `allow` 里**。
+//     不照搬 `env:` 的"默认允许透传"，是因为那条默认值是为 **git** 定的
+//     （ngm 不解析 token，只把环境交给 git 去认证）；而沙箱里跑的是一段
+//     不受信任的脚本——把 token 默认交给它，与"默认拒绝"的整个设计相悖。
 func (pol *Policy) PlanSandbox(n Needs) (Grants, error) {
 	var g Grants
 
@@ -61,19 +71,13 @@ func (pol *Policy) PlanSandbox(n Needs) (Grants, error) {
 		g.Read = append(g.Read, dir)
 	}
 	for _, host := range n.NetHosts {
-		if err := pol.CheckNet(host); err != nil {
+		if err := pol.CheckExplicit(Permission{Namespace: Net, Target: host}); err != nil {
 			return Grants{}, err
 		}
 		g.Net = append(g.Net, host)
 	}
-	for _, exe := range n.RunExes {
-		if err := pol.CheckRun(exe); err != nil {
-			return Grants{}, err
-		}
-		g.Run = append(g.Run, exe)
-	}
 	for _, name := range n.EnvVars {
-		if err := pol.Check(Permission{Namespace: Env, Target: name}); err != nil {
+		if err := pol.CheckExplicit(Permission{Namespace: Env, Target: name}); err != nil {
 			return Grants{}, err
 		}
 		g.Env = append(g.Env, name)
@@ -82,7 +86,6 @@ func (pol *Policy) PlanSandbox(n Needs) (Grants, error) {
 	// 去重并排序：flag 列表要可复现，否则同一次执行的 argv 每次都可能不同
 	g.Read = dedupSorted(g.Read)
 	g.Net = dedupSorted(g.Net)
-	g.Run = dedupSorted(g.Run)
 	g.Env = dedupSorted(g.Env)
 	return g, nil
 }
@@ -105,11 +108,14 @@ func (g Grants) DenoArgs() []string {
 	} else {
 		args = append(args, "--deny-net")
 	}
-	if len(g.Run) > 0 {
-		args = append(args, "--allow-run="+strings.Join(g.Run, ","))
-	} else {
-		args = append(args, "--deny-run")
-	}
+	// 派生进程**一律禁止**，没有例外，也不从用户授权里继承 `run:`。
+	//
+	// 理由经实测：`--allow-run` 允许的进程**不受 Deno 权限约束**——
+	// 给 Deno 脚本 `--allow-run=cmd` 后，它通过 `cmd /c type <path>`
+	// 读到了脚本自己被禁止读取的文件。也就是说，一旦允许派生，
+	// 沙箱在文件系统与网络两个维度上的约束都可以被一次性绕开。
+	// 沙箱的意义就在于这两条约束，因此这里不给任何开口。
+	args = append(args, "--deny-run")
 	if len(g.Env) > 0 {
 		args = append(args, "--allow-env="+strings.Join(g.Env, ","))
 	} else {

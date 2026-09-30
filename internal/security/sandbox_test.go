@@ -25,7 +25,6 @@ func TestPlanSandbox(t *testing.T) {
 	needs := Needs{
 		ReadDirs: []string{"/vendor/org/repo"},
 		NetHosts: []string{"example.com"},
-		RunExes:  []string{"git"},
 		EnvVars:  []string{"GITHUB_TOKEN"},
 	}
 
@@ -36,11 +35,11 @@ func TestPlanSandbox(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading the dependency's own tree should be allowed by default: %v", err)
 		}
-		if len(g.Read) != 1 || len(g.Net) != 0 || len(g.Run) != 0 {
+		if len(g.Read) != 1 || len(g.Net) != 0 {
 			t.Errorf("unexpected grants: %+v", g)
 		}
 
-		for _, n := range []Needs{{NetHosts: []string{"example.com"}}, {RunExes: []string{"bash"}}} {
+		for _, n := range []Needs{{NetHosts: []string{"example.com"}}, {EnvVars: []string{"GITHUB_TOKEN"}}} {
 			if _, err := pol.PlanSandbox(n); err == nil {
 				t.Errorf("these needs must be refused without permission: %+v", n)
 			}
@@ -48,7 +47,7 @@ func TestPlanSandbox(t *testing.T) {
 	})
 
 	t.Run("granted needs are mapped through", func(t *testing.T) {
-		pol := sandboxPolicy(t, []string{"net:example.com", "run:git", "env:GITHUB_TOKEN"}, nil)
+		pol := sandboxPolicy(t, []string{"net:example.com", "env:GITHUB_TOKEN"}, nil)
 		g, err := pol.PlanSandbox(needs)
 		if err != nil {
 			t.Fatalf("PlanSandbox: %v", err)
@@ -56,11 +55,28 @@ func TestPlanSandbox(t *testing.T) {
 		if len(g.Net) != 1 || g.Net[0] != "example.com" {
 			t.Errorf("net grants = %v", g.Net)
 		}
-		if len(g.Run) != 1 || g.Run[0] != "git" {
-			t.Errorf("run grants = %v", g.Run)
-		}
 		if len(g.Env) != 1 || g.Env[0] != "GITHUB_TOKEN" {
 			t.Errorf("env grants = %v", g.Env)
+		}
+	})
+
+	// 沙箱里**永不**派生进程，也不从用户授权里继承 `run:`。
+	//
+	// 这条不是保守，而是实测结论：`--allow-run` 允许的进程不受 Deno 权限约束——
+	// 给脚本 `--allow-run=cmd` 后，它通过 `cmd /c type <path>` 读到了脚本自己
+	// 被禁止读取的文件。一旦允许派生，文件系统与网络两条约束都能被一次性绕开。
+	t.Run("spawning is never possible, not even when run: is granted", func(t *testing.T) {
+		pol := sandboxPolicy(t, []string{"run:git", "run:sh", "run:*"}, nil)
+		g, err := pol.PlanSandbox(Needs{ReadDirs: []string{"/vendor/x"}})
+		if err != nil {
+			t.Fatalf("PlanSandbox: %v", err)
+		}
+		joined := strings.Join(g.DenoArgs(), " ")
+		if strings.Contains(joined, "--allow-run") {
+			t.Errorf("the sandbox must never allow spawning: %v", g.DenoArgs())
+		}
+		if !strings.Contains(joined, "--deny-run") {
+			t.Errorf("spawning must be denied explicitly: %v", g.DenoArgs())
 		}
 	})
 
@@ -74,15 +90,15 @@ func TestPlanSandbox(t *testing.T) {
 
 	// 需要项去重并排序：flag 列表必须可复现，否则同一次执行的 argv 每次都不同
 	t.Run("grants are deduped and sorted", func(t *testing.T) {
-		pol := sandboxPolicy(t, []string{"net:b.com", "net:a.com", "run:z", "run:a"}, nil)
+		pol := sandboxPolicy(t, []string{"net:b.com", "net:a.com", "env:ZED", "env:ALPHA"}, nil)
 		g, err := pol.PlanSandbox(Needs{
 			NetHosts: []string{"b.com", "a.com", "a.com"},
-			RunExes:  []string{"z", "a"},
+			EnvVars:  []string{"ZED", "ALPHA"},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Join(g.Net, ",") != "a.com,b.com" || strings.Join(g.Run, ",") != "a,z" {
+		if strings.Join(g.Net, ",") != "a.com,b.com" || strings.Join(g.Env, ",") != "ALPHA,ZED" {
 			t.Errorf("grants are not sorted/deduped: %+v", g)
 		}
 	})

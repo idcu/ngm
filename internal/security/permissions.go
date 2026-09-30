@@ -237,6 +237,26 @@ func (pol *Policy) CheckWrite(path string) error {
 	return pol.Check(Permission{Namespace: Write, Target: path})
 }
 
+// CheckExplicit 要求某条权限**显式**出现在 `allow` 里（默认档位不算数）。
+//
+// 用于沙箱：判定"这个脚本能不能读环境变量 / 访问网络"时，默认档位是给 ngm 自己
+// 的便利，不应自动延伸到一段不受信任的代码上。
+func (pol *Policy) CheckExplicit(p Permission) error {
+	if pol != nil && pol.allow[p.String()] && !pol.isDenied(p) {
+		return nil
+	}
+
+	// 提示必须与普通拒绝**不同**：差别正是"需要显式授权"，
+	// 不说清的话用户会以为自己配的默认值被无视了。
+	hint := "the sandbox only grants what `permissions.allow` states explicitly; add " +
+		quote(p.String()) + " to it in " + pol.Source()
+	if pol.isDenied(p) {
+		hint = "it is denied by `permissions.deny` in " + pol.Source() +
+			"; remove " + quote(p.String()) + " from that list to allow it"
+	}
+	return errs.New(errs.CodeConfigInvalid, "permission denied: "+p.String(), hint)
+}
+
 // Allows 报告某条权限是否放行。
 func (pol *Policy) Allows(p Permission) bool {
 	if pol == nil {
