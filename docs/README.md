@@ -222,7 +222,7 @@ commit 的记录**，不等于安全——覆盖局限会写进每一份报告�
 | 版本 | 目标 | 状态 |
 |------|------|------|
 | v0.1 | Git 声明/锁定 + vendor 4 层 + verify + 最小 esbuild adapter | **已完成**（四条退出标准全部达成） |
-| v0.2 | 供应链策略最小字段集 + OSV / audit + `why`·`tree`·`outdated` + **多引擎 adapter（tsc / deno / postcss）** + `install` 的 CI 模式 + verify 性能优化 | 规划中 |
+| v0.2 | 供应链策略最小字段集 + OSV / audit + `why`·`tree`·`outdated` + **多引擎 adapter（tsc / deno / postcss）** + `install` 的 CI 模式 + verify 性能优化 | **已完成**（离线 verify 达标；在线 verify 差 1.1×，见[复盘](./development/v0.2-retrospective.md)） |
 | v0.3 | wasm / remote adapter + 集成脚手架（Vite / esbuild / Deno / Webpack）+ Deno 沙箱 + 权限与凭证 + mappings 协议 v2 | 规划中 |
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。

@@ -1,7 +1,9 @@
 # 路线图
 
-> ngm 的产品路线。**v0.1 已实现**（四条退出标准全部达成，实测结论见 [v0.1 复盘](../development/v0.1-retrospective.md)）；
-> v0.2 及以后仍为规划。
+> ngm 的产品路线。**v0.1 与 v0.2 均已实现**（证据见 [v0.1 复盘](../development/v0.1-retrospective.md) 与
+> [v0.2 复盘](../development/v0.2-retrospective.md)）；**v0.3 及以后仍为规划**。
+>
+> 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
 
 ---
 
@@ -42,20 +44,27 @@
 **尚未达成的非阻塞项**：性能目标 5 条中 2 条未达标（`verify` 在 100 依赖规模上超目标
 6.3× / 2.2×），根因是每个依赖 4 次 git 子进程，列入 v0.2 优化项。
 
+> **v0.2 更新**：其中 **offline verify 已达标**（11.12s → 1.97s）；在线 verify 仍差 1.1×，
+> 缺口性质与去向见 [v0.2 复盘 §2.1](../development/v0.2-retrospective.md)。
+
 ---
 
 ## v0.2 — 供应链防护完整
 
 **目标**：把 refType + commit + digest + vendor + verify + OSV 收束为统一流程。
 
-| 模块 | 任务 |
-|------|------|
-| OSV | OSV.dev 查询 + 缓存 + 报告 |
-| 策略 | minimumReleaseAge、白名单、postInstallPolicy |
-| audit | `ngm audit` 命令 + 报告格式化 |
-| 可观测性 | why / tree / outdated |
-| adapter | tsc / deno / postcss adapter |
-| CI | `--frozen-lockfile` / `--offline` 模式 |
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| OSV | OSV.dev 查询 + 缓存 + 报告 | ✅ 按 commit 查询 + 24h 缓存 |
+| 策略 | minimumReleaseAge、白名单、postInstallPolicy | ✅ 前三项生效；**postInstallPolicy 收窄为"只记录不执行"**（需沙箱前置，见 ADR-009） |
+| audit | `ngm audit` 命令 + 报告格式化 | ✅ |
+| 可观测性 | why / tree / outdated | ✅ |
+| adapter | tsc / deno / postcss adapter | ✅（deno 需自行声明；真实引擎 CI 覆盖仍是 esbuild，见复盘 §2.2） |
+| CI | `--frozen-lockfile` / `--offline` 模式 | ✅ |
+| （追加） | `verifyOnLock` + verify 性能 | ✅ 已接线；offline 达标、在线差 1.1× |
+
+> **验收与实测**见 [v0.2 实施计划](../development/v0.2-plan.md) 与
+> [v0.2 复盘](../development/v0.2-retrospective.md)（含 6 条设计偏离与 6 处已修缺陷）。
 
 ---
 
@@ -67,9 +76,14 @@
 |------|------|
 | adapter | wasm adapter、remote adapter |
 | 集成 | Vite / esbuild / Deno / Webpack 集成脚手架 |
-| sandbox | Deno 沙箱模式 |
+| sandbox | Deno 沙箱模式（**`postInstallPolicy` 执行入口的前置**） |
 | 凭证 | `~/.ngm/config.json` 权限管理 |
 | mappings | v2 协议（支持 monorepo） |
+
+> **候选（不构成承诺）**：[v0.2 复盘 §6](../development/v0.2-retrospective.md) 按证据强度列出
+> 惰性 fetch（在线 `verify` 达标的唯一已知途径）、`refType=commit` 跳过 `ls-remote`、
+> 真实引擎 CI 覆盖扩展到 tsc / postcss、单依赖内并行哈希。
+> 前两项会改变"在线 verify 意味着什么"的语义，**须先立 ADR**。
 
 ---
 

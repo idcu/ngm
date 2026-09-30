@@ -151,6 +151,11 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 - 进入 v0.2 前，先完成 v0.1 复盘：用实测结果复核性能目标与设计假设，必要时先修 ADR
   - ✅ 已完成：[v0.1 复盘](./v0.1-retrospective.md)（四条退出标准达成；性能 5 条中 2 条未达标，
     根因与 v0.2 行动项已记录）
+  - ✅ 该复核有实质产出：发现 `resolve.Node.RequiredBy` 必须存**节点 Key**，
+    否则来源链在 monorepo 下会指错节点
+- 进入 v0.3 前，先完成 v0.2 复盘：逐条对验收标准给证据、登记设计偏离与未达标项
+  - ✅ 已完成：[v0.2 复盘](./v0.2-retrospective.md)（六组全部实现；在线 `verify` 差 1.1×；
+    6 条设计偏离、6 处已修缺陷；其中 4 处是靠"做完之后再验证一次"发现的）
 
 ---
 
@@ -176,7 +181,7 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md)
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）
