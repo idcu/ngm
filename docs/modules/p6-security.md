@@ -6,7 +6,8 @@
 
 ## 状态
 
-**v0.3 规划。** 安全模型的核心概念（权限模型、sandbox、凭证管理）唯一维护在 [架构：安全模型](../architecture/security-model.md)；本页只维护模块结构。
+**v0.3 部分实现。** 权限模型（default-deny）已落地并施加；sandbox 与凭证管理仍待实现。
+核心概念唯一维护在 [架构：安全模型](../architecture/security-model.md)；本页只维护模块结构。
 
 ---
 
@@ -34,9 +35,9 @@ internal/security/
 
 | 能力 | 说明 | 版本 |
 |------|------|------|
-| 权限模型（default-deny） | 见[安全模型](../architecture/security-model.md) | v0.3 |
-| `ngm verify --sandbox`（Deno 沙箱） | core Go 决策，Deno 执行 | v0.3 |
-| 凭证管理（ssh-agent / credential helper） | 见[安全模型](../architecture/security-model.md) | v0.3 |
+| 权限模型（default-deny） | `internal/security/permissions.go`；施加点见[安全模型](../architecture/security-model.md) | **v0.3 已实现**（`run:<引擎>` 待施加） |
+| `ngm verify --sandbox`（Deno 沙箱） | core Go 决策，Deno 执行 | planned v0.3（需 ADR-012） |
+| 凭证管理（ssh-agent / credential helper） | 见[安全模型](../architecture/security-model.md)；v0.1 起已落地的保证见该页 | v0.1 部分 / v0.3 续 |
 
 ---
 

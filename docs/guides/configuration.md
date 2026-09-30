@@ -273,10 +273,12 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 
 ## 全局配置 ~/.ngm/config.json
 
-> **成熟度**：`git` 与 `engines` 段**已生效**。
-> **`permissions` 段只被解析与校验，尚未施加**（结构与读取在 M0 就留好了，执行属 v0.3）。
-> 也就是说，写下 `"deny": ["env:GITHUB_TOKEN"]` 现在**不会**阻止任何事——
-> 不要把它当作已生效的防线（见[安全模型](../architecture/security-model.md)）。
+> **成熟度**：`git` 与 `engines` 段**已生效**；`permissions` 段自 **v0.3 起已实际施加**
+> （施加点与默认档位见[安全模型](../architecture/security-model.md)）。
+>
+> **升级注意**：`net:` 与 `run:` 的默认档位是"需配置"。升级后第一次访问远端会 `exit 3`，
+> 提示里给出可以直接粘贴的那一行；把 `net:<host>`（以及要用到的 `run:<engine>`）加进
+> `allow` 即可。本地 mirror 与 `file://` 路径不是网络访问，不受影响。
 
 ```json
 {

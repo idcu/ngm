@@ -36,6 +36,23 @@ type Options struct {
 	// Secrets 是需要在错误输出中被替换为 "***" 的字面量集合。
 	// 由调用方传入（通常来自 tokenEnvVars 的实际值）；本包不主动读取环境变量。
 	Secrets []string
+	// Policy 是权限判定器（可为 nil，表示不施加权限）。
+	//
+	// 它在这里做两件事，覆盖**全部** git 子进程：
+	//   - `run:git`：被拒绝时根本不启动 git
+	//   - `env:<NAME>`：把被拒绝的环境变量从子进程环境里剔除
+	//     （不是读取它的值——ngm 依旧不解析 token）
+	Policy Permissions
+}
+
+// Permissions 是 git 需要的权限判定能力。
+//
+// 用接口而不是直接依赖 internal/security：本包只需要这两个方法，
+// 测试也能给出一个最小实现，不必构造完整的策略对象。
+type Permissions interface {
+	CheckRun(exe string) error
+	CheckNet(host string) error
+	DeniedEnvVars() []string
 }
 
 // Result 是一次 git 调用的结果。
@@ -56,6 +73,14 @@ type Result struct {
 // 调用方若需要把特定的非零退出解释为"ref 不存在"等语义，应自行检查 Result.ExitCode——
 // 本函数在非零退出时总是返回 error，以便调用链不会忽略失败。
 func Run(ctx context.Context, opts Options, args ...string) (*Result, error) {
+	// 权限门禁在**启动之前**：拒绝 `run:git` 时不该留下任何副作用，
+	// 也不该让用户从"git 失败了"去猜"其实是我的配置不允许执行它"。
+	if opts.Policy != nil {
+		if err := opts.Policy.CheckRun("git"); err != nil {
+			return &Result{ExitCode: -1}, err
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if opts.Dir != "" {
 		cmd.Dir = opts.Dir
@@ -129,6 +154,21 @@ var repoLocatingEnvVars = map[string]bool{
 //   - 默认注入 GIT_TERMINAL_PROMPT=0，避免无 tty 时挂起
 //   - 强制 LC_ALL=C / LANG=C，让 git 错误信息稳定为英文，便于测试与 Hint 匹配
 func buildEnv(opts Options) []string {
+	// 被 `deny: ["env:X"]` 拒绝的变量从这里**剔除**。
+	//
+	// 剔除而不是"读取后置空"：ngm 至今不解析 token 的内容，这条性质不能因为
+	// 权限功能而破掉。用户 deny 掉 GITHUB_TOKEN 之后，git 就是收不到它——
+	// 于是一次需要认证的 fetch 会失败，而失败原因由 git 自己给出。
+	var deniedEnv map[string]bool
+	if opts.Policy != nil {
+		for _, name := range opts.Policy.DeniedEnvVars() {
+			if deniedEnv == nil {
+				deniedEnv = map[string]bool{}
+			}
+			deniedEnv[strings.ToUpper(name)] = true
+		}
+	}
+
 	base := os.Environ()
 	env := make([]string, 0, len(base)+len(opts.ExtraEnv)+3)
 	for _, e := range base {
@@ -136,8 +176,9 @@ func buildEnv(opts Options) []string {
 		if i := strings.IndexByte(e, '='); i >= 0 {
 			name = e[:i]
 		}
+		upper := strings.ToUpper(name)
 		// Windows 环境变量名不区分大小写
-		if repoLocatingEnvVars[strings.ToUpper(name)] {
+		if repoLocatingEnvVars[upper] || deniedEnv[upper] {
 			continue
 		}
 		env = append(env, e)

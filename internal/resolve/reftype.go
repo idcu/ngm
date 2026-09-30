@@ -25,6 +25,11 @@ type ResolveOptions struct {
 	Protocol Protocol
 	// Secrets 是需要在错误输出中脱敏的字面量（通常来自 tokenEnvVars 的值）。
 	Secrets []string
+	// Policy 是权限判定器（可为 nil）。
+	//
+	// 传进来是为了让本包发出的 git 子进程同样受 `run:git` 约束：
+	// ngm 里不应存在"绕过门禁的 git 调用路径"，否则那条路径就是审计的盲区。
+	Policy git.Permissions
 }
 
 // ResolveRef 把 (repo, ref, refType) 解析为确定的 commit hash（40 位小写十六进制）。
@@ -116,7 +121,14 @@ func normalizeCommitRef(ref string) (string, error) {
 func resolveNamedRef(ctx context.Context, repo Canonical, ref string, refType RefType, opts ResolveOptions) (string, error) {
 	lsURL, isLocalMirror := pickLSRemoteURL(repo, opts)
 
-	refs, err := git.LSRemote(ctx, git.Options{Secrets: opts.Secrets}, lsURL)
+	// net 门禁：ls-remote 是网络访问。放在这里而不是调用方，是因为
+	// 只有本函数知道最终用哪个地址（本地 mirror 路径不算网络访问，
+	// CheckNetAccess 会识别出来，不会把离线操作拦下）。
+	if err := git.CheckNetAccess(opts.Policy, lsURL); err != nil {
+		return "", err
+	}
+
+	refs, err := git.LSRemote(ctx, git.Options{Secrets: opts.Secrets, Policy: opts.Policy}, lsURL)
 	if err != nil {
 		return "", decorateFetchError(err, repo, lsURL, isLocalMirror)
 	}

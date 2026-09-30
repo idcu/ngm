@@ -126,6 +126,8 @@ type GraphOptions struct {
 	Protocol Protocol
 	// Secrets 是错误输出脱敏用的字面量。
 	Secrets []string
+	// Policy 是权限判定器（可为 nil），透传给本包发出的 git 子进程。
+	Policy git.Permissions
 	// Concurrency 是层内并发度；<=0 时使用 DefaultConcurrency。
 	Concurrency int
 	// CheckRepo 是**供应链策略的注入点**（见 ADR-009）。
@@ -442,7 +444,7 @@ func mergeIntoExisting(existing, incoming *Node) error {
 //
 // 同时返回提示（如上游把 Git 依赖写在 package.json 里）。
 func readUpstreamDeps(ctx context.Context, node *Node, opts GraphOptions) ([]DepSpec, []string, error) {
-	gitOpts := git.Options{Secrets: opts.Secrets}
+	gitOpts := git.Options{Secrets: opts.Secrets, Policy: opts.Policy}
 
 	content, exists, err := git.ReadFileAtCommit(ctx, gitOpts, node.MirrorPath, node.Commit, UpstreamFile)
 	if err != nil {

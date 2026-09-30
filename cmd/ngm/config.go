@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/errs"
@@ -59,10 +60,23 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer) int {
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "get cwd", "", err))
 	}
 	home, _ := os.UserHomeDir()
-	if _, err := config.Load(cwd, home); err != nil {
+	r, err := config.Load(cwd, home)
+	if err != nil {
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "validate ngm.json", "fix the reported field or remove unknown fields", err))
 	}
 	fmt.Fprintln(stdout, "ngm.json OK")
+
+	// 权限列表也要校验。`config.Load` 不会看它的内容（字段类型是 []string），
+	// 而**一条**写错的命名空间会让整份列表都不被采用——那正是用户检查配置时
+	// 最先跑这个命令的原因。
+	pol, perr := newPermissionPolicy(r.GlobalEffective.Permissions)
+	if perr != nil {
+		return runErr(ctx, stdout, stderr, perr)
+	}
+	if conflicts := pol.Conflicts(); len(conflicts) > 0 {
+		fmt.Fprintf(stderr, "warning: in both `allow` and `deny`: %s\n", strings.Join(conflicts, ", "))
+		fmt.Fprintln(stderr, "         deny wins, so these are currently refused; remove them from one list")
+	}
 	return 0
 }
 

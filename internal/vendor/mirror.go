@@ -87,6 +87,33 @@ func (m *Mirror) Ensure(ctx context.Context, repo resolve.Canonical, remoteURL s
 		remoteURL = repo.CloneURL(p)
 	}
 
+	// 权限门禁放在**这里**而不是调用方：只有本函数知道实际要访问的那个 URL。
+	//
+	// 调用方只看得到 slug（`github:org/repo`），而 mirror 可能来自本地路径
+	// （测试、CI 预置镜像、本地裸仓库）——按 slug 的主机名判定会把纯本地操作
+	// 当成网络访问拦下。
+	//
+	// 先判 run:git，再判 net：读已存在 mirror 的 origin URL 本身就要跑 git，
+	// 若顺序反了，被拒绝的 run:git 会被报成"net 权限不足"（见 CheckRunAccess）。
+	if err := git.CheckRunAccess(m.opts.Policy, "git"); err != nil {
+		return EnsureResult{Path: path}, err
+	}
+
+	netURL := remoteURL
+	if m.Exists(repo) {
+		// 已存在的 mirror 从它记录的 origin 取（本地读配置，不触网）。
+		// 读不到时退回克隆 URL 判定：宁可多要求一次 net 权限，
+		// 也不让一次网络访问绕过门禁。这是 fail-closed 的取舍——
+		// 它确实可能在极端情形下多拦一次本地 fetch，但不会漏放一次网络访问。
+		u, uerr := git.MirrorRemoteURL(ctx, m.opts, path)
+		if uerr == nil && strings.TrimSpace(u) != "" {
+			netURL = u
+		}
+	}
+	if err := git.CheckNetAccess(m.opts.Policy, netURL); err != nil {
+		return EnsureResult{Path: path}, err
+	}
+
 	if !m.Exists(repo) {
 		// 目标路径存在但不是有效裸仓库 → 明确报错而不是静默删除用户数据
 		if _, err := os.Stat(path); err == nil {

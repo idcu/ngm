@@ -12,6 +12,7 @@ import (
 	"github.com/idcu/ngm/internal/lock"
 	"github.com/idcu/ngm/internal/mappings"
 	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/security"
 	"github.com/idcu/ngm/internal/vendor"
 )
 
@@ -35,6 +36,10 @@ type projectEnv struct {
 	Protocol resolve.Protocol
 	// Secrets 是需要在输出中脱敏的字面量。
 	Secrets []string
+	// Policy 是权限判定器（`~/.ngm/config.json` 的 permissions 段）。
+	//
+	// 可能为 nil（配置文件不存在）：此时判定按默认档位进行，net / run 仍需授权。
+	Policy *security.Policy
 }
 
 // newProjectEnv 构造运行环境。
@@ -53,13 +58,26 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 	}
 
 	secrets := git.SecretsFromEnvVars(git.MergeTokenEnvVars(nil))
-	gitOpts := git.Options{Secrets: secrets}
 
-	// 协议：全局配置 git.defaultProtocol 优先，缺省 https
+	// 协议与权限都来自全局配置。
+	//
+	// 配置**读不出来**时不静默放行：策略为 nil 时判定退化为"按默认档位"，
+	// 也就是 net / run 仍需显式授权——读不出配置的后果是更严，而不是更松。
 	proto := resolve.ProtocolHTTPS
-	if r, cerr := config.Load(projectDir, homeDirOrEmpty()); cerr == nil && r.GlobalEffective.Git != nil {
-		proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolHTTPS)
+	var pol *security.Policy
+	if r, cerr := config.Load(projectDir, homeDirOrEmpty()); cerr == nil {
+		if r.GlobalEffective.Git != nil {
+			proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolHTTPS)
+		}
+		// 权限写错必须立刻报出来：把它当成"没配"会让用户以为
+		// 自己写的 deny 已经生效，而实际上整份列表都没被采用。
+		p, perr := newPermissionPolicy(r.GlobalEffective.Permissions)
+		if perr != nil {
+			return nil, perr
+		}
+		pol = p
 	}
+	gitOpts := git.Options{Secrets: secrets, Policy: pol}
 
 	return &projectEnv{
 		ProjectDir: projectDir,
@@ -69,12 +87,28 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 		GitOpts:    gitOpts,
 		Protocol:   proto,
 		Secrets:    secrets,
+		Policy:     pol,
 	}, nil
+}
+
+// globalConfigSource 返回权限提示里要指出的配置文件。
+//
+// 用真实路径而不是写死 `~/.ngm/config.json`：设置过 NGM_HOME 的人看到的是
+// 另一个文件，指错地方等于让提示失效。
+func globalConfigSource() string {
+	home := homeDirOrEmpty()
+	if home == "" {
+		return "~/.ngm/config.json"
+	}
+	return filepath.Join(home, ".ngm", "config.json")
 }
 
 // EnsureMirror 是 resolve.GraphOptions.EnsureMirror 的实现。
 //
 // mirror 已就绪时完全不触网；缺失时才 clone（那需要网络或可访问的本地路径）。
+//
+// `net:` 的判定在 `vendor.Mirror.Ensure` 里，不在本函数：只有那一层知道实际要访问
+// 的 URL（本地路径不该被当成网络访问），而本函数只看得到 slug。
 func (e *projectEnv) EnsureMirror(ctx context.Context, repo resolve.Canonical) (string, error) {
 	res, err := e.Mirror.Ensure(ctx, repo, "", e.Protocol)
 	if err != nil {
@@ -94,16 +128,21 @@ func (e *projectEnv) RemoteRefResolver() func(context.Context, resolve.Canonical
 	return func(ctx context.Context, repo resolve.Canonical, ref string, rt resolve.RefType) (string, error) {
 		url, err := git.MirrorRemoteURL(ctx, e.GitOpts, e.Mirror.PathFor(repo))
 		if err != nil || strings.TrimSpace(url) == "" {
+			// 降级分支：只读本地 mirror，不触网，因此不需要 net 权限
 			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{
 				MirrorDir: e.Layout.MirrorRoot(),
 				Protocol:  e.Protocol,
 				Secrets:   e.GitOpts.Secrets,
+				Policy:    e.Policy,
 			})
 		}
+		// 这一次会做 ls-remote（网络访问）。net 门禁在 resolve 内部：
+		// 那里才是最终地址确定的地方，也只有那里能覆盖其他调用方。
 		return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{
 			GitURL:   url,
 			Protocol: e.Protocol,
 			Secrets:  e.GitOpts.Secrets,
+			Policy:   e.Policy,
 		})
 	}
 }
@@ -114,6 +153,7 @@ func (e *projectEnv) GraphOptions() resolve.GraphOptions {
 		EnsureMirror: e.EnsureMirror,
 		Protocol:     e.Protocol,
 		Secrets:      e.Secrets,
+		Policy:       e.Policy,
 		Concurrency:  resolve.DefaultConcurrency,
 	}
 }
