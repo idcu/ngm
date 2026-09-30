@@ -1,0 +1,4 @@
+github.com:my-org/app
+github:snap/parent@v1 (tag) → <sha>
+│   github:snap/leaf@v1 (tag) → <sha>
+vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)

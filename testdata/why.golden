@@ -1,0 +1,8 @@
+github:snap/leaf@v1 (tag) → <sha>
+
+直接依赖：否
+传递依赖：1 条路径
+  ngm.json → github:snap/parent@v1 → github:snap/leaf@v1
+
+锁定：<sha> (<time>)
+archiveDigest: sha256:7f69fa5497bee3a6342b807b9b65014422143ea7ecc65e69526f6fa5f0c96f24

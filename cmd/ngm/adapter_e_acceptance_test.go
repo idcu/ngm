@@ -41,6 +41,32 @@ func TestV02EngineAdaptersAcceptance(t *testing.T) {
 		}
 	})
 
+	// E 组验收的另一半：`--engine=typescript|deno` 必须给出**同一套结构**
+	// （同一条命令、同一种成功/失败语义），而不是两条各写一套。
+	t.Run("deno type-checks through the same workflow as tsc", func(t *testing.T) {
+		isolateUserEnv(t)
+		proj := newProject(t)
+		writeEngineCatalog(t, proj, engineEntry{
+			Name: "deno", Kind: "typeCheck", Adapter: "subprocess", Command: fake + " check",
+		})
+
+		dump := filepath.Join(t.TempDir(), "deno-args.txt")
+		t.Setenv("FAKE_DUMP_ARGS", dump)
+
+		code, out := runCaptureCode(t, "typecheck", "--engine=deno", "--dir="+proj)
+		if code != 0 {
+			t.Fatalf("typecheck --engine=deno exit=%d:\n%s", code, out)
+		}
+		raw, err := os.ReadFile(dump)
+		if err != nil {
+			t.Fatalf("the engine was never invoked: %v", err)
+		}
+		// 子命令来自清单前缀，且只出现一次（不得重复拼成 `deno check check`）
+		if got := strings.Count(string(raw), "check"); got != 1 {
+			t.Errorf("the `check` subcommand should come from the catalog prefix exactly once, got %d:\n%s", got, raw)
+		}
+	})
+
 	t.Run("a declared deno older than 2.4 is refused for bundling", func(t *testing.T) {
 		isolateUserEnv(t)
 		proj := newProject(t)
