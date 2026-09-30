@@ -85,7 +85,11 @@ func runSandboxChecks(ctx context.Context, env *projectEnv, pf *config.ProjectFi
 			return gerr
 		}
 
-		res, rerr := deno.RunScript(ctx, s.path, s.dir, grants)
+		res, rerr := deno.RunScript(ctx, security.ScriptRequest{
+			Script: s.path,
+			Dir:    s.dir,
+			Grants: grants,
+		})
 		if rerr != nil {
 			return rerr
 		}

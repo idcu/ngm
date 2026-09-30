@@ -167,9 +167,9 @@ func FindDeno() (string, error) {
 	path, err := exec.LookPath("deno")
 	if err != nil {
 		return "", errs.New(errs.CodeEngineNotFound,
-			"deno is required for --sandbox but was not found on PATH",
-			"install Deno (https://deno.com) or drop --sandbox; "+
-				"ngm will not run a dependency's script outside a sandbox")
+			"deno is required to run this script but was not found on PATH",
+			"install Deno (https://deno.com), or drop the flag that asked for it; "+
+				"ngm will not run a script outside a sandbox")
 	}
 	return path, nil
 }
@@ -214,10 +214,23 @@ func (d Deno) Probe(ctx context.Context) error {
 	return nil
 }
 
+// ScriptRequest 是一次沙箱执行的输入。
+type ScriptRequest struct {
+	// Script 是脚本的绝对路径。
+	Script string
+	// Dir 是工作目录（脚本的相对导入从它解析）。
+	Dir string
+	// Grants 是这次执行实际获得的权限。
+	Grants Grants
+	// Stdin 是可选的输入（如 audit 报告）。
+	//
+	// 用 stdin 而不是临时文件：临时文件要落到磁盘上，而"沙箱内不写任何东西"
+	// 是这套边界的一部分——为传一份数据破例，下次就会为别的破例。
+	Stdin []byte
+}
+
 // RunScript 在沙箱里执行脚本。
-//
-// scripts 为脚本绝对路径；workDir 是工作目录（脚本的相对导入从它解析）。
-func (d Deno) RunScript(ctx context.Context, script, workDir string, g Grants) (*Result, error) {
+func (d Deno) RunScript(ctx context.Context, req ScriptRequest) (*Result, error) {
 	timeout := d.Timeout
 	if timeout <= 0 {
 		timeout = SandboxTimeout
@@ -225,11 +238,14 @@ func (d Deno) RunScript(ctx context.Context, script, workDir string, g Grants) (
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := append([]string{"run"}, g.DenoArgs()...)
-	args = append(args, script)
+	args := append([]string{"run"}, req.Grants.DenoArgs()...)
+	args = append(args, req.Script)
 
 	cmd := exec.CommandContext(runCtx, d.Path, args...)
-	cmd.Dir = workDir
+	cmd.Dir = req.Dir
+	if len(req.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(req.Stdin)
+	}
 	cmd.Env = envWithout(os.Environ(), d.DeniedEnv)
 
 	var stdout, stderr bytes.Buffer

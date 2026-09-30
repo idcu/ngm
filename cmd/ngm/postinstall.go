@@ -184,7 +184,11 @@ func executePostInstallHooks(
 			return gerr
 		}
 
-		res, rerr := deno.RunScript(ctx, h.js, h.dir, grants)
+		res, rerr := deno.RunScript(ctx, security.ScriptRequest{
+			Script: h.js,
+			Dir:    h.dir,
+			Grants: grants,
+		})
 		if rerr != nil {
 			return rerr
 		}

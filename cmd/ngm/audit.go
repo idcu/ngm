@@ -26,12 +26,17 @@ FLAGS:
                A dependency with no cached result fails with exit 4.
   --no-cache   ignore the cached result and re-query OSV.dev
   --json       write a machine-readable report to stdout (CI should use this)
+  --hook=<path>  run this script in a Deno sandbox after the audit. It receives the
+               report as JSON on stdin; exit 0 to accept, non-zero to reject (exit 1).
+               This is how a team adds its own policy on top of OSV - it needs Deno,
+               and ngm will not run it unsandboxed
 
 EXIT CODES:
   0  no vulnerabilities above the configured threshold
-  1  at least one vulnerability above the threshold
-  3  configuration or lock error
+  1  at least one vulnerability above the threshold, or --hook rejected the report
+  3  configuration or lock error (including a --hook path that does not exist)
   4  OSV network failure and no usable cache
+  5  --hook was given (or the sandbox was requested) and Deno is missing
 
 IMPORTANT — read the coverage note in every report. A clean result means
 "no known entry for this commit in OSV.dev", NOT "proven safe": zero-day
@@ -55,6 +60,7 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	offline := fs.Bool("offline", false, "never touch the network")
 	noCache := fs.Bool("no-cache", false, "bypass the OSV cache and re-query")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
+	hook := fs.String("hook", "", "script to run in the sandbox with the report on stdin")
 	fs.Usage = func() { fmt.Fprint(stderr, auditUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
@@ -62,6 +68,7 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		{Name: "offline", Bool: true},
 		{Name: "no-cache", Bool: true},
 		{Name: "json", Bool: true},
+		{Name: "hook"},
 	})); err != nil {
 		return 3
 	}
@@ -122,9 +129,9 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
 			return 1
 		}
-		return rep.ExitCode
+		return runAuditHook(ctx, env, rep, *hook, rep.ExitCode, stdout, stderr)
 	}
 
 	rep.Render(stdout)
-	return rep.ExitCode
+	return runAuditHook(ctx, env, rep, *hook, rep.ExitCode, stdout, stderr)
 }

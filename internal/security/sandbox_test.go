@@ -251,7 +251,7 @@ Deno.exit(ok ? 0 : 1);
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := d.RunScript(context.Background(), script, allowed, g)
+	res, err := d.RunScript(context.Background(), ScriptRequest{Script: script, Dir: allowed, Grants: g})
 	if err != nil {
 		t.Fatalf("RunScript: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestSandbox_RealDeno_NetOnlyWhenGranted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, err := d.RunScript(context.Background(), script, dir, g)
+		res, err := d.RunScript(context.Background(), ScriptRequest{Script: script, Dir: dir, Grants: g})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -303,7 +303,7 @@ func TestSandbox_RealDeno_NetOnlyWhenGranted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, err := d.RunScript(context.Background(), script, dir, g)
+		res, err := d.RunScript(context.Background(), ScriptRequest{Script: script, Dir: dir, Grants: g})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -332,7 +332,7 @@ func TestSandbox_RealDeno_TimeoutIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	res, err := d.RunScript(context.Background(), script, dir, g)
+	res, err := d.RunScript(context.Background(), ScriptRequest{Script: script, Dir: dir, Grants: g})
 	if err != nil {
 		t.Fatalf("RunScript: %v", err)
 	}

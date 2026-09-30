@@ -57,7 +57,10 @@ ngm 从不把沙箱的输出当成自己的结论来源。
 ### 2. 沙箱里跑什么：依赖自带的校验脚本
 
 - 依赖根目录下的 `verify.js`（若提供）。它由**依赖作者**编写，随依赖进入 vendor，因此**不可信**。
-- 同时保留安全模型里列的另外两种用途（自述文件签名检查、用户自定义 audit hook），它们**遵循同一套权限映射**。
+- 依赖根目录下的 `postinstall.js`（仅 `postInstallPolicy: allow` 时）——同属"依赖作者写的代码"。
+- 用户自定义 audit hook（`ngm audit --hook=<script.js>`，报告从 stdin 进入）。
+- 已实现：`verify.js`、`postinstall.js`、audit hook；**自述文件签名检查仍待实现**（它还需要先定格式与密钥管理）。
+- 所有用途**遵循同一套权限映射**；三者的差别只在"可读范围"：依赖脚本读自己的子树，audit hook 读整个项目目录。
 
 **执行是 opt-in**：不带 `--sandbox` 时，`verify.js` 存在也不会被执行。是否需要为"执行依赖脚本"再加一层
 `supplyChain` 开关，留到实现 postinstall 执行入口时一并决定——那时用户第一次有"我要跑它"的动机。

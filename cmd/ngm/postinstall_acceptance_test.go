@@ -124,7 +124,7 @@ func TestV03PostInstallAcceptance(t *testing.T) {
 		if !strings.Contains(out, "deno is required") {
 			t.Errorf("the error should say what is missing:\n%s", out)
 		}
-		if !strings.Contains(out, "will not run a dependency's script outside a sandbox") {
+		if !strings.Contains(out, "will not run a script outside a sandbox") {
 			t.Errorf("the hint must state that there is no fallback:\n%s", out)
 		}
 	})
