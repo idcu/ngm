@@ -14,10 +14,13 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 > 区别在于它们**是否生效**：
 >
 > - `name` / `version` / `runtime` / `dependencies` / `engines` / `vendor` —— **v0.1 已生效**
-> - `supplyChain` —— v0.1 **只解析与校验，不参与门禁**。也就是说，现在写下 `minimumReleaseAge: "P30D"`
->   不会真的拦住任何依赖；执行属 v0.2（见[供应链防护](../architecture/supply-chain.md)）。
+> - `supplyChain` —— **v0.2 起大多已生效**：`allowedGitHosts` / `allowlistRepos` / `minimumReleaseAge`
+>   构成真实门禁（解析阶段判定，命中即 `exit 3` + 来源链）；`osvIgnoreSeverities` 参与 `ngm audit`
+>   过滤；`verifyOnLock` 已在 install / update 后触发复查。
+>   **唯一仍未执行的是 `postInstallPolicy`**：v0.2 只记录不执行，执行入口需要沙箱前置（v0.3，见
+>   [ADR-009](../adr/adr-009-supply-chain-policy.md)）。
 >
-> 不要依赖尚未生效的策略字段来获得安全性——这是本项目最不愿看到的一类误读。
+> 不要依赖尚未生效的字段来获得安全性——这是本项目最不愿看到的一类误读。
 
 ---
 
@@ -269,6 +272,11 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 ---
 
 ## 全局配置 ~/.ngm/config.json
+
+> **成熟度**：`git` 与 `engines` 段**已生效**。
+> **`permissions` 段只被解析与校验，尚未施加**（结构与读取在 M0 就留好了，执行属 v0.3）。
+> 也就是说，写下 `"deny": ["env:GITHUB_TOKEN"]` 现在**不会**阻止任何事——
+> 不要把它当作已生效的防线（见[安全模型](../architecture/security-model.md)）。
 
 ```json
 {
