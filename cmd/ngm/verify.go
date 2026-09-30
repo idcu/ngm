@@ -119,6 +119,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	if *offline {
 		opts.EnsureMirror = offlineEnsureMirror(env)
+	} else {
+		// 在线：ref 问远端（一次 ls-remote，不传对象），对象按需才取（ADR-010）
+		opts.ResolveRemoteRef = env.RemoteRefResolver()
 	}
 
 	rep, verr := verify.Run(ctx, lf, opts)

@@ -48,6 +48,9 @@ func autoVerifyAfterLock(ctx context.Context, env *projectEnv, pf *config.Projec
 	if offline {
 		// 与 install/verify 共用同一实现：三条命令对"不联网"只有一种含义
 		opts.EnsureMirror = offlineEnsureMirror(env)
+	} else {
+		// 在线：与 verify 同一条取数策略（ADR-010）
+		opts.ResolveRemoteRef = env.RemoteRefResolver()
 	}
 
 	rep, verr := verify.Run(ctx, lf, opts)

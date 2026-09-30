@@ -83,6 +83,31 @@ func (e *projectEnv) EnsureMirror(ctx context.Context, repo resolve.Canonical) (
 	return res.Path, nil
 }
 
+// RemoteRefResolver 返回"问远端要 ref"的解析器（ADR-010）。
+//
+// 它先读 mirror 里记录的 origin URL（**本地读配置，不触网**），再对那个 URL 做
+// 一次 `ls-remote`——因此整个过程只有一次 ref 广播，**不传输对象**。
+//
+// 拿不到 origin URL 时退回本地 mirror 解析：那是罕见的降级模式（行为与 v0.2 一致，
+// 会因此失去"比 mirror 更新"这一点），但比直接失败更有用。
+func (e *projectEnv) RemoteRefResolver() func(context.Context, resolve.Canonical, string, resolve.RefType) (string, error) {
+	return func(ctx context.Context, repo resolve.Canonical, ref string, rt resolve.RefType) (string, error) {
+		url, err := git.MirrorRemoteURL(ctx, e.GitOpts, e.Mirror.PathFor(repo))
+		if err != nil || strings.TrimSpace(url) == "" {
+			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{
+				MirrorDir: e.Layout.MirrorRoot(),
+				Protocol:  e.Protocol,
+				Secrets:   e.GitOpts.Secrets,
+			})
+		}
+		return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{
+			GitURL:   url,
+			Protocol: e.Protocol,
+			Secrets:  e.GitOpts.Secrets,
+		})
+	}
+}
+
 // GraphOptions 返回依赖图解析选项。
 func (e *projectEnv) GraphOptions() resolve.GraphOptions {
 	return resolve.GraphOptions{

@@ -94,8 +94,10 @@ my-app
 
 ### 实现
 
-- tag refType：查询 Git host API 获取最新 tag
-- branch refType：fetch 最新 commit 对比
+- tag refType：列举**本地 mirror** 中的 tag，取最新（semver 优先，无可解析 semver 时按 tag 创建时间）。
+  **不依赖 Git host API**——ngm 是 Git 直连（[ADR-002](../adr/adr-002-git-direct.md)），
+  走 host API 会引入 rate limit 与平台差异，而 mirror 里的 tag 列表就是权威
+- branch refType：需要 fetch 才能知道最新 tip，并与 lock 对比、给出落后提交数
 - commit refType：无更新（已锁定）
 
 ### 输出
@@ -156,7 +158,7 @@ $ ngm audit
 
 | 检查 | 内容 | 默认 |
 |------|------|------|
-| ref → commit | 重新解析 refType，对比 lock | ✓（`--offline` 时用本地 mirror 快照） |
+| ref → commit | 重新解析 refType，对比 lock | ✓（在线读**远端 ref 广播**；`--offline` 用本地 mirror 快照并标 stale） |
 | digest 重放 | 从 mirror 重建清单、重算 digest 对比 lock | ✓（本地、可离线） |
 | 落地完整性 | vendor 与 content store 的存在性/链接校验 | ✓ |
 | 逐文件哈希 | `--deep` 追加：全量校验 vendor 文件字节 | ✗ |
@@ -206,9 +208,13 @@ verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 
 ## 诚实说明
 
-1. **ngm outdated 依赖 Git host API**：GitHub API 有 rate limit
-2. **ngm audit 依赖 OSV.dev**：零日漏洞不在数据库中
-3. **verify 的网络依赖**：默认需访问 Git 远端做 ref 对比；`--offline` 使用本地 mirror 快照（缺失时 exit 4），digest 重放本身完全本地
+1. **ngm outdated 的 branch 需要 fetch**：tag 判定只读本地 mirror（不触网），但 branch 的最新 tip
+   必须 fetch 才拿得到；离线时报 `unknown`（**不是**"已是最新"）
+2. **ngm audit 依赖 OSV.dev**：零日漏洞不在数据库中；多数公告按 semver 记录而非 commit
+3. **verify 的网络依赖（在线）**：ref 判定只读一次**远端 ref 广播**（`ls-remote`，不传输对象）；
+   **对象按需才取**——只有 ref 已变（判性质需要祖先关系）或 lock 的 commit 不在本地时才 fetch。
+   因此"什么都没变"的常见路径**完全不 fetch**（[ADR-010](../adr/adr-010-online-verify-fetch-policy.md)）。
+   `--offline` 用本地 mirror 快照（缺失时 exit 4），digest 重放本身完全本地。
 
 ---
 

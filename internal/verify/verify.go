@@ -61,6 +61,15 @@ type Options struct {
 	// 复盘 §3.3 已确认 verify 的成本几乎全在 spawn 上。
 	Concurrency int
 
+	// ResolveRemoteRef 在**在线**模式下把 ref 解析为 commit，**不传输对象**。
+	//
+	// 为什么要单独一个注入点（ADR-010）：ref 判定只需要远端自己广播的 refs
+	// （一次 `ls-remote`），不需要先把对象搬下来。注入点存在是因为 URL / 协议 /
+	// 凭证都在调用方，本包不该知道。
+	//
+	// nil 表示按老办法——从本地 mirror 解析（`--offline` 走这条）。
+	ResolveRemoteRef func(ctx context.Context, repo resolve.Canonical, ref string, refType resolve.RefType) (string, error)
+
 	// EnsureMirror 确保层 1 就绪并返回裸仓库路径。
 	//
 	// 非 --offline 时通常是"缺失即 clone、存在即增量 fetch"；
@@ -162,30 +171,76 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 		return res, err
 	}
 
-	// ---- 层 1：确保 mirror 就绪（--offline 时由注入的实现决定是否允许触网）
+	// ---- 层 1：让 mirror **存在**（缺失才 clone）
+	//
+	// 刻意**不**在这里 fetch：常见情形是"什么都没变"，那时 fetch 不产生新信息——
+	// 它只是把"ref 仍指向 Locked 的 commit"这个**已在远端成立**的事实搬到本地。
+	// ref 判定只需要远端广播，对象按需再取（ADR-010）。
 	//
 	// 检查一、二依赖层 1，检查三不依赖。因此层 1 不可用时只跳过前两项，
 	// 落地完整性照样能查——少报一条结论比整条依赖弃查更有用。
-	mirrorPath, merr := opts.EnsureMirror(ctx, repo)
-	if merr != nil {
-		res.Err = merr.Error()
-		res.Checks = append(res.Checks, CheckResult{
-			Check:       CheckRef,
-			Status:      StatusFail,
-			Operational: true,
-			Detail:      "the local mirror is unavailable, so the ref and digest checks were skipped",
-		})
-	} else {
-		// ---- 检查一：ref → commit
-		refCheck, resolved := checkRef(ctx, repo, d, opts)
-		res.ResolvedCommit = resolved
-		res.Checks = append(res.Checks, refCheck)
+	mirrorPath := mirrorPathFor(opts, repo)
+	if !git.IsBareMirror(mirrorPath) {
+		if _, merr := opts.EnsureMirror(ctx, repo); merr != nil {
+			return finishSkippingRefAndDigest(res, merr, mirrorPath, d, store, opts)
+		}
+		mirrorPath = mirrorPathFor(opts, repo)
+	}
 
-		if refCheck.Operational {
-			res.Err = refCheck.Detail
+	// ---- 检查一：ref → commit（只读 ref 广播，不传对象）
+	refCheck, resolved := checkRef(ctx, repo, d, opts)
+	res.ResolvedCommit = resolved
+	res.Checks = append(res.Checks, refCheck)
+
+	if refCheck.Operational {
+		res.Err = refCheck.Detail
+	} else {
+		// ---- 检查二：digest 重放（本地；必要时先取对象）
+		//
+		// **不做存在性预检**：那是成功路径上白花的一次 spawn（100 依赖 = 100 次），
+		// 而成功路径正是常态。改成"缺 commit 时返回一个可识别的信号"，由这里决定
+		// 是取对象重试、还是按离线规则报资源缺失（ADR-010）。
+		digestCheck, derr := checkDigest(ctx, mirrorPath, d, opts)
+
+		if errors.Is(derr, errCommitMissing) {
+			switch {
+			case opts.Offline:
+				// 离线不许取对象：资源缺失 → exit 4（observability.md 的退出码表）
+				res.Checks = append(res.Checks, digestCheck)
+				res.Err = digestCheck.Detail
+				derr = errs.New(errs.CodeGitFetch, d.Name+": "+digestCheck.Detail+" (--offline)",
+					"the local mirror is cold; run once without --offline (or `ngm install`) to warm it")
+
+			default:
+				// 在线：取对象后重试一次。
+				//
+				// 这一步是 ADR-010 点名的关键：本地缺 commit **不等于**上游丢弃了它
+				// （可能只是从未取过）。必须先取过才能下那个结论，否则会把
+				// "我们没下载"误报成"上游删了"——那是误判，比慢更严重。
+				if _, merr := opts.EnsureMirror(ctx, repo); merr != nil {
+					digestCheck.Detail += "; could not refresh the mirror to confirm: " + merr.Error()
+					res.Checks = append(res.Checks, digestCheck)
+					res.Err = digestCheck.Detail
+					derr = merr
+					break
+				}
+				mirrorPath = mirrorPathFor(opts, repo)
+				digestCheck, derr = checkDigest(ctx, mirrorPath, d, opts)
+				if errors.Is(derr, errCommitMissing) {
+					// 取过了仍然没有 → 现在这个推断才有证据：上游丢弃了该提交
+					// （force push 后 gc、仓库重建等）。这不是网络故障，而是非预期漂移。
+					digestCheck.Drift = DriftUnexpected
+					digestCheck.Operational = false
+					digestCheck.Detail += "; the refreshed mirror no longer contains it, " +
+						"so the upstream discarded that commit"
+					derr = nil
+				}
+				res.Checks = append(res.Checks, digestCheck)
+				if derr != nil {
+					res.Err = derr.Error()
+				}
+			}
 		} else {
-			// ---- 检查二：digest 重放（完全本地、可离线）
-			digestCheck, derr := checkDigest(ctx, mirrorPath, d, opts)
 			res.Checks = append(res.Checks, digestCheck)
 			if derr != nil {
 				res.Err = derr.Error()
@@ -202,12 +257,39 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 	return res, nil
 }
 
+// mirrorPathFor 返回某仓库在 mirror 中的路径（纯字符串推导，**不触网**）。
+func mirrorPathFor(opts Options, repo resolve.Canonical) string {
+	return vendor.NewMirror(opts.MirrorRoot, opts.GitOpts).PathFor(repo)
+}
+
+// finishSkippingRefAndDigest 处理"层 1 不可用"：只跳过前两项检查。
+func finishSkippingRefAndDigest(res DepResult, merr error, mirrorPath string,
+	d *lock.Dependency, store *vendor.ContentStore, opts Options) (DepResult, error) {
+	res.Err = merr.Error()
+	res.Checks = append(res.Checks, CheckResult{
+		Check:       CheckRef,
+		Status:      StatusFail,
+		Operational: true,
+		Detail:      "the local mirror is unavailable, so the ref and digest checks were skipped",
+	})
+	res.Checks = append(res.Checks, checkLanding(context.Background(), mirrorPath, d, store, opts))
+	res.DriftKind = aggregateDrift(res.Checks)
+	res.Remediation = remediationFor(&res)
+	return res, nil
+}
+
+// errCommitMissing 是内部信号：lock 的 commit 不在本地 mirror 里。
+//
+// 它**不是**最终结论（"上游丢弃了该提交"）——那需要先取过对象才有证据
+// （ADR-010）。调用方据此决定取对象重试，还是按离线规则报资源缺失。
+var errCommitMissing = errors.New("commit missing from the local mirror")
+
 // checkRef 是检查一：重新解析 refType → commit，并与 lock 的 commit 对比。
 //
-// 返回 (检查结果, 本次解析到的 commit 短哈希以外为空)。
+// 返回 (检查结果, 本次解析到的 commit；解析失败时为空)。
 //
-// 刻意只在**本地 mirror** 上解析（MirrorDir = MirrorRoot）：层 1 已由 EnsureMirror
-// 保证是新鲜的（非 --offline 时刚做过增量 fetch），因此这里无需第二次远端往返。
+// **它自己不取对象**——除非 ref 已经变了（那时判漂移性质需要祖先关系）。
+// 这是 ADR-010 的关键：把"判性质"从"解析"里拆出来，因为只有前者需要对象。
 func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, opts Options) (CheckResult, string) {
 	rt := resolve.RefType(d.RefType)
 	if !rt.IsValid() {
@@ -215,20 +297,9 @@ func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, o
 			Detail: "unsupported refType " + d.RefType}, ""
 	}
 
-	resolved, err := resolve.ResolveRef(ctx, repo, d.Ref, rt, resolve.ResolveOptions{
-		MirrorDir: opts.MirrorRoot,
-		Protocol:  opts.Protocol,
-		Secrets:   opts.GitOpts.Secrets,
-	})
+	resolved, err := resolveTargetRef(ctx, repo, d, rt, opts)
 	if err != nil {
-		if codeOf(err) == errs.CodeGitFetch {
-			return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
-				Detail: "cannot read refs from the local mirror: " + err.Error()}, ""
-		}
-		// 非网络类失败几乎只有一种可能：该 ref 已不存在于上游（被删除/改名）。
-		// 对 verify 而言这是"ref 没了"，属于非预期漂移而不是配置错误。
-		return CheckResult{Check: CheckRef, Status: StatusFail, Drift: DriftUnexpected,
-			Detail: fmt.Sprintf("%s %q can no longer be resolved: %v", d.RefType, d.Ref, err)}, ""
+		return refResolveFailure(opts, d, err), ""
 	}
 
 	if resolved == d.Commit {
@@ -236,8 +307,49 @@ func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, o
 			Detail: fmt.Sprintf("%s %s still resolves to %s", d.RefType, d.Ref, git.ShortSHA(d.Commit))}, resolved
 	}
 
+	// ref 已变：判性质需要祖先关系，也就要对象——这是按需取物的第一种情形。
+	// 取不到对象时**不得**猜性质：猜"历史被改写"会把"没下载"误报成 force push。
+	if _, merr := opts.EnsureMirror(ctx, repo); merr != nil {
+		return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
+			Detail: fmt.Sprintf("the ref moved (%s → %s), but the mirror could not be refreshed to "+
+				"classify the drift: %v", git.ShortSHA(d.Commit), git.ShortSHA(resolved), merr)}, resolved
+	}
+
 	kind, why := classifyRefDrift(ctx, repo, d, resolved, opts)
 	return CheckResult{Check: CheckRef, Status: StatusFail, Drift: kind, Detail: why}, resolved
+}
+
+// resolveTargetRef 把 ref 解析为 commit。
+//
+// 在线模式走注入的**远端**解析（ADR-010）：读远端自己广播的 refs，不传对象。
+// 离线模式仍是本地 mirror 快照，并由调用方标记 stale。
+func resolveTargetRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency,
+	rt resolve.RefType, opts Options) (string, error) {
+	if opts.ResolveRemoteRef != nil {
+		return opts.ResolveRemoteRef(ctx, repo, d.Ref, rt)
+	}
+	return resolve.ResolveRef(ctx, repo, d.Ref, rt, resolve.ResolveOptions{
+		MirrorDir: opts.MirrorRoot,
+		Protocol:  opts.Protocol,
+		Secrets:   opts.GitOpts.Secrets,
+	})
+}
+
+// refResolveFailure 把"ref 解析失败"分类：网络类 → 操作性失败；其余 → 非预期漂移。
+//
+// 后者的唯一现实成因是"该 ref 已不存在于上游"（被删除/改名）——
+// 对 verify 而言这是"ref 没了"，不是配置错误。
+func refResolveFailure(opts Options, d *lock.Dependency, err error) CheckResult {
+	if codeOf(err) == errs.CodeGitFetch {
+		where := "the local mirror"
+		if opts.ResolveRemoteRef != nil {
+			where = "the remote"
+		}
+		return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
+			Detail: "cannot read refs from " + where + ": " + err.Error()}
+	}
+	return CheckResult{Check: CheckRef, Status: StatusFail, Drift: DriftUnexpected,
+		Detail: fmt.Sprintf("%s %q can no longer be resolved: %v", d.RefType, d.Ref, err)}
 }
 
 // classifyRefDrift 把"ref 解析结果与 lock 不一致"分类。
@@ -312,19 +424,15 @@ func checkDigest(ctx context.Context, mirrorPath string, d *lock.Dependency, opt
 
 	exists, eerr := git.CommitExists(ctx, opts.GitOpts, mirrorPath, d.Commit)
 	if eerr == nil && !exists {
-		msg := fmt.Sprintf("commit %s from ngm.lock is not present in the local mirror", git.ShortSHA(d.Commit))
-
-		if opts.Offline {
-			// observability.md 的退出码表把"--offline 下资源缺失"明确归为 Git/网络失败（4）
-			return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true, Detail: msg},
-				errs.New(errs.CodeGitFetch, d.Name+": "+msg+" (--offline)",
-					"the local mirror is cold; run once without --offline (or `ngm install`) to warm it")
-		}
-
-		// 在线：mirror 刚被刷新过，锁定的 commit 却不在其中 —— 上游已丢弃该提交
-		// （force push 后 gc、仓库重建等）。这不是网络故障，而是非预期漂移。
-		return CheckResult{Check: CheckDigest, Status: StatusFail, Drift: DriftUnexpected,
-			Detail: msg + "; the refreshed mirror no longer contains it, so the upstream discarded that commit"}, nil
+		// 只报"缺"，**不**下结论。分类在 verifyOne：只有它知道这次允许不允许取对象，
+		// 而"上游丢弃了该提交"必须先取过才有证据（ADR-010）。
+		return CheckResult{
+			Check:       CheckDigest,
+			Status:      StatusFail,
+			Operational: true,
+			Detail: fmt.Sprintf("commit %s from ngm.lock is not present in the local mirror",
+				git.ShortSHA(d.Commit)),
+		}, errCommitMissing
 	}
 
 	return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true,
