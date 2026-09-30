@@ -130,11 +130,20 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	return installFresh(ctx, env, pf, roots, *digestFlag, *offline, stdout, stderr)
 }
 
-// materializeVendor 落地 vendor 树并写出 ngm.mappings.json。
+// materializeVendor 落地 vendor 树、写出 ngm.mappings.json，然后按策略处理安装后钩子。
 //
 // vendor 与 mappings 由同一份 content 子树派生，因此"映射指向的路径"
 // 与"vendor 里真实的文件"必然一致。
-func materializeVendor(env *projectEnv, pf *config.ProjectFile, items []digestNode, stderr io.Writer) error {
+//
+// install（两条路径）与 update 共用本函数，因此 postinstall 的执行入口只有这一处：
+// 钩子的语义是"代码就位之后要做的事"，三个入口各写一遍必然会漏掉某个。
+func materializeVendor(
+	ctx context.Context,
+	env *projectEnv,
+	pf *config.ProjectFile,
+	items []digestNode,
+	stdout, stderr io.Writer,
+) error {
 	mr, err := env.MaterializeVendorAndMappings(pf, items)
 	if err != nil {
 		return err
@@ -142,7 +151,12 @@ func materializeVendor(env *projectEnv, pf *config.ProjectFile, items []digestNo
 	for _, w := range mr.Warnings {
 		fmt.Fprintf(stderr, "warning: %s\n", w)
 	}
-	return mappings.Write(mappings.Find(env.ProjectDir), mr.Mappings)
+	if werr := mappings.Write(mappings.Find(env.ProjectDir), mr.Mappings); werr != nil {
+		return werr
+	}
+
+	// 钩子在 vendor 与 mappings 都就位之后才跑：钩子看到的世界应当与最终状态一致。
+	return runPostInstall(ctx, env, pf, items, stdout, stderr)
 }
 
 // lockManifestMismatch 返回 ngm.json 中无法由现有 lock 满足的声明。
@@ -236,7 +250,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	}
 
 	// vendor 落地 + mappings（从同一份 content 派生，保证指向一致）
-	if err := materializeVendor(env, pf, items, stderr); err != nil {
+	if err := materializeVendor(ctx, env, pf, items, stdout, stderr); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
@@ -329,7 +343,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 	}
 
 	// vendor 落地 + mappings（沿用 lock 的 digest，不重新解析）
-	if err := materializeVendor(env, pf, items, stderr); err != nil {
+	if err := materializeVendor(ctx, env, pf, items, stdout, stderr); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 

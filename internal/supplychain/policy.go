@@ -100,13 +100,19 @@ func (p *Policy) PostInstallPolicy() string {
 	return p.postInstall
 }
 
-// PostInstallIsActive 表示该策略在**当前版本**下是否真的会改变行为。
+// PostInstallIsActive 表示该策略在**当前版本**下是否真的会执行依赖的钩子。
 //
-// v0.2 永远返回 false：ngm 在任何配置下都不执行依赖脚本（见 ADR-009）。
-// 之所以提供这个方法而不是让调用方自行判断字符串，是为了让"prompt/allow 只记录不执行"
-// 这件事在**代码里**也有唯一出口——需要渲染提示时直接读它，不必各处重述措辞。
+// v0.3 起（ADR-009 决策 5 修订）只有 `allow` 会执行，且仅在沙箱内、只执行 JS 钩子：
+//
+//   - `deny`（默认）：不执行。有钩子时输出会**明说**它们没有被执行——
+//     一个"配了但没生效"的字段比没有字段更危险。
+//   - `prompt`：不执行。ngm 是**非交互**工具（CI 里没有 TTY），"询问用户"没有真实形态；
+//     因此它的含义是"别自动执行，把决定权留在配置里显式表达"。
+//   - `allow`：执行。
+//
+// 提供这个方法而不是让调用方自行比较字符串，是为了让这套语义在**代码里**只有一个出口。
 func (p *Policy) PostInstallIsActive() bool {
-	return false
+	return p != nil && p.postInstall == "allow"
 }
 
 // CheckRepo 判断 `host/org/repo` 是否被策略允许。

@@ -56,7 +56,7 @@
 | 模块 | 任务 | 状态 |
 |------|------|------|
 | OSV | OSV.dev 查询 + 缓存 + 报告 | ✅ 按 commit 查询 + 24h 缓存 |
-| 策略 | minimumReleaseAge、白名单、postInstallPolicy | ✅ 前三项生效；**postInstallPolicy 收窄为"只记录不执行"**（需沙箱前置，见 ADR-009） |
+| 策略 | minimumReleaseAge、白名单、postInstallPolicy | ✅ 三项均生效；**postInstallPolicy 的执行入口自 v0.3 起存在**（沙箱内、仅 JS 钩子，见 ADR-009 决策 5/5a） |
 | audit | `ngm audit` 命令 + 报告格式化 | ✅ |
 | 可观测性 | why / tree / outdated | ✅ |
 | adapter | tsc / deno / postcss adapter | ✅（deno 需自行声明；真实引擎 CI 覆盖仍是 esbuild，见复盘 §2.2） |

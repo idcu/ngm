@@ -41,7 +41,8 @@ internal/                # 12 个包，按职责划分
 > 本页是模块结构的**唯一事实源**，但只精确到**包级**——文件级结构请直接读代码（本文不再维护一份会迅速腐坏的文件清单）。
 >
 > **包的存在状态**：`internal/supplychain/` 已在 v0.2 创建（`policy.go` / `allowlist.go` /
-> `minimumage.go` / `osv.go` / `audit.go` / `report.go`；postinstall 的**执行入口**收窄到 v0.3）；
+> `minimumage.go` / `osv.go` / `audit.go` / `report.go`；postinstall 的**执行入口**自 v0.3 起在
+> `cmd/ngm/postinstall.go`，沙箱内执行）；
 > `internal/observability/` 已在 v0.2 D 组创建（`tree.go` / `why.go` / `outdated.go`）；
 > `internal/integrations/` 已在 v0.3 B 组创建（工具抽象与冲突策略、四个工具的生成器、
 > tsconfig paths 与行级 diff；见 [P5](./p5-integrations.md)）。

@@ -185,7 +185,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	// vendor 落地 + mappings
-	if merr := materializeVendor(env, pf, items, stderr); merr != nil {
+	if merr := materializeVendor(ctx, env, pf, items, stdout, stderr); merr != nil {
 		return runErr(ctx, stdout, stderr, merr)
 	}
 

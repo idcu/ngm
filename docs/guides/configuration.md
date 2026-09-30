@@ -14,13 +14,13 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 > 区别在于它们**是否生效**：
 >
 > - `name` / `version` / `runtime` / `dependencies` / `engines` / `vendor` —— **v0.1 已生效**
-> - `supplyChain` —— **v0.2 起大多已生效**：`allowedGitHosts` / `allowlistRepos` / `minimumReleaseAge`
+> - `supplyChain` —— **全部字段均已生效**：`allowedGitHosts` / `allowlistRepos` / `minimumReleaseAge`
 >   构成真实门禁（解析阶段判定，命中即 `exit 3` + 来源链）；`osvIgnoreSeverities` 参与 `ngm audit`
->   过滤；`verifyOnLock` 已在 install / update 后触发复查。
->   **唯一仍未执行的是 `postInstallPolicy`**：v0.2 只记录不执行，执行入口需要沙箱前置（v0.3，见
->   [ADR-009](../adr/adr-009-supply-chain-policy.md)）。
+>   过滤；`verifyOnLock` 在 install / update 后触发复查；`postInstallPolicy` 自 v0.3 起
+>   有受控执行入口（沙箱内、仅 JS 钩子，见 [ADR-009](../adr/adr-009-supply-chain-policy.md)）。
 >
-> 不要依赖尚未生效的字段来获得安全性——这是本项目最不愿看到的一类误读。
+> 执行依赖代码这件事的边界见[供应链防护 · postInstallPolicy](../architecture/supply-chain.md)——
+> **`allow` 也只在沙箱里跑，且钩子没有写权限**。
 
 ---
 
@@ -251,7 +251,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | `allowlistRepos` | string[] | 白名单仓库（glob） | `["github.com/my-org/*"]` |
 | `minimumReleaseAge` | string | 最小晾晒期：基于 commit 的 committer date（ISO 8601 duration） | `"P3D"` |
 | `osvIgnoreSeverities` | string[] | OSV 忽略的严重级别 | `["LOW"]` |
-| `postInstallPolicy` | `"deny" \| "prompt" \| "allow"` | postinstall 策略 | `"deny"` |
+| `postInstallPolicy` | `"deny" \| "prompt" \| "allow"` | postinstall 策略：`allow` 时才在**沙箱内**执行 `postinstall.js`（`prompt` 在非交互工具里等于不执行） | `"deny"` |
 | `verifyOnLock` | boolean | 更新 lock 时自动 verify | `true` |
 
 ### 完整示例

@@ -271,20 +271,27 @@ const (
 )
 ```
 
-### deny（默认推荐）
+### 三档的实际行为（v0.3，ADR-009 决策 5）
 
-```go
-func RunPostInstall(dep *Dependency, policy PostInstallPolicy) error {
-    switch policy {
-    case PostInstallDeny:
-        return nil  // 不执行
-    case PostInstallPrompt:
-        return promptUser(dep)
-    case PostInstallAllow:
-        return exec.Command(dep.PackageJSON.Scripts.PostInstall).Run()
-    }
-}
-```
+| 取值 | 行为 |
+|------|------|
+| `deny`（默认） | 不执行；有钩子时明说它们没有被执行 |
+| `prompt` | 不执行——ngm 是**非交互**工具，"询问用户"没有真实形态 |
+| `allow` | 在 **Deno 沙箱内**执行 `postinstall.js`；失败即 `exit 2` |
+
+### 为什么入口这么窄
+
+实现里**没有** `exec.Command(scripts.PostInstall)` 这种形态，这是刻意的：
+
+- 只执行 `postinstall.js`——它能在沙箱里被约束；
+- `package.json` 的 `scripts.postinstall` **检测到但不执行**：实测派生的 shell
+  **不受 Deno 权限约束**（[ADR-012](../adr/adr-012-sandbox.md)），执行它等于把沙箱一次性绕开；
+- 沙箱内**无写权限**：vendor 是可证明的，能改写它就会让 digest 失效——
+  因此"需要写文件的钩子"（编译原生模块等）**不被支持**；
+- 有钩子要跑而缺 Deno → `exit 5`，不降级为非沙箱执行。
+
+权限沿用 [安全模型](../architecture/security-model.md) 的同一套词表：读该依赖自己的子树、
+`net:` / `env:` 需显式授权、**从不派生子进程**。
 
 Deno 的 default-deny 哲学：默认不让依赖跑代码。
 
@@ -298,8 +305,8 @@ Deno 的 default-deny 哲学：默认不让依赖跑代码。
 | audit | done (v0.2) | OSV.dev 集成；按 commit 查询 + 24h 缓存 |
 | minimumReleaseAge | done (v0.2) | 时间源为 committer date（见下） |
 | 白名单 | done (v0.2) | 对传递依赖生效；解析阶段判定 |
-| postinstall 执行入口 | **收窄到 v0.3** | 见 ADR-009：需沙箱前置 |
-| postinstall 策略 | planned (v0.2) | 当前行为：ngm 不执行依赖脚本 |
+| postinstall 执行入口 | **done (v0.3)** | 沙箱内、仅 `postinstall.js`；npm 风格 shell 钩子检测到不执行（见 ADR-009 决策 5/5a） |
+| postinstall 策略 | **done (v0.3)** | `deny`（默认）/ `prompt` 不执行并明说；`allow` 在沙箱内执行 |
 | 策略引擎 | planned (v0.2) | JSON-first；v0.1 只解析与校验字段 |
 
 > 成熟度口径与唯一事实源[能力矩阵](../internals/capability-matrix.md)一致。

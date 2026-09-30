@@ -71,7 +71,7 @@ refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 落地
 | **ngm core** | **Go 单二进制** | 依赖图 / lock / vendor / cache / hardlink / verify |
 | **Host runtime** | **Node.js 或 Deno** | 用户项目实际运行的环境 |
 | **Engine adapters** | subprocess（v0.1）/ wasm·remote（v0.3） | 调用外部引擎；v0.1 内置只有 esbuild（`bundle` / `transform`）与 `self` stub |
-| **Security sandbox** | Deno-style capability model（v0.3） | verify / audit / postinstall scan |
+| **Security sandbox** | Deno-style capability model（v0.3） | verify / audit / postinstall 都在同一套 default-deny 权限下 |
 
 > **实现语言用 Go；宿主运行时 Node/Deno 都支持；安全模型学 Deno。**
 

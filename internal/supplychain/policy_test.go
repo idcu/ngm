@@ -113,18 +113,25 @@ func TestPolicy_CheckRepo(t *testing.T) {
 	})
 }
 
-// TestPolicy_PostInstallIsActiveIsAlwaysFalseInV02 固定 ADR-009 的收窄决定。
+// TestPolicy_PostInstallIsActive 固定 ADR-009 决策 5 的**修订后**语义。
 //
-// 这条测试的作用是**在代码层面留痕**：若将来有人接上执行入口而不修订 ADR-009，
-// 这里会失败并指向那篇 ADR。
-func TestPolicy_PostInstallIsActiveIsAlwaysFalseInV02(t *testing.T) {
-	for _, v := range []string{"", "deny", "prompt", "allow"} {
+// 这条测试的来历值得记一笔：v0.2 它断言"永远不执行"，作用是在**代码层面留痕**——
+// 谁接上执行入口而没修订 ADR-009，这里就会红并指向那篇 ADR。v0.3 沙箱就位后
+// 决策 5 被修订（先改文档再改代码），于是这条测试也随之改写。
+func TestPolicy_PostInstallIsActive(t *testing.T) {
+	cases := map[string]bool{
+		"":       false, // 未配置 → deny
+		"deny":   false,
+		"prompt": false, // 非交互工具："询问"没有真实形态，语义是不自动执行
+		"allow":  true,
+	}
+	for v, want := range cases {
 		p, err := FromConfig(&config.SupplyChainConfig{PostInstallPolicy: v})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.PostInstallIsActive() {
-			t.Errorf("PostInstallPolicy=%q: v0.2 must never execute dependency scripts (see ADR-009)", v)
+		if got := p.PostInstallIsActive(); got != want {
+			t.Errorf("PostInstallPolicy=%q: active=%v, want %v (ADR-009 决策 5，v0.3 修订)", v, got, want)
 		}
 		if v == "" && p.PostInstallPolicy() != "deny" {
 			t.Errorf("an unset postInstallPolicy must read back as deny, got %q", p.PostInstallPolicy())

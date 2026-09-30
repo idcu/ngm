@@ -157,11 +157,20 @@ GET https://api.osv.dev/v1/query
 
 | 值 | 行为 |
 |----|------|
-| `deny` | 禁止所有 postinstall 脚本 |
-| `prompt` | 首次运行时交互确认 |
-| `allow` | 允许（不推荐） |
+| `deny`（默认） | 不执行。有依赖声明钩子时**明说**它们没有被执行 |
+| `prompt` | 不执行。ngm 是**非交互**工具（CI 里没有 TTY），"询问用户"没有真实形态——它的语义是"别自动执行，把决定权留在配置里显式表达" |
+| `allow` | 在 **Deno 沙箱内**执行依赖的 `postinstall.js`；失败即 `exit 2` |
 
-Deno 的 default-deny 哲学：默认不让依赖跑代码。
+**执行入口很窄，这是刻意的**（[ADR-009](../adr/adr-009-supply-chain-policy.md) 决策 5 / 5a）：
+
+- 只执行 `postinstall.js`（依赖根目录）——它能在沙箱里被约束；
+- `package.json` 的 `scripts.postinstall` **检测到但不执行**：实测派生的 shell 不受 Deno 权限约束
+  （[ADR-012](../adr/adr-012-sandbox.md)），执行它等于把沙箱一次性绕开；
+- 沙箱内**没有写权限**：vendor 是可证明的，任何能改写它的钩子都会让 digest 失效。
+  因此"需要写文件的钩子"（编译原生模块等）**不被支持**；
+- 有钩子要跑而缺 Deno → `exit 5`，**不降级**为非沙箱执行；没有钩子要跑时不需要 Deno。
+
+Deno 的 default-deny 哲学：默认不让依赖跑代码——**要跑也只在沙箱里跑**。
 
 ---
 
