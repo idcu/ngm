@@ -18,11 +18,11 @@
 | [ADR-008](./adr-008-archive-digest.md) | archiveDigest 的定义 | 已定 |
 | [ADR-009](./adr-009-supply-chain-policy.md) | 供应链策略的执行时机与失败语义 | 已定（v0.2 首个决策） |
 | [ADR-010](./adr-010-online-verify-fetch-policy.md) | 在线 verify 的抓取策略 | 已定 |
+| [ADR-011](./adr-011-wasm-runtime.md) | wasm adapter 的运行时与 ABI | 已定（v0.3 A 组） |
 | [ADR-012](./adr-012-sandbox.md) | 沙箱与执行边界 | 已定（v0.3 D 组之后） |
 
-> **编号 011 / 013 已按 [v0.3 计划](../development/v0.3-plan.md) 保留**（011 = wasm 运行时与 ABI，
-> 013 = remote adapter 的信任边界），尚未撰写。计划里引用这两个编号的地方多于本索引，
-> 因此编号不重排、不占用。
+> **编号 013 已按 [v0.3 计划](../development/v0.3-plan.md) 保留**（remote adapter 的信任边界），
+> 尚未撰写——计划里引用该编号的地方多于本索引，因此编号不重排、不占用。
 
 ---
 
