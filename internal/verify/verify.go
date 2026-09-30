@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/errs"
@@ -15,6 +16,18 @@ import (
 	"github.com/idcu/ngm/internal/resolve"
 	"github.com/idcu/ngm/internal/vendor"
 )
+
+// DefaultConcurrency 是依赖级并发度的默认值。
+//
+// 取 8 的依据是本机实测（100 依赖、8 核）：
+//
+//	并发 4   online 5.09s / offline 2.81s
+//	并发 8   online 3.37s / offline 1.97s
+//	并发 16  online 3.32s / offline 1.92s   ← 已无收益
+//
+// 也就是说 8 是曲线的拐点：再往上只是让磁盘与进程表更挤，而小机器上
+// 并发过高反而更差。并行的对象是**外部 git 进程的等待**，不是 CPU 计算。
+const DefaultConcurrency = 8
 
 // Options 控制一次 verify。
 //
@@ -41,6 +54,12 @@ type Options struct {
 	GitOpts git.Options
 	// Protocol 是访问远端时使用的协议。
 	Protocol resolve.Protocol
+
+	// Concurrency 是依赖级并发度；<=0 时用 DefaultConcurrency。
+	//
+	// 并行的不是哈希（那部分很便宜），而是**等待 git 子进程**——
+	// 复盘 §3.3 已确认 verify 的成本几乎全在 spawn 上。
+	Concurrency int
 
 	// EnsureMirror 确保层 1 就绪并返回裸仓库路径。
 	//
@@ -71,14 +90,50 @@ func Run(ctx context.Context, lf *lock.File, opts Options) (Report, error) {
 		return rep, err
 	}
 
+	// 并发执行：verify 的成本几乎全在 git 子进程启动（复盘 §3.3），而各依赖的
+	// 检查彼此独立（各自一个 mirror；同一 mirror 的并发由 vendor.Mirror 的
+	// 按路径加锁保证），因此可以并行摊掉这段等待。
+	//
+	// **结果必须按 lock 顺序**落位：报告要可 diff、可快照，顺序不能随调度抖动。
+	// 因此写入 results[i] 而不是 append。
 	store := vendor.NewContentStore(opts.ContentRoot)
-	for i := range lf.Dependencies {
-		res, err := verifyOne(ctx, &lf.Dependencies[i], store, opts)
-		if err != nil {
-			return rep, err
-		}
-		rep.Dependencies = append(rep.Dependencies, res)
+	conc := opts.Concurrency
+	if conc <= 0 {
+		conc = DefaultConcurrency
 	}
+	if len(lf.Dependencies) < conc {
+		conc = len(lf.Dependencies)
+	}
+	results := make([]DepResult, len(lf.Dependencies))
+
+	var (
+		mu    sync.Mutex
+		fatal error
+		wg    sync.WaitGroup
+		sem   = make(chan struct{}, conc)
+	)
+	for i := range lf.Dependencies {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			res, err := verifyOne(ctx, &lf.Dependencies[i], store, opts)
+
+			mu.Lock()
+			defer mu.Unlock()
+			results[i] = res
+			if err != nil && fatal == nil {
+				fatal = err
+			}
+		}(i)
+	}
+	wg.Wait()
+	if fatal != nil {
+		return rep, fatal
+	}
+	rep.Dependencies = results
 
 	rep.Summarize()
 	return rep, nil
@@ -237,12 +292,26 @@ func classifyRefDrift(ctx context.Context, repo resolve.Canonical, d *lock.Depen
 // 返回值约定：error 非 nil **仅表示操作性失败**（无法完成重放），调用方据此
 // 区分"判定为不匹配"（critical，exit 2）与"没查成"（exit 4）。
 func checkDigest(ctx context.Context, mirrorPath string, d *lock.Dependency, opts Options) (CheckResult, error) {
-	exists, err := git.CommitExists(ctx, opts.GitOpts, mirrorPath, d.Commit)
-	if err != nil {
-		return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true,
-			Detail: "cannot inspect the local mirror: " + err.Error()}, err
+	// 先尝试重放，只有**失败**时才去判定"是操作性失败还是 commit 不存在"。
+	//
+	// 顺序是有意的：成功路径上因此少一次 git 子进程（100 个依赖就是 100 次 spawn，
+	// 而 spawn 正是 verify 的主要成本，见复盘 §3.3）；失败时才补那一次判定。
+	// 分类结论与之前完全一致——只是把它挪到了真正需要的分支上。
+	replayed, err := git.BuildArchiveDigest(ctx, opts.GitOpts, mirrorPath, d.Commit)
+	if err == nil {
+		if replayed != d.ArchiveDigest {
+			return CheckResult{Check: CheckDigest, Status: StatusFail, Drift: DriftCritical,
+				Detail: fmt.Sprintf(
+					"digest replay mismatch: ngm.lock says %s but the local mirror replays to %s "+
+						"(manifest spec %s)",
+					d.ArchiveDigest, replayed, digest.ManifestVersion)}, nil
+		}
+		return CheckResult{Check: CheckDigest, Status: StatusOK,
+			Detail: "archiveDigest replays identically from the local mirror"}, nil
 	}
-	if !exists {
+
+	exists, eerr := git.CommitExists(ctx, opts.GitOpts, mirrorPath, d.Commit)
+	if eerr == nil && !exists {
 		msg := fmt.Sprintf("commit %s from ngm.lock is not present in the local mirror", git.ShortSHA(d.Commit))
 
 		if opts.Offline {
@@ -258,21 +327,8 @@ func checkDigest(ctx context.Context, mirrorPath string, d *lock.Dependency, opt
 			Detail: msg + "; the refreshed mirror no longer contains it, so the upstream discarded that commit"}, nil
 	}
 
-	replayed, err := git.BuildArchiveDigest(ctx, opts.GitOpts, mirrorPath, d.Commit)
-	if err != nil {
-		return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true,
-			Detail: "digest replay failed: " + err.Error()}, err
-	}
-	if replayed != d.ArchiveDigest {
-		return CheckResult{Check: CheckDigest, Status: StatusFail, Drift: DriftCritical,
-			Detail: fmt.Sprintf(
-				"digest replay mismatch: ngm.lock says %s but the local mirror replays to %s "+
-					"(manifest spec %s)",
-				d.ArchiveDigest, replayed, digest.ManifestVersion)}, nil
-	}
-
-	return CheckResult{Check: CheckDigest, Status: StatusOK,
-		Detail: "archiveDigest replays identically from the local mirror"}, nil
+	return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true,
+		Detail: "digest replay failed: " + err.Error()}, err
 }
 
 // checkLanding 是检查三：落地完整性。
