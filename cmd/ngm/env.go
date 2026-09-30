@@ -276,6 +276,7 @@ func (e *projectEnv) MaterializeVendorAndMappings(pf *config.ProjectFile, items 
 			From:          dn.Name,
 			VendorRelRoot: vendorRootRepr,
 			VendorRelPath: relPath,
+			SubPath:       dn.SubPath,
 			Read:          e.ContentReader(dn),
 		})
 	}

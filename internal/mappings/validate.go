@@ -12,13 +12,18 @@ import (
 type ValidateEnvironment struct {
 	// ProjectDir 是项目根目录（`to` 中的 `./ngm.vendor/...` 以此为基准）。
 	ProjectDir string
-	// LockNames 是 ngm.lock 中所有依赖的 name（含 subPath 的组合键）。
+	// LockNames 是 ngm.lock 中所有依赖的 name（slug，**不含** subPath）。
 	//
 	// 用 map 表示"已锁定的依赖集合"；为 nil 时跳过该维度校验
 	// （例如只有 ngm.json 尚未 install 的场景）。
 	LockNames map[string]bool
-	// SubPaths 记录每个 name 对应的 subPath 列表（用于 `to` 路径一致性，可选）。
-	SubPaths map[string]string
+	// SubPaths 记录每个 name 在 lock 中的 subPath 集合。
+	//
+	// 用途（v0.3 E 组）：校验 `path` 字段确实是**被锁定的那个子路径**，
+	// 而不是手写或过期值。为 nil 时跳过该维度。
+	//
+	// 类型是"列表"而不是单个字符串：同一个依赖可以有多条子路径条目。
+	SubPaths map[string][]string
 }
 
 // Finding 是一条校验发现。
@@ -58,6 +63,39 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 					"; run `ngm install` to refresh (or remove the stale mapping)",
 				Fatal: true,
 			})
+		}
+
+		// 1b) `path`（v0.3 E 组）：它必须是被锁定的那个子路径，且与 `to` 自洽。
+		//
+		// 这两条合起来回答同一个问题："这个条目说的子路径，和我们锁定的、以及
+		// vendor 里落地的是不是同一件事"。三者不一致时，集成脚手架会生成
+		// 一条指向别处的别名——那种错误在运行时表现为"模块找不到"，很难回溯。
+		if env.SubPaths != nil {
+			locked := env.SubPaths[m.From]
+			if m.Path != "" && !containsString(locked, m.Path) {
+				findings = append(findings, Finding{
+					From: m.From,
+					Message: "`path` is " + m.Path + ", which is not a locked subpath of this dependency" +
+						lockedSubpathsHint(locked) + "; run `ngm install` to regenerate",
+					Fatal: true,
+				})
+			}
+			if m.Path == "" && len(locked) > 0 {
+				findings = append(findings, Finding{
+					From: m.From,
+					Message: "has no `path` although the lock records subpath(s) " +
+						strings.Join(locked, ", ") + "; the file predates the field — run `ngm install` to regenerate",
+					Fatal: false,
+				})
+			}
+			if m.Path != "" && !strings.HasSuffix(strings.TrimSuffix(m.To, "/"), "/"+strings.Trim(m.Path, "/")) {
+				findings = append(findings, Finding{
+					From: m.From,
+					Message: "`to` (" + m.To + ") does not end with the declared `path` (" + m.Path + "); " +
+						"`path` and `to` describe the same thing and must agree",
+					Fatal: true,
+				})
+			}
 		}
 
 		// 2) to 必须位于 ngm.vendor/ 下且真实存在
@@ -146,6 +184,25 @@ func FormatFindings(findings []Finding) (string, int) {
 		}
 	}
 	return sb.String(), fatal
+}
+
+// containsString 报告列表里是否有该值。
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// lockedSubpathsHint 在"`path` 不被锁定时"给出可操作的提示：
+// 把 lock 里实际记着的子路径列出来，用户一眼能看出是不是写错了。
+func lockedSubpathsHint(locked []string) string {
+	if len(locked) == 0 {
+		return " (the lock records no subpath for it)"
+	}
+	return " (the lock records: " + strings.Join(locked, ", ") + ")"
 }
 
 // lockFileName 与 internal/lock 的 FileName 保持一致。

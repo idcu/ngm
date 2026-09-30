@@ -45,6 +45,18 @@ type Mapping struct {
 	// monorepo 子路径依赖时指向子目录本身，而不是仓库根。
 	To string `json:"to"`
 
+	// Path 是 monorepo 子路径依赖的子目录（如 `packages/core`）。可缺失。
+	//
+	// 为什么需要它（v0.3 E 组）：同一个依赖可以有**多个**子路径条目，
+	// 而只靠 `to`（vendor 里的路径）无法**确定性地**还原"该用哪个导入标识符"——
+	// 集成脚手架（Vite / esbuild 的 alias、Deno 的 import map）必须知道那个标识符。
+	// 从 vendor 路径反推是猜测；`path` 让它成为一个事实。
+	//
+	// 它是**可选字段**：缺省即"这个依赖没有子路径"。按 schema 版本策略
+	// （configuration.md §schema 版本策略："同一大版本内只新增可选字段"），
+	// 因此 `version` **不递增**——计划里写的"v2"指的是协议扩展，不是版本号。
+	Path string `json:"path,omitempty"`
+
 	// Main 是入口文件（相对依赖根，如 `./index.js`）。可缺失。
 	Main string `json:"main,omitempty"`
 
@@ -139,6 +151,18 @@ func (f *File) Validate() error {
 		if m.To == "" {
 			return errs.New(errs.CodeConfigInvalid,
 				"mappings["+itoa(i)+"] is missing `to`", "")
+		}
+		if m.Path != "" {
+			p := strings.TrimSpace(m.Path)
+			// 形状校验：`path` 必须是依赖内部的一个相对子目录。
+			// 拒绝绝对路径与 `..` 是因为它最终会参与拼出文件系统路径——
+			// 协议层拦掉，比让每个消费方各自小心更可靠。
+			if p != m.Path || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") ||
+				strings.Contains(p, "..") {
+				return errs.New(errs.CodeConfigInvalid,
+					"mappings["+itoa(i)+"] has an invalid `path`",
+					"`path` must be a relative subdirectory inside the dependency (e.g. packages/core)")
+			}
 		}
 	}
 	return nil

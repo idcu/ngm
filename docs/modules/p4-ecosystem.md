@@ -138,6 +138,12 @@ type EngineError struct {
       "to": "./ngm.vendor/github.com/my-org/utils",
       "main": "./index.js",
       "types": "./index.d.ts"
+    },
+    {
+      "from": "github:my-org/monorepo",
+      "path": "packages/core",
+      "to": "./ngm.vendor/github.com/my-org/monorepo/packages/core",
+      "main": "./src/index.ts"
     }
   ]
 }
@@ -148,8 +154,28 @@ type EngineError struct {
 | `version` | number | 是 | 协议版本，当前 1 |
 | `from` | string | 是 | 依赖标识（Git URL 形式） |
 | `to` | string | 是 | vendor 中的实际路径 |
+| `path` | string | 否 | monorepo 子路径（如 `packages/core`）；缺省表示依赖根 |
 | `main` | string | 否 | 入口文件 |
 | `types` | string | 否 | 类型声明文件 |
+
+**`path` 的用途**（v0.3）：同一个仓库可以有多个子路径条目，而只靠 `to`
+（vendor 里的路径）无法**确定性地**还原"该用哪个导入标识符"——
+集成脚手架必须知道它才能生成别名：
+
+```
+path 缺失        → 导入标识符就是 from：            github:my-org/utils
+path=packages/core → 导入标识符是 from + "/" + path: github:my-org/monorepo/packages/core
+```
+
+`path` 与 `to` 描述的是同一件事（`to` 必须以 `path` 结尾），`ngm mappings validate`
+会校验这两者与 ngm.lock 里锁定的子路径三者自洽——不一致时生成出来的别名会指向别处，
+而症状要到运行时才表现为"模块找不到"。
+
+> **为什么 `version` 仍是 1**：`path` 是**可选**字段，按
+> [schema 版本策略](../guides/configuration.md)（"同一大版本内只新增可选字段，
+> 旧工具应忽略未知字段继续工作"）不递增版本号。旧文件（无 `path`）继续有效，
+> `mappings validate` 只给一条"重新生成"的警告。
+> 计划里写的"mappings v2"指协议扩展，**不是**版本号变更。
 
 ### 生成
 
@@ -166,6 +192,7 @@ ngm mappings validate
 - `from` 是否在 ngm.lock 中
 - `to` 路径是否存在
 - `main` / `types` 文件是否存在
+- （v0.3）`path` 是否是**被锁定的那个子路径**，且与 `to` 自洽；旧文件缺 `path` 时只给警告
 
 ---
 
@@ -197,8 +224,9 @@ ngm mappings validate
 | 子模块 | 成熟度 | 备注 |
 |--------|--------|------|
 | adapter 协议 | done (v0.1) | subprocess 协议 |
-| mappings schema | done (v0.1) | |
-| mappings 生成 | done (v0.1) | |
+| mappings schema | done (v0.1)；**v0.3 增可选 `path`** | monorepo 子路径；版本号不变（可选字段） |
+| mappings 生成 | done (v0.1)；v0.3 写入 `path` | |
+| mappings 校验 | done (v0.1)；v0.3 校验 `path` 与 lock / `to` 三者自洽 | |
 | 外部工具集成（Vite / esbuild / Deno / Webpack） | planned (v0.3) | 见 [P5](./p5-integrations.md) |
 
 > 成熟度口径与唯一事实源[能力矩阵](../internals/capability-matrix.md)一致。

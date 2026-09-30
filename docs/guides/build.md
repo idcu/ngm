@@ -106,10 +106,37 @@ ngm 生成 `ngm.mappings.json`，供外部构建工具读取：
       "to": "./ngm.vendor/github.com/my-org/utils",
       "main": "./index.js",
       "types": "./index.d.ts"
+    },
+    {
+      "from": "github:my-org/monorepo",
+      "path": "packages/core",
+      "to": "./ngm.vendor/github.com/my-org/monorepo/packages/core",
+      "main": "./src/index.ts"
     }
   ]
 }
 ```
+
+### 先算对"导入标识符"
+
+每种工具的配置都以**导入标识符**为键，而它不等于 `from`：`path` 存在时要拼上去。
+
+```js
+// 每个消费方都需要这一行——它是 mappings → 工具配置的桥
+const specifier = m => (m.path ? `${m.from}/${m.path}` : m.from)
+```
+
+| `path` | 导入标识符 |
+|--------|-----------|
+| 缺失 | `github:my-org/utils` |
+| `packages/core` | `github:my-org/monorepo/packages/core` |
+
+> **为什么键必须是"标识符"而不是 `from`**：同一个仓库的多个子路径**共用同一个 `from`**，
+> 而每个条目的 `to` 指向**各自子目录**。因此 `Object.fromEntries(m => [m.from, m.to])`
+> 这类写法在 monorepo 上是有损的：它只留下其中一行，而留下的 `to` 是**子目录**——
+> 实测（esbuild）会得到
+> `Could not resolve "./vendor/.../packages/core/packages/core"`。
+> 用标识符当键则在任何情况下都无歧义。
 
 ### Vite 集成
 
@@ -117,12 +144,15 @@ ngm 生成 `ngm.mappings.json`，供外部构建工具读取：
 // vite.config.ts
 import mappings from './ngm.mappings.json'
 
+const specifier = (m: { from: string; path?: string }) =>
+  m.path ? `${m.from}/${m.path}` : m.from
+
 export default {
   resolve: {
-    alias: mappings.mappings.map(m => ({
-      find: m.from,
-      replacement: m.to
-    }))
+    alias: [...mappings.mappings]
+      // 长标识符优先：字符串 alias 是**前缀**匹配，短键会吞掉子路径
+      .sort((a, b) => specifier(b).length - specifier(a).length)
+      .map(m => ({ find: specifier(m), replacement: m.to }))
   }
 }
 ```
@@ -134,15 +164,27 @@ export default {
 import mappings from './ngm.mappings.json'
 import { build } from 'esbuild'
 
+const specifier = m => (m.path ? `${m.from}/${m.path}` : m.from)
+
 build({
   entryPoints: ['src/index.ts'],
   alias: Object.fromEntries(
-    mappings.mappings.map(m => [m.from, m.to])
+    [...mappings.mappings]
+      // 同 Vite：esbuild 的 alias 也是**前缀替换**（实测：只给
+      // `github:demo/lib` 也能解析 `github:demo/lib/packages/core`），
+      // 所以短的键必须排在长的之后，否则子路径会被吞掉。
+      .sort((a, b) => specifier(b).length - specifier(a).length)
+      .map(m => [specifier(m), m.to])
   ),
   outfile: 'dist/index.js',
   bundle: true
 })
 ```
+
+> **可以更省事的写法**：vendor 布局与仓库布局一致，因此把 `from` 直接指向
+> **依赖根**（而不是某个子目录）时，前缀替换会让所有子路径自动落到位
+> （实测可行）。但这要求从 `to` 里剥掉 `path` 才能得到"依赖根"——
+> 那正是 `path` 想替你省掉的推断。用上面的标识符键不需要任何推断。
 
 ### Deno 集成
 
@@ -150,14 +192,40 @@ build({
 // deno.json
 {
   "imports": {
-    "github:my-org/utils": "./ngm.vendor/github.com/my-org/utils/index.ts"
+    "github:my-org/utils": "./ngm.vendor/github.com/my-org/utils/index.ts",
+    "github:my-org/monorepo/packages/core": "./ngm.vendor/github.com/my-org/monorepo/packages/core/src/index.ts"
   }
 }
 ```
 
+> Deno 的 import map 支持**精确**键与**前缀**键（尾部带 `/`）。
+> 子路径依赖用精确键最稳；若某仓库子路径很多，可用前缀键
+> `"github:my-org/monorepo/": "./ngm.vendor/github.com/my-org/monorepo/"` 一并覆盖。
+
 ### TypeScript 类型解析
 
-TS 语言服务不识别 `github:` 前缀：需要在 `tsconfig.json` 的 `paths` 中映射到 vendor 路径，否则类型检查会报"找不到模块"（`ngm integrations add` 将一并生成，v0.3）。
+TS 语言服务不识别 `github:` 前缀：需要在 `tsconfig.json` 的 `paths` 中映射到 vendor 路径，
+否则类型检查会报"找不到模块"（`ngm integrations add` 将一并生成，v0.3）。
+
+```json
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "paths": {
+      "github:my-org/utils": ["./ngm.vendor/github.com/my-org/utils/index.ts"],
+      "github:my-org/monorepo": ["./ngm.vendor/github.com/my-org/monorepo/packages/core/src/index.ts"],
+      "github:my-org/monorepo/*": ["./ngm.vendor/github.com/my-org/monorepo/*"]
+    }
+  }
+}
+```
+
+> 带 `*` 的那条是**通配**：它使子路径（如 `github:my-org/monorepo/packages/web`）
+> 无需逐条声明即可解析——已用真实 tsc 验证（导入根与子路径都不会报"找不到模块"，
+> 且故意制造的类型不匹配会指向 vendor 里的真实类型，证明解析确实生效）。
+>
+> **不要写 `baseUrl`**：TypeScript 7 已移除该选项，写上去会直接报
+> `error TS5102: Option 'baseUrl' has been removed`；`paths` 单独就能工作。
 
 ---
 

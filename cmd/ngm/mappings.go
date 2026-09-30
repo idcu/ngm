@@ -77,16 +77,23 @@ func runMappingsValidate(ctx context.Context, dirFlag string, stdout, stderr io.
 	if lerr != nil {
 		return runErr(ctx, stdout, stderr, lerr)
 	}
+	var subPaths map[string][]string
 	if lf != nil {
 		lockNames = make(map[string]bool, len(lf.Dependencies))
+		subPaths = make(map[string][]string, len(lf.Dependencies))
 		for i := range lf.Dependencies {
-			lockNames[lf.Dependencies[i].Name] = true
+			d := &lf.Dependencies[i]
+			lockNames[d.Name] = true
+			if d.SubPath != "" {
+				subPaths[d.Name] = append(subPaths[d.Name], d.SubPath)
+			}
 		}
 	}
 
 	findings, err := mappings.Validate(f, mappings.ValidateEnvironment{
 		ProjectDir: env.ProjectDir,
 		LockNames:  lockNames,
+		SubPaths:   subPaths,
 	})
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)

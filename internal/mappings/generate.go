@@ -33,6 +33,11 @@ type GenerateInput struct {
 	VendorRelRoot string
 	// VendorRelPath 是该依赖在 vendor 中的相对路径（`github.com/org/repo[/sub]`）。
 	VendorRelPath string
+	// SubPath 是 monorepo 子路径（`packages/core`），空表示依赖根。
+	//
+	// 它写进 `path` 字段：消费方据此拼出导入标识符
+	// （`github:org/repo` vs `github:org/repo/packages/core`）。
+	SubPath string
 	// Read 读取该依赖根下的文件（monorepo 时根即子路径）。
 	Read FileReader
 }
@@ -59,6 +64,7 @@ func Generate(inputs []GenerateInput) (*File, []string) {
 		m := Mapping{
 			From: in.From,
 			To:   ToJoin(root, in.VendorRelPath),
+			Path: strings.Trim(strings.TrimSpace(in.SubPath), "/"),
 		}
 
 		if in.Read != nil {
