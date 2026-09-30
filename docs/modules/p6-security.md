@@ -35,7 +35,7 @@ internal/security/
 
 | 能力 | 说明 | 版本 |
 |------|------|------|
-| 权限模型（default-deny） | `internal/security/permissions.go`；施加点见[安全模型](../architecture/security-model.md) | **v0.3 已实现**（`run:<引擎>` 待施加） |
+| 权限模型（default-deny） | `internal/security/permissions.go`；施加点见[安全模型](../architecture/security-model.md) | **v0.3 已实现** |
 | `ngm verify --sandbox`（Deno 沙箱） | core Go 决策，Deno 执行 | planned v0.3（需 ADR-012） |
 | 凭证管理（ssh-agent / credential helper） | 见[安全模型](../architecture/security-model.md)；v0.1 起已落地的保证见该页 | v0.1 部分 / v0.3 续 |
 

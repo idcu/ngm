@@ -53,6 +53,15 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	runner.OnWarn(func(format string, args ...any) {
 		fmt.Fprintf(stderr, "note: "+format+"\n", args...)
 	})
+	// `run:<引擎>` 权限：判定挂在**实际要执行的那个**引擎上（含回退链上的每一个），
+	// 而不是选择阶段——选择里可能带着永远不会用到的 fallback。
+	runner.OnEngine(func(entry adapter.Entry) error {
+		target := engineRunTarget(entry)
+		if target == "" {
+			return nil
+		}
+		return env.Policy.CheckRun(target)
+	})
 
 	return &engineContext{env: env, pf: pf, resolved: resolved, catalog: cat, runner: runner}, nil
 }
@@ -90,6 +99,24 @@ func (ec *engineContext) selectionFor(kind adapter.EngineKind, engineFlag string
 		fmt.Sprintf("no engine configured for `%s`", kind),
 		"pass --engine=<name>, or set engines."+string(kind)+" in ngm.json"+
 			availableHintFor(ec.catalog, kind))
+}
+
+// engineRunTarget 返回引擎对应的权限目标（`run:<exe>`）；没有外部进程时返回空串。
+//
+// 内置的 self 引擎不派生任何进程——它是 ngm 进程内的一段逻辑，
+// 因此不适用 run: 权限：要求一个 "run:self" 会凭空造出用户从未听说过的权限名，
+// 而他会照提示把它写进配置。
+func engineRunTarget(entry adapter.Entry) string {
+	if entry.Adapter != adapter.AdapterSubprocess {
+		return ""
+	}
+	prog := strings.TrimSpace(entry.Program)
+	if prog == "" {
+		return ""
+	}
+	base := filepath.Base(prog)
+	// Windows 上 Program 可能带 .exe/.cmd：权限名与文档一致用无扩展名的形式（run:esbuild）
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
 // globalDefaultFor 从全局配置取某能力类别的默认引擎。

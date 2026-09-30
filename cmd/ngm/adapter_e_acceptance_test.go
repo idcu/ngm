@@ -16,6 +16,7 @@ import (
 // 装齐所有引擎。假引擎能回显 argv 与自报版本，因此"翻译是否正确"和
 // "版本门槛是否生效"两件事都能离线断言。
 func TestV02EngineAdaptersAcceptance(t *testing.T) {
+	testutils.AllowEngines(t, "fake-engine", "tsc", "postcss", "esbuild")
 	fake := testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
 	t.Run("typecheck runs the declared typescript engine with --noEmit", func(t *testing.T) {

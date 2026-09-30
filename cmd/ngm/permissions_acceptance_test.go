@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/idcu/ngm/internal/testutils"
 )
 
 // writeGlobalConfig 写入隔离环境里的 `~/.ngm/config.json`。
@@ -101,6 +103,33 @@ func TestV03PermissionsAcceptance(t *testing.T) {
 		}
 		if !strings.Contains(out, "run:git") {
 			t.Errorf("the report should name the denied permission:\n%s", out)
+		}
+	})
+
+	// 权限判定排在**可用性之后**：引擎根本没装时，正确的退出码是 5
+	// （工具缺失，脚本据此区分"环境问题"与"配置问题"），而不是权限错误。
+	//
+	// 顺序反了的话，一个拼错的引擎名会被报成"请把 run:ngm-definitely-not-a-real-engine
+	// 加进配置"——用户照做之后仍然跑不了，而那条权限永远不会有用。
+	t.Run("a missing engine still exits 5, not a permission error", func(t *testing.T) {
+		isolateUserEnv(t)
+		proj := m6Project(t, `{"bundle": "ghost"}`)
+		// 已声明、但命令不在 PATH：这才是"引擎不可用"（exit 5）的成立条件。
+		// 名字不在清单里是另一回事（配置错误，exit 3）。
+		testutils.WriteFile(t, proj, "ngm.engines.json", `{
+  "version": 1,
+  "engines": [
+    {"name": "ghost", "kind": "bundle", "adapter": "subprocess", "command": "ngm-definitely-not-a-real-engine"}
+  ]
+}
+`)
+
+		code, out := runCaptureCode(t, "build", "--dir="+proj)
+		if code != 5 {
+			t.Fatalf("a missing engine must exit 5, got %d:\n%s", code, out)
+		}
+		if strings.Contains(out, "permissions.allow") {
+			t.Errorf("a missing engine must not be reported as a permission problem:\n%s", out)
 		}
 	})
 

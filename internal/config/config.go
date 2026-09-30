@@ -210,6 +210,15 @@ func DefaultBuiltin() *BuiltinDefaults {
 	}
 }
 
+// GlobalPath 返回全局配置文件的路径（`<home>/.ngm/config.json`）。
+//
+// 导出它是为了让"写到哪"只有一个定义：测试要在隔离环境里放一份配置，
+// 如果它自己拼一遍路径，两边迟早会漂移，而那种漂移的表现是
+// "测试写的配置没被读到"——排查起来很费时间。
+func GlobalPath(home string) string {
+	return filepath.Join(home, ".ngm", "config.json")
+}
+
 // Load 加载并合并配置。
 //
 //	projectDir: 项目根目录；空字符串表示无项目配置
@@ -230,7 +239,7 @@ func Load(projectDir, homeDir string) (*Resolved, error) {
 
 	var global *GlobalFile
 	if homeDir != "" {
-		g, err := readGlobalFile(filepath.Join(homeDir, ".ngm", "config.json"))
+		g, err := readGlobalFile(GlobalPath(homeDir))
 		if err != nil {
 			return nil, err
 		}

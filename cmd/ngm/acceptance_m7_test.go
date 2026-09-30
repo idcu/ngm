@@ -31,6 +31,7 @@ func m7Upstream(t *testing.T, slug, body string) {
 // 真正的"用户拿到的东西能跑"由 TestM7Quickstart_RealToolchain 证明。
 func TestM7Quickstart(t *testing.T) {
 	testutils.MustHaveGit(t)
+	testutils.AllowEngines(t, "esbuild", "fake-engine")
 	isolateUserEnv(t)
 
 	fake := testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "esbuild")
@@ -174,6 +175,7 @@ func TestM7Quickstart_RealToolchain(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not installed")
 	}
+	testutils.AllowEngines(t, "esbuild")
 	isolateUserEnv(t)
 
 	m7Upstream(t, "github:demo/lib", "export const lib = \"ok\";\n")

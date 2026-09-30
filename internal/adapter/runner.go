@@ -58,6 +58,8 @@ type Runner struct {
 	// 都相对它解析。
 	dir  string
 	warn func(format string, args ...any)
+	// beforeRun 在每次真正执行某个引擎之前调用（见 OnEngine）。
+	beforeRun func(entry Entry) error
 }
 
 // NewRunner 创建执行器。dir 为空表示继承当前进程的 cwd。
@@ -70,6 +72,14 @@ func NewRunner(catalog *Catalog, dir string) *Runner {
 // CLI 把它接到 stderr：回退是**隐式**发生的行为，用户必须能看见
 // （primary 挂了却只看到 fallback 的输出，会让人误判哪个引擎在干活）。
 func (r *Runner) OnWarn(fn func(format string, args ...any)) { r.warn = fn }
+
+// OnEngine 注册"即将执行某个引擎"的回调；返回错误即中止。
+//
+// CLI 用它施加 `run:<engine>` 权限。调用点在 preflight 的最后一步：
+// 判定发生在**真正要跑的那个引擎**上（含回退链上的每一个），而不是选择阶段——
+// 选择里可能带着永远不会用到的 fallback，因为一个用不到的引擎拒绝整条命令
+// 是在为难用户。返回的错误不进入回退：权限被拒是配置问题，换个引擎只会换种错法。
+func (r *Runner) OnEngine(fn func(entry Entry) error) { r.beforeRun = fn }
 
 func (r *Runner) warnf(format string, args ...any) {
 	if r.warn != nil {
@@ -201,7 +211,7 @@ func (r *Runner) Bundle(ctx context.Context, sel Selection, entryFile string, op
 				return nil, notCapable(entry, "bundle")
 			}
 			o := withBundleSelection(entry, sel, opts)
-			if perr := preflight(eng, entry, buildRequest{Options: o, EntryFile: entryFile}); perr != nil {
+			if perr := r.preflight(eng, entry, buildRequest{Options: o, EntryFile: entryFile}); perr != nil {
 				return nil, perr
 			}
 			return be.Bundle(ctx, entryFile, o)
@@ -221,7 +231,7 @@ func (r *Runner) Transform(ctx context.Context, sel Selection, input []byte, opt
 				return nil, notCapable(entry, "transform")
 			}
 			o := withTransformSelection(entry, sel, opts)
-			if perr := preflight(eng, entry, buildRequest{Options: o}); perr != nil {
+			if perr := r.preflight(eng, entry, buildRequest{Options: o}); perr != nil {
 				return nil, perr
 			}
 			return te.Transform(ctx, input, o)
@@ -241,7 +251,7 @@ func (r *Runner) Check(ctx context.Context, sel Selection, entryFile string, opt
 				return nil, notCapable(entry, "typeCheck")
 			}
 			o := withCheckSelection(entry, sel, opts)
-			if perr := preflight(eng, entry, buildRequest{Options: o, EntryFile: entryFile}); perr != nil {
+			if perr := r.preflight(eng, entry, buildRequest{Options: o, EntryFile: entryFile}); perr != nil {
 				return nil, perr
 			}
 			return tc.Check(ctx, entryFile, o)
@@ -261,7 +271,7 @@ func (r *Runner) GenerateTypeDecl(ctx context.Context, sel Selection, entryFile 
 				return nil, notCapable(entry, "typeDecl")
 			}
 			o := withDeclSelection(entry, sel, opts)
-			if perr := preflight(eng, entry, buildRequest{Options: o, EntryFile: entryFile}); perr != nil {
+			if perr := r.preflight(eng, entry, buildRequest{Options: o, EntryFile: entryFile}); perr != nil {
 				return nil, perr
 			}
 			return td.GenerateTypeDecl(ctx, entryFile, o)
@@ -281,7 +291,7 @@ func (r *Runner) Compile(ctx context.Context, sel Selection, input []byte, opts 
 				return nil, notCapable(entry, "css")
 			}
 			o := withCSSSelection(entry, sel, opts)
-			if perr := preflight(eng, entry, buildRequest{Options: o}); perr != nil {
+			if perr := r.preflight(eng, entry, buildRequest{Options: o}); perr != nil {
 				return nil, perr
 			}
 			return ce.Compile(ctx, input, o)
@@ -313,21 +323,32 @@ func unavailableError(entry Entry) *EngineError {
 	}
 }
 
-// preflight 在真正执行前做两项判定，**顺序是刻意的**：
+// preflight 在真正执行前做三项判定，**顺序是刻意的**：
 //
 //  1. 该能力在这台引擎上是否可实现（如 esbuild 不能做类型检查）。
 //     这是配置层面的永久事实——装引擎也解决不了，因此必须先说。
 //  2. 引擎是否可用（可执行文件在不在 PATH）。这是环境层面，可以修。
+//  3. 权限是否允许执行它（`run:<exe>`）。
 //
 // 反过来的话，把 esbuild 配成 typeCheck 的用户会先看到"请安装 esbuild"，
 // 装完仍然失败，白跑一趟且更困惑。两类问题的退出码相同（都是 5），
 // 但**哪一个先被说出来**决定了用户能不能一次修对。
-func preflight(eng Engine, entry Entry, req buildRequest) error {
+//
+// 权限排在最后，理由与上面一致：引擎根本没装时，正确的退出码是 5（工具缺失，
+// 脚本据此区分"环境问题"与"配置问题"）。若权限先判，一个拼错的引擎名会被
+// 报成"请把 run:ngm-definitely-not-a-real-engine 加进配置"——用户照做之后
+// 仍然跑不了，而那条权限永远不会有用。
+func (r *Runner) preflight(eng Engine, entry Entry, req buildRequest) error {
 	if _, err := buildInvocation(entry, req); err != nil {
 		return err
 	}
 	if !eng.Available() {
 		return unavailableError(entry)
+	}
+	if r.beforeRun != nil {
+		if err := r.beforeRun(entry); err != nil {
+			return err
+		}
 	}
 	return nil
 }

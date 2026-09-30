@@ -102,6 +102,9 @@ func m6Dump(t *testing.T) func() []string {
 //  4. self stub 仅在 --dry-run 可用，非 dry-run 报错（禁止静默降级）
 func TestM6Acceptance(t *testing.T) {
 	testutils.MustHaveGit(t)
+	// `run:` 默认"需配置"（v0.3 D 组）：这些用例要执行外部引擎，因此显式声明。
+	// 门禁本身由 TestV03PermissionsAcceptance 覆盖。
+	testutils.AllowEngines(t, "fake-engine", "esbuild")
 	isolateUserEnv(t)
 
 	fake := testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
@@ -492,6 +495,7 @@ func TestM6Acceptance_RealEsbuild(t *testing.T) {
 	if _, err := exec.LookPath("esbuild"); err != nil {
 		t.Skip("esbuild is not installed; the hermetic acceptance above already covers the protocol")
 	}
+	testutils.AllowEngines(t, "esbuild")
 	isolateUserEnv(t)
 
 	proj := m6Project(t, `{"bundle": "esbuild"}`)

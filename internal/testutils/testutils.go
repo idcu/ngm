@@ -71,8 +71,45 @@ func IsolateUserEnv(t *testing.T) string {
 	t.Setenv("NGM_HOME", filepath.Join(home, "ngm-home"))
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+
+	// 验收测试会在**每个子测试**里重新隔离一次（每次换一个临时 HOME），
+	// 因此"这个测试要用哪些引擎"必须在每次隔离时重新写进去。
+	// 实现由调用方注入（见 cmd/ngm 的 isolateUserEnv）：本包不能 import
+	// internal/config——那会形成 testutils → config → resolve → git 的测试期环。
+	if WriteUserConfig != nil {
+		if err := WriteUserConfig(home); err != nil {
+			t.Fatalf("write test user config: %v", err)
+		}
+	}
 	return home
 }
+
+// WriteUserConfig 由调用方注入：隔离用户态后往新的 HOME 里补写全局配置。
+//
+// 存在理由是**子测试会重复隔离**（每次换一个临时 HOME），而测试需要的配置
+// （如 `run:<engine>` 权限）必须每次都重新写进去。注入而不是直接实现，
+// 是为了不让本包依赖 internal/config（会造成测试期的 import 环）。
+var WriteUserConfig func(home string) error
+
+// enginePermissions 是本测试二进制内已声明的引擎权限（见 AllowEngines）。
+var enginePermissions []string
+
+// AllowEngines 声明本测试会执行哪些引擎（`run:<name>`）。
+//
+// 权限模型里 `run:` 的默认档位是"需配置"，执行外部引擎必须显式授权。
+// 验收测试的目的是验证 adapter 与引擎的对接，不是验证权限本身
+// （那由 TestV03PermissionsAcceptance 与 internal/security 的单元测试覆盖），
+// 因此它们显式声明自己需要什么。
+//
+// 这是**显式**的：没有调用它的测试仍然面对"引擎默认需配置"的真实行为。
+func AllowEngines(t *testing.T, engines ...string) {
+	t.Helper()
+	enginePermissions = append(enginePermissions, engines...)
+	t.Cleanup(func() { enginePermissions = nil })
+}
+
+// AllowedEngines 返回已声明的引擎（供写入配置的注入实现读取）。
+func AllowedEngines() []string { return enginePermissions }
 
 // BuildHelperBinary 把仓库内的一个 main 包编译成临时可执行文件，返回其绝对路径。
 //

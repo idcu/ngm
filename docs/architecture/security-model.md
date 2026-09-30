@@ -70,8 +70,13 @@ ngm 把这套思路映射到自己的操作：
 | `net:<host>` | `vendor.Mirror.Ensure`（clone / fetch 的唯一出口）与 `resolve` 的 `ls-remote` | `exit 3`，**未发起任何网络请求** |
 | `run:git` | `git.Run`（所有 git 子进程的出口） | `exit 3`，git 从未启动 |
 | `env:<NAME>` | git 子进程的环境构造 | 变量被**剔除**，ngm 仍不读取它的值 |
-| `read:` / `write:` | 判定已实现，默认允许；施加点是写入路径与（C 组的）沙箱执行 | — |
-| `run:<引擎>` | **尚未施加**（D 组剩余项）：目前 `run:esbuild` 等不会被检查 | — |
+| `read:` / `write:` | **判定已实现，尚无调用点**：两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能；第一个真正需要拦下的场景是沙箱（[C 组](./../development/v0.3-plan.md)） | — |
+| `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**） | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
+
+`run:<引擎>` 的判定排在**可用性之后**，理由是同一个：引擎根本没装时，正确的退出码是
+`exit 5`（工具缺失，脚本据此区分"环境问题"与"配置问题"）。顺序反了的话，一个拼错的引擎名
+会得到"请把 `run:ngm-definitely-not-a-real-engine` 加进配置"——用户照做之后仍然跑不了，
+而那条权限永远不会有用。
 
 判定的两条规则：
 

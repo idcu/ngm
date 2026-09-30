@@ -26,6 +26,7 @@ func TestV02RealTsc(t *testing.T) {
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc is not installed; the hermetic acceptance covers the argv translation")
 	}
+	testutils.AllowEngines(t, "tsc")
 	isolateUserEnv(t)
 
 	t.Run("a clean project type-checks", func(t *testing.T) {
@@ -60,6 +61,7 @@ func TestV02RealPostcss(t *testing.T) {
 	if _, err := exec.LookPath("postcss"); err != nil {
 		t.Skip("postcss is not installed; the hermetic acceptance covers the argv translation")
 	}
+	testutils.AllowEngines(t, "postcss")
 	isolateUserEnv(t)
 
 	t.Run("css compiles and lands where asked", func(t *testing.T) {
