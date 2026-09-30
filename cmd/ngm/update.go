@@ -197,7 +197,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fmt.Fprintf(stdout, "\nupdated %d dependency(ies); wrote %s and %s\n",
 		printed, env.LockPath(), mappings.FileName)
 	_ = maxConc // 层内并发已由 resolve.ResolveGraph 提供；此 flag 预留给未来的解析阶段
-	return 0
+	return autoVerifyAfterLock(ctx, env, pf, pol, *offline, stdout, stderr)
 }
 
 // offlineEnsureMirror 返回一个"只在 mirror 已存在时才可用"的 EnsureMirror 实现。

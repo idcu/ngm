@@ -247,13 +247,18 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 
 	fmt.Fprintf(stdout, "\ninstalled %d dependencies; wrote %s and %s\n",
 		len(lf.Dependencies), env.LockPath(), mappings.FileName)
-	return 0
+	return autoVerifyAfterLock(ctx, env, pf, pol, offline, stdout, stderr)
 }
 
 // installFromLock 尊重既有 lock：不重新解析 ref，只确保内容就绪。
 //
 // 这是 v0.1 的可复现性核心——同一 lock 在不同机器上必须安装出相同内容。
 func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest, offline bool, stdout, stderr io.Writer) int {
+	// verifyOnLock 需要策略：在这里读一次，避免走到底再解析一遍配置
+	pol, perr := projectPolicy(pf)
+	if perr != nil {
+		return runErr(ctx, stdout, stderr, perr)
+	}
 	items := make([]digestNode, 0, len(lf.Dependencies))
 	fromStore := 0
 
@@ -336,7 +341,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 	}
 	fmt.Fprintf(stdout, "\ninstalled %d dependencies from %s (lock respected; %s); wrote %s\n",
 		len(lf.Dependencies), env.LockPath(), source, mappings.FileName)
-	return 0
+	return autoVerifyAfterLock(ctx, env, pf, pol, offline, stdout, stderr)
 }
 
 // printResolved 打印一条解析结果。

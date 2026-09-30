@@ -175,7 +175,19 @@ Deno 的 default-deny 哲学：默认不让依赖跑代码。
 }
 ```
 
-`ngm install` / `ngm update` 后自动跑 `ngm verify`（`verifyOnLock`，**v0.2 生效**；v0.1 只解析该字段，不会自动触发）。
+**done (v0.2)**：`ngm install` / `ngm update` 完成后自动跑一遍 `ngm verify`。
+
+两处刻意的设计（失败语义定义在 [ADR-009 决策 6](../adr/adr-009-supply-chain-policy.md)）：
+
+- **结论按 `verify` 自己的退出码返回**（`1` 漂移 / `2` 完整性 / `4` 网络），**不折成 0**。
+  "装好了，但锁定的 ref 已经指向别处"如果被报成成功，这条策略就没有存在的意义。
+  自动复查**不撤回** install/update 已写下的内容——它只是不允许"写完了却说不出是否一致"。
+- **无默认值，只有显式配置才执行**。verify 要重新解析每个 ref（100 依赖约 3 秒且需网络），
+  默认替所有用户付这个代价不是好交易。
+
+典型场景（也是它唯一无法被 install 自身覆盖的场景）：`ngm.lock` 已提交，上游把 tag 挪到了
+另一个 commit。install 会正确地按 lock 安装，但它自己说不出"ref 已经不再指向你锁定的那个
+commit"——自动复查补上这句。
 
 ---
 

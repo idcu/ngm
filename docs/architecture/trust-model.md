@@ -141,7 +141,7 @@ verify 必须区分，且**区分必须机器可读**（仅靠文本输出不够
 | `minimumReleaseAge` | 推迟新 commit 进入项目（基于 commit 的 committer date） | pnpm 已有同类概念；时间源见[供应链防护](./supply-chain.md) |
 | `osvIgnoreSeverities` | OSV.dev 告警阈值 | LOW/MEDIUM/HIGH/CRITICAL |
 | `postInstallPolicy` | 控制 build script 是否运行 | deny / prompt / allow |
-| `verifyOnLock` | 更新锁定时是否自动检查漂移 | **无默认值**（未配置即不触发）；生效属 v0.2 |
+| `verifyOnLock` | 更新锁定时是否自动检查漂移 | **无默认值**（未配置即不触发）；v0.2 已实现，结论按 verify 自己的退出码返回 |
 
 ---
 
