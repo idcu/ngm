@@ -162,7 +162,18 @@ jobs:
       - name: real engine acceptance
         # TestV03IntegrationsRealTools 在这里而不是 hermetic 组：它要真的跑
         # esbuild 打包与 tsc 类型检查——那正是"生成的配置能用"的唯一证明。
-        run: go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools' -v ./cmd/ngm
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools' -v ./cmd/ngm | tee real-engine.log
+          # 本 job 明确装了 esbuild / typescript / postcss，因此任何 skip 都说明
+          # 环境没装配好。不检查的话，"工具缺失 → 全部 skip → CI 绿"会让整份
+          # 真工具验收变成假象——绿的是空集，而不是通过。
+          if grep -qE '^\s*--- SKIP' real-engine.log; then
+            echo "::error::a real-engine test was skipped; this job installs the tools, so the environment is wrong"
+            grep -E '^\s*--- SKIP' real-engine.log
+            exit 1
+          fi
 
   # 文档链接检查：仅当 docs/ 目录存在时启用。
   # M0 阶段 docs/ 是空仓；ngm-doc 文档暂未合并进来。
