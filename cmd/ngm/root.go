@@ -10,8 +10,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-
-	"github.com/idcu/ngm/internal/errs"
 )
 
 // 命令表：以 "name" 索引到实现。每个命令只负责一件事。
@@ -40,7 +38,7 @@ var commands = []*commandSpec{
 	{Name: "build", Run: runBuild},
 	{Name: "css", Run: runCSS},
 	{Name: "mappings", Run: runMappings},
-	{Name: "integrations", Run: notImplementedYet},
+	{Name: "integrations", Run: runIntegrations},
 	{Name: "cache", Run: runCache},
 	{Name: "config", Run: runConfig},
 	{Name: "engines", Run: runEngines},
@@ -197,23 +195,12 @@ func looksLikeFlag(s string) bool {
 	return len(s) >= 2 && s[0] == '-'
 }
 
-// notImplementedYet 是 v0.1 尚未实现子命令的占位 Run。
+// v0.3 起命令表里已没有占位项（`integrations` 是最后一个），
+// 因此移除了 0.1 时代返回 exit 3 的 notImplementedYet。
 //
-// 返回 3（配置/用法错误语义）：CLI 表面把"未实现"归类为可重试的语义错误，
-// 调用方可借此在 CI 中识别哪些命令尚未到位。
-func notImplementedYet(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	cmd := ""
-	if len(args) > 0 && !looksLikeFlag(args[0]) {
-		cmd = args[0]
-	}
-	ne := errs.New(
-		errs.CodeConfigInvalid,
-		fmt.Sprintf("subcommand not implemented: %s", cmd),
-		"see development/v0.1-plan.md for the milestone schedule",
-	)
-	fmt.Fprintln(stderr, errs.FormatHuman(ne))
-	return 3
-}
+// 保留一个"永不触发的占位函数"没有价值，反而会让 help 与错误信息里
+// 继续出现"未实现"这种描述——那条信息是给尚未到位的命令用的，
+// 现在写下它就是错的。将来若要新增命令，直接实现 Run 即可。
 
 // runWithRecovery 捕获 Run 内部 panic，避免 CLI 留下非零退出但堆栈风暴。
 // 任何 panic 都按 errs.CodeRefDrift (1) 退出。

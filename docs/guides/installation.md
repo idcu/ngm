@@ -128,7 +128,7 @@ ngm --help
 #   build          构建（adapter）
 #   css            CSS 编译（adapter）
 #   mappings       mappings 管理
-#   integrations   构建工具集成脚手架（v0.3）
+#   integrations   构建工具集成脚手架（Vite / esbuild / Deno / Webpack）
 #   cache          缓存维护
 #   config         配置管理
 #   engines        引擎管理

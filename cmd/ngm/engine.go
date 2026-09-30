@@ -142,6 +142,14 @@ func availableHintFor(c *adapter.Catalog, kind adapter.EngineKind) string {
 // 定义就是"该依赖的入口文件"，指向文件比指向目录更精确，也免去依赖各引擎
 // 自己的目录解析规则（esbuild 对目录会去找 package.json main / index.js，
 // 未必认 index.ts）。`main` 缺失时才退化为目录。
+//
+// 键用的是**导入标识符**（Mapping.Specifier）而不是 `from`：同一个仓库的
+// 多个子路径条目共用 `from`，用它当键会让后一行覆盖前一行。后果不是"某个导入
+// 失败"那么明显——存活的那一行若指向一个存在的目录，构建会**成功**，
+// 只是把两个子路径解析到了同一份代码。
+//
+// 别名之间的顺序不影响结果：实测 esbuild 在多个键都能匹配时会选**最具体**的那个
+// （与 `--alias:` 的先后无关）。适配器仍按键排序输出，那是为了让 argv 可复现。
 func (ec *engineContext) mappingsAlias() (map[string]string, error) {
 	mf, err := mappings.Read(mappings.Find(ec.env.ProjectDir))
 	if err != nil {
@@ -153,9 +161,9 @@ func (ec *engineContext) mappingsAlias() (map[string]string, error) {
 
 	alias := make(map[string]string, len(mf.Mappings))
 	for _, m := range mf.Mappings {
-		from := strings.TrimSpace(m.From)
+		key := m.Specifier()
 		to := strings.TrimSpace(m.To)
-		if from == "" || to == "" {
+		if strings.TrimSpace(m.From) == "" || to == "" {
 			continue
 		}
 		if main := strings.TrimSpace(m.Main); main != "" {
@@ -167,7 +175,7 @@ func (ec *engineContext) mappingsAlias() (map[string]string, error) {
 			main = strings.TrimLeft(strings.TrimPrefix(main, "./"), "/")
 			to = strings.TrimRight(to, "/") + "/" + main
 		}
-		alias[from] = to
+		alias[key] = to
 	}
 	return alias, nil
 }

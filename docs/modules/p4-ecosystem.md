@@ -227,7 +227,7 @@ ngm mappings validate
 | mappings schema | done (v0.1)；**v0.3 增可选 `path`** | monorepo 子路径；版本号不变（可选字段） |
 | mappings 生成 | done (v0.1)；v0.3 写入 `path` | |
 | mappings 校验 | done (v0.1)；v0.3 校验 `path` 与 lock / `to` 三者自洽 | |
-| 外部工具集成（Vite / esbuild / Deno / Webpack） | planned (v0.3) | 见 [P5](./p5-integrations.md) |
+| 外部工具集成（Vite / esbuild / Deno / Webpack） | done (v0.3) | 见 [P5](./p5-integrations.md) |
 
 > 成熟度口径与唯一事实源[能力矩阵](../internals/capability-matrix.md)一致。
 

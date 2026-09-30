@@ -122,7 +122,9 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - name: run milestone acceptance
-        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance' -v ./cmd/ngm
+        # v0.2 起验收测试改按版本分组命名，这里一并列出——只跑 M1–M7 会让
+        # 后续版本的端到端验收"在 CI 里存在但从不显式执行"，红灯时也看不出是哪一组。
+        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance' -v ./cmd/ngm
 
   # 真实引擎集成（M6）：hermetic 那一组用假引擎覆盖协议，这里用**真实的 esbuild**
   # 证明 adapter 与真工具的对接确实成立——包括把 ngm.mappings.json 变成
@@ -158,7 +160,9 @@ jobs:
           tsc --version
           postcss --version
       - name: real engine acceptance
-        run: go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss' -v ./cmd/ngm
+        # TestV03IntegrationsRealTools 在这里而不是 hermetic 组：它要真的跑
+        # esbuild 打包与 tsc 类型检查——那正是"生成的配置能用"的唯一证明。
+        run: go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools' -v ./cmd/ngm
 
   # 文档链接检查：仅当 docs/ 目录存在时启用。
   # M0 阶段 docs/ 是空仓；ngm-doc 文档暂未合并进来。

@@ -42,7 +42,9 @@ internal/                # 12 个包，按职责划分
 >
 > **包的存在状态**：`internal/supplychain/` 已在 v0.2 创建（`policy.go` / `allowlist.go` /
 > `minimumage.go` / `osv.go` / `audit.go` / `report.go`；postinstall 的**执行入口**收窄到 v0.3）；
-> `internal/observability/` 已在 v0.2 D 组创建（`tree.go` / `why.go` / `outdated.go`）。
+> `internal/observability/` 已在 v0.2 D 组创建（`tree.go` / `why.go` / `outdated.go`）；
+> `internal/integrations/` 已在 v0.3 B 组创建（工具抽象与冲突策略、四个工具的生成器、
+> tsconfig paths 与行级 diff；见 [P5](./p5-integrations.md)）。
 >
 > 归属约定：`audit` 的实现归 `internal/supplychain/`（P3）；`ngm verify` 的检查与判定在 `internal/verify/`，
 > 而"落地树 vs content store 的逐文件比对"在 `internal/vendor/integrity.go`；CLI 入口统一在 `cmd/ngm/`。

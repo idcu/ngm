@@ -27,7 +27,7 @@
 | `ngm tree [--osv] [--offline] [--json]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv` | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新" | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
-| `ngm integrations add <tool>` | 生成构建工具集成配置 | planned v0.3 | [P5 — 外部工具集成](../modules/p5-integrations.md) |
+| `ngm integrations add <tool> [--dry-run] [--json]` | 生成 `vite` / `esbuild` / `deno` / `webpack` 集成配置（**不覆盖已有文件**，冲突 exit 3） | **v0.3 已实现** | [P5 — 外部工具集成](../modules/p5-integrations.md) |
 **content store 的回收尚未排期**：v0.1 的 store 只增不减，`ngm cache clean` 只清缓存层
 （不影响可证明性）。store GC 不在 v0.2 范围内，等需要时再排——这里**不预告具体命令名**，
 以免文档承诺一个不存在的 `ngm store gc`。

@@ -117,6 +117,15 @@ ngm 生成 `ngm.mappings.json`，供外部构建工具读取：
 }
 ```
 
+### 先试脚手架
+
+```bash
+ngm integrations add vite      # 或 esbuild / deno / webpack
+```
+
+它按下面的规则生成配置，并且**不会覆盖**你已有的配置文件：内容不同时报出差异并以 exit 3 结束，
+由你决定怎么合。下面的章节是它生成的内容与逐条理由，供已有配置的项目手工合并时对照。
+
 ### 先算对"导入标识符"
 
 每种工具的配置都以**导入标识符**为键，而它不等于 `from`：`path` 存在时要拼上去。
@@ -205,7 +214,10 @@ build({
 ### TypeScript 类型解析
 
 TS 语言服务不识别 `github:` 前缀：需要在 `tsconfig.json` 的 `paths` 中映射到 vendor 路径，
-否则类型检查会报"找不到模块"（`ngm integrations add` 将一并生成，v0.3）。
+否则类型检查会报"找不到模块"。
+
+`ngm integrations add <tool>` 会把这些一次性生成好（见下），下面是它生成的内容——
+如果你已经有自己的配置文件，照着手工合并即可。
 
 ```json
 {

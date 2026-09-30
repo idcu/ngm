@@ -132,6 +132,25 @@ func (f *File) Marshal() ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// Specifier 返回该映射的**导入标识符**：`from`，或 `from + "/" + path`。
+//
+// 它是消费方实际书写的那个字符串，因此也是别名 / import map / tsconfig paths 的键。
+//
+// 为什么不直接用 `from`：同一个仓库的多个子路径条目**共用** `from`，
+// 用它当键只能留下一行，另一行会被指错。实测（esbuild）：只给短键时，
+// `github:demo/lib/packages/core` 被改写成 `.../packages/core/packages/core` 而失败；
+// 若留存的那一行恰好指向一个存在的目录，则会**静默解析到错误的代码**——
+// 那是比报错更糟的结果。
+//
+// 放在协议层而不是各消费方：`ngm build` 与 `ngm integrations` 必须给出同一个键，
+// 两处各写一遍迟早漂移。
+func (m Mapping) Specifier() string {
+	if m.Path == "" {
+		return m.From
+	}
+	return m.From + "/" + strings.Trim(m.Path, "/")
+}
+
 // Validate 校验结构与版本。
 func (f *File) Validate() error {
 	if f == nil {

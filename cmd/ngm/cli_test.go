@@ -51,24 +51,28 @@ func TestDispatch_UnknownSubcommand(t *testing.T) {
 }
 
 func TestDispatch_NotImplementedYet(t *testing.T) {
-	// 未实现的子命令应返回 3 + 可读 hint，让 CI 能区分"命令还没到"与"命令失败"。
+	// 这条纪律的内容随里程碑演进，但不变的是**清单必须与实现同步**：
 	//
-	// 刻意覆盖**全部**剩余占位命令而不是挑一个：M6 之后
-	// build / typecheck / css / engines 已实现，只测其中一个会让这条纪律
-	// 在下一个里程碑无声失效。
+	//   M6 之后 build / typecheck / css / engines 已实现
+	//   v0.2 audit、why / tree / outdated 已实现
+	//   v0.3 integrations（最后一个）已实现 → 命令表里不再有占位项
 	//
-	// `audit` 已在 v0.2 C 组实现、`why` / `tree` / `outdated` 已在 D 组实现
-	// （见 TestV02SupplyChainAcceptance 与 TestV02ObservabilityAcceptance），故**移出**本清单——
-	// 这条纪律靠"清单必须与实现同步"才有意义，命令实现后就要从这里删掉。
-	for _, name := range []string{"integrations"} {
-		out := &bytes.Buffer{}
-		errBuf := &bytes.Buffer{}
-		if code := dispatch([]string{name}, out, errBuf); code != 3 {
-			t.Errorf("%s: code=%d want 3", name, code)
+	// 所以现在该断言的不是"某个命令返回 exit 3"，而是**没有任何命令是占位的**：
+	// 一旦有人再加一个 Run: nil 的条目，这里立刻红。
+	//
+	// 不再逐个 dispatch 每个命令：那会真的执行 init / add / cache 等有副作用的命令。
+	for _, spec := range commands {
+		if spec.Run == nil {
+			t.Errorf("%s has no implementation: the command table must not contain placeholders", spec.Name)
 		}
-		if !strings.Contains(errBuf.String(), "not implemented") {
-			t.Errorf("%s: stderr=%q", name, errBuf.String())
-		}
+	}
+
+	// 未实现的提示语不应残留在任何地方——它描述的是不存在的情况。
+	out := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+	_ = dispatch([]string{"integrations"}, out, errBuf)
+	if strings.Contains(errBuf.String(), "not implemented") {
+		t.Errorf("integrations is implemented but still reports otherwise: %q", errBuf.String())
 	}
 }
 

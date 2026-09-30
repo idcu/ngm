@@ -170,8 +170,12 @@ typeCheck 的默认顺序），见[引擎 adapter](./architecture/engine-adapter
 `--offline`（只读缓存）、`--no-cache`、`--json`。注意"审计通过"的含义是**库里没有关于这个
 commit 的记录**，不等于安全——覆盖局限会写进每一份报告。
 
-**规划中**（用到会明确 `exit 3`，不会静默成功）：`ngm integrations`（v0.3）。
-逐项成熟度以[能力矩阵](./internals/capability-matrix.md)为准。
+**v0.3 已落地**：`ngm integrations add vite|esbuild|deno|webpack` —— 生成各构建工具消费
+mappings 所需的配置（含 tsconfig `paths`）。它**不覆盖**用户已有的配置文件：内容不同时
+报出差异并以 exit 3 结束，由用户决定怎么合。
+
+至此 CLI 参考里列出的命令**全部已实现**，命令表中不再有占位项。没有列出的命令不存在，
+用到会明确报错，不会静默成功。逐项成熟度以[能力矩阵](./internals/capability-matrix.md)为准。
 
 ---
 
