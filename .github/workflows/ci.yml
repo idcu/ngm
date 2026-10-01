@@ -170,10 +170,12 @@ jobs:
         # TestV03IntegrationsRealTools 在这里而不是 hermetic 组：它要真的跑
         # esbuild 打包与 tsc 类型检查——那正是"生成的配置能用"的唯一证明。
         # TestV03SandboxRealDeno 同理：沙箱的逃逸阻断只有真 Deno 能证明。
+        # TestV04RealTscTypeDecl 同理：声明生成要真的产出一份描述了源码的 .d.ts，
+        # 假引擎接受任何参数、写死一个文件名，证明不了我们调用 tsc 的方式与它一致。
         shell: bash
         run: |
           set -o pipefail
-          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools|TestV03SandboxRealDeno|TestV03PostInstallRealDeno|TestV03AuditHookRealDeno' -v ./cmd/ngm | tee real-engine.log
+          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools|TestV03SandboxRealDeno|TestV03PostInstallRealDeno|TestV03AuditHookRealDeno|TestV04RealTscTypeDecl' -v ./cmd/ngm | tee real-engine.log
           # 本 job 明确装了 esbuild / typescript / postcss，因此任何 skip 都说明
           # 环境没装配好。不检查的话，"工具缺失 → 全部 skip → CI 绿"会让整份
           # 真工具验收变成假象——绿的是空集，而不是通过。
