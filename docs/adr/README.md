@@ -21,6 +21,7 @@
 | [ADR-011](./adr-011-wasm-runtime.md) | wasm adapter 的运行时与 ABI | 已定（v0.3 A 组） |
 | [ADR-012](./adr-012-sandbox.md) | 沙箱与执行边界 | 已定（v0.3 D 组之后） |
 | [ADR-013](./adr-013-remote-adapter.md) | remote adapter 的信任边界 | 已定（v0.3 A 组，**结论：不发布**） |
+| [ADR-014](./adr-014-self-report-signatures.md) | 依赖自述的签名检查 | 已定（v0.4 复核，**结论：不做**；身份交回 Git 的签名机制） |
 
 ---
 

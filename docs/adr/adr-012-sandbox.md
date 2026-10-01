@@ -59,7 +59,8 @@ ngm 从不把沙箱的输出当成自己的结论来源。
 - 依赖根目录下的 `verify.js`（若提供）。它由**依赖作者**编写，随依赖进入 vendor，因此**不可信**。
 - 依赖根目录下的 `postinstall.js`（仅 `postInstallPolicy: allow` 时）——同属"依赖作者写的代码"。
 - 用户自定义 audit hook（`ngm audit --hook=<script.js>`，报告从 stdin 进入）。
-- 已实现：`verify.js`、`postinstall.js`、audit hook；**自述文件签名检查仍待实现**（它还需要先定格式与密钥管理）。
+- 已实现：`verify.js`、`postinstall.js`、audit hook；**自述文件签名检查已由 [ADR-014](./adr-014-self-report-signatures.md) 决定不做**——
+  给一个 ngm 明确声明不采信的声明加签名，只会让它看起来更可信；身份问题交回 Git 的签名机制。
 - 所有用途**遵循同一套权限映射**；三者的差别只在"可读范围"：依赖脚本读自己的子树，audit hook 读整个项目目录。
 
 **执行是 opt-in**：不带 `--sandbox` 时，`verify.js` 存在也不会被执行。是否需要为"执行依赖脚本"再加一层
