@@ -34,10 +34,12 @@ jobs:
         run: |
           set +e
           ESB="npx --yes esbuild@0.28.2"
-          mkdir -p work/a/src work/a/lang work/b/src work/b/lang
+          # 依赖必须用显式文件名导入：实测 esbuild 对**相对目录**导入（`./lib`）
+          # 不做 `index.ts` 解析，会直接报 Could not resolve（三个平台一致）。
+          mkdir -p work/a/src work/b/src
           for d in a b; do
-            printf 'export const x: number = 41 + 1;\n' > "work/$d/lang/index.ts"
-            printf 'import { x } from "./lang";\nconsole.log(x);\n' > "work/$d/src/index.ts"
+            printf 'export const x: number = 41 + 1;\n' > "work/$d/src/lib.ts"
+            printf 'import { x } from "./lib.ts";\nconsole.log(x);\n' > "work/$d/src/index.ts"
           done
 
           $ESB --bundle work/a/src/index.ts --minify --outfile=work/a/min.js > b1.log 2>&1
@@ -52,8 +54,8 @@ jobs:
           mins_b=$(h work/b/min.js)
           plain_a=$(h work/a/plain.js)
           # 不 minify 的产物里是否嵌了构建机的绝对路径（1 = 嵌了）
-          pathleak=$(grep -c 'work/a/lang' work/a/plain.js 2>/dev/null)
-          minleak=$(grep -c 'work/a/lang' work/a/min.js 2>/dev/null)
+          pathleak=$(grep -c 'work/a/src/lib.ts' work/a/plain.js 2>/dev/null)
+          minleak=$(grep -c 'work/a/src/lib.ts' work/a/min.js 2>/dev/null)
 
           echo "::notice::PROBE ${{ runner.os }} exit=$c1/$c2/$c3 min_a=$mins_a min_b=$mins_b plain_a=$plain_a pathleak=${pathleak:-?} minleak=${minleak:-?}"
 
