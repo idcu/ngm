@@ -6,12 +6,21 @@
 # 它回答的问题：[ADR-013](../docs/adr/adr-013-remote-adapter.md) 的翻案条件之一：
 # **"同一份源码 + 同一引擎版本 → 相同字节"**到底成立到什么程度。
 #
-# 测量逻辑集中在 `scripts/probe-reproducibility.sh`，本工作流只是**在三个平台上各跑一次**。
-# 结果以 annotation 的形式发出（Actions 日志匿名读不到——手法见 v0.2 复盘）。
+# 测量逻辑集中在 `scripts/probe-reproducibility.sh`，本工作流做两件事：
+#
+#   1. **在三个平台上各跑一次**（每个平台的结果落成 artifact）
+#   2. **把三份结果放在一起判一次**（`scripts/compare-probe-results.mjs`）
+#
+# 第 2 步是 v0.5 补的。此前"跨机器"靠**读结果的人**去对照三行 annotation——
+# 那在结果相同时也看不出问题，在结果不同时又说不清是哪一层不同；而最容易漏的一条是
+# **引擎版本是否一致**：版本不同的两份字节相同纯属巧合，那样比出来的"可复现"没有意义。
+# 现在这三层（各平台自检成立 / 无构建失败 / 引擎版本一致 / 产物哈希一致）都由机器判，
+# 任何一层不成立即失败。判不了的情况（例如只收到一份结果）同样失败——
+# "没测出来"不得读成"通过"。
 #
 # ## 读法
 #
-# 结果行形如：
+# 平台 job 的结果行形如：
 #
 #	PROBE <os> esbuild=<v> tsc=<v> treeA=<hash> treeB=<hash> ctrl=<hash>
 #	      same_across_paths=yes ctrl_sensitive=sensitive verdict=REPRODUCIBLE fails=
@@ -23,8 +32,8 @@
 #     前面的"相同"就什么都没有证明。
 #   - `verdict`：上面两条都成立才是 `REPRODUCIBLE`。
 #
-# 跨平台的比较由读结果的人做：三个平台的 `treeA`（`=treeB`）互相一样，
-# 才说明**跨机器**也能复现。
+# 覆盖的构建形态见探针脚本头部：esbuild 打包 / sourcemap / tsc 声明 / postcss /
+# loader 链 / CSS 压缩 / **esbuild 插件（JS API）+ metafile**。
 
 name: repro-probe
 
@@ -34,6 +43,7 @@ on:
     paths:
       - '.github/workflows/repro-probe.yml'
       - 'scripts/probe-reproducibility.sh'
+      - 'scripts/compare-probe-results.mjs'
 
 jobs:
   probe:
@@ -51,4 +61,40 @@ jobs:
 
       - name: measure
         shell: bash
+        env:
+          PROBE_OUT: probe-result.json
         run: bash scripts/probe-reproducibility.sh "${{ runner.os }}"
+
+      - name: show result
+        shell: bash
+        run: cat probe-result.json
+
+      # 即使这一步的测量失败，结果文件也要留下来——
+      # 汇总 job 需要看到"是哪个平台、哪一步、报了什么"，而不是一个空 artifact。
+      - name: upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ runner.os }}
+          path: probe-result.json
+          if-no-files-found: error
+
+  compare:
+    needs: probe
+    # 即使有平台失败也要比：那份"失败"本身就是要比对的结论之一。
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: probe-*
+          path: results
+
+      - name: compare across machines
+        run: node scripts/compare-probe-results.mjs results

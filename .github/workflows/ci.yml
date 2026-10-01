@@ -124,7 +124,7 @@ jobs:
       - name: run milestone acceptance
         # v0.2 起验收测试改按版本分组命名，这里一并列出——只跑 M1–M7 会让
         # 后续版本的端到端验收"在 CI 里存在但从不显式执行"，红灯时也看不出是哪一组。
-        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance|TestV03PermissionsAcceptance|TestV03CredentialDiscipline|TestV03SandboxAcceptance|TestV03PostInstallAcceptance|TestV03AuditHookAcceptance|TestV03WasmEngineAcceptance|TestV04VerifySignaturesAcceptance' -v ./cmd/ngm
+        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance|TestV03PermissionsAcceptance|TestV03CredentialDiscipline|TestV03SandboxAcceptance|TestV03PostInstallAcceptance|TestV03AuditHookAcceptance|TestV03WasmEngineAcceptance|TestV04VerifySignaturesAcceptance|TestV05TransformAcceptance|TestV05EngineChannelsAcceptance' -v ./cmd/ngm
 
   # 真实引擎集成（M6）：hermetic 那一组用假引擎覆盖协议，这里用**真实的 esbuild**
   # 证明 adapter 与真工具的对接确实成立——包括把 ngm.mappings.json 变成
@@ -156,9 +156,23 @@ jobs:
         run: npm install --global esbuild typescript postcss-cli postcss
       - uses: denoland/setup-deno@v2
         with:
-          # 不钉版本：沙箱按**能力**探测（--allow-read=<dir> 与 --deny-*），
-          # 写死版本号会在能跑的版本上拒绝运行、在不能跑的版本上放行（ADR-012 决策 6）。
-          deno-version: v1.x
+          # 两件事要分清（v0.5 修正）：
+          #
+          #  1. **ngm 的沙箱不按版本号判定**：它按能力探测（--allow-read=<dir> 与 --deny-*），
+          #     写死版本号会在能跑的版本上拒绝运行、在不能跑的版本上放行（ADR-012 决策 6）。
+          #  2. **CI 装哪个版本是个明确的选择**：它应当等于文档声明的下限，
+          #     否则"声明的下限"就从未被验证过。
+          #
+          # 这里此前是 `v1.x`，而 guides/installation.md 声明的是 **Deno >= 2.0**——
+          # 也就是说 CI 一直在测一个**低于自己下限**的版本。代价是具体的：
+          # Deno 2 把权限错误的类名从 `PermissionDenied` 改成 `NotCapable`，
+          # 而验收夹具只认旧名字，于是在 2.x 上会把"已被正确拦下"报成"沙箱坏了"
+          # （假失败）。钉在 1.x 让这件事藏了很久——见 development/v0.5-review.md。
+          #
+          # 2.4.0 是**已在本地实测过**的版本（沙箱 / postinstall / audit hook / deno
+          # typeCheck 四组全绿），也是 `deno bundle` 的最低版本。要升级请当作一次有意的动作：
+          # 改这一行，然后看结果。
+          deno-version: v2.4.0
       - name: show deno version
         run: deno --version
       - name: show engine versions
@@ -172,11 +186,15 @@ jobs:
         # TestV03SandboxRealDeno 同理：沙箱的逃逸阻断只有真 Deno 能证明。
         # TestV04RealTscTypeDecl 同理：声明生成要真的产出一份描述了源码的 .d.ts，
         # 假引擎接受任何参数、写死一个文件名，证明不了我们调用 tsc 的方式与它一致。
+        # TestV05RealDenoTypeCheck 同理（v0.5 补）：`deno check` 是 deno adapter 里
+        # **稳定**的那一半（bundle 那一半仍是上游的实验特性），此前从未被真工具验证过。
+        # TestV05RealEsbuildTransform 同理：transform 在 v0.5 之前没有命令入口，
+        # 因此"我们调用 esbuild 的方式与它一致"这件事也从未被验证过。
         shell: bash
         run: |
           set -o pipefail
-          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools|TestV03SandboxRealDeno|TestV03PostInstallRealDeno|TestV03AuditHookRealDeno|TestV04RealTscTypeDecl' -v ./cmd/ngm | tee real-engine.log
-          # 本 job 明确装了 esbuild / typescript / postcss，因此任何 skip 都说明
+          go test -count=1 -run 'TestM6Acceptance_RealEsbuild|TestM7Quickstart_RealToolchain|TestV02RealTsc|TestV02RealPostcss|TestV03IntegrationsRealTools|TestV03SandboxRealDeno|TestV03PostInstallRealDeno|TestV03AuditHookRealDeno|TestV04RealTscTypeDecl|TestV05RealDenoTypeCheck|TestV05RealEsbuildTransform' -v ./cmd/ngm | tee real-engine.log
+          # 本 job 明确装了 esbuild / typescript / postcss / deno，因此任何 skip 都说明
           # 环境没装配好。不检查的话，"工具缺失 → 全部 skip → CI 绿"会让整份
           # 真工具验收变成假象——绿的是空集，而不是通过。
           if grep -qE '^\s*--- SKIP' real-engine.log; then

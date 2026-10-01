@@ -8,10 +8,26 @@
 #
 #	bash scripts/probe-reproducibility.sh [label] [workdir]
 #
-# 它做两件事：
+# 环境变量：
 #
-#  1. 在两个**内容相同、路径不同**的目录里各构建一次（60 个源文件，两级嵌套目录）
+#	PROBE_OUT   机器可读结果写到这里（供跨平台比对 job 消费）；默认 <workdir>/probe-result.json
+#
+# 它做三件事：
+#
+#  1. 在两个**内容相同、路径不同**的目录里各构建一次
 #  2. 跑一个**对照**：改动一个源文件的一个字节后再构建，产物哈希**必须**变化
+#  3. 把结果写成一行 `::notice::` **和**一份 JSON（跨机器比对靠后者）
+#
+# 覆盖的构建形态（v0.5 扩到 6 种）：
+#
+#	esbuild 打包 + 压缩 / esbuild sourcemap / tsc 声明 / postcss
+#	+ **loader 链**（`.png` → dataurl、`.txt` → text）与 **CSS 压缩链**（v0.5 补）
+#	+ **esbuild 插件（JS API）+ metafile**（v0.5 补）
+#
+# 最后一项是刻意补的：前几轮只证明了"CLI + 简单入口"可复现，而**真实项目走的是插件链**
+# （Vite / Astro 都经 esbuild 的 JS API），而 metafile 里记着每个输入输出的路径——
+# 那是"绝对路径泄漏进产物"最可能出现的地方。把它写进产物目录并参与哈希，
+# 就把"插件链是否引入机器相关的字节"变成了一次逐字节比对。
 #
 # 为什么必须有对照：如果检查本身坏了（永远返回同一个值、或压根没跑到被测路径），
 # "两次字节相同"照样成立，而它什么都没有证明。这与本项目另一条教训同源——
@@ -28,13 +44,29 @@ set -u
 LABEL="${1:-local}"
 WORK="${2:-${TMPDIR:-/tmp}/ngm-repro-probe}"
 
+# 路径统一成绝对路径：下面的插件步骤以项目目录为参数，相对路径会随 `cd` 改变含义。
+#
+# Windows 的 `X:/...` 也算绝对——Git Bash 里 `/*` 匹配不到它，若按相对路径处理，
+# 会拼出一个形如 `<cwd>/d:/repos/...` 的怪路径（本探针第一次扩展时就踩到过）。
+abs_path() {
+  case "$1" in
+    /* | [A-Za-z]:[/\\]*) printf '%s' "$1" ;;
+    *) printf '%s/%s' "$PWD" "$1" ;;
+  esac
+}
+WORK=$(abs_path "$WORK")
+OUT=$(abs_path "${PROBE_OUT:-$WORK/probe-result.json}")
+
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
 # 版本钉住，并在结果行里打印出来
-ESB="npx --yes esbuild@0.28.2"
-TSC="npx --yes -p typescript@5.6.3 tsc"
-POSTCSS="npx --yes -p postcss-cli@11.0.0 postcss"
+ESB_VER="0.28.2"
+TSC_VER="5.6.3"
+POSTCSS_VER="11.0.0"
+ESB="npx --yes esbuild@$ESB_VER"
+TSC="npx --yes -p typescript@$TSC_VER tsc"
+POSTCSS="npx --yes -p postcss-cli@$POSTCSS_VER postcss"
 
 A1="--alias:github:demo/one=./ngm.vendor/github.com/demo/one"
 A2="--alias:github:demo/two=./ngm.vendor/github.com/demo/two"
@@ -70,6 +102,85 @@ run_one() {
   return 0
 }
 
+# setup_tools 为插件那一步准备 `require("esbuild")` 能解析到的位置。
+#
+# 为什么不用 NODE_PATH：ESM 不认它，而 Windows 上它还要一个 Windows 形态的路径。
+# 把**装好包的目录**和**脚本本身**放在一起，node 的解析规则就自然生效。
+setup_tools() {
+  mkdir -p "$WORK/tools"
+  (
+    cd "$WORK/tools" || exit 1
+    npm install --no-save --silent --no-audit --no-fund "esbuild@$ESB_VER"
+  ) >"$WORK/npm-install.log" 2>&1 || {
+    head -c 300 "$WORK/npm-install.log" | tr "\n" " "
+    return 1
+  }
+
+  cat > "$WORK/tools/plugin-build.cjs" <<'EOF'
+// 一个"像真实项目"的 esbuild 插件链：把 `github:` 裸导入解析到 vendor。
+// （ngm build 用 `--alias:` 做同一件事；Vite / Astro 走的是插件这条路。）
+//
+// 纪律：**不写入任何与机器或时间有关的东西**（Date.now()、绝对路径、主机名）。
+// 那既是复现的前提，也正是这条探针要证的东西——如果插件非得写这些才能工作，
+// "可复现"就不成立，而它应该在这里失败，而不是在用户的机器上。
+const { build } = require("esbuild");
+const fs = require("fs");
+const path = require("path");
+
+const projectDir = process.argv[2];
+if (!projectDir) {
+  console.error("usage: node plugin-build.cjs <project-dir>");
+  process.exit(2);
+}
+
+const vendorIndex = (name) =>
+  path.resolve(projectDir, "ngm.vendor/github.com/demo", name, "index.ts");
+
+const alias = {
+  "github:demo/one": vendorIndex("one"),
+  "github:demo/two": vendorIndex("two"),
+};
+
+build({
+  // 路径基准**显式给出**，不靠进程 CWD：ngm 自己也踩过两次这个坑
+  // （清单校验、typedecl 输出目录都曾按 CWD 找错地方）。
+  absWorkingDir: projectDir,
+  entryPoints: ["src/index.ts"],
+  outfile: "dist/plugin/app.js",
+  bundle: true,
+  minify: true,
+  metafile: true,
+  format: "esm",
+  target: "es2020",
+  logLevel: "silent",
+  plugins: [
+    {
+      name: "ngm-vendor-alias",
+      setup(b) {
+        b.onResolve({ filter: /^github:/ }, (args) => {
+          const p = alias[args.path];
+          if (!p) return { errors: [{ text: "unmapped specifier: " + args.path }] };
+          return { path: p };
+        });
+      },
+    },
+  ],
+})
+  .then((r) => {
+    // metafile 里的路径是**相对 absWorkingDir** 的。把它写进产物目录，
+    // 就等于把"是否泄漏路径"变成一次字节比对。
+    fs.writeFileSync(
+      path.join(projectDir, "dist/plugin/meta.json"),
+      JSON.stringify(r.metafile, null, 2) + "\n"
+    );
+  })
+  .catch((e) => {
+    console.error(String(e && e.message ? e.message : e));
+    process.exit(1);
+  });
+EOF
+}
+
 build_all() {
   local dir="$1" tag="$2" err=""
   (
@@ -85,13 +196,23 @@ build_all() {
       --outDir dist/types src/plain.ts) || { echo "$err"; exit 1; }
     err=$(run_one "$tag-postcss" $POSTCSS --output dist/app.css < src/app.css) \
       || { echo "$err"; exit 1; }
+    # loader 链 + 压缩：真实项目里 png / txt 这类资源都要经 loader 变成可打包的形态
+    err=$(run_one "$tag-esbuild-loader" $ESB --bundle src/with-assets.ts \
+      --loader:.png=dataurl --loader:.txt=text \
+      --minify --outfile=dist/assets/app.js) || { echo "$err"; exit 1; }
+    # CSS 压缩链：postcss 那一步没有内建压缩，压缩由别的工具承担（这里用 esbuild）
+    err=$(run_one "$tag-esbuild-cssmin" $ESB --bundle src/app.css \
+      --minify --outfile=dist/css/app.min.css) || { echo "$err"; exit 1; }
+    # 插件 + metafile（JS API）：Vite / Astro 走的就是这条路
+    err=$(run_one "$tag-esbuild-plugin" node "$WORK/tools/plugin-build.cjs" "$dir") \
+      || { echo "$err"; exit 1; }
   )
 }
 
-# 生成项目：入口 + 两级嵌套目录里的模块 + 两个依赖（镜像 vendor 布局）
+# 生成项目：入口 + 两级嵌套目录里的模块 + 两个依赖（镜像 vendor 布局）+ 两个资源
 make_project() {
   local p="$1"
-  mkdir -p "$p/src/util/deep" \
+  mkdir -p "$p/src/util/deep" "$p/src/assets" \
            "$p/ngm.vendor/github.com/demo/one" \
            "$p/ngm.vendor/github.com/demo/two"
 
@@ -123,16 +244,32 @@ make_project() {
     printf 'console.log(m1);\n'
   } > "$p/src/plain.ts"
 
+  # 资源用**固定字节**：任何随机 / 时间相关的输入都会让"可复现"无从谈起。
+  # 8 字节的 PNG 魔数足够让 loader 有事可做（dataurl 会把它 base64 进去）。
+  printf '\211PNG\r\n\032\n' > "$p/src/assets/logo.png"
+  printf 'note: fixed bytes\n' > "$p/src/assets/note.txt"
+
+  {
+    printf 'import logo from "./assets/logo.png";\n'
+    printf 'import note from "./assets/note.txt";\n'
+    printf 'export const banner = logo.length + note.length;\n'
+  } > "$p/src/with-assets.ts"
+
   printf '.card { color: red; }\n.card .title { font-weight: 700; }\n' \
       > "$p/src/app.css"
 }
+
+fails=""
+tools_err=$(setup_tools)
+if [ -n "$tools_err" ]; then
+  fails="$fails tools:[$tools_err]"
+fi
 
 for d in a bbbb-longer-directory-name; do
   make_project "$WORK/work/$d"
 done
 
 # 逐个构建：工作目录 = 项目目录，参数相对路径（与 ngm 的调用方式一致）
-fails=""
 for d in a bbbb-longer-directory-name; do
   out=$(build_all "$WORK/work/$d" "$d")
   if [ -n "$out" ]; then
@@ -169,4 +306,28 @@ else
   verdict="NOT-REPRODUCIBLE"
 fi
 
-echo "::notice::PROBE $LABEL esbuild=$($ESB --version 2>/dev/null) tsc=$($TSC --version 2>/dev/null) treeA=$tree_a treeB=$tree_b ctrl=$tree_c same_across_paths=$same ctrl_sensitive=$ctrl verdict=$verdict fails=$fails"
+esb_got=$($ESB --version 2>/dev/null)
+tsc_got=$($TSC --version 2>/dev/null)
+
+# 机器可读的结果：跨平台比对 job 读它，人也读它（比一行 annotation 好读）。
+mkdir -p "$(dirname "$OUT")"
+cat > "$OUT" <<EOF
+{
+  "label": "$LABEL",
+  "os": "${RUNNER_OS:-$(uname -s)}",
+  "arch": "$(uname -m)",
+  "node": "$(node --version 2>/dev/null)",
+  "esbuild": "$esb_got",
+  "tsc": "$tsc_got",
+  "treeA": "$tree_a",
+  "treeB": "$tree_b",
+  "ctrl": "$tree_c",
+  "same_across_paths": "$same",
+  "ctrl_sensitive": "$ctrl",
+  "verdict": "$verdict",
+  "fails": "${fails# }"
+}
+EOF
+
+echo "::notice::PROBE $LABEL esbuild=$esb_got tsc=$tsc_got treeA=$tree_a treeB=$tree_b ctrl=$tree_c same_across_paths=$same ctrl_sensitive=$ctrl verdict=$verdict fails=$fails"
+echo "PROBE wrote $OUT"
