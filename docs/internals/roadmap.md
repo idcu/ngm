@@ -1,8 +1,8 @@
 # 路线图
 
-> ngm 的产品路线。**v0.1 ~ v0.4 均已交付**（证据见各版[复盘](../development/)；
-> `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布（2026-10-01 补齐后三版；Gitee 侧附件待上传））；
-> **v0.5 开工前复核已完成**（[v0.5 复核](../development/v0.5-review.md)），**v0.5 范围尚未成文**。
+> ngm 的产品路线。**v0.1 ~ v0.5 均已交付**（证据见各版[复盘](../development/)；
+> `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布（2026-10-01 补齐后三版；**Gitee 侧附件待上传**）；
+> v0.5 见[计划](../development/v0.5-plan.md)与[复盘](../development/v0.5-retrospective.md)）。
 >
 > 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
 
@@ -119,14 +119,14 @@ Gitee 附件待人工上传）。
 
 | 组 | 任务 | 状态 |
 |----|------|------|
-| A | 在线 verify 的 spawn 成本与方差（先立 ADR：`refType=commit` 跳过 `ls-remote`） | 计划 |
-| B | ADR-013 翻案条件的**判定**（新形态探针三平台结果 + 机器比对） | 计划 |
-| C | 权限施加点的机械核对（`read:`/`net:`/`run:`/`env:`，缺断言即失败） | 计划 |
-| D | **v0.2 ~ v0.4 补发布**（打 tag → 重建六平台产物 → 双源核对 `SHA256SUMS`） | ✅ GitHub 侧已完成（3 × 7 附件，2026-10-01）；**Gitee 附件待人工上传** |
-| E | 挂账项：`deno bundle` 固定"实验性警告必须转达"；store/mirror GC 等数据 | 计划 |
+| A | 在线 verify 的 spawn 成本与方差 | ✅ 已交付（[ADR-015](../adr/adr-015-commit-ref-resolution.md) / [ADR-016](../adr/adr-016-mirror-url-local-read.md)：commit 3→2、tag 4→3 次/依赖；**目标线在噪声里不可判别**，见复盘 §2.3） |
+| B | ADR-013 翻案条件的**判定** | ✅ 已交付：3 平台 × 7 形态**字节一致**；翻案条件的技术前提成立，**仍不发布**（发布须另立 ADR） |
+| C | 权限施加点的机械核对 | ✅ 已交付：查出两处缺口并接线；三张机械检查的网（`internal/security/enforcement_test.go` 等） |
+| D | **v0.2 ~ v0.4 补发布** | ⚠️ GitHub 侧已完成（3 × 7 附件，2026-10-01）；**Gitee 附件 21 个待人工上传** |
+| E | 挂账项：`deno bundle` 实验性警告必须转达；store/mirror GC 等数据 | ✅ E1 已交付（两条消息通道此前各丢一半）；E2 按计划不做（缺磁盘增长数据） |
 
-> 实施计划见 [v0.5 计划](../development/v0.5-plan.md)；范围来源是
-> [v0.5 开工前复核](../development/v0.5-review.md)（已完成，含逐项证据）。
+> 复盘见 [v0.5 复盘](../development/v0.5-retrospective.md)；实施计划是
+> [v0.5 计划](../development/v0.5-plan.md)；范围来源是 [v0.5 开工前复核](../development/v0.5-review.md)。
 > 复核期间**顺手交付**的部分（`ngm transform`、并行哈希、deno `typeCheck` 真引擎覆盖、
 > Deno 2 假失败夹具修复、CI 的 deno 版本对齐声明下限）不计入本版范围，已登记在该复核里。
 

@@ -4,12 +4,13 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.4 delivered and released** (`v0.1.0` … `v0.4.0`, each with six platform
-binaries plus `SHA256SUMS` on GitHub). On Gitee only `v0.1.0` carries attachments so far —
-`v0.2` ~ `v0.4` are uploaded by hand and are still pending (see
+Status: **v0.1 … v0.5 delivered and released** (`v0.1.0` … `v0.4.0` tagged and published,
+each with six platform binaries plus `SHA256SUMS` on GitHub; `v0.5` is the convergence and
+delivery pass — see [`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md)).
+On Gitee only `v0.1.0` carries attachments so far — `v0.2` ~ `v0.4` are uploaded by hand and
+**are still pending**, which is the one open item of v0.5 (see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and
 [`docs/guides/installation.md`](./docs/guides/installation.md) for which version is downloadable where).
-`v0.5` scope is written down but not implemented yet.
 
 All four v0.1 exit criteria are met with executable evidence: `ngm install` works end to end,
 `ngm.lock` is byte-identical across platforms, `ngm verify` tells a re-tagged tag apart from an

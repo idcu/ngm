@@ -1,12 +1,12 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.4 均已交付并发布，v0.5 范围已成文、尚未实施。**
-> `v0.1.0` ~ `v0.4.0` 都已打 tag（后三版于 2026-10-01 补发），GitHub 上各有 7 个附件；
-> **Gitee 侧附件待人工上传**。首个提交 `a47b0ad` 已推送 Gitee 主仓并镜像到
-> GitHub，CI（GitHub Actions）三平台 15 个 job 全绿，产物为六平台二进制 + `SHA256SUMS`（共 25.05 MB）。
-> **v0.2 / v0.3 / v0.4 在 `main` 上已交付，但尚未打 tag 发布**（发布清单见文末，这是当前唯一
-> "交付了却没出去"的部分）。
-> v0.5 开工前的复核已完成（[v0.5 复核](./v0.5-review.md)），**v0.5 的范围尚未成文**。
+> **当前阶段：v0.1 ~ v0.5 均已交付并发布。** `v0.1.0` ~ `v0.4.0` 都已打 tag
+> （后三版于 2026-10-01 补发），GitHub 上各有 7 个附件；首个提交 `a47b0ad` 已推送 Gitee 主仓
+> 并镜像到 GitHub，CI（GitHub Actions）三平台全绿。
+> **v0.5 已于 2026-10-02 交付**（[计划](./v0.5-plan.md) / [复盘](./v0.5-retrospective.md)）：
+> 在线 verify 的成本与方差、ADR-013 翻案条件的判定、权限施加点的机械核对、三版补发布、挂账项收尾。
+> **当前唯一的残项是 Gitee 侧的 21 个附件待人工上传**——在传完之前，`v0.2` ~ `v0.4`
+> 对国内用户仍取不到（清单见文末发布清单）。
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -151,11 +151,22 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 `ngm typedecl` 给 `typeDecl` 一个入口（真 tsc 验收）、`verify --signatures` / `--require-signed`
 （[ADR-014](../adr/adr-014-self-report-signatures.md)）、配置字段接线的机械检查。
 
-### v0.5（复核：[v0.5-review.md](./v0.5-review.md) / 计划：[v0.5-plan.md](./v0.5-plan.md)）
+### v0.5（复核：[v0.5-review.md](./v0.5-review.md) / 计划：[v0.5-plan.md](./v0.5-plan.md) / **复盘：[v0.5-retrospective.md](./v0.5-retrospective.md)**）
 
-**范围**：把三件"已经量出来但仍挂着"的事推到结论——在线 verify 的成本与方差（含一条需要先立
-ADR 的改动）、ADR-013 翻案条件的**判定**、权限施加点的机械核对；外加一项代码之外的交付：
-**v0.2 ~ v0.4 补发布**（补发前发行源上只有 `v0.1.0`；GitHub 侧 2026-10-01 已完成，Gitee 附件待传）。
+**已交付**（唯一的残项见下）。**范围**：把三件"已经量出来但仍挂着"的事推到结论——
+在线 verify 的成本与方差（含两条需先立 ADR 的改动）、ADR-013 翻案条件的**判定**、
+权限施加点的机械核对；外加一项代码之外的交付：**v0.2 ~ v0.4 补发布**。
+
+**三条与预期相反或需特别注意的结论**（详读复盘）：
+
+1. **在线 verify 的 3s 目标线在今天的机器上不可判别**——受控对照（未优化）最大 2.433s 也过线，
+   而跨机器状态的方差（≥0.3s）大于本轮收益（0.45s）。因此纪律改为**次数优先于秒数**。
+2. **跨机器可复现性已实测**（3 平台 × 7 形态字节一致），但**翻案条件成立不等于要发布
+   `remote` adapter**——那是一个需要另立 ADR 的新决策。
+3. **`read:` / `write:` 裁决为"不在 ngm 自身路径上施加"**——这是裁决，不是遗漏。
+
+**残项**：Gitee 侧 21 个附件待人工上传（在此之前那三版对国内用户仍取不到，
+见[发布清单](./README.md#补发记录2026-10-01)）。
 
 开工前复核已完成，并**继续做掉了它自己列出的未做项**：
 
@@ -261,7 +272,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复核](./v0.5-review.md)
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）
