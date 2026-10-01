@@ -47,7 +47,9 @@ const (
 	//
 	// 规则（locking.md §lockfileVersion 演进）：
 	//   - 同 MAJOR 内只允许新增可选字段
-	//   - MAJOR 变更需提供 `ngm lock migrate`
+	//   - MAJOR 变更需**同时**提供迁移命令（`ngm lock migrate`）——至今未发生 MAJOR 变更，
+	//     因此该命令**不存在**，错误提示里也不得引用它（v0.5 复核修正：提示曾引用一个
+	//     不存在的命令，用户照做只会得到"未知命令"）
 	//   - archiveDigest 的清单规范版本与之绑定
 	FileVersion = "1.0.0"
 
@@ -124,7 +126,7 @@ func (f *File) Validate() error {
 			errs.CodeConfigInvalid,
 			"unsupported lock `version`: "+strconv.Itoa(f.Version),
 			"this build supports version "+strconv.Itoa(SchemaVersion)+
-				"; a newer ngm wrote this file, or you need `ngm lock migrate`")
+				"; a newer ngm wrote this file — regenerate the lock")
 	}
 	if f.LockfileVersion == "" {
 		return errs.New(errs.CodeConfigInvalid, "lock is missing `lockfileVersion`",
@@ -135,7 +137,8 @@ func (f *File) Validate() error {
 			errs.CodeConfigInvalid,
 			"incompatible lockfileVersion "+f.LockfileVersion+
 				" (this build writes "+FileVersion+")",
-			"run `ngm lock migrate` (v0.2+) or regenerate the lock")
+			"delete ngm.lock and re-run `ngm install` to regenerate it — "+
+				"no MAJOR bump has happened yet, so no migration tool exists")
 	}
 	for i, d := range f.Dependencies {
 		if err := d.validate(); err != nil {
