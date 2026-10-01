@@ -23,6 +23,7 @@
 | [ADR-013](./adr-013-remote-adapter.md) | remote adapter 的信任边界 | 已定（v0.3 A 组，**结论：不发布**） |
 | [ADR-014](./adr-014-self-report-signatures.md) | 依赖自述的签名检查 | 已定（v0.4 复核，**结论：不做**；身份交回 Git 的签名机制） |
 | [ADR-015](./adr-015-commit-ref-resolution.md) | commit 型依赖不做 ref 解析 | 已定（v0.5 A 组）：commit 型 **0 次 git 子进程**；tag/branch 不变 |
+| [ADR-016](./adr-016-mirror-url-local-read.md) | mirror 远端地址改为读 config 文件 | 已定（v0.5 A4）：形状不认识即回退子进程；tag 型 4.00 → **3.00 次/依赖** |
 
 ---
 
