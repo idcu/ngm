@@ -24,6 +24,24 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * 把 `name=hash;` 解析成对象（探针的逐形态哈希就是这种紧凑格式）。
+ */
+function parseForms(s) {
+  const out = {};
+  for (const part of String(s || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+/** 返回 a 与 b 中**取值不同**的形态名（含只出现在一边的），按名字排序。 */
+function differingForms(a, b) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].filter((k) => a[k] !== b[k]).sort();
+}
+
 const root = process.argv[2];
 if (!root) {
   console.error("usage: node compare-probe-results.mjs <results-dir>");
@@ -77,6 +95,18 @@ for (const f of files.sort()) {
   if ((r.fails || "").trim() !== "") {
     bad.push(`${where}: 有构建步骤失败 → ${r.fails}`);
   }
+  // 逐形态哈希：让失败**自己说出是哪个形态**。
+  // 第一次跨平台红的时候（macOS 上 treeA ≠ treeB），我们只有整棵树的哈希，
+  // 定位靠的是事后推理——那一步本该由结果自己完成。
+  const formsA = parseForms(r.formsA);
+  const formsB = parseForms(r.formsB);
+  const sameMachine = differingForms(formsA, formsB);
+  if (sameMachine.length > 0) {
+    bad.push(
+      `${where}: 同一台机器、两个目录的产物不同 → 形态: ${sameMachine.join(", ")}`
+    );
+  }
+
   rows.push({
     where,
     esbuild: r.esbuild,
@@ -84,6 +114,8 @@ for (const f of files.sort()) {
     treeA: r.treeA,
     treeB: r.treeB,
     ctrl: r.ctrl,
+    formsA,
+    formsB,
   });
 }
 
@@ -134,6 +166,17 @@ if (trees.size > 1) {
     .map(([h, whos]) => `${h || "(空)"} ← ${whos.join(", ")}`)
     .join(" | ");
   bad.push(`treeA differs across machines: ${detail}`);
+
+  // 形态级定位：相对第一个平台，逐个平台列出**哪些形态不同**。
+  // 有它才知道该去查 loader 链、还是 tsc、还是插件。
+  const base = rows[0];
+  for (const r of rows.slice(1)) {
+    const diff = differingForms(base.formsA, r.formsA);
+    table.push(
+      `  ${base.where} vs ${r.where}: ` +
+        (diff.length ? `形态不同 → ${diff.join(", ")}` : "逐形态哈希**完全一致**（差异不在单个形态里）")
+    );
+  }
 }
 
 if (bad.length > 0) {

@@ -71,18 +71,22 @@ POSTCSS="npx --yes -p postcss-cli@$POSTCSS_VER postcss"
 A1="--alias:github:demo/one=./ngm.vendor/github.com/demo/one"
 A2="--alias:github:demo/two=./ngm.vendor/github.com/demo/two"
 
-# 目录的聚合哈希：按路径排序后逐个喂进去，路径统一用 `/`，使结果与平台无关。
+# 聚合哈希：按路径排序后逐个喂进去，路径统一用 `/`，使结果与平台无关。
+# 既接受目录也接受单个文件——逐形态哈希里有些形态的产物就是一个文件。
 hash_tree() {
   node -e '
     const fs = require("fs");
     const path = require("path");
     const c = require("crypto");
     const root = process.argv[1];
+    const st = fs.statSync(root);
     const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
       e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+    const files = (st.isDirectory() ? walk(root) : [root]).sort();
+    const rel = (f) => (st.isDirectory() ? path.relative(root, f) : path.basename(f));
     const h = c.createHash("sha256");
-    for (const f of walk(root).sort()) {
-      h.update(path.relative(root, f).split(path.sep).join("/"));
+    for (const f of files) {
+      h.update(rel(f).split(path.sep).join("/"));
       h.update("\0");
       h.update(fs.readFileSync(f));
       h.update("\0");
@@ -167,11 +171,40 @@ build({
   ],
 })
   .then((r) => {
-    // metafile 里的路径是**相对 absWorkingDir** 的。把它写进产物目录，
-    // 就等于把"是否泄漏路径"变成一次字节比对。
+    // metafile 里的路径是**相对 absWorkingDir** 的，因此它是"是否泄漏路径"最该被
+    // 逐字节比对的地方。但**原始 metafile 的字节并不稳定**——这一条是实测出来的：
+    //
+    //   同一台机器、同一份源码、连续 20 轮：
+    //     app.js（真正的产物）      → **1** 个不同取值
+    //     JSON.stringify(metafile)  → **20** 个不同取值
+    //   连"递归按键排序后"仍然 20 个：变的是**数组元素的顺序**
+    //   （例如 inputs[*].imports），而不是键顺序。
+    //
+    // 也就是说：把原始 metafile 写进产物目录再哈希，测的是 esbuild 内部（多线程）
+    // 的完成顺序，不是路径泄漏。第一次跨平台比对就是这么红的（macOS 上
+    // treeA ≠ treeB，而 x86_64 两个平台一致到同一台机器的数字）。
+    //
+    // 因此写的是**规范化投影**：只保留"有哪些输入输出、各自多长、谁 import 谁"，
+    // 数组按路径排序。它稳定 ⇔ 路径稳定——这才是这个形态想回答的问题。
+    const canon = {
+      inputs: Object.keys(r.metafile.inputs)
+        .sort()
+        .map((k) => ({
+          path: k,
+          bytes: r.metafile.inputs[k].bytes,
+          imports: ((r.metafile.inputs[k].imports) || []).map((i) => i.path).sort(),
+        })),
+      outputs: Object.keys(r.metafile.outputs)
+        .sort()
+        .map((k) => ({
+          path: k,
+          bytes: r.metafile.outputs[k].bytes,
+          inputs: Object.keys(r.metafile.outputs[k].inputs || {}).sort(),
+        })),
+    };
     fs.writeFileSync(
-      path.join(projectDir, "dist/plugin/meta.json"),
-      JSON.stringify(r.metafile, null, 2) + "\n"
+      path.join(projectDir, "dist/plugin/meta.paths.json"),
+      JSON.stringify(canon, null, 2) + "\n"
     );
   })
   .catch((e) => {
@@ -183,29 +216,41 @@ EOF
 
 build_all() {
   local dir="$1" tag="$2" err=""
+  local forms="$WORK/work/$tag.forms"
+  : > "$forms"
   (
     cd "$dir" || exit 1
-    err=$(run_one "$tag-esbuild-min" $ESB --bundle src/index.ts "$A1" "$A2" \
-      --minify --outfile=dist/app.js) || { echo "$err"; exit 1; }
-    err=$(run_one "$tag-esbuild-map" $ESB --bundle src/index.ts "$A1" "$A2" \
-      --sourcemap --outfile=dist/sm.js) || { echo "$err"; exit 1; }
+
+    # 每个形态写进**自己的子目录**，并立刻记下该形态产物的哈希。
+    #
+    # 为什么：(v0.5) 第一次跨平台比对红的时候，整棵树的哈希只告诉我们"某处不同"，
+    # 定位靠的是事后推理。逐形态哈希让下一次失败自己说出是哪个形态。
+    run_form() {
+      local name="$1" artifact="$2"
+      shift 2
+      err=$(run_one "$tag-$name" "$@") || { echo "$err"; exit 1; }
+      printf '%s=%s;' "$name" "$(hash_tree "$artifact")" >> "$forms"
+    }
+
+    run_form esbuild-min dist/min $ESB --bundle src/index.ts "$A1" "$A2" \
+      --minify --outfile=dist/min/app.js
+    run_form esbuild-map dist/map $ESB --bundle src/index.ts "$A1" "$A2" \
+      --sourcemap --outfile=dist/map/sm.js
     # 注意：tsc 这一步用**无别名**的入口。ngm 的依赖命名（`github:demo/one`）
     # 只有 esbuild 经 `--alias:` 能解析，裸 tsc 会报 TS2307——那是夹具的形态，
     # 不是被测引擎的缺陷。
-    err=$(run_one "$tag-tsc-decl" $TSC --emitDeclarationOnly --declaration \
-      --outDir dist/types src/plain.ts) || { echo "$err"; exit 1; }
-    err=$(run_one "$tag-postcss" $POSTCSS --output dist/app.css < src/app.css) \
-      || { echo "$err"; exit 1; }
+    run_form tsc-decl dist/types $TSC --emitDeclarationOnly --declaration \
+      --outDir dist/types src/plain.ts
+    run_form postcss dist/postcss $POSTCSS --output dist/postcss/app.css < src/app.css
     # loader 链 + 压缩：真实项目里 png / txt 这类资源都要经 loader 变成可打包的形态
-    err=$(run_one "$tag-esbuild-loader" $ESB --bundle src/with-assets.ts \
+    run_form esbuild-loader dist/assets $ESB --bundle src/with-assets.ts \
       --loader:.png=dataurl --loader:.txt=text \
-      --minify --outfile=dist/assets/app.js) || { echo "$err"; exit 1; }
+      --minify --outfile=dist/assets/app.js
     # CSS 压缩链：postcss 那一步没有内建压缩，压缩由别的工具承担（这里用 esbuild）
-    err=$(run_one "$tag-esbuild-cssmin" $ESB --bundle src/app.css \
-      --minify --outfile=dist/css/app.min.css) || { echo "$err"; exit 1; }
+    run_form esbuild-cssmin dist/css $ESB --bundle src/app.css \
+      --minify --outfile=dist/css/app.min.css
     # 插件 + metafile（JS API）：Vite / Astro 走的就是这条路
-    err=$(run_one "$tag-esbuild-plugin" node "$WORK/tools/plugin-build.cjs" "$dir") \
-      || { echo "$err"; exit 1; }
+    run_form esbuild-plugin dist/plugin node "$WORK/tools/plugin-build.cjs" "$dir"
   )
 }
 
@@ -280,6 +325,10 @@ done
 tree_a=$(hash_tree "$WORK/work/a/dist")
 tree_b=$(hash_tree "$WORK/work/bbbb-longer-directory-name/dist")
 
+# 逐形态哈希（`name=hash;`）：失败时自己说出是哪个形态，而不是只报"整棵树不同"。
+forms_a=$(cat "$WORK/work/a.forms" 2>/dev/null)
+forms_b=$(cat "$WORK/work/bbbb-longer-directory-name.forms" 2>/dev/null)
+
 # 对照一：两个路径的产物应当**相同**（路径无关）
 if [ -n "$tree_a" ] && [ "$tree_a" = "$tree_b" ]; then
   same="yes"
@@ -322,6 +371,8 @@ cat > "$OUT" <<EOF
   "treeA": "$tree_a",
   "treeB": "$tree_b",
   "ctrl": "$tree_c",
+  "formsA": "$forms_a",
+  "formsB": "$forms_b",
   "same_across_paths": "$same",
   "ctrl_sensitive": "$ctrl",
   "verdict": "$verdict",
