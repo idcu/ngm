@@ -143,16 +143,11 @@ ngm remove github:my-org/utils
 
 ### 提交 vendor/
 
-```json
-{
-  "vendor": {
-    "mode": "local",
-    "commit": true
-  }
-}
-```
+在 Git 侧把 `ngm.vendor/` 纳入版本控制（`.gitignore` 里不要排除它）——
+**这不是配置项**：`vendor.commit` 已在 v0.5 移除，理由与迁移方式见
+[配置详解 §vendor](../guides/configuration.md)。
 
-把 `ngm.vendor/` 提交到 Git。适合离线交付、审计门禁、镜像场景。
+适合离线交付、审计门禁、镜像场景。
 
 **代价**：仓库体积膨胀、clone 时间变长、依赖更新 diff 巨大。
 

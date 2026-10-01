@@ -109,13 +109,16 @@ project/ngm.vendor/
 
 ---
 
-## vendor 的三种模式
+## vendor 的落地位置与是否提交
 
 | 模式 | 配置 | 适用场景 | 代价 |
 |------|------|---------|------|
 | 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 重新引入 pnpm 式缓存管理问题，削弱隔离收益 |
 | 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
-| 提交 vendor/ | `"mode": "local", "commit": true` | 离线交付、审计门禁、镜像 | 仓库体积、clone 时间、依赖更新 diff |
+
+**是否把 `ngm.vendor/` 提交进仓库是 Git 侧的选择**（`git add ngm.vendor`），
+不是 ngm 的配置项：ngm 从不执行 `git add` / `git commit`。配置项 `vendor.commit`
+因此从未有过任何读取点，已于 v0.5 移除（见[配置详解 §vendor](../guides/configuration.md)）。
 
 **没有普遍最优解**。构建镜像、离线交付和审计门禁才需要提交 vendor/。
 

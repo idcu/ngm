@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/idcu/ngm/internal/config"
 )
 
 // FileReader 从**依赖根**读取文件，relPath 用 `/` 分隔。
@@ -106,22 +108,27 @@ func InferEntry(read FileReader) (Entry, []string) {
 	}
 }
 
+// entryFromNgmJSON 读依赖自己声明的 ngm.json。
+//
+// 用 config.ProjectFile 解而不是就地写一个匿名 struct：这里读的
+// `main` / `types` 与项目清单是**同一份 schema 的同一对字段**，各写一份的代价是
+// 某天 schema 改了而这里没改——那时 mappings 会安静地推断不出入口，
+// 而那条路径上没有任何报错（缺入口只是降级为目录）。
 func entryFromNgmJSON(read FileReader) (Entry, bool) {
 	data, ok, err := read("ngm.json")
 	if err != nil || !ok {
 		return Entry{}, false
 	}
-	var m struct {
-		Main  string `json:"main"`
-		Types string `json:"types"`
-	}
-	if json.Unmarshal(data, &m) != nil {
+	// 不调 Validate：上游清单的**入口声明**是本函数唯一关心的东西，
+	// 上游缺 version 之类的完整性问题不该让入口推断静默降级到下一层。
+	var p config.ProjectFile
+	if json.Unmarshal(data, &p) != nil {
 		return Entry{}, false
 	}
-	if strings.TrimSpace(m.Main) == "" && strings.TrimSpace(m.Types) == "" {
+	if strings.TrimSpace(p.Main) == "" && strings.TrimSpace(p.Types) == "" {
 		return Entry{}, false
 	}
-	return Entry{Main: relPath(m.Main), Types: relPath(m.Types), Source: "ngm.json"}, true
+	return Entry{Main: relPath(p.Main), Types: relPath(p.Types), Source: "ngm.json"}, true
 }
 
 func entryFromPackageJSON(read FileReader) (Entry, bool) {

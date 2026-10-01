@@ -58,8 +58,15 @@ import (
 // 顺序反过来，这张表就会退化成"声明已接线"的另一种说法。
 var wiredFields = map[string]string{
 	// ---- ngm.json：ProjectFile ----
-	"ProjectFile.Name":         "TestV02ObservabilityAcceptance", // ngm tree 的根节点名取项目名
-	"ProjectFile.Main":         "TestM6Acceptance",               // ngm build 不带参数时用 main 作入口
+	"ProjectFile.SchemaVersion": "TestUnsupportedSchemaVersionIsRejected",
+	"ProjectFile.Name":          "TestV02ObservabilityGolden",   // ngm tree 的根节点名取项目名（快照钉住）
+	"ProjectFile.Version":       "TestProjectVersionIsRequired", // 必填 + 回显（裁定见下）
+	// Runtime 是**声明**而非开关：它不改变 ngm 的行为（architecture/runtime-model.md
+	// 明确"ngm 不干预宿主运行时"），文档因此不得把它与 name / dependencies 并列为
+	// "已生效"。表项指向的用例固定它真实的契约：取值被校验、被 config show 回显。
+	"ProjectFile.Runtime":      "TestRuntimeIsValidatedAcceptedAndEchoed",
+	"ProjectFile.Main":         "TestM6Acceptance", // ngm build 不带参数时用 main 作入口
+	"ProjectFile.Types":        "TestDeclaredTypesEntryReachesTheMappings",
 	"ProjectFile.Dependencies": "TestAdd_TagDependency",
 	"ProjectFile.Engines":      "TestM6Acceptance",
 	"ProjectFile.Vendor":       "TestM4Acceptance",
@@ -96,7 +103,8 @@ var wiredFields = map[string]string{
 	"SupplyChainConfig.VerifyOnLock":        "TestV02VerifyOnLockAcceptance",
 
 	// ---- ~/.ngm/config.json：GlobalFile ----
-	"GlobalFile.Git":         "TestGitTokenEnvVarsFromConfigReachTheRedactionSet",
+	"GlobalFile.SchemaVersion": "TestUnsupportedSchemaVersionIsRejected",
+	"GlobalFile.Git":           "TestGitTokenEnvVarsFromConfigReachTheRedactionSet",
 	"GlobalFile.Engines":       "TestGlobalDefaultEnginesAreUsed",
 	"GlobalFile.Permissions":   "TestV03PermissionsAcceptance",
 
@@ -117,7 +125,10 @@ var wiredFields = map[string]string{
 	"Entry.Name":    "TestCatalog_OverlayAndFind",
 	"Entry.Kind":    "TestCatalog_OverlayAndFind",
 	"Entry.Adapter": "TestCatalog_OverlayAndFind",
-	"Entry.Command":        "TestSplitCommand",
+	"Entry.Command": "TestSplitCommand",
+	"Entry.Version": "TestDeclaredEngineVersionIsComparedWithTheLocalOne",
+	// SupportedInput 只影响展示（`engines info` 有 input 行，`engines list` 没有列），
+	// 它不参与能力选择——这是"接了线、但只是展示"的诚实登记，不是缺陷。
 	"Entry.SupportedInput": "TestDeclaredSupportedInputIsListed",
 	"Entry.DefaultOptions": "TestCatalog_OverlayAndFind",
 	"Entry.Optional":       "TestBuiltinCatalog_IncludesAdaptedEngines",
@@ -209,7 +220,9 @@ func enumerateConfigFields(t *testing.T) []string {
 		{"ProjectFile", ProjectFile{}},
 		{"Dependency", Dependency{}},
 		{"EnginesConfig", EnginesConfig{}},
-		{"EngineRef", EngineRef{}},
+		// EngineRef 曾在这里：它是死类型（零实例化、零字段访问），v0.5 删除。
+		// 删掉之后本检查少枚举三个键，而那正是"少几个键"的正确用法——
+		// 键变少是因为配置面变小了，不是因为扫描坏了（下方 len(fields) 守卫兜底）。
 		{"VendorConfig", VendorConfig{}},
 		{"SupplyChainConfig", SupplyChainConfig{}},
 		{"GlobalFile", GlobalFile{}},

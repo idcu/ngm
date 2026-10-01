@@ -119,14 +119,8 @@ CI 每次 `ngm install` 重新拉取。
 
 ### 提交 vendor/（审计/离线场景）
 
-```json
-{
-  "vendor": {
-    "mode": "local",
-    "commit": true
-  }
-}
-```
+在 Git 侧把 `ngm.vendor/` 纳入版本控制即可（**不是配置项**：`vendor.commit`
+已在 v0.5 移除，见[配置详解 §vendor](./configuration.md)）。
 
 适合：
 

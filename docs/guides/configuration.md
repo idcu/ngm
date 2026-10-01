@@ -11,9 +11,15 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | `~/.ngm/config.json` | 全局配置（Git 凭证、默认引擎、权限） | 用户主目录 |
 
 > **成熟度**：本页描述的全部字段都**已被 ngm 解析并由 `ngm config validate` 校验**（写错会被拒绝，不会被静默忽略）。
-> 区别在于它们**是否生效**：
+> 区别在**生效到哪一层**。v0.5 复核给出的裁定是：**"生效"指改变行为**，只被校验并回显
+> 不算——否则这个词对读者没有信息量。本页按三档标注：
 >
-> - `name` / `version` / `runtime` / `dependencies` / `engines` / `vendor` —— **v0.1 已生效**
+> - **改变行为**（v0.1 起）：`name`（`ngm tree` 的根节点名）/ `main`（`build`·`typecheck`·`typedecl`
+>   的默认入口）/ `types`（作为被依赖方时的入口推断）/ `dependencies` / `engines` / `vendor`
+> - **声明与展示**（不改变任何命令的行为）：`version`（必填声明，被回显，不参与解析）/
+>   `schemaVersion`（版本门禁）/ `runtime`（宿主运行时的**声明**：被校验、被回显，
+>   而 ngm 不干预宿主——见[运行时模型](../architecture/runtime-model.md)）
+> - **已移除**：`vendor.commit`（v0.5，见 [vendor](#vendor)）
 > - `supplyChain` —— **全部字段均已生效**：`allowedGitHosts` / `allowlistRepos` / `minimumReleaseAge`
 >   构成真实门禁（解析阶段判定，命中即 `exit 3` + 来源链）；`osvIgnoreSeverities` 参与 `ngm audit`
 >   过滤；`verifyOnLock` 在 install / update 后触发复查；`postInstallPolicy` 自 v0.3 起
@@ -68,8 +74,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
   },
 
   "vendor": {
-    "mode": "local",
-    "commit": false
+    "mode": "local"
   },
 
   "supplyChain": {
@@ -91,7 +96,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | `version` | string | 是 | 项目版本 |
 | `runtime` | `"node" \| "deno"` | 是 | 宿主运行时 |
 | `main` | string | 否 | 入口文件（本项目作为被依赖方时，供 mappings 推断；见下"入口推断"） |
-| `types` | string | 否 | 类型声明入口（同上） |
+| `types` | string | 否 | 类型声明入口（同上；推断出的 `types` 会写进 `ngm.mappings.json`，并优先用于 tsconfig paths） |
 | `dependencies` | array | 是 | 依赖列表 |
 | `engines` | object | 否 | 引擎选择 |
 | `vendor` | object | 否 | vendor 模式配置 |
@@ -186,13 +191,20 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 
 ## vendor
 
-### 三种模式
+### 落地位置与落地方式
 
 | 模式 | 配置 | 适用场景 | 代价 |
 |------|------|---------|------|
 | 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 削弱隔离收益 |
 | 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
-| 提交 vendor/ | `"mode": "local", "commit": true` | 离线交付、审计门禁、镜像 | 仓库体积膨胀 |
+
+**是否把 `ngm.vendor/` 提交进仓库由你的 Git 侧决定**（`git add ngm.vendor` 或
+`.gitignore` 里排除它），**不是** ngm 的配置项：ngm 从不执行 `git add` / `git commit`。
+
+> **破坏性变更（v0.5）**：`vendor.commit` 字段已移除。它此前被本页描述为会生效，
+> 但代码中没有任何分支读它——写入路径只有 lock / mappings / vendor / integrations 产物。
+> 已写了 `vendor.commit` 的 `ngm.json` 现在会被 `DisallowUnknownFields` 拒绝（`exit 3`），
+> 删掉这个键即可；提交与否请改用上面的 Git 侧做法。
 
 ### linkMode（落地方式）
 
@@ -228,16 +240,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 }
 ```
 
-```json
-{
-  "vendor": {
-    "mode": "local",
-    "commit": true
-  }
-}
-```
-
-**没有普遍最优解**。构建镜像、离线交付和审计门禁才需要提交 vendor/。
+**没有普遍最优解**。构建镜像、离线交付和审计门禁才需要把 `ngm.vendor/` 纳入版本控制。
 
 ---
 

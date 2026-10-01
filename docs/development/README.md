@@ -163,6 +163,10 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
   - ✅ 已完成（第 1 项实测）：[v0.5 复核](./v0.5-review.md)——配置字段接线核对，
     新查出 **4 项确认未接线**（`types` / `vendor.commit` / 死类型 `EngineRef` /
     `--concurrency` flag）+ 3 项弱接线待裁定
+  - ✅ 已收口：同一份复核的[处置结果](./v0.5-review.md#处置结果本轮收口)——
+    裁定"生效 = 改变行为"，7 项逐项接线或删除，并把 §7 的建议机械化
+    （`internal/config/field_wiring_test.go`，用 reflect 枚举字段而非按名字形状猜）。
+    该检查首次运行**多查出 3 项**（两份 `schemaVersion` 与 `Entry.version`），已一并处置
   - ✅ 已完成：[v0.3 复盘](./v0.3-retrospective.md)（五组交付项全部结项；`remote` 经
     [ADR-013](../adr/adr-013-remote-adapter.md) 决定不发布；11 条设计偏离、8 处已修缺陷——
     其中 2 处在**已发布代码**里；1 项未结项：沙箱自述文件签名检查）

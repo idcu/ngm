@@ -90,13 +90,6 @@ type EnginesConfig struct {
 	CSS       any `json:"css,omitempty"`
 }
 
-// EngineRef 单个引擎引用（带 spec 的完整形态）。
-type EngineRef struct {
-	Primary   string         `json:"primary"`
-	Fallbacks []string       `json:"fallbacks,omitempty"`
-	Options   map[string]any `json:"options,omitempty"`
-}
-
 // AsMap 返回 engines 段的原始值映射（能力类别名 → 简写或完整写法）。
 //
 // 为什么返回 map 而不是让调用方逐个读字段：引擎选择的形态是
@@ -129,9 +122,14 @@ func (e *EnginesConfig) AsMap() map[string]any {
 }
 
 // VendorConfig vendor 模式与 linkMode 配置。
+//
+// v0.5 移除了 `commit` 字段：ngm 从不执行 `git add` / `git commit`（写入路径只有
+// lock / mappings / vendor / integrations 产物），它从未有过任何分支，而文档把它
+// 描述成会生效——那正是配置接线检查要禁的形态。是否提交 vendor/ 是**使用方的仓库
+// 策略**，不由本工具声明。这是一次有意的破坏性变更：写了 `vendor.commit` 的
+// ngm.json 现在会被 `DisallowUnknownFields` 拒绝（exit 3），删掉该键即可。
 type VendorConfig struct {
 	Mode       string `json:"mode,omitempty"`       // global | local（默认 local）
-	Commit     bool   `json:"commit,omitempty"`     // 提交 vendor/ 到仓库
 	LinkMode   string `json:"linkMode,omitempty"`   // auto | hardlink | copy | symlink
 	GlobalPath string `json:"globalPath,omitempty"` // mode=global 时使用
 }

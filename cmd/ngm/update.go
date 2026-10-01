@@ -50,12 +50,11 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	offline := fs.Bool("offline", false, "never touch the network")
 	digestFlag := fs.Bool("digest", false, "also compute and print archiveDigest")
 	storeFlag := fs.Bool("store", false, "populate the content store (implies --digest)")
-	maxConc := fs.Int("concurrency", 4, "max parallel resolutions")
 	fs.Usage = func() { fmt.Fprint(stderr, updateUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "all", Bool: true}, {Name: "dir"}, {Name: "offline", Bool: true},
-		{Name: "digest", Bool: true}, {Name: "store", Bool: true}, {Name: "concurrency"},
+		{Name: "digest", Bool: true}, {Name: "store", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -196,7 +195,9 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	fmt.Fprintf(stdout, "\nupdated %d dependency(ies); wrote %s and %s\n",
 		printed, env.LockPath(), mappings.FileName)
-	_ = maxConc // 层内并发已由 resolve.ResolveGraph 提供；此 flag 预留给未来的解析阶段
+	// 注：本命令曾有一个 `--concurrency` flag，其值被 `_ = maxConc` 原样丢弃
+	// （实际并发恒为 resolve.DefaultConcurrency）。v0.5 移除了它——一个接受参数却
+	// 不影响任何行为的 flag 比没有更糟：用户会以为自己调过。需要时按真实需求重新引入。
 	return autoVerifyAfterLock(ctx, env, pf, pol, *offline, stdout, stderr)
 }
 
