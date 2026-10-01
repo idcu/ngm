@@ -1,16 +1,13 @@
 # 临时探针：**提交后请删除**（与 v0.2 的临时诊断步骤同一手法）。
 #
-# 要回答的问题是 ADR-013 翻案条件的关键一半：同一份源码、同一引擎版本，
-# **在不同平台上**构建出的字节是否一致？
+# 问题：同一份源码、同一 esbuild 版本，**跨平台**构建出的字节是否一致？
+# （ADR-013 的翻案条件要求"用户能在本地复现远端产物"。同机已实测：minify 后
+# 与路径无关、不 minify 时产物含绝对路径注释。剩下的是跨平台那一半。）
 #
-# 同机已实测（2026-10-01，Windows/esbuild 0.28.2）：
-#   - 不 minify 时产物含**绝对路径注释** → 换目录则字节不同
-#   - `--minify` 时路径注释被去掉 → 换目录字节一致
-# 因此剩下要测的是**跨平台**。
-#
-# 第一版探针三平台全红、且没有发出任何 notice——失败发生在报告之前，而
-# Actions 日志匿名读不到。因此这一版把**整段执行输出**（含失败）收进
-# annotation：探测失败本身也必须可读，否则等于什么都没测。
+# 这一版是第三次迭代，前两次的教训都在这份文件里：
+#   1. 失败发生在报告之前 → 探针等于什么都没测
+#   2. 整段 `set -x` 输出发成 annotation → 被条数上限挤掉，关键行（哈希与错误）丢失
+# 因此：**一行摘要 + 失败时把错误原文放在第一条**，其余一律不发。
 name: repro-probe (temporary)
 
 on:
@@ -32,39 +29,41 @@ jobs:
         with:
           node-version: '22'
 
-      # 全程 `set +e` + 把输出收进变量：任何一步失败都要变成可读的 annotation，
-      # 而不是一个"exit code 1"。
       - name: probe
         shell: bash
         run: |
           set +e
-          OUT=$(
-            set -x
-            ESB="npx --yes esbuild@0.28.2"
-
-            for d in a bbbb-longer-directory-name; do
-              mkdir -p "probe/$d/src" "probe/$d/lang"
-              printf 'export const x: number = 41 + 1;\n' > "probe/$d/lang/index.ts"
-              printf 'import { x } from "./lang";\nconsole.log(x);\n' > "probe/$d/src/index.ts"
-            done
-
-            $ESB --version
-            for d in a bbbb-longer-directory-name; do
-              $ESB --bundle "probe/$d/src/index.ts" --minify --outfile="probe/$d/min.js"
-            done
-            $ESB --bundle probe/a/src/index.ts --outfile=probe/a/plain.js
-
-            # 哈希用 node 算：sha256sum 在 macOS / Windows 的 Git Bash 上不存在。
-            for f in probe/a/min.js probe/bbbb-longer-directory-name/min.js probe/a/plain.js; do
-              node -e "const c=require('crypto'),f=require('fs');console.log('HASH',process.argv[1],c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "$f"
-            done
-            echo "PLAIN_CONTAINS_PATH=$(grep -c 'probe/' probe/a/plain.js)"
-            echo "MIN_CONTAINS_PATH=$(grep -c 'probe/' probe/a/min.js)"
-          )
-          echo "=== 输出开始 ==="
-          echo "$OUT"
-          echo "=== 输出结束 ==="
-          # 逐行发成 annotation（匿名 API 可读，见 v0.2 复盘）。
-          printf '%s\n' "$OUT" | tail -60 | while IFS= read -r line; do
-            echo "::notice::PROBE ${{ runner.os }} | $line"
+          ESB="npx --yes esbuild@0.28.2"
+          mkdir -p work/a/src work/a/lang work/b/src work/b/lang
+          for d in a b; do
+            printf 'export const x: number = 41 + 1;\n' > "work/$d/lang/index.ts"
+            printf 'import { x } from "./lang";\nconsole.log(x);\n' > "work/$d/src/index.ts"
           done
+
+          $ESB --bundle work/a/src/index.ts --minify --outfile=work/a/min.js > b1.log 2>&1
+          c1=$?
+          $ESB --bundle work/b/src/index.ts --minify --outfile=work/b/min.js > b2.log 2>&1
+          c2=$?
+          $ESB --bundle work/a/src/index.ts --outfile=work/a/plain.js > b3.log 2>&1
+          c3=$?
+
+          h() { node -e "const c=require('crypto'),f=require('fs');process.stdout.write(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "$1" 2>/dev/null; }
+          mins_a=$(h work/a/min.js)
+          mins_b=$(h work/b/min.js)
+          plain_a=$(h work/a/plain.js)
+          # 不 minify 的产物里是否嵌了构建机的绝对路径（1 = 嵌了）
+          pathleak=$(grep -c 'work/a/lang' work/a/plain.js 2>/dev/null)
+          minleak=$(grep -c 'work/a/lang' work/a/min.js 2>/dev/null)
+
+          echo "::notice::PROBE ${{ runner.os }} exit=$c1/$c2/$c3 min_a=$mins_a min_b=$mins_b plain_a=$plain_a pathleak=${pathleak:-?} minleak=${minleak:-?}"
+
+          # 构建失败时，把编译器自己说的话放到第一条之后（只取前 4 行）。
+          if [ "$c1" != "0" ] || [ "$c2" != "0" ] || [ "$c3" != "0" ]; then
+            for f in b1.log b2.log b3.log; do
+              if [ -s "$f" ]; then
+                head -4 "$f" | while IFS= read -r line; do
+                  echo "::notice::PROBE ${{ runner.os }} log($f) | $line"
+                done
+              fi
+            done
+          fi
