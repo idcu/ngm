@@ -189,7 +189,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 | A | 真实项目形态的可复现证据（[ADR-017](../adr/adr-017-remote-adapter-release-decision.md) 门槛 a） | 进行中 |
 | B | **spawn 预算**：把"次数优先于秒数"变成 CI 门禁 | ✅ **已交付**（开门第一天抓到一次**记账错误**：v0.5 C 组的重复记账让数字虚高 1/依赖） |
 | C | store / mirror 的磁盘增长数据（只测不做，为 GC 排期提供数据） | ✅ **已交付**（**160.2 KiB/commit**，是源码真实增量的 **20×**；结论：做 GC，但下一步是 ADR 而不是代码） |
-| D | Gitee 附件补传（把手工步骤降到一条命令） | 进行中 |
+| D | Gitee 附件补传（把手工步骤降到一条命令） | ⚠️ **工具已就绪**（一条命令 + `-DryRun` 预检；已验无 token/坏 tag 明确失败）；**实际传入仍需 `GITEE_TOKEN`** |
 | E | 挂账：`deno bundle` 等上游 | 计划 |
 
 > 本版**先行完成**的一项：[ADR-017](../adr/adr-017-remote-adapter-release-decision.md)
@@ -245,6 +245,22 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
 5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）
 
+> **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/upload-gitee-assets.ps1`）：
+>
+> ```powershell
+> powershell -File scripts/upload-gitee-assets.ps1 -Tag v0.4.0 -DryRun   # 先看清单与 sha256
+> $env:GITEE_TOKEN = '<Gitee 私人令牌>'
+> powershell -File scripts/upload-gitee-assets.ps1 -Tag v0.4.0            # 上传 + 逐个双向校验
+> ```
+>
+> 它**从 GitHub 取字节**而不是本地重编——两个源必须是同一份字节，而本地重编会得到另一份
+> （工具链、时间、路径都可能不同），那样"两个源一致"就成了一句没法核对的话。
+> 它按 `SHA256SUMS`（**同一个文件**）逐个核对，并在上传后**再从 Gitee 下载一遍比对**；
+> 同名附件已存在且一致时跳过（**幂等**），不一致时报错并让你决定，**绝不静默覆盖**。
+> 缺 token 时它明确失败、不动远端——没有"降级成不做事"这种路径。
+> 已在本机验证：`-DryRun` 的清单自洽（6 条清单 ↔ 6 个附件）、无 token 与坏 tag 都以 exit 1 明确失败；
+> **上传路径尚无真实令牌验证过**（编写环境没有 Gitee 凭据），第一次真跑请先 `-DryRun`。
+
 ### 补发记录（2026-10-01）
 
 v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
@@ -263,6 +279,10 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 > Gitee 侧只有 `v0.1.0` 有附件——而[安装指南](../guides/installation.md)把 Gitee 列为国内推荐源，
 > 也就是说这三版走推荐路径会 404。要传的是 **3 × 7 = 21 个文件**，
 > 从 `https://github.com/idcu/ngm/releases/download/<tag>/<文件名>` 逐个下载后上传。
+>
+> **v0.6 把它降到了三条命令**（每个 tag 一条：`-DryRun` 看清单 → 设 token → 正式跑），
+> 见上面的 `scripts/upload-gitee-assets.ps1`。**剩下要人做的只有"填 token、跑命令、看输出"**，
+> 以及把结果补进本表。此前"21 个文件逐个下载再上传"的手工步骤不再需要。
 
 > **Gitee 免费额度的容量**（已核实）：单附件 ≤ 100MB、仓库附件总量 ≤ 1GB，
 > 且**仓库附件与发行版附件合并计算**。

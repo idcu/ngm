@@ -142,7 +142,7 @@ Gitee 附件待人工上传）。
 | A | 真实项目形态的可复现证据（代码分割 / 资产指纹 / 多插件链；[ADR-017](../adr/adr-017-remote-adapter-release-decision.md) 门槛 a） | 进行中 |
 | B | **spawn 预算**：把"次数优先于秒数"变成 CI 门禁 | ✅ **已交付**（门禁 + 两条扫源码的机械网；开门第一天抓到 v0.5 遗留的一次**重复记账**） |
 | C | store / mirror 的磁盘增长数据（**只测不做**，为 GC 排期提供数据） | ✅ **已交付**（每 commit 一整棵树、无跨 commit 去重：源码增量的 **20×**；结论：**做 GC，但先立 ADR**） |
-| D | Gitee 附件补传（把手工步骤降到一条命令） | 进行中 |
+| D | Gitee 附件补传（把手工步骤降到一条命令） | ⚠️ **工具已就绪**（`scripts/upload-gitee-assets.ps1`：取 GitHub 字节 → 按 `SHA256SUMS` 核对 → 上传后从 Gitee 复核，幂等）；**实际传入 21 个附件仍缺 `GITEE_TOKEN`** |
 | E | 挂账：`deno bundle`（条件未变，等上游） | 计划 |
 
 > 计划见 [v0.6 计划](../development/v0.6-plan.md)。本版**先行完成**的一项：
