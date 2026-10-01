@@ -1,19 +1,23 @@
-# 临时探针：**提交后请删除**（与 v0.2 的临时诊断步骤同一手法）。
+# 可复现构建探针 —— **手动触发**（`workflow_dispatch`），不随推送运行。
 #
-# 问题：同一份源码、同一 esbuild 版本，**跨平台**构建出的字节是否一致？
-# （ADR-013 的翻案条件要求"用户能在本地复现远端产物"。同机已实测：minify 后
-# 与路径无关、不 minify 时产物含绝对路径注释。剩下的是跨平台那一半。）
+# 它回答的问题：[ADR-013](../docs/adr/adr-013-remote-adapter.md) 的翻案条件之一
+# ——"同一份源码 + 同一引擎版本 → 相同字节"，到底成不成立。
+# 这个问题是跨平台的，而 Actions 日志匿名读不到，因此结果以 annotation 形式发出
+# （手法来自 v0.2 复盘：把失败/结果经 `::error::` / `::notice::` 发到 annotations）。
 #
-# 这一版是第三次迭代，前两次的教训都在这份文件里：
-#   1. 失败发生在报告之前 → 探针等于什么都没测
-#   2. 整段 `set -x` 输出发成 annotation → 被条数上限挤掉，关键行（哈希与错误）丢失
-# 因此：**一行摘要 + 失败时把错误原文放在第一条**，其余一律不发。
-name: repro-probe (temporary)
+# 已实测（2026-10-01，esbuild 0.28.2，极简用例：单文件 + 单依赖）：
+#   - `--minify`：三平台 × 两个不同路径，**六次构建字节全同**
+#   - 不 minify：跨平台同路径一致
+#   - 不 minify 且传**绝对路径**：字节不同（产物注释里嵌的是传入的路径）
+# 结论与保留见 ADR-013 的"第一条的实测进展"一节。
+#
+# 要扩展时改这一段即可：换引擎（tsc / postcss）、加多文件 / sourcemap / 外部依赖，
+# 看哈希是否仍然跨平台一致。**注意**：结果行必须保持"一行摘要"，
+# 否则会被每步的 annotation 条数上限挤掉——那是这份文件第三次迭代才修好的问题。
+name: repro-probe
 
 on:
-  push:
-    paths:
-      - '.github/workflows/repro-probe.yml'
+  workflow_dispatch:
 
 jobs:
   probe:
@@ -34,8 +38,8 @@ jobs:
         run: |
           set +e
           ESB="npx --yes esbuild@0.28.2"
-          # 依赖必须用显式文件名导入：实测 esbuild 对**相对目录**导入（`./lib`）
-          # 不做 `index.ts` 解析，会直接报 Could not resolve（三个平台一致）。
+          # 依赖用显式文件名导入：实测 esbuild 对**相对目录**导入（`./lib`）不做
+          # `index.ts` 解析，三平台一致地报 Could not resolve。
           mkdir -p work/a/src work/b/src
           for d in a b; do
             printf 'export const x: number = 41 + 1;\n' > "work/$d/src/lib.ts"
@@ -53,13 +57,14 @@ jobs:
           mins_a=$(h work/a/min.js)
           mins_b=$(h work/b/min.js)
           plain_a=$(h work/a/plain.js)
-          # 不 minify 的产物里是否嵌了构建机的绝对路径（1 = 嵌了）
+          # 产物里是否嵌了构建机的路径（1 = 嵌了）
           pathleak=$(grep -c 'work/a/src/lib.ts' work/a/plain.js 2>/dev/null)
           minleak=$(grep -c 'work/a/src/lib.ts' work/a/min.js 2>/dev/null)
 
           echo "::notice::PROBE ${{ runner.os }} exit=$c1/$c2/$c3 min_a=$mins_a min_b=$mins_b plain_a=$plain_a pathleak=${pathleak:-?} minleak=${minleak:-?}"
 
-          # 构建失败时，把编译器自己说的话放到第一条之后（只取前 4 行）。
+          # 探针失败时必须自己说出来：一个不能报告自己失败的探针等于没跑
+          # （这份文件的前两版就是这样，而我把"空结果"读成了结果）。
           if [ "$c1" != "0" ] || [ "$c2" != "0" ] || [ "$c3" != "0" ]; then
             for f in b1.log b2.log b3.log; do
               if [ -s "$f" ]; then
