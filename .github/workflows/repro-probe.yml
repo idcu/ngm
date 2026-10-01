@@ -1,0 +1,60 @@
+# 临时探针：**提交后请删除**（与 v0.2 的临时诊断步骤同一手法）。
+#
+# 要回答的问题是 ADR-013 翻案条件的关键一半：同一份源码、同一引擎版本，
+# **在不同平台上**构建出的字节是否一致？
+#
+# 同机已实测（2026-10-01，Windows/esbuild 0.28.2）：
+#   - 不 minify 时产物含**绝对路径注释** → 换目录则字节不同
+#   - `--minify` 时路径注释被去掉 → 换目录字节一致
+# 因此剩下要测的是**跨平台**。
+#
+# 结果以 `::notice::` 发出（匿名 API 可读 annotations，见 v0.2 复盘）。
+name: repro-probe (temporary)
+
+on:
+  push:
+    paths:
+      - '.github/workflows/repro-probe.yml'
+
+jobs:
+  probe:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 版本必须钉住：跨版本比较字节没有意义。
+      - name: install a pinned esbuild
+        shell: bash
+        run: npm install -g esbuild@0.28.2
+
+      - name: build the same source in two different paths
+        shell: bash
+        run: |
+          set -eu
+          for d in a bbbb-longer-directory-name; do
+            mkdir -p "probe/$d/src" "probe/$d/lang"
+            printf 'export const x: number = 41 + 1;\n' > "probe/$d/lang/index.ts"
+            printf 'import { x } from "./lang";\nconsole.log(x);\n' > "probe/$d/src/index.ts"
+          done
+
+          for d in a bbbb-longer-directory-name; do
+            esbuild --bundle "probe/$d/src/index.ts" --minify --outfile="probe/$d/min.js"
+          done
+          esbuild --bundle probe/a/src/index.ts --outfile=probe/a/plain.js
+
+      - name: report the hashes
+        shell: bash
+        run: |
+          set -eu
+          h() { sha256sum "$1" | cut -c1-16; }
+          echo "::notice::PROBE os=${{ runner.os }} minified_path_a=$(h probe/a/min.js) minified_path_b=$(h probe/bbbb-longer-directory-name/min.js) plain_path_a=$(h probe/a/plain.js)"
+          echo "--- plain (not minified) output: does it embed the path? ---"
+          grep -c 'probe' probe/a/plain.js || true
