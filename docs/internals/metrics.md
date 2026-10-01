@@ -98,6 +98,36 @@ GOMAXPROCS=1 go test -run '^$' -bench BuildArchive -benchtime 20x ./internal/git
 
 ---
 
+## git 子进程清单（v0.5）
+
+**在线 verify 的成本几乎全在 git 子进程启动上**（v0.1 复盘 §3.3 的结论），
+因此"起了几个 git"是比秒数**更稳**的指标——秒数含机器噪声（同一台机器 2.2–3.1s 摆动），
+次数只含信号，而且可以被断言。
+
+仪器：`git.SpawnCount()`（`internal/git/spawn.go`，三个启动点都记账）。
+
+```bash
+go test -count=1 -run TestV05VerifySpawnInventory -v ./cmd/ngm   # 打印清单（证据）
+go test -count=1 -run TestV05RefResolutionSpawns -v ./cmd/ngm    # 门禁：commit 0 次 / tag ≥1 次
+```
+
+| 形态 | 每次依赖的 spawn | 构成 |
+|------|-----------------|------|
+| commit 型 | **2.00** | `ls-tree` + `cat-file --batch`（digest 重放，与 refType 无关） |
+| tag / branch 型 | **4.00** | 上面 2 次 + `ls-remote`（问远端）+ `config --get`（取 mirror 的远端地址） |
+
+> v0.1 复盘里写的"每个依赖约 4 次 git spawn"在本机上仍然成立 ✅——这是一条**跨三个版本**
+> 的旧结论被新仪器复现，而不是新结论。
+
+单次成本（同机实测，裸仓库）：`config --get` **30.6ms** / `ls-remote`（本地）**77.8ms** /
+`ls-tree` **36.4ms**。按 tag 型 4 次计约 183ms/依赖，100 依赖 ÷ 8 并发 ≈ 2.2s——
+与实测中位 2.56s 吻合，因此**这条模型可以用来预测改动的收益**，而不是只用来事后解释。
+
+改动记录：[ADR-015](../adr/adr-015-commit-ref-resolution.md) 把 commit 型从 3.00 降到 2.00 次。
+剩下的第 4 次（`config --get`，约 17%）是本版 **A4** 的目标。
+
+---
+
 ## 兼容性目标
 
 | 维度 | 目标 |
