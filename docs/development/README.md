@@ -159,6 +159,10 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
     6 条设计偏离、6 处已修缺陷；其中 4 处是靠"做完之后再验证一次"发现的）
 - 进入 v0.4 前，先完成 v0.3 复盘：同上（逐条给证据、登记设计偏离与**未结项**）
 - 进入 v0.5 前，先完成 v0.4 复盘：同上（逐条给证据、登记设计偏离与偏差）
+- 进入 v0.5 前，先做**开工前复核**：把"我们以为的"换成"我们测到的"
+  - ✅ 已完成（第 1 项实测）：[v0.5 复核](./v0.5-review.md)——配置字段接线核对，
+    新查出 **4 项确认未接线**（`types` / `vendor.commit` / 死类型 `EngineRef` /
+    `--concurrency` flag）+ 3 项弱接线待裁定
   - ✅ 已完成：[v0.3 复盘](./v0.3-retrospective.md)（五组交付项全部结项；`remote` 经
     [ADR-013](../adr/adr-013-remote-adapter.md) 决定不发布；11 条设计偏离、8 处已修缺陷——
     其中 2 处在**已发布代码**里；1 项未结项：沙箱自述文件签名检查）
@@ -187,7 +191,7 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md)
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）
