@@ -67,11 +67,32 @@ ngm 把这套思路映射到自己的操作：
 
 | 权限 | 施加点 | 拒绝时的表现 |
 |------|--------|-------------|
-| `net:<host>` | `vendor.Mirror.Ensure`（clone / fetch 的唯一出口）与 `resolve` 的 `ls-remote` | `exit 3`，**未发起任何网络请求** |
-| `run:git` | `git.Run`（所有 git 子进程的出口） | `exit 3`，git 从未启动 |
-| `env:<NAME>` | git 子进程的环境构造 | 变量被**剔除**，ngm 仍不读取它的值 |
-| `read:` / `write:` | **判定已实现，尚无调用点**：两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能；第一个真正需要拦下的场景是沙箱（[C 组](./../development/v0.3-plan.md)） | — |
+| `net:<host>` | ①`vendor.Mirror.Ensure`（clone / fetch 的唯一出口）与 `resolve` 的 `ls-remote`；②ngm 自己的 **HTTP 出口**（OSV 查询：`ngm audit` / `ngm tree --osv`，主机取自**实际端点**，产品端点是 `api.osv.dev`） | `exit 3`，**未发起任何网络请求** |
+| `run:git` | **git 包唯一的子进程构造点** `newGitCommand`——三个出口（`Run` / `RunAllowFailure` / `CatFileBatch`）共用它 | `exit 3`，git 从未启动 |
+| `env:<NAME>` | git 子进程的环境构造（`buildEnv`） | 变量被**剔除**，ngm 仍不读取它的值 |
+| `read:` / `write:` | **裁决（v0.5 C 组）：不在 ngm 自身路径上施加，仅在沙箱内**（`read:` 按依赖子树授予、`write:` 恒不授予）。两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能——没有需要拦下的场景 | — |
 | `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**） | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
+
+> **v0.5 C 组的更正**：上一版的 `run:git` 那行写的是"`git.Run`（**所有** git 子进程的出口）"。
+> 那句话**是错的**——包里当时有三个各自 `exec` 的地方，其中两个
+> （`RunAllowFailure`：`cat-file -e` / `merge-base --is-ancestor`；`CatFileBatch`：digest 重放）
+> **没有门禁**。也就是说写下 `deny: ["run:git"]` 的用户，在探测与 digest 重放这两条路径上
+> 仍然会执行 git。发现方式不是读代码，而是**先装子进程计数器、再对着它写断言**：
+> `TestSpawn_GateOnEveryExit` 当场报出 `deny run:git must refuse this path` 与 `spawned 1`。
+>
+> 处置：三个出口收进同一个构造点（门禁与计数都只在那儿），
+> 并由 `TestSpawn_OnlyOneFileBuildsProcesses` 机械地守住"没有第二个地方构造进程"；
+> 另由 `internal/security/enforcement_test.go` 守住"每个命名空间都有施加点、有断言、且本表提到它"。
+> **本表从此不再靠人记得更新**：新增命名空间却不登记，那条检查会红。
+>
+> **v0.5 C 组的第二处缺口**：`net:` 那行当时只列了 git 的两处，而 ngm 还有自己的
+> HTTP 客户端——**OSV 查询此前直连 `api.osv.dev`，一个门禁调用都没有**。
+> 于是写着 `allow: ["net:github.com"]` 的用户，`ngm audit` 照样会连上另一个主机；
+> 同一个配置文件，`ngm install` 会 `exit 3` 而 `ngm audit` 不会。
+> 处置：判定放进 `queryRemote`（**只有它知道最终主机**），并在发起请求前执行；
+> 命中缓存与 `--offline` 不碰网络，因此都不需要这条权限。
+> 守它的是 `TestV05AuditNeedsNetPermission`（不授权 → exit 3 且替身**零命中**；
+> 授权 → 同一个调用通过）与 `TestHTTPEgressIsRegistered`（新增 HTTP 出口必须登记）。
 
 `run:<引擎>` 的判定排在**可用性之后**，理由是同一个：引擎根本没装时，正确的退出码是
 `exit 5`（工具缺失，脚本据此区分"环境问题"与"配置问题"）。顺序反了的话，一个拼错的引擎名
