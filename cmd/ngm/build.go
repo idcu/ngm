@@ -112,6 +112,12 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	for _, w := range res.Warnings {
 		fmt.Fprintln(stderr, w)
 	}
+	// ngm 自己的说明另起一行并加前缀：用户要能分清"引擎在报警"与"ngm 在解释自己做的事"。
+	// 这条通道此前是**断的**：`deno bundle` 的实验性提示写好了却没人读——
+	// 而那句提示恰恰是"我们没说过它稳定"的全部依据。
+	for _, n := range res.Notes {
+		fmt.Fprintf(stderr, "note: %s\n", n)
+	}
 	if res.Outfile != "" {
 		fmt.Fprintf(stdout, "bundled %s → %s\n", entry, res.Outfile)
 	} else {

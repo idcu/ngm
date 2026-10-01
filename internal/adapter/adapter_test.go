@@ -413,6 +413,45 @@ func TestBuildInvocation_GenericCustomEngine(t *testing.T) {
 	}
 }
 
+// TestBuildInvocation_GenericTransformForwardsEveryOption 冻结"自定义引擎也能收到全部选项"。
+//
+// 为什么单列一条：genericInvocation 的 transform 分支此前**只**转发 loader 与 target，
+// `--format` / `--minify` / `--sourcemap` 被静默丢掉——用户自定义一个 transform 引擎、
+// 加上 `--minify`，得到的是一份没被压缩的产物，而且没有任何一句话说明这件事。
+// 它与本项目反复登记的那类缺陷同型（"声明了、没接线"），只是发生在 adapter 协议里；
+// 一直没被发现，是因为 `transform` 在 v0.5 之前**没有任何命令入口**。
+//
+// 断言用**完整 argv 精确比对**（含顺序）而不是"包含某几个子串"：顺序与拼法是
+// P4 协议的一部分，宽松断言会让"少传一个"这种回归溜过去。
+func TestBuildInvocation_GenericTransformForwardsEveryOption(t *testing.T) {
+	entry := Entry{
+		Name: "my-tool", Kind: KindTransform, Adapter: AdapterSubprocess, Command: "my-tool",
+	}
+	entry.Program, entry.Args = splitCommand(entry.Command)
+
+	inv, err := buildInvocation(entry, buildRequest{
+		Options: TransformOptions{
+			Loader:     "ts",
+			Target:     "es2020",
+			Format:     "cjs",
+			Minify:     true,
+			SourceMaps: true,
+			Extra:      map[string]any{"charset": "utf8"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildInvocation: %v", err)
+	}
+	want := "--charset=utf8 --format=cjs --kind=transform --loader=ts --minify " +
+		"--sourcemap=inline --stdin --target=es2020"
+	if got := strings.Join(inv.Args, " "); got != want {
+		t.Errorf("args=%q\n want %q", got, want)
+	}
+	if !inv.ReadsStdin {
+		t.Error("transform reads its input from stdin (P4)")
+	}
+}
+
 // TestBuildInvocation_EsbuildRefusesTypeCheck 固定"禁止静默降级"。
 //
 // esbuild 只删类型标注、不做检查。"当作通过"是最危险的失败模式：

@@ -126,7 +126,7 @@ func (e *subprocessEngine) Bundle(ctx context.Context, entry string, opts Bundle
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
-	out := &BundleResult{Warnings: stderrLines(res.Stderr)}
+	out := &BundleResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
 		out.Outfile = opts.Outfile
 	} else {
@@ -200,7 +200,9 @@ func (e *subprocessEngine) Compile(ctx context.Context, input []byte, opts CSSOp
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
-	out := &CSSResult{Warnings: inv.Notes}
+	// 两条通道**都要**：引擎的 stderr 此前被整个丢掉（postcss 的警告到不了用户），
+	// 而 ngm 的说明此前借用了 Warnings 这个字段名。
+	out := &CSSResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
 		out.Outfile = opts.Outfile
 	} else {
@@ -561,11 +563,16 @@ func esbuildInvocation(entry Entry, req buildRequest) (invocation, error) {
 	case TypeCheckOptions:
 		// esbuild **不做类型检查**：它只是把类型标注删掉。
 		// 静默地"当作通过"是最危险的行为（CI 会以为类型是干净的），
-		// 因此明确拒绝，并指出 v0.1 的现状。
+		// 因此明确拒绝，并指出该换成哪个引擎。
+		//
+		// v0.5 复核修正：这里曾写"tsc / deno are not adapted in this build"，
+		// 而 `typescript`（tsc）自 v0.2 起就在内置清单里——那句话把可用的引擎
+		// 说成了不可用，用户照做会去自己声明一个本来已经内置的引擎。
 		return invocation{}, errs.New(errs.CodeEngineNotFound,
 			"esbuild does not type-check: it only strips type annotations",
-			"tsc / deno are not adapted in this build; declare a `typeCheck` engine in "+
-				FileName+" (see modules/p4-ecosystem.md)")
+			"use the built-in `typescript` engine instead: pass --engine=typescript, "+
+				"or set \"typeCheck\": \"typescript\" in "+ProjectFileName+
+				" (see modules/p4-ecosystem.md)")
 	case TypeDeclOptions:
 		return invocation{}, errs.New(errs.CodeEngineNotFound,
 			"esbuild cannot emit .d.ts declarations",
@@ -731,6 +738,23 @@ func genericInvocation(entry Entry, req buildRequest) (invocation, error) {
 		}
 		if o.Target != "" {
 			m.set("target", o.Target)
+		}
+		// Format / Minify / SourceMaps 必须转发，与上面 Bundle 分支、下面 CSS 分支一致。
+		//
+		// v0.5 修正：这里此前**只**转发 loader 与 target，于是用户自定义的 transform
+		// 引擎收到 `--minify` 时会**静默忽略**它——产物没被压缩，而没有任何一句话
+		// 说明这件事。这正是本项目反复登记的那一类缺陷（"声明了、没接线"），
+		// 只是发生在 adapter 协议里。它一直没被发现，是因为 `transform` 在此之前
+		// **没有任何命令入口**（v0.1 复盘 §6 起登记）；入口一开就会立刻被碰到。
+		if o.Format != "" {
+			m.set("format", o.Format)
+		}
+		if o.Minify {
+			m.set("minify", true)
+		}
+		if o.SourceMaps {
+			// 与 esbuild 的翻译一致：输出走 stdout，只能内联
+			m.set("sourcemap", "inline")
 		}
 		m.set("stdin", true)
 	case CSSOptions:

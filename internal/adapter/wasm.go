@@ -123,7 +123,7 @@ func (e *wasmEngine) Bundle(ctx context.Context, entry string, opts BundleOption
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
-	out := &BundleResult{Warnings: stderrLines(res.Stderr)}
+	out := &BundleResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
 		if werr := e.writeArtifact(opts.Outfile, res.Stdout); werr != nil {
 			return nil, werr
@@ -190,7 +190,8 @@ func (e *wasmEngine) Compile(ctx context.Context, input []byte, opts CSSOptions)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
-	out := &CSSResult{Warnings: inv.Notes}
+	// 与 subprocess 适配器保持同一套含义：Warnings 是引擎的 stderr，Notes 是 ngm 的说明
+	out := &CSSResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
 		if werr := e.writeArtifact(opts.Outfile, res.Stdout); werr != nil {
 			return nil, werr

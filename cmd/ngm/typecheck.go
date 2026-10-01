@@ -206,11 +206,16 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if cerr != nil {
 		return runErr(ctx, stdout, stderr, cerr)
 	}
-	// 引擎的说明原样转发（与 build 一致）。
-	// 这里不能省：postcss 没有内建压缩，它会用这条通道明说"--minify 被忽略了"，
-	// 吞掉它等于替用户决定"不必知道"。
+	// 两条通道都要转：**引擎的 stderr** 与 **ngm 自己的说明**。
+	//
+	// 后者不能省：postcss 没有内建压缩，ngm 用它会明说"--minify 被忽略了"，
+	// 吞掉它等于替用户决定"不必知道"。前者此前被整个丢掉——引擎写到 stderr 的
+	// 警告（弃用提示、插件的非致命报错）根本到不了用户，与"诊断被吞掉"同型。
 	for _, w := range res.Warnings {
 		fmt.Fprintln(stderr, w)
+	}
+	for _, n := range res.Notes {
+		fmt.Fprintf(stderr, "note: %s\n", n)
 	}
 	if res.Outfile != "" {
 		fmt.Fprintf(stdout, "compiled %s → %s\n", input, res.Outfile)

@@ -162,8 +162,18 @@ type BundleResult struct {
 	Code []byte
 	// Outfile 是实际写出的文件路径；未落盘时为空。
 	Outfile string
-	// Warnings 是引擎 stderr 诊断。
+	// Warnings 是**引擎自己**写到 stderr 的诊断，原样转述。
 	Warnings []string
+	// Notes 是 **ngm 自己**要说的话（例如某个选项被忽略及其原因）。
+	//
+	// 与 Warnings 分成两个字段，是因为它们的**出处**不同：用户要能分清
+	// "引擎在报警"和"ngm 在解释自己做的事"。两者合并会让日志读起来像引擎说了
+	// 一句它没说过的话。
+	//
+	// v0.5 之前这两条通道**各丢了一半**（同名的 `Warnings` 在两种结果里含义不同）：
+	// bundle 丢 Notes —— `deno bundle` 的实验性提示写好了却没人读；
+	// css 丢引擎 stderr —— postcss 的警告根本到不了用户。
+	Notes []string
 }
 
 // TypeCheckOptions 是类型检查的输入选项。
@@ -210,11 +220,16 @@ type CSSResult struct {
 	Code []byte
 	// Outfile 是实际写出的文件路径。
 	Outfile string
-	// Warnings 是引擎侧的说明（例如某个选项被忽略及其原因）。
+	// Warnings 是**引擎自己**写到 stderr 的诊断，原样转述。
+	Warnings []string
+	// Notes 是 **ngm 自己**要说的话（例如某个选项被忽略及其原因）。
 	//
 	// 存在的理由：有些引擎做不到某件事（postcss 没有内建压缩），
 	// 静默忽略用户传的 flag 会让人以为压缩生效了。宁可明说。
-	Warnings []string
+	//
+	// 此前 ngm 的说明被塞进了 `Warnings`，而引擎的 stderr 被丢掉——
+	// 两者含义不同，混用之后一半信息必然丢失。见 BundleResult 上的同名字段。
+	Notes []string
 }
 
 // ---------------------------------------------------------------------------
