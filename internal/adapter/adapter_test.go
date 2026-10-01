@@ -269,7 +269,10 @@ func TestCatalogValidate_ReportsEveryProblemClass(t *testing.T) {
 		{Name: "empty-cmd", Kind: KindBundle, Adapter: AdapterSubprocess},
 		{Name: "bad-kind", Kind: "nope", Adapter: AdapterSubprocess, Command: "x"},
 		{Name: "bad-adapter", Kind: KindBundle, Adapter: "nope", Command: "x"},
-		{Name: "wasm-one", Kind: KindBundle, Adapter: AdapterWasm, Command: "x"},
+		// wasm 自 v0.3 A 组起已实现：Command 指向不存在的模块 → **可用性**问题，
+		// 不再是"未实现"。这一类的覆盖改由 remote 承担（它确实还没实现）。
+		{Name: "wasm-one", Kind: KindBundle, Adapter: AdapterWasm, Command: "does-not-exist.wasm"},
+		{Name: "remote-one", Kind: KindBundle, Adapter: AdapterRemote, Command: "x"},
 		{Name: "fake-stub", Kind: KindBundle, Adapter: AdapterSubprocess, Command: "x", Stub: true},
 		{Name: "embed-unknown", Kind: KindBundle, Adapter: AdapterEmbed},
 		{Name: "dup", Kind: KindBundle, Adapter: AdapterSubprocess, Command: "x"},
@@ -290,7 +293,8 @@ func TestCatalogValidate_ReportsEveryProblemClass(t *testing.T) {
 		"empty-cmd/bundle":     IssueSchema,
 		"bad-kind/nope":        IssueSchema,
 		"bad-adapter/bundle":   IssueSchema,
-		"wasm-one/bundle":      IssueUnimplemented,
+		"wasm-one/bundle":      IssueUnavailable,
+		"remote-one/bundle":    IssueUnimplemented,
 		"fake-stub/bundle":     IssueSchema,
 		"embed-unknown/bundle": IssueUnimplemented,
 		"dup/bundle":           IssueSchema,

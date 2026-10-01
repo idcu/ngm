@@ -107,7 +107,11 @@ func (ec *engineContext) selectionFor(kind adapter.EngineKind, engineFlag string
 // 因此不适用 run: 权限：要求一个 "run:self" 会凭空造出用户从未听说过的权限名，
 // 而他会照提示把它写进配置。
 func engineRunTarget(entry adapter.Entry) string {
-	if entry.Adapter != adapter.AdapterSubprocess {
+	// embed（self）返回空：它是 ngm 进程内的一段逻辑，不是"执行了谁的代码"。
+	// wasm **要**返回：模块就是第三方产物，执行它与执行一个外部 CLI 是同一类授权。
+	switch entry.Adapter {
+	case adapter.AdapterSubprocess, adapter.AdapterWasm:
+	default:
 		return ""
 	}
 	prog := strings.TrimSpace(entry.Program)
@@ -115,8 +119,21 @@ func engineRunTarget(entry adapter.Entry) string {
 		return ""
 	}
 	base := filepath.Base(prog)
-	// Windows 上 Program 可能带 .exe/.cmd：权限名与文档一致用无扩展名的形式（run:esbuild）
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	// 只剥**可执行文件后缀**：Windows 上 Program 常带 .exe / .cmd，而权限名与文档
+	// 一致用无后缀的形式（run:esbuild）。
+	//
+	// 其他扩展名必须**保留**：wasm 模块的 `.wasm` 是它身份的一部分，剥掉会让
+	// `engine.wasm` 与一个真叫 `engine` 的程序共用同一个权限名——那正是
+	// "授权了一个东西却执行了另一个"的经典错误。
+	if ext := strings.ToLower(filepath.Ext(base)); execSuffixes[ext] {
+		base = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	return base
+}
+
+// execSuffixes 是 Windows 上可执行文件的常见后缀（小写）。
+var execSuffixes = map[string]bool{
+	".exe": true, ".cmd": true, ".bat": true, ".com": true, ".ps1": true,
 }
 
 // globalDefaultFor 从全局配置取某能力类别的默认引擎。

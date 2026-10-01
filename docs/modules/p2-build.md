@@ -237,7 +237,7 @@ func (m *EngineManager) Transform(input []byte, opts TransformOptions) (*Transfo
 | typescript adapter | planned (v0.2) | `typeCheck` + `typeDecl` |
 | deno adapter | planned (v0.2) | `typeCheck`；`bundle` 需 Deno ≥ 2.4 |
 | postcss adapter | planned (v0.2) | `css` |
-| wasm adapter | planned (v0.3) | 安全场景 |
+| wasm adapter | **done (v0.3)** | wazero + WASI 命令模块；argv / 产物 / 退出码与 subprocess 同一套语义（[ADR-011](../adr/adr-011-wasm-runtime.md)） |
 | remote adapter | planned (v0.3) | 企业级 |
 | self 引擎 | done (v0.1) | 仅 `--dry-run` / 离线 stub，不做生产级 |
 

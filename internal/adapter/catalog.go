@@ -154,6 +154,12 @@ func splitCommand(command string) (program string, args []string) {
 type Catalog struct {
 	Version int     `json:"version"`
 	Engines []Entry `json:"engines"`
+
+	// baseDir 是清单来自哪里（项目目录），用于解析 wasm 模块的相对路径。
+	//
+	// 没有它，可用性检查只能相对**进程的 CWD** 去看模块在不在——而
+	// `ngm build --dir=/elsewhere` 正是那样把"模块在项目里"误报成"找不到"的。
+	baseDir string `json:"-"`
 }
 
 // BuiltinCatalog 返回内置引擎清单。
@@ -240,6 +246,7 @@ func BuiltinCatalog() *Catalog {
 // 出问题时无法解释某一项到底从哪来。
 func LoadCatalog(projectDir, ngmHome string) (*Catalog, error) {
 	cat := BuiltinCatalog()
+	cat.baseDir = projectDir
 
 	sources := []string{}
 	if ngmHome != "" {
@@ -483,9 +490,27 @@ func (c *Catalog) Validate() []Issue {
 				Message: fmt.Sprintf("unknown `adapter` %q; valid adapters: %s", e.Adapter, adapterList())})
 		} else {
 			switch e.Adapter {
-			case AdapterWasm, AdapterRemote:
+			case AdapterRemote:
 				issues = append(issues, Issue{Entry: label, Kind: IssueUnimplemented,
-					Message: fmt.Sprintf("adapter %q is not implemented in this build (planned for v0.3)", e.Adapter)})
+					Message: fmt.Sprintf("adapter %q is not implemented in this build", e.Adapter)})
+			case AdapterWasm:
+				if e.Program == "" {
+					issues = append(issues, Issue{Entry: label, Kind: IssueSchema,
+						Message: "wasm entries need a non-empty `command` (the path to the module)"})
+					continue
+				}
+				// 可用性：模块文件在不在。与 subprocess 的 LookPath 是同一件事
+				// （清单表达意图，可用性必须真的探测），只是查的目标不同。
+				if _, err := os.Stat(c.resolveModulePath(e.Program)); err != nil {
+					if !e.Optional {
+						issues = append(issues, Issue{Entry: label, Kind: IssueUnavailable,
+							Message: fmt.Sprintf("wasm module %q was not found", e.Program)})
+					}
+				} else if v, verr := probeVersion(e); verr == nil && v != "" && e.Version != "" &&
+					!strings.HasPrefix(v, e.Version) {
+					issues = append(issues, Issue{Entry: label, Kind: IssueVersion,
+						Message: fmt.Sprintf("catalog declares version %s, the module reports %q", e.Version, v)})
+				}
 			case AdapterEmbed:
 				if e.Name != SelfEngineName {
 					issues = append(issues, Issue{Entry: label, Kind: IssueUnimplemented,
@@ -530,6 +555,18 @@ func (c *Catalog) Validate() []Issue {
 	}
 
 	return issues
+}
+
+// resolveModulePath 把清单里的模块路径解析成实际路径。
+//
+// 相对路径相对**清单所在的项目目录**（与 wasmEngine.modulePath 同一条规则）：
+// 两处不一致会让"校验说找不到、运行时却跑起来了"（或反之）成为可能。
+func (c *Catalog) resolveModulePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || filepath.IsAbs(p) || c.baseDir == "" {
+		return p
+	}
+	return filepath.Join(c.baseDir, filepath.FromSlash(p))
 }
 
 // kindList 与 adapterList 生成稳定的枚举列表（用于错误消息）。

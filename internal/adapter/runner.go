@@ -100,6 +100,13 @@ func NewEngine(entry Entry, dir string) (Engine, error) {
 				"engine `"+entry.Name+"` has an empty `command`", "")
 		}
 		return newSubprocessEngine(entry, dir), nil
+	case AdapterWasm:
+		if entry.Program == "" {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				"engine `"+entry.Name+"` has an empty `command`",
+				"point `command` at a WASI command module (see docs/adr/adr-011-wasm-runtime.md)")
+		}
+		return newWasmEngine(entry, dir), nil
 	case AdapterEmbed:
 		if entry.Name == SelfEngineName {
 			return newSelfEngine(entry), nil
@@ -107,10 +114,10 @@ func NewEngine(entry Entry, dir string) (Engine, error) {
 		return nil, errs.New(errs.CodeEngineNotFound,
 			fmt.Sprintf("no embedded engine named %q in this build", entry.Name),
 			"only the `"+SelfEngineName+"` stub is embedded; declare a subprocess engine in "+FileName)
-	case AdapterWasm, AdapterRemote:
+	case AdapterRemote:
 		return nil, errs.New(errs.CodeEngineNotFound,
 			fmt.Sprintf("adapter %q is not implemented in this build", entry.Adapter),
-			"the wasm and remote adapters are planned for v0.3")
+			"the remote adapter needs a trust-boundary decision first (ADR-013) and may not ship")
 	default:
 		return nil, errs.New(errs.CodeConfigInvalid,
 			fmt.Sprintf("unknown adapter %q for engine %q", entry.Adapter, entry.Name), "")
@@ -314,6 +321,16 @@ func unavailableError(entry Entry) *EngineError {
 	target := entry.Program
 	if target == "" {
 		target = entry.Name
+	}
+	if entry.Adapter == AdapterWasm {
+		// "was not found on PATH" 对 wasm 是错的措辞：模块是**文件**，
+		// 按相对工作目录解析。指错地方会让用户去查 PATH，而问题在文件不在那儿。
+		return &EngineError{
+			Code:     -1,
+			Message:  fmt.Sprintf("engine `%s` is not available (wasm module %q was not found)", entry.Name, target),
+			Fallback: true,
+			Hint:     "check the `command` of this entry in " + FileName + " (it is resolved relative to the project directory)",
+		}
 	}
 	return &EngineError{
 		Code:     -1,
