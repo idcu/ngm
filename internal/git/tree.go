@@ -3,7 +3,9 @@ package git
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/errs"
@@ -138,31 +140,72 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 	}
 
 	// 4)+5) 检测 LFS 并计算每条记录的 sha256
-	records := make([]digest.Record, 0, len(blobSHAs))
-	bi := 0
+	//
+	// **这一步在一个依赖内部并行**（v0.2 复盘 §2.3 起挂账项）。
+	// 并行**不改变任何字节，也不改变顺序**：每个结果按索引写回，最后按索引合并。
+	//
+	// 收益有多大，实测说了算（`internal/git/archive_bench_test.go`，2000 × 8 KiB，
+	// 用 `GOMAXPROCS=1` 作串行对照）：278.9ms → 244.1ms，**1.14×**。
+	//
+	// 这个数字**低于我事前的预期**，原因值得写下来：本函数的成本大头是
+	// `git ls-tree` + `git cat-file --batch` 两个子进程（16 MiB 的 sha256 在这台机器上
+	// 只要几十毫秒），因此把纯 CPU 段并行化，最多也只能省下那段。
+	// 换句话说：**这条路径的下一个优化是"少开子进程 / 一次取更多"，不是"开更多线程"**。
+	// 保留这个并行是因为它几乎零成本（无额外分配，代码只多一层循环），
+	// 但若将来有人以为它解决了 digest 的慢，那会是误读——慢在 git，不在这里。
+	//
+	// LFS 指针的报错也因此要保持确定：串行版本报的是**第一条**（entries 顺序）命中。
+	// 并行时"谁先返回"取决于调度，所以这里先把所有命中记下来，再按索引取最小的一条——
+	// 否则同一个仓库在不同机器上会给出不同的报错路径（本项目对确定性有明确纪律）。
+	type lfsHit struct{ path, oid string }
+
+	metas := make([]digest.Record, 0, len(blobSHAs))
 	for _, e := range entries {
 		if e.Mode == digest.ModeTree {
 			continue
 		}
-		content := contents[bi]
-		bi++
+		metas = append(metas, digest.Record{Path: e.Path, Mode: e.Mode})
+	}
 
-		if ptr, ok := digest.DetectLFSPointer(content); ok {
+	hashes := make([]string, len(metas))
+	hits := make([]*lfsHit, len(metas))
+
+	workers := runtime.GOMAXPROCS(0)
+	if workers > len(metas) {
+		workers = len(metas)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(start int) {
+			defer wg.Done()
+			for i := start; i < len(metas); i += workers {
+				content := contents[i]
+				if ptr, ok := digest.DetectLFSPointer(content); ok {
+					hits[i] = &lfsHit{path: metas[i].Path, oid: ptr.OID}
+					continue
+				}
+				hashes[i] = digest.HashBytes(content)
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	for i := range metas {
+		if h := hits[i]; h != nil {
 			return nil, errs.New(
 				errs.CodeConfigInvalid,
-				fmt.Sprintf("commit %s contains a Git LFS pointer at %q (oid sha256:%s)", ShortSHA(commit), e.Path, ptr.OID),
+				fmt.Sprintf("commit %s contains a Git LFS pointer at %q (oid sha256:%s)", ShortSHA(commit), h.path, h.oid),
 				"ngm v0.1 cannot prove LFS content: the pointer is not the file. "+
 					"Remove LFS from this dependency, or pin a commit whose files are stored as regular Git objects")
 		}
-
-		records = append(records, digest.Record{
-			Path:       e.Path,
-			Mode:       e.Mode,
-			BlobSHA256: digest.HashBytes(content),
-		})
+		metas[i].BlobSHA256 = hashes[i]
 	}
 
-	return digest.BuildManifest(records), nil
+	return digest.BuildManifest(metas), nil
 }
 
 // BuildArchiveDigest 是 BuildArchive 的便捷封装，直接返回 `sha256:<hex>`。

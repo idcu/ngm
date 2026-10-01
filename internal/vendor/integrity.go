@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/idcu/ngm/internal/errs"
 )
@@ -99,51 +101,111 @@ func verifyTrees(vendorTree, contentTree string, deep bool) (VerifyResult, error
 	}
 	sort.Strings(common)
 
-	for _, path := range common {
+	// 3) 逐个共同路径比对。
+	//
+	// 深校验（deep=true）**逐文件读两侧内容**，因此这一段是 `--deep` 的全部成本，
+	// 而它此前是串行的（v0.2 复盘 §2.3 挂账项）。依赖级并发已经拿走了主要收益，
+	// 但"一个依赖内部文件很多"时剩下的就是这一段。
+	//
+	// 并行不改变结论：`Mismatches` 末尾统一排序（下方 sort.Strings），
+	// 计数按索引求和，错误取**索引最小**的那条——与串行版本"第一条命中即返回"一致，
+	// 否则同一个仓库在不同机器上会报出不同的文件。
+	//
+	// 浅校验（deep=false）不做内容读取，这一段只是遍历内存里的 map，**不并行**：
+	// 为它起 goroutine 的调度成本比它本身还大。
+	type outcome struct {
+		mismatch string
+		symlink  bool
+		file     bool
+		err      error
+	}
+
+	results := make([]outcome, len(common))
+	compareOne := func(i int) {
+		path := common[i]
 		a := left[path]
 		b := right[path]
 
 		if a.symlink || b.symlink {
 			if a.symlink != b.symlink {
-				res.Mismatches = append(res.Mismatches,
-					fmt.Sprintf("%s: one side is a symlink and the other is not", path))
-				continue
+				results[i].mismatch = fmt.Sprintf("%s: one side is a symlink and the other is not", path)
+				return
 			}
 			if a.linkTarget != b.linkTarget {
-				res.Mismatches = append(res.Mismatches,
-					fmt.Sprintf("%s: symlink target differs (%q vs %q)", path, a.linkTarget, b.linkTarget))
-				continue
+				results[i].mismatch = fmt.Sprintf("%s: symlink target differs (%q vs %q)",
+					path, a.linkTarget, b.linkTarget)
+				return
 			}
-			res.Symlinks++
-			continue
+			results[i].symlink = true
+			return
 		}
 
 		// 长度不同 → 无需读内容即可判定（浅校验的主要检出能力）
 		if a.size != b.size {
-			res.Mismatches = append(res.Mismatches,
-				fmt.Sprintf("%s: size differs (%d vs %d bytes)", path, a.size, b.size))
-			continue
+			results[i].mismatch = fmt.Sprintf("%s: size differs (%d vs %d bytes)", path, a.size, b.size)
+			return
 		}
 
 		if !deep {
-			res.Files++
-			continue
+			results[i].file = true
+			return
 		}
 
-		sumA, err := hashFile(a.full)
-		if err != nil {
-			return res, errs.Wrap(errs.CodeConfigInvalid, "hash vendor file "+path, "", err)
+		sumA, herr := hashFile(a.full)
+		if herr != nil {
+			results[i].err = errs.Wrap(errs.CodeConfigInvalid, "hash vendor file "+path, "", herr)
+			return
 		}
-		sumB, err := hashFile(b.full)
-		if err != nil {
-			return res, errs.Wrap(errs.CodeConfigInvalid, "hash content file "+path, "", err)
+		sumB, herr := hashFile(b.full)
+		if herr != nil {
+			results[i].err = errs.Wrap(errs.CodeConfigInvalid, "hash content file "+path, "", herr)
+			return
 		}
 		if sumA != sumB {
-			res.Mismatches = append(res.Mismatches,
-				fmt.Sprintf("%s: content differs (sha256 %s vs %s)", path, sumA[:12], sumB[:12]))
+			results[i].mismatch = fmt.Sprintf("%s: content differs (sha256 %s vs %s)",
+				path, sumA[:12], sumB[:12])
+			return
+		}
+		results[i].file = true
+	}
+
+	if deep && len(common) > 1 {
+		workers := runtime.GOMAXPROCS(0)
+		if workers > len(common) {
+			workers = len(common)
+		}
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func(start int) {
+				defer wg.Done()
+				for i := start; i < len(common); i += workers {
+					compareOne(i)
+				}
+			}(w)
+		}
+		wg.Wait()
+	} else {
+		for i := range common {
+			compareOne(i)
+		}
+	}
+
+	// 合并：必须按索引顺序，错误才与串行版本一致（最小索引优先）
+	for i := range results {
+		if results[i].err != nil {
+			return res, results[i].err
+		}
+		if results[i].mismatch != "" {
+			res.Mismatches = append(res.Mismatches, results[i].mismatch)
 			continue
 		}
-		res.Files++
+		if results[i].symlink {
+			res.Symlinks++
+		}
+		if results[i].file {
+			res.Files++
+		}
 	}
 
 	sort.Strings(res.Mismatches)
