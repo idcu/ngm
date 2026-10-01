@@ -136,6 +136,20 @@ func (e *projectEnv) EnsureMirror(ctx context.Context, repo resolve.Canonical) (
 // 会因此失去"比 mirror 更新"这一点），但比直接失败更有用。
 func (e *projectEnv) RemoteRefResolver() func(context.Context, resolve.Canonical, string, resolve.RefType) (string, error) {
 	return func(ctx context.Context, repo resolve.Canonical, ref string, rt resolve.RefType) (string, error) {
+		// commit 型**不需要解析**：它自己就是答案。
+		//
+		// 这里此前无条件先取一次 mirror 的远端地址（`git config --get remote.origin.url`，
+		// 一个 git 子进程），而 commit 分支**根本不用那个地址**——
+		// 于是每个 commit 型依赖白起一个进程（v0.5 实测，见 ADR-015）。
+		//
+		// 内容寻址的对象不需要远端广播的 refs：`ls-remote` 列的是 ref，
+		// 它回答不了"某个未被引用的 commit 是否还在上游"。
+		// 对象**是否存在**，由必须读它的那一步负责（ADR-010 的按需取物：
+		// digest 重放会明确报"commit 不在本地 mirror 里"），不在这里假装知道。
+		if rt == resolve.RefTypeCommit {
+			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{})
+		}
+
 		url, err := git.MirrorRemoteURL(ctx, e.GitOpts, e.Mirror.PathFor(repo))
 		if err != nil || strings.TrimSpace(url) == "" {
 			// 降级分支：只读本地 mirror，不触网，因此不需要 net 权限

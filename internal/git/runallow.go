@@ -27,6 +27,7 @@ func RunAllowFailure(ctx context.Context, opts Options, args ...string) (*Result
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	noteSpawn()
 	err := cmd.Run()
 	res := &Result{
 		Stdout:   stdout.Bytes(),

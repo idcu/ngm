@@ -91,6 +91,7 @@ func Run(ctx context.Context, opts Options, args ...string) (*Result, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	noteSpawn()
 	err := cmd.Run()
 	res := &Result{
 		Stdout:   stdout.Bytes(),

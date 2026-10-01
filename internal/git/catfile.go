@@ -47,6 +47,9 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
 
+	// cat-file --batch 是**长生命周期**的子进程：一次 spawn 服务很多次读取。
+	// 因此这里记 1，而不是按读取次数记——计数器要反映的是"起了几个进程"。
+	noteSpawn()
 	if err := cmd.Start(); err != nil {
 		return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: start git", NotInstalledHint, err)
 	}
