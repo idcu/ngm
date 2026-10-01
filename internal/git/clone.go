@@ -106,8 +106,20 @@ func IsBareMirror(path string) bool {
 	return false
 }
 
-// MirrorRemoteURL 读取裸仓库的 origin URL（用于诊断，不含写入路径）。
+// MirrorRemoteURL 读取裸仓库的 origin URL（用于诊断与取数，不含写入路径）。
+//
+// v0.5 起**先读 config 文件**（MirrorRemoteURLLocal），形状不认识时才回退到
+// `git config --get remote.origin.url`。理由：该调用实测约 30.6ms/次，
+// 而在线 verify 与 mirror 更新都是**每个依赖一次**（ADR-015）；
+// 而那个值就明文写在 mirror 的 config 里。
+//
+// 语义**完全不变**：仍是"这个 mirror 当初用的那个地址"；读不出来时行为与从前一致
+// （返回错误或空串，由调用方按既有方式降级）。回退路径保证了
+// "我们不认识的 config"不会变成"另一个答案"。
 func MirrorRemoteURL(ctx context.Context, opts Options, localPath string) (string, error) {
+	if url, ok := MirrorRemoteURLLocal(localPath); ok {
+		return url, nil
+	}
 	o := opts
 	o.Dir = localPath
 	res, err := Run(ctx, o, "config", "--get", "remote.origin.url")

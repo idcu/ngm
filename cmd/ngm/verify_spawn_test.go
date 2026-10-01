@@ -78,8 +78,10 @@ func TestV05RefResolutionSpawns(t *testing.T) {
 		if got != commit {
 			t.Errorf("resolved %q, want %q", got, commit)
 		}
-		if n := git.SpawnCount(); n == 0 {
-			t.Error("a tag ref must consult git (otherwise this counter is not measuring anything)")
+		// **恰好一次**：`ls-remote` 那次。取 mirror 的远端地址（曾经是第二次）
+		// 现在直接读 config 文件，见 ADR-015 / A4。
+		if n := git.SpawnCount(); n != 1 {
+			t.Errorf("a tag ref needs exactly one spawn (the ls-remote); got %d", n)
 		}
 	})
 }
