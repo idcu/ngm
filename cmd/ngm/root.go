@@ -35,6 +35,7 @@ var commands = []*commandSpec{
 	{Name: "tree", Run: runTree},
 	{Name: "outdated", Run: runOutdated},
 	{Name: "typecheck", Run: runTypecheck},
+	{Name: "typedecl", Run: runTypeDecl},
 	{Name: "build", Run: runBuild},
 	{Name: "css", Run: runCSS},
 	{Name: "mappings", Run: runMappings},

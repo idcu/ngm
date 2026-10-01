@@ -24,13 +24,12 @@ var schemaFiles = []string{
 //
 // 规则：这条清单只允许变短。一个键若已被测试覆盖，它留在这里会让本检查失败——
 // 那是刻意的，防止"修好了但没人把豁免删掉"，久了清单就没人信了。
-var coverageExempt = map[string]string{
-	// `engines.typeDecl` 目前无法从配置读到行为：**没有任何命令驱动 typeDecl 能力**。
-	// 能力本身在 adapter 层已实现并有单测（TestTypescript_TypeDeclEmitsDeclarations），
-	// 但用户写这个键不会有任何效果——所以正确做法不是"补一条断言"，而是先给它一个入口。
-	// 有入口的那一天，把这条删掉（本检查会在它被覆盖时反过来提醒）。
-	"typeDecl": "no CLI entry point drives the typeDecl capability yet",
-}
+// 目前**为空**，而这正是它该有的样子。
+//
+// 它曾有一项：`engines.typeDecl`——能力在 adapter 层有实现与单测，却没有任何命令
+// 驱动它，因此那个配置键对用户没有任何效果。修法不是"补一条断言"，而是先给能力
+// 一个入口：`ngm typedecl`（v0.4），随后这条豁免被删掉。
+var coverageExempt = map[string]string{}
 
 // camelKey 匹配**多段驼峰**的配置键。
 //

@@ -73,9 +73,26 @@ func main() {
 		out = "/* fake bundle */\n" + strings.Join(args, "\n") + "\n"
 	}
 
-	// 遵守 `--outfile=<path>`：真实引擎（esbuild）就是这样做的，
-	// 因此测试可以断言"产物真的落盘了"，而不只是"stdout 有东西"。
-	if outfile := flagValue(args, "--outfile="); outfile != "" {
+	// typeDecl 的 `--outfile` 是**输出目录**（见 adapter 的 genericInvocation）：
+	// 真引擎（tsc）往目录里写多个 .d.ts。假引擎因此在那种形态下写一个固定文件，
+	// 使测试能断言"声明真的落盘、且 ngm 把实际出现的文件报了出来"。
+	//
+	// FAKE_EMIT_NOTHING=1 时什么都不写：用于固定"引擎退出 0 但没有任何产出"的提示
+	// （它与"命令悄悄什么都没做"长得一样，是本项目最防的那类失败）。
+	if flagValue(args, "--kind=") == "typeDecl" {
+		if os.Getenv("FAKE_EMIT_NOTHING") != "1" {
+			if dir := flagValue(args, "--outfile="); dir != "" {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					fmt.Fprintln(os.Stderr, "fakeengine: cannot create declaration dir:", err)
+					os.Exit(99)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "index.d.ts"), []byte(out), 0o644); err != nil {
+					fmt.Fprintln(os.Stderr, "fakeengine: cannot write declaration:", err)
+					os.Exit(99)
+				}
+			}
+		}
+	} else if outfile := flagValue(args, "--outfile="); outfile != "" {
 		if dir := filepath.Dir(outfile); dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				fmt.Fprintln(os.Stderr, "fakeengine: cannot create output dir:", err)

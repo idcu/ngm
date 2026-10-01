@@ -125,6 +125,7 @@ ngm --help
 #   tree           依赖树可视化
 #   outdated       检查新版本
 #   typecheck      类型检查（adapter）
+#   typedecl       生成 .d.ts 声明（adapter）
 #   build          构建（adapter）
 #   css            CSS 编译（adapter）
 #   mappings       mappings 管理

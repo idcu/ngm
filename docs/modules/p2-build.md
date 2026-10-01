@@ -234,9 +234,9 @@ func (m *EngineManager) Transform(input []byte, opts TransformOptions) (*Transfo
 | 统一 interface | done (v0.1) | 5 种引擎类型 |
 | subprocess adapter | done (v0.1) | 默认方式 |
 | esbuild adapter | done (v0.1) | `bundle` + `transform` |
-| typescript adapter | planned (v0.2) | `typeCheck` + `typeDecl` |
-| deno adapter | planned (v0.2) | `typeCheck`；`bundle` 需 Deno ≥ 2.4 |
-| postcss adapter | planned (v0.2) | `css` |
+| typescript adapter | **done (v0.2)** | `typeCheck`（`ngm typecheck`）+ `typeDecl`（`ngm typedecl`，**v0.4 补上入口**） |
+| deno adapter | **done (v0.2)** | `typeCheck`；`bundle` 需 Deno ≥ 2.4 且**需自行声明**（不进内置清单） |
+| postcss adapter | **done (v0.2)** | `css`（无内建压缩，`--minify` 会被明确告知忽略） |
 | wasm adapter | **done (v0.3)** | wazero + WASI 命令模块；argv / 产物 / 退出码与 subprocess 同一套语义（[ADR-011](../adr/adr-011-wasm-runtime.md)） |
 | remote adapter | **已排除（[ADR-013](../adr/adr-013-remote-adapter.md)）** | 需把源码送出本机，而产物无法被用户本地证明；`adapter: remote` 仍被识别，但报"按决定排除" |
 | self 引擎 | done (v0.1) | 仅 `--dry-run` / 离线 stub，不做生产级 |

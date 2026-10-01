@@ -16,9 +16,9 @@ ngm core 是"Git-first 依赖证明层"的最小完整实现。它不做构建�
 ```
 cmd/ngm/                 # CLI：一个命令一个文件；root.go 是命令表与分发
 ├── main.go              # 入口
-├── root.go              # 命令表、参数重排（normalizeArgs）、未实现命令的占位（exit 3）
+├── root.go              # 命令表、参数重排（normalizeArgs）、顶层分发
 ├── init.go  add.go  install.go  update.go  remove.go  verify.go
-├── build.go  typecheck.go（css 同文件）  engine.go
+├── build.go  typecheck.go（css 同文件）  typedecl.go  engine.go
 ├── mappings.go  cache.go  config.go  engines.go
 ├── help.go  env.go      # help 文本、项目环境与路径解析
 └── acceptance_m1..m7_test.go 等  # 各阶段的端到端验收

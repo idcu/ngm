@@ -181,7 +181,7 @@ func (e *subprocessEngine) GenerateTypeDecl(ctx context.Context, entry string, o
 	}
 	var files []string
 	if opts.OutDir != "" {
-		files, err = listFiles(opts.OutDir)
+		files, err = listFiles(e.dir, opts.OutDir)
 		if err != nil {
 			return nil, err
 		}
@@ -364,20 +364,36 @@ func stderrLines(b []byte) []string {
 	return out
 }
 
-// listFiles 列出目录下的所有文件（相对路径，`/` 分隔，字节序排序）。
+// listFiles 列出 dir 下的所有文件，返回**相对 base** 的路径（`/` 分隔，字节序排序）。
+//
+// 为什么必须给 base：`dir` 来自配置或命令行，是**相对项目目录**的（引擎就在项目目录里
+// 跑，它写出来的文件也在那儿），而本进程的 CWD 未必是项目目录。按 CWD 去找的后果不是
+// 报错，而是"文件明明写出来了、却说没有产出"——这与 wasm 清单校验曾按 CWD 找模块
+// 是同一类错。
+//
+// 返回相对 base 的路径而不是相对 dir：用户要看的是"文件在项目里的哪儿"。
 //
 // 目录不存在时返回空列表而不是错误：引擎"没产出任何声明"是一种合法结果，
 // 报告比报错更有用（调用方据此给出"没有生成 .d.ts"的提示）。
-func listFiles(dir string) ([]string, error) {
+func listFiles(base, dir string) ([]string, error) {
+	root := dir
+	if base != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, filepath.FromSlash(dir))
+	}
+	relBase := root
+	if base != "" {
+		relBase = base
+	}
+
 	var out []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, werr error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, rerr := filepath.Rel(dir, path)
+		rel, rerr := filepath.Rel(relBase, path)
 		if rerr != nil {
 			return rerr
 		}
