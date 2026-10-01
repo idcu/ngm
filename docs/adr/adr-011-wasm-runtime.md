@@ -170,6 +170,6 @@ wasm 不引入新的失败类别，因此不需要新的退出码。
 - [引擎 adapter](../architecture/engine-adapter.md)（subprocess 协议与 adapter 类型）
 - [安全模型](../architecture/security-model.md)（默认拒绝的权限模型）
 - [ADR-012：沙箱与执行边界](./adr-012-sandbox.md)（本 ADR 的姊妹决策：两个沙箱的差别与互补）
-- [ADR-013](./README.md)（remote adapter 的信任边界，尚未撰写）
+- [ADR-013 remote adapter 的信任边界](./adr-013-remote-adapter.md)（结论：不发布）
 - [v0.3 计划 · A 组](../development/v0.3-plan.md)
 - [P2 — 构建引擎](../modules/p2-build.md)

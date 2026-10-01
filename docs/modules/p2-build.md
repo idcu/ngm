@@ -30,7 +30,7 @@ internal/adapter/
 ├── subprocess.go        # subprocess adapter
 ├── embed.go             # embed adapter（仅兜底）
 ├── wasm.go              # wasm adapter（安全场景）
-├── remote.go            # remote adapter（企业级）
+├── (无 remote.go)       # remote 已由 ADR-013 排除
 └── engines/
     ├── esbuild.go       # esbuild adapter
     ├── typescript.go    # tsc adapter
@@ -238,7 +238,7 @@ func (m *EngineManager) Transform(input []byte, opts TransformOptions) (*Transfo
 | deno adapter | planned (v0.2) | `typeCheck`；`bundle` 需 Deno ≥ 2.4 |
 | postcss adapter | planned (v0.2) | `css` |
 | wasm adapter | **done (v0.3)** | wazero + WASI 命令模块；argv / 产物 / 退出码与 subprocess 同一套语义（[ADR-011](../adr/adr-011-wasm-runtime.md)） |
-| remote adapter | planned (v0.3) | 企业级 |
+| remote adapter | **已排除（[ADR-013](../adr/adr-013-remote-adapter.md)）** | 需把源码送出本机，而产物无法被用户本地证明；`adapter: remote` 仍被识别，但报"按决定排除" |
 | self 引擎 | done (v0.1) | 仅 `--dry-run` / 离线 stub，不做生产级 |
 
 > 成熟度口径与唯一事实源[能力矩阵](../internals/capability-matrix.md)一致。

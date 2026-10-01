@@ -13,7 +13,7 @@
 | `embed` | Go 直接调用 | 未来自研 Go transformer | 兜底、dry-run、离线 stub |
 | `subprocess` | spawn CLI | esbuild / tsc / deno / postcss | **默认方式** |
 | `wasm` | wazero 内执行 WASI 模块 | 以 WASI 命令模块形式发布的构建器 | 安全敏感场景（**已实现**，见 [ADR-011](../adr/adr-011-wasm-runtime.md)） |
-| `remote` | 网络调用 | 自托管构建服务 | 企业级共享构建（**未实现**，需 ADR-013） |
+| `remote` | 网络调用 | 自托管构建服务 | 企业级共享构建——**已由 [ADR-013](../adr/adr-013-remote-adapter.md) 排除**：源码要离开本机，而产物无法被用户本地证明 |
 
 > **`wasm` 的边界**：只跑 **WASI preview1 命令模块**。期待 JS 宿主（`env.*` 一类导入）的
 > wasm 构建**不在支持范围内**——那类模块需要一个 JS 运行时，属 `subprocess` + node 的范畴。

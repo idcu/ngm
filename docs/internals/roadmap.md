@@ -74,7 +74,7 @@
 
 | 模块 | 任务 |
 |------|------|
-| adapter | ~~wasm adapter~~（v0.3 已完成）、remote adapter（需 ADR-013） |
+| adapter | ~~wasm adapter~~（v0.3 已完成）；remote adapter **已排除**（[ADR-013](../adr/adr-013-remote-adapter.md)） |
 | 集成 | Vite / esbuild / Deno / Webpack 集成脚手架 |
 | sandbox | Deno 沙箱模式（**`postInstallPolicy` 执行入口的前置**） |
 | 凭证 | `~/.ngm/config.json` 权限管理 |

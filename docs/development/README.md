@@ -136,7 +136,8 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 
 ### v0.3（计划：[v0.3-plan.md](./v0.3-plan.md)）
 
-引擎生态与协议：wasm·remote adapter、集成脚手架（Vite / esbuild / Deno / Webpack + tsconfig paths）、Deno sandbox、权限与凭证、mappings v2。
+引擎生态与协议：wasm adapter（`remote` 经 [ADR-013](../adr/adr-013-remote-adapter.md) 决定不发布）、
+集成脚手架（Vite / esbuild / Deno / Webpack + tsconfig paths）、Deno sandbox、权限与凭证、mappings 子路径扩展。
 
 ---
 

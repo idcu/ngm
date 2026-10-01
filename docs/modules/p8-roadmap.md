@@ -10,7 +10,7 @@
 |------|------|------|------|
 | P0 ngm core（CLI / 配置 / lock / vendor / verify） | ✓ | | |
 | P1 依赖管理（解析 / 依赖图 / 冲突检测 / mappings） | ✓ | | |
-| P2 构建引擎（adapter） | esbuild | tsc / deno / postcss | ✓ wasm；remote 待 ADR-013 |
+| P2 构建引擎（adapter） | esbuild | tsc / deno / postcss | ✓ wasm；remote **已排除**（ADR-013） |
 | P3 供应链防护 | verify | OSV / 策略 / audit | |
 | P4 协议（adapter / mappings） | adapter 协议 + mappings v1 | | mappings 子路径扩展（可选 `path` 字段，版本号不变） |
 | P5 外部集成 | | | ✓ Vite / esbuild / Deno / Webpack 脚手架 + tsconfig paths |

@@ -20,9 +20,7 @@
 | [ADR-010](./adr-010-online-verify-fetch-policy.md) | 在线 verify 的抓取策略 | 已定 |
 | [ADR-011](./adr-011-wasm-runtime.md) | wasm adapter 的运行时与 ABI | 已定（v0.3 A 组） |
 | [ADR-012](./adr-012-sandbox.md) | 沙箱与执行边界 | 已定（v0.3 D 组之后） |
-
-> **编号 013 已按 [v0.3 计划](../development/v0.3-plan.md) 保留**（remote adapter 的信任边界），
-> 尚未撰写——计划里引用该编号的地方多于本索引，因此编号不重排、不占用。
+| [ADR-013](./adr-013-remote-adapter.md) | remote adapter 的信任边界 | 已定（v0.3 A 组，**结论：不发布**） |
 
 ---
 

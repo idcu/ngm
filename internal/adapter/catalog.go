@@ -491,8 +491,9 @@ func (c *Catalog) Validate() []Issue {
 		} else {
 			switch e.Adapter {
 			case AdapterRemote:
+				// 与 runner.go 同一措辞：这不是"还没做"，而是"决定了不做"（ADR-013）。
 				issues = append(issues, Issue{Entry: label, Kind: IssueUnimplemented,
-					Message: fmt.Sprintf("adapter %q is not implemented in this build", e.Adapter)})
+					Message: fmt.Sprintf("adapter %q is excluded by decision (see adr-013-remote-adapter.md)", e.Adapter)})
 			case AdapterWasm:
 				if e.Program == "" {
 					issues = append(issues, Issue{Entry: label, Kind: IssueSchema,

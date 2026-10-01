@@ -70,7 +70,7 @@ refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 落地
 |---|---|---|
 | **ngm core** | **Go 单二进制** | 依赖图 / lock / vendor / cache / hardlink / verify |
 | **Host runtime** | **Node.js 或 Deno** | 用户项目实际运行的环境 |
-| **Engine adapters** | subprocess（v0.1）/ wasm·remote（v0.3） | 调用外部引擎；v0.1 内置只有 esbuild（`bundle` / `transform`）与 `self` stub |
+| **Engine adapters** | subprocess（v0.1）/ **wasm（v0.3）**；`remote` 已被 [ADR-013](./adr/adr-013-remote-adapter.md) 排除 | 调用外部引擎；内置只有 esbuild（`bundle` / `transform`）与 `self` stub |
 | **Security sandbox** | Deno-style capability model（v0.3） | verify / audit / postinstall 都在同一套 default-deny 权限下 |
 
 > **实现语言用 Go；宿主运行时 Node/Deno 都支持；安全模型学 Deno。**
@@ -227,7 +227,7 @@ mappings 所需的配置（含 tsconfig `paths`）。它**不覆盖**用户已�
 |------|------|------|
 | v0.1 | Git 声明/锁定 + vendor 4 层 + verify + 最小 esbuild adapter | **已完成**（四条退出标准全部达成） |
 | v0.2 | 供应链策略最小字段集 + OSV / audit + `why`·`tree`·`outdated` + **多引擎 adapter（tsc / deno / postcss）** + `install` 的 CI 模式 + verify 性能优化 | **已完成**（离线 verify 达标；在线 verify 差 1.1×，见[复盘](./development/v0.2-retrospective.md)） |
-| v0.3 | wasm / remote adapter + 集成脚手架（Vite / esbuild / Deno / Webpack）+ Deno 沙箱 + 权限与凭证 + mappings 协议 v2 | 规划中 |
+| v0.3 | wasm adapter + 集成脚手架（Vite / esbuild / Deno / Webpack）+ Deno 沙箱 + 权限与凭证 + mappings 子路径扩展 | **已交付**（`remote` adapter 经 [ADR-013](./adr/adr-013-remote-adapter.md) 决定不发布） |
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 

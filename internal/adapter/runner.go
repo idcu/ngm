@@ -115,9 +115,12 @@ func NewEngine(entry Entry, dir string) (Engine, error) {
 			fmt.Sprintf("no embedded engine named %q in this build", entry.Name),
 			"only the `"+SelfEngineName+"` stub is embedded; declare a subprocess engine in "+FileName)
 	case AdapterRemote:
+		// 刻意不写"尚未实现"：那是在承诺一件事，而这里已经有结论了（ADR-013）。
+		// 用户需要知道的是"这条路不会通"，以及为什么。
 		return nil, errs.New(errs.CodeEngineNotFound,
-			fmt.Sprintf("adapter %q is not implemented in this build", entry.Adapter),
-			"the remote adapter needs a trust-boundary decision first (ADR-013) and may not ship")
+			fmt.Sprintf("adapter %q is excluded by decision", entry.Adapter),
+			"a remote engine would send your source off this machine, and no local check could prove "+
+				"the artifact matches it - see docs/adr/adr-013-remote-adapter.md")
 	default:
 		return nil, errs.New(errs.CodeConfigInvalid,
 			fmt.Sprintf("unknown adapter %q for engine %q", entry.Adapter, entry.Name), "")
