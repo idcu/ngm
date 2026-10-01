@@ -98,23 +98,25 @@ GOMAXPROCS=1 go test -run '^$' -bench BuildArchive -benchtime 20x ./internal/git
 
 ---
 
-## git 子进程清单（v0.5）
+## git 子进程清单（v0.5 起）
 
 **在线 verify 的成本几乎全在 git 子进程启动上**（v0.1 复盘 §3.3 的结论），
 因此"起了几个 git"是比秒数**更稳**的指标——秒数含机器噪声（同一台机器 2.2–3.1s 摆动），
 次数只含信号，而且可以被断言。
 
-仪器：`git.SpawnCount()`（`internal/git/spawn.go`，三个启动点都记账）。
+仪器：`git.SpawnCount()`（`internal/git/spawn.go`，**唯一的构造点**里记账）。
 
 ```bash
 go test -count=1 -run TestV05VerifySpawnInventory -v ./cmd/ngm   # 打印清单（证据）
 go test -count=1 -run TestV05RefResolutionSpawns -v ./cmd/ngm    # 门禁：commit 0 次 / tag ≥1 次
+go test -count=1 -run TestV06VerifySpawnBudget -v ./cmd/ngm      # 门禁：整次 verify 的每依赖预算（v0.6）
+go test -count=1 -run TestSpawn_OnlyOneFileCountsSpawns ./internal/git  # 门禁：计账点唯一
 ```
 
-| 形态 | 每次依赖的 spawn | 构成 |
-|------|-----------------|------|
-| commit 型 | **2.00** | `ls-tree` + `cat-file --batch`（digest 重放，与 refType 无关） |
-| tag / branch 型 | **3.00** | 上面 2 次 + `ls-remote`（问远端） |
+| 形态 | 每次依赖的 spawn | 预算（v0.6 起为门禁） | 构成 |
+|------|-----------------|--------------------|------|
+| commit 型 | **2.00** | ≤ 2 | `ls-tree` + `cat-file --batch`（digest 重放，与 refType 无关） |
+| tag / branch 型 | **3.00** | ≤ 3 | 上面 2 次 + `ls-remote`（问远端） |
 
 | 时间 | commit 型 | tag / branch 型 | 改动 |
 |------|----------|----------------|------|
@@ -123,6 +125,23 @@ go test -count=1 -run TestV05RefResolutionSpawns -v ./cmd/ngm    # 门禁：comm
 
 > v0.1 复盘写的"每个依赖约 4 次 git spawn"在复核时**被新仪器复现**（4.00）✅——
 > 一条跨三个版本的旧结论成立。现在它变成了 3.00，因此那句话需要按上表读。
+
+#### 仪器也会说谎，而且比没有仪器更糟（v0.6 实录）
+
+v0.6 装上门禁的**第一天**，`TestV06VerifySpawnBudget` 就报出 commit **3.00** / tag **4.00**——
+比本页记的数字各多 1。查下去发现**不是代码变慢，而是计数器在说谎**：
+v0.5 的 C 组把 `CatFileBatch` 从"自己 exec"收进唯一的构造点 `newGitCommand`（那里计数），
+却漏删了它自己那句记账调用，于是每个 `cat-file --batch` 被**记两次账**。
+
+- **为什么当时没发现**：门禁断言测的是"该不该起"（拒绝了几个），计数偏高它看不出来；
+  而唯一的读数只被 `t.Logf` 打印、从不作断言——"印出来不等于被检查"（v0.5 复盘 §5.2）。
+  本页当时写的 2.00 / 3.00 是**改动完成时**的真实值，之后才被这次重复计账带偏。
+- **怎么修的**：删掉重复记账，并加两条**互相独立**的网——
+  ①`TestV06VerifySpawnBudget`（管"起了几个"）、②`TestSpawn_OnlyOneFileCountsSpawns`
+  （扫源码，管"只能在一个地方记账"）。两条都**验证过**：把重复记账放回去，两条同时红。
+
+> 这条记在这里，是因为它对本页的读者最重要：**指标页上的数字只有在它被门禁守着时才可信**。
+> 秒数没有门禁（也不该有，噪声太大），而次数有——这正是"次数优先于秒数"的第二个理由。
 
 单次成本（同机实测，裸仓库）：`config --get` **30.6ms** / `ls-remote`（本地）**77.8ms** /
 `ls-tree` **36.4ms**。按 tag 型 4 次计约 183ms/依赖，100 依赖 ÷ 8 并发 ≈ 2.2s——
@@ -145,6 +164,10 @@ A 组做了一次**受控 A/B**（同一天、同一台机器、交替采样，5
 `git.SpawnCount()` 与机器状态无关（4.00 → 3.00 是确定的），
 而秒数会（同一份代码在同一天的两轮采样相差 0.3s）。秒数只用来回答"用户等多久"，
 不用来判断"改动有没有用"。
+
+**v0.6 起这条纪律有门禁**：`TestV06VerifySpawnBudget` 断言每依赖的预算，超出即 CI 红
+（见下一节）。因此"3s 目标"不是门禁，它是用户等待时间的观测值——这样写是为了让
+**能被判别的量**去守门，而不是让一个在噪声里不可判别的数字充当门禁。
 
 ---
 

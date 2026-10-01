@@ -124,7 +124,7 @@ jobs:
       - name: run milestone acceptance
         # v0.2 起验收测试改按版本分组命名，这里一并列出——只跑 M1–M7 会让
         # 后续版本的端到端验收"在 CI 里存在但从不显式执行"，红灯时也看不出是哪一组。
-        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance|TestV03PermissionsAcceptance|TestV03CredentialDiscipline|TestV03SandboxAcceptance|TestV03PostInstallAcceptance|TestV03AuditHookAcceptance|TestV03WasmEngineAcceptance|TestV04VerifySignaturesAcceptance|TestV05TransformAcceptance|TestV05EngineChannelsAcceptance|TestV05RefResolutionSpawns|TestV05AuditNeedsNetPermission' -v ./cmd/ngm
+        run: go test -count=1 -run 'TestM1Acceptance|TestM2Acceptance|TestM3Acceptance|TestM3LockGoldenShape|TestM4Acceptance|TestM5Acceptance|TestM6Acceptance|TestM7Quickstart$|TestV02SupplyChainAcceptance|TestV02ObservabilityAcceptance|TestV03MappingsMonorepoAcceptance|TestV03IntegrationsAcceptance|TestV03PermissionsAcceptance|TestV03CredentialDiscipline|TestV03SandboxAcceptance|TestV03PostInstallAcceptance|TestV03AuditHookAcceptance|TestV03WasmEngineAcceptance|TestV04VerifySignaturesAcceptance|TestV05TransformAcceptance|TestV05EngineChannelsAcceptance|TestV05RefResolutionSpawns|TestV05AuditNeedsNetPermission|TestV06VerifySpawnBudget' -v ./cmd/ngm
 
   # 真实引擎集成（M6）：hermetic 那一组用假引擎覆盖协议，这里用**真实的 esbuild**
   # 证明 adapter 与真工具的对接确实成立——包括把 ngm.mappings.json 变成

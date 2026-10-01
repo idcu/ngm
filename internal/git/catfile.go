@@ -49,9 +49,17 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
 
-	// cat-file --batch 是**长生命周期**的子进程：一次 spawn 服务很多次读取。
-	// 因此这里记 1，而不是按读取次数记——计数器要反映的是"起了几个进程"。
-	noteSpawn()
+	// 计数**不在这里**：`newGitCommand` 已经记过 1 次了（cat-file --batch 是长生命周期的
+	// 子进程，一次 spawn 服务很多次读取——那个"一次"正是它记的）。
+	//
+	// 这里此前还留着 v0.5 A2 时期的一句 noteSpawn 调用（那时本函数自己 exec，需要自己记）。
+	// C 组把构造收进 `newGitCommand` 之后，那一句变成了**对同一个进程记两次账**：
+	// 每次 digest 重放都多算 1，于是"commit 2 次/依赖、tag 3 次/依赖"被测成 3 与 4。
+	//
+	// 为什么当时没被发现：门禁断言（`TestSpawn_GateOnEveryExit`）测的是"拒绝了几个"，
+	// 计数偏高它看不出来；而唯一的读数只被 `t.Logf` 打印，不作断言。
+	// 现在由 `TestV06VerifySpawnBudget`（预算）与 `TestSpawn_OnlyOneFileCountsSpawns`
+	// （计账点唯一）两条一起守住：一条管"起了几个"，一条管"只能在一个地方记"。
 	if err := cmd.Start(); err != nil {
 		return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: start git", NotInstalledHint, err)
 	}

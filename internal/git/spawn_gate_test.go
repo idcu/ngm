@@ -118,3 +118,66 @@ func TestSpawn_GateOnEveryExit(t *testing.T) {
 		}
 	})
 }
+
+// TestSpawn_OnlyOneFileCountsSpawns 机械地守住"**计账也只有一处**"。
+//
+// 它与 `TestSpawn_OnlyOneFileBuildsProcesses`（守门禁）是一对：那条保证每个 git 进程
+// 都经过唯一的构造点，这条保证"记一笔账"也只在那个构造点里发生。
+//
+// 为什么需要（v0.6 B 组开工第一天的事）：v0.5 的 C 组把 `CatFileBatch` 从"自己 exec"
+// 改成走 `newGitCommand`，却漏删了它自己那句 `noteSpawn()`——于是每个
+// `cat-file --batch` 被**记两次账**：commit 型实测 3.00 次/依赖、tag 型 4.00 次/依赖，
+// 而真实值是 **2 与 3**。这不是用户可见的缺陷，但它让**唯一的读数**系统性偏高，
+// 而那是本版用来替代秒数的门禁指标——**仪器说谎比没有仪器更糟**。
+//
+// 当时为什么没人发现：门禁断言测的是"该不该起"（拒绝了几个），计数偏高它看不出来；
+// 而唯一的读数只被 `t.Logf` 打印、从不作断言（"印出来不等于被检查"，
+// 见 v0.5 复盘 §5.2）。现在读数有门禁了（`cmd/ngm` 的 `TestV06VerifySpawnBudget`），
+// 这条检查则负责让"第二个计账点"无法悄悄出现。
+//
+// 空跑保护：`spawn.go` 里必须仍然存在 `spawnCount.Add(1)`——唯一的自增点。
+// 若计数改了实现或搬了家，这条检查会因为"扫不到东西"而静默通过，而那正是它该报警的时候。
+func TestSpawn_OnlyOneFileCountsSpawns(t *testing.T) {
+	const allowed = "spawn.go"
+	const increment = "spawnCount.Add(1)"
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawIncrement := false
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, rerr := os.ReadFile(filepath.Join(".", name))
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		src := string(data)
+		if name == allowed {
+			sawIncrement = sawIncrement || strings.Contains(src, increment)
+			continue
+		}
+		if strings.Contains(src, "spawnCount") {
+			t.Errorf("%s touches the spawn counter directly; every count must happen in %s "+
+				"(otherwise a path can be counted twice, or not at all)", name, allowed)
+		}
+		if strings.Contains(src, "noteSpawn()") {
+			// 这条扫描是**文本级**的（与上面守门禁那条同一手法），因此注释里写
+			// 带括号的 noteSpawn() 也会命中。那是有意的：gofmt 保证调用只能写成这个
+			// 形状（CI 强制 `gofmt -l` 为空），所以"文本命中"与"真的调用"在格式化过的
+			// 代码里是同一件事。若这里报的是**注释**，把注释里的括号去掉即可。
+			t.Errorf("%s counts a spawn outside %s — that is exactly how `cat-file --batch` "+
+				"got counted twice in v0.5 (see catfile.go).\n"+
+				"If this hit is only a *comment*, drop the parentheses: this check is textual "+
+				"on purpose (gofmt makes a real call impossible to write any other way).",
+				name, allowed)
+		}
+	}
+	if !sawIncrement {
+		t.Errorf("no `%s` found in %s — this check would pass vacuously; "+
+			"if the counter moved, update the check", increment, allowed)
+	}
+}
