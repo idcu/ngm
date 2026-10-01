@@ -171,12 +171,15 @@ func TestV03PostInstallRealDeno(t *testing.T) {
 	t.Run("a hook cannot write into the vendor tree", func(t *testing.T) {
 		proj := v3PostInstallProject(t, map[string]string{
 			"postinstall.js": `let blocked = false;
+let why = "no error at all";
 try {
   Deno.writeTextFileSync("tampered.txt", "x");
 } catch (e) {
-  blocked = e.name === "PermissionDenied";
+  // 两种类名都要认，理由见 sandbox_acceptance_test.go（Deno 2 改为 NotCapable）
+  why = e.name;
+  blocked = e.name === "PermissionDenied" || e.name === "NotCapable";
 }
-console.log(blocked ? "write: blocked" : "write: ALLOWED");
+console.log(blocked ? "write: blocked (" + why + ")" : "write: ALLOWED (" + why + ")");
 Deno.exit(blocked ? 0 : 1);
 ` + "\n",
 		}, `{"postInstallPolicy": "allow"}`)

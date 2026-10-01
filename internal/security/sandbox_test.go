@@ -276,7 +276,12 @@ func TestSandbox_RealDeno_NetOnlyWhenGranted(t *testing.T) {
   await fetch("http://127.0.0.1:1/");
   console.log("net: reached");
 } catch (e) {
-  console.log("net:", e.name === "PermissionDenied" ? "blocked" : "allowed-but-unreachable");
+  // **两种类名都要认**：Deno 2 把权限错误的 name 从 PermissionDenied 改成了
+  // NotCapable（v0.5 在真实 2.4.0 上实测）。只认旧名字会把"已被正确拦下"
+  // 报成"不是权限错误"——两个子用例因此都会失真：该红的那个不红，
+  // 另一个则会**因为错误的原因**通过（它只断言"不是 blocked"）。
+  const denied = e.name === "PermissionDenied" || e.name === "NotCapable";
+  console.log("net: " + (denied ? "blocked (" + e.name + ")" : "not-a-permission-error (" + e.name + ")"));
 }
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -307,9 +312,13 @@ func TestSandbox_RealDeno_NetOnlyWhenGranted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 关键在于**不是** PermissionDenied：端口 1 连不上是环境事实，
+		// 关键在于**不是权限错误**：端口 1 连不上是环境事实，
 		// 而"权限被拒"说明授权根本没生效。
-		if strings.Contains(string(res.Stdout), "blocked") {
+		//
+		// 断言写成**正面**的那一句（`not-a-permission-error`）而不是"不含 blocked"：
+		// 后者在"脚本因任何原因没跑到那一行"时也会通过——而它恰好是 v0.5 之前
+		// 在 Deno 2 上的真实情形（类名改名后落到另一个分支）。
+		if !strings.Contains(string(res.Stdout), "not-a-permission-error") {
 			t.Errorf("a granted host must pass the permission layer:\n%s", res.Stdout)
 		}
 	})

@@ -137,12 +137,19 @@ func TestV03SandboxRealDeno(t *testing.T) {
 	t.Run("the boundary holds through the CLI", func(t *testing.T) {
 		proj := v3SandboxProject(t, map[string]string{
 			"verify.js": `let blocked = false;
+let why = "no error at all";
 try {
   Deno.readTextFileSync("../../../../ngm.json");
 } catch (e) {
-  blocked = e.name === "PermissionDenied";
+  // **两种类名都要认**：Deno 2 把权限错误的 name 从 PermissionDenied 改成了 NotCapable
+  // （v0.5 在真实 2.4.0 上实测）。只认旧名字的后果不是"测试失败"这么简单——
+  // 它会把**已经被正确拦下**的读取报成 "outside: READABLE"，也就是把一次假失败
+  // 说成"沙箱坏了"。把实际类名打出来，是为了让下一次改名一眼可见，
+  // 而不是又花一轮去猜是沙箱的问题还是命名的问题。
+  why = e.name;
+  blocked = e.name === "PermissionDenied" || e.name === "NotCapable";
 }
-console.log(blocked ? "outside: blocked" : "outside: READABLE");
+console.log(blocked ? "outside: blocked (" + why + ")" : "outside: READABLE (" + why + ")");
 Deno.exit(blocked ? 0 : 1);
 ` + "\n",
 		})
