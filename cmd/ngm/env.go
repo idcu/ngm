@@ -57,17 +57,18 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 		return nil, err
 	}
 
-	secrets := git.SecretsFromEnvVars(git.MergeTokenEnvVars(nil))
-
-	// 协议与权限都来自全局配置。
+	// 协议、权限与**凭证来源**都来自全局配置。因此 `secrets` 在这里还不该构造——
+	// 见下方 "读配置之后" 那一段。
 	//
 	// 配置**读不出来**时不静默放行：策略为 nil 时判定退化为"按默认档位"，
 	// 也就是 net / run 仍需显式授权——读不出配置的后果是更严，而不是更松。
 	proto := resolve.ProtocolHTTPS
 	var pol *security.Policy
+	tokenEnvVars := map[string]string(nil)
 	if r, cerr := config.Load(projectDir, homeDirOrEmpty()); cerr == nil {
 		if r.GlobalEffective.Git != nil {
 			proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolHTTPS)
+			tokenEnvVars = r.GlobalEffective.Git.TokenEnvVars
 		}
 		// 权限写错必须立刻报出来：把它当成"没配"会让用户以为
 		// 自己写的 deny 已经生效，而实际上整份列表都没被采用。
@@ -77,6 +78,15 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 		}
 		pol = p
 	}
+	// 读配置**之后**才构造脱敏集合：它由 `git.tokenEnvVars` 决定
+	// （用户用它声明"公司这台 git 的 token 在 CORP_TOKEN 里"）。
+	//
+	// 早先这里写的是 `git.MergeTokenEnvVars(nil)`——配置从未被读进来，而
+	// internal/git/auth.go 的注释明文承诺"配置优先"。症状是安全相关的：
+	// 用户以为自己的 token 已被脱敏，实际它会被原样打进日志与报错。
+	//
+	// 读不出配置时退化为"只有内置表"：不比原来差，也绝不静默放宽。
+	secrets := git.SecretsFromEnvVars(git.MergeTokenEnvVars(tokenEnvVars))
 	gitOpts := git.Options{Secrets: secrets, Policy: pol}
 
 	return &projectEnv{

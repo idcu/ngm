@@ -185,7 +185,7 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 
 ## 相关文档
 
-- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md)
+- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md)
 - [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
