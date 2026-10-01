@@ -6,7 +6,9 @@ ngm is a Node.js / Deno package manager with **provable** Git dependency trackin
 
 Status: **v0.1 … v0.5 delivered and released** (`v0.1.0` … `v0.4.0` tagged and published,
 each with six platform binaries plus `SHA256SUMS` on GitHub; `v0.5` is the convergence and
-delivery pass — see [`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md)).
+delivery pass — see [`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md) —
+and `v0.6` is in progress: it makes the remaining conclusions *decidable* (a git spawn budget as a CI
+gate, real-world reproducibility evidence, store growth data).
 On Gitee only `v0.1.0` carries attachments so far — `v0.2` ~ `v0.4` are uploaded by hand and
 **are still pending**, which is the one open item of v0.5 (see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and
