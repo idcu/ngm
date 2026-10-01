@@ -1,45 +1,31 @@
 # 可复现构建探针。
 #
-# 触发方式：**编辑本文件即跑一次**（`push` 限定在本文件路径），或手动 `workflow_dispatch`。
-# 这样"改仪器"与"看到结果"是同一个动作——而不是改完之后忘了跑它。
+# 触发方式：**编辑本文件或探针脚本即跑一次**（`push` 限定在这两个路径），或手动触发。
+# 这样"改仪器"与"看结果"是同一个动作——而不是改完之后忘了跑它。
 #
-# 它回答的问题：[ADR-013](../docs/adr/adr-013-remote-adapter.md) 的翻案条件之一
-# ——"同一份源码 + 同一引擎版本 → 相同字节"到底成立到什么程度。
-# 结果以 annotation 形式发出（Actions 日志匿名读不到，手法来自 v0.2 复盘）。
+# 它回答的问题：[ADR-013](../docs/adr/adr-013-remote-adapter.md) 的翻案条件之一：
+# **"同一份源码 + 同一引擎版本 → 相同字节"**到底成立到什么程度。
 #
-# ## 第一批（2026-10-01，仅 esbuild，单文件单依赖）
-#   - `--minify`：三平台 × 两个不同路径，**六次构建字节全同**
-#   - 不 minify：跨平台同路径一致
-#   - 不 minify 且传**绝对路径**：字节不同（产物注释里嵌的是传入的路径）
-#   关键点：ngm 传的是**相对路径**，所以它落在"路径无关"那一侧。
+# 测量逻辑集中在 `scripts/probe-reproducibility.sh`，本工作流只是**在三个平台上各跑一次**。
+# 结果以 annotation 的形式发出（Actions 日志匿名读不到——手法见 v0.2 复盘）。
 #
-# ## 第二批（2026-10-01）：其他引擎、多文件、sourcemap
-# 四种形态，每种都在**三平台 × 两个不同路径**下构建，**全部字节一致**：
+# ## 读法
 #
-#   esbuild --minify（多文件 + 一个依赖）  33e17b3f2d47e332
-#   esbuild --sourcemap（.map）            b7cda8ffa0b56276
-#   tsc --emitDeclarationOnly（声明树）    9089a106118f07ef
-#   postcss（CSS，输入走 stdin）           9865d4746a9e5b1e
+# 结果行形如：
 #
-# **调用方式刻意模仿 ngm**：工作目录 = 项目目录，参数全部用相对路径——
-# 因为"用户能本地复现远端产物"这件事只有在**双方都用 ngm 的调用方式**时才谈得上。
+#	PROBE <os> esbuild=<v> tsc=<v> treeA=<hash> treeB=<hash> ctrl=<hash>
+#	      same_across_paths=yes ctrl_sensitive=sensitive verdict=REPRODUCIBLE fails=
 #
-# 一处与预期相反的结果：sourcemap 本以为会嵌构建机的绝对路径（那样就无法逐字节比对），
-# 实测 `.map` 的 `sources` 是**相对**的，因此同样一致。
+#   - `treeA` / `treeB`：同一份源码在**两个不同目录名**下各自构建的产物树哈希；
+#     两者相同 = 路径无关。
+#   - `ctrl`：只改了一个源文件的一个字节之后重新构建的哈希。
+#     **它必须与 treeA 不同**——否则说明这个检查坏了（永远返回同一个值），
+#     前面的"相同"就什么都没有证明。
+#   - `verdict`：上面两条都成立才是 `REPRODUCIBLE`。
 #
-# 仍未证的范围（见 ADR-013）：真实应用的插件 / 压缩链；以及"远端是否只用了你送出的源码"
-# ——后者与字节是否一致无关。用户仍需至少**抽样构建一次**才能验证。
-#
-# 工具版本钉在下面的 ESBUILD / TSC / POSTCSS 三行里，并打印在结果行上：
-# 跨版本比字节没有意义。（`postcss=unknown` 是 postcss-cli 不接受 `--version`，
-# 版本由调用时的 `-p postcss-cli@11.0.0` 钉住，而不是由它的输出证明。）
-#
-# 结果行的读法：`KEY=eq:<hash>` 表示该平台内两个路径的字节相同（路径无关 ✓）；
-# `KEY=diff:<a>|<b>` 表示不同（并给出两个哈希）。跨平台的比较由读结果的人做：
-# 同一个 `eq:` 哈希在所有平台上都一样，才说明**跨平台**也可复现。
-#
-# 工具版本**钉住并打印**：跨版本比字节没有意义，而 CI 的 engine-integration job
-# 装的是不钉版本的工具（那是另一件事：证明当前版本能用）。
+# 跨平台的比较由读结果的人做：三个平台的 `treeA`（`=treeB`）互相一样，
+# 才说明**跨机器**也能复现。
+
 name: repro-probe
 
 on:
@@ -47,6 +33,7 @@ on:
   push:
     paths:
       - '.github/workflows/repro-probe.yml'
+      - 'scripts/probe-reproducibility.sh'
 
 jobs:
   probe:
@@ -62,76 +49,6 @@ jobs:
         with:
           node-version: '22'
 
-      - name: probe
+      - name: measure
         shell: bash
-        run: |
-          set +e
-          ESBUILD="npx --yes esbuild@0.28.2"
-          TSC="npx --yes -p typescript@5.6.3 tsc"
-          POSTCSS="npx --yes -p postcss-cli@11.0.0 postcss"
-
-          # 文件哈希（node 而非 sha256sum：后者在 macOS 与 Windows 的 Git Bash 上不存在）
-          hfile() {
-            node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHash("sha256").update(f.readFileSync(process.argv[1])).digest("hex").slice(0,16))' "$1" 2>/dev/null
-          }
-          # 目录的聚合哈希：按路径排序后逐个喂进去，路径统一用 `/`，使结果与平台无关
-          hdir() {
-            node -e '
-              const fs=require("fs"),path=require("path"),c=require("crypto");
-              const root=process.argv[1];
-              const walk=(d)=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(d,e.name)):[path.join(d,e.name)]);
-              const h=c.createHash("sha256");
-              for(const f of walk(root).sort()){
-                h.update(path.relative(root,f).split(path.sep).join("/")); h.update("\0");
-                h.update(fs.readFileSync(f)); h.update("\0");
-              }
-              process.stdout.write(h.digest("hex").slice(0,16));
-            ' "$1" 2>/dev/null
-          }
-
-          mkdir -p work/a/src work/b/src
-          for d in a b; do
-            # 多文件 + 一个依赖（镜像 vendor 布局，与 ngm 的 alias 目标一致）
-            mkdir -p "work/$d/ngm.vendor/github.com/demo/lib"
-            printf 'export const dep: number = 40;\n' > "work/$d/ngm.vendor/github.com/demo/lib/index.ts"
-            printf 'import { dep } from "github:demo/lib";\nexport const sum = (a: number): number => a + dep;\n' > "work/$d/src/lib.ts"
-            printf 'import { sum } from "./lib.ts";\nconsole.log(sum(2));\n' > "work/$d/src/index.ts"
-            printf '.card { color: red; }\n.card .title { font-weight: 700; }\n' > "work/$d/src/app.css"
-          done
-
-          LOGS=""
-          for d in a b; do
-            (
-              cd "work/$d" || exit 1
-              $ESBUILD --bundle src/index.ts --alias:github:demo/lib=./ngm.vendor/github.com/demo/lib --minify --outfile=dist/app.js > /dev/null 2>&1 || echo "esbuild(min) failed" >&2
-              $ESBUILD --bundle src/index.ts --alias:github:demo/lib=./ngm.vendor/github.com/demo/lib --sourcemap --outfile=dist/sm.js > /dev/null 2>&1 || echo "esbuild(map) failed" >&2
-              $TSC --emitDeclarationOnly --declaration --outDir dist/types src/index.ts > /dev/null 2>&1 || echo "tsc failed" >&2
-              $POSTCSS --output dist/app.css < src/app.css > /dev/null 2>&1 || echo "postcss failed" >&2
-            )
-          done
-
-          # 每个形态：两路径是否一致（eq / diff）
-          cmp() { # cmp <fileA> <fileB>
-            local ha hb
-            ha=$(hfile "$1"); hb=$(hfile "$2")
-            if [ -n "$ha" ] && [ "$ha" = "$hb" ]; then echo "eq:$ha"; else echo "diff:$ha|$hb"; fi
-          }
-          cmpdir() { # cmpdir <dirA> <dirB>
-            local ha hb
-            ha=$(hdir "$1"); hb=$(hdir "$2")
-            if [ -n "$ha" ] && [ "$ha" = "$hb" ]; then echo "eq:$ha"; else echo "diff:$ha|$hb"; fi
-          }
-
-          MIN=$(cmp work/a/dist/app.js work/b/dist/app.js)
-          MAP=$(cmp work/a/dist/sm.js.map work/b/dist/sm.js.map)
-          DECL=$(cmpdir work/a/dist/types work/b/dist/types)
-          CSS=$(cmp work/a/dist/app.css work/b/dist/app.css)
-
-          echo "::notice::PROBE ${{ runner.os }} esbuild=$($ESBUILD --version 2>/dev/null) tsc=$($TSC --version 2>/dev/null | head -c 12) postcss=$($POSTCSS --version 2>/dev/null) min=$MIN sm_map=$MAP decl=$DECL css=$CSS"
-
-          # 有失败就把编译器自己的话发出来：一个不能报告自己失败的探针等于没跑。
-          for f in work/a/dist/app.js work/a/dist/types work/a/dist/app.css; do
-            if [ ! -e "$f" ]; then
-              echo "::notice::PROBE ${{ runner.os }} missing $f"
-            fi
-          done
+        run: bash scripts/probe-reproducibility.sh "${{ runner.os }}"
