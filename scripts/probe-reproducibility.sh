@@ -10,7 +10,9 @@
 #
 # 环境变量：
 #
-#	PROBE_OUT   机器可读结果写到这里（供跨平台比对 job 消费）；默认 <workdir>/probe-result.json
+#	PROBE_OUT        机器可读结果写到这里（供跨平台比对 job 消费）；默认 <workdir>/probe-result.json
+#	PROBE_STABILITY  设为轮数 N 时进入**稳定性模式**：在同一目录里重复构建 N 轮，
+#	                 数每个形态有几个不同取值（新形态进闸门前的必做测量，见下文）。
 #
 # 它做三件事：
 #
@@ -18,11 +20,18 @@
 #  2. 跑一个**对照**：改动一个源文件的一个字节后再构建，产物哈希**必须**变化
 #  3. 把结果写成一行 `::notice::` **和**一份 JSON（跨机器比对靠后者）
 #
-# 覆盖的构建形态（v0.5 扩到 6 种）：
+# 覆盖的构建形态（v0.6 扩到 10 种 + 2 个观察项）：
 #
 #	esbuild 打包 + 压缩 / esbuild sourcemap / tsc 声明 / postcss
 #	+ **loader 链**（`.png` → dataurl、`.txt` → text）与 **CSS 压缩链**（v0.5 补）
 #	+ **esbuild 插件（JS API）+ metafile**（v0.5 补）
+#	+ **代码分割**（多入口 + 动态导入 → 共享 chunk）、**资产指纹**（`[name]-[hash]`）、
+#	  **三钩子插件链**（onResolve + onLoad + onEnd，且打开 splitting）（v0.6 补）
+#
+# v0.6 那三个形态是冲着上一版留下的"合成夹具"帽子去的：前 7 个形态共同假设了
+# "**一个入口一个产物**"，而真实项目（Vite / Astro）必然打开代码分割与资产指纹，
+# 插件链也不止一个钩子。**不稳定的新形态一律记为观察项**（`obs.`，打印但不判定）——
+# 这条纪律来自 metafile 那一轮：原始 metafile 20 轮 20 个取值，它就不该进闸门。
 #
 # 最后一项是刻意补的：前几轮只证明了"CLI + 简单入口"可复现，而**真实项目走的是插件链**
 # （Vite / Astro 都经 esbuild 的 JS API），而 metafile 里记着每个输入输出的路径——
@@ -180,6 +189,11 @@ build({
     //   连"递归按键排序后"仍然 20 个：变的是**数组元素的顺序**
     //   （例如 inputs[*].imports），而不是键顺序。
     //
+    //   ⚠️ v0.6 复测：**这段数字没有再复现**（esbuild 0.28.2、空闲 Windows、38 入口、
+    //   20 轮 → 原始 metafile 也是 1 个取值）。移出产物树的**决定**仍然正确，
+    //   但理由应读作"**路径内容**随机器/目录变化"（macOS 的 /var 符号链接），
+    //   而不是"字节抖动"。更正写在 ADR-013 第五批。
+    //
     // 也就是说：把原始 metafile 写进产物目录再哈希，测的是 esbuild 内部（多线程）
     // 的完成顺序，不是路径泄漏。第一次跨平台比对就是这么红的（macOS 上
     // treeA ≠ treeB，而 x86_64 两个平台一致到同一台机器的数字）。
@@ -213,6 +227,107 @@ build({
     fs.writeFileSync(
       path.join(projectDir, "meta.paths.json"),
       JSON.stringify(canon, null, 2) + "\n"
+    );
+  })
+  .catch((e) => {
+    console.error(String(e && e.message ? e.message : e));
+    process.exit(1);
+  });
+EOF
+
+  # 三钩子插件链（v0.6）：onResolve + onLoad + onEnd，并且**打开 splitting**。
+  #
+  # 与上面那个插件的区别不是"钩子更多"，而是这条链更接近真实项目：
+  #   onResolve  把 `github:` 裸导入解析到 vendor（Vite 的 alias 插件干的事）
+  #   onLoad     把 `.txt` 变成 JS 模块（Vite 的 `?raw` / 资源导入干的事）
+  #   onEnd      在构建结束时按 metafile 写一份**规范化**清单
+  # 加上 splitting + 动态导入，产物于是是"多文件 + 共享 chunk + 文件名带内容哈希"，
+  # 而不是此前 7 个形态共同假设的"一个入口一个文件"。
+  #
+  # 纪律不变：**不写入任何与机器或时间有关的东西**。onEnd 写的是规范化投影
+  # （路径、字节数、谁 import 谁，数组按路径排序），且写到 dist **外面**——它是诊断文件。
+  cat > "$WORK/tools/plugin-chain.cjs" <<'EOF'
+const { build } = require("esbuild");
+const fs = require("fs");
+const path = require("path");
+
+const projectDir = process.argv[2];
+if (!projectDir) {
+  console.error("usage: node plugin-chain.cjs <project-dir>");
+  process.exit(2);
+}
+
+const canon = (m) => ({
+  inputs: Object.keys(m.inputs).sort().map((k) => ({
+    path: k,
+    bytes: m.inputs[k].bytes,
+    imports: (m.inputs[k].imports || []).map((i) => i.path).sort(),
+  })),
+  outputs: Object.keys(m.outputs).sort().map((k) => ({
+    path: k,
+    bytes: m.outputs[k].bytes,
+    inputs: Object.keys(m.outputs[k].inputs || {}).sort(),
+  })),
+});
+
+build({
+  // 路径基准显式给出，不靠进程 CWD（ngm 自己踩过两次这个坑）。
+  absWorkingDir: projectDir,
+  entryPoints: ["src/chain/entry.ts"],
+  outdir: "dist/pluginchain",
+  bundle: true,
+  splitting: true,
+  format: "esm",
+  minify: true,
+  metafile: true,
+  target: "es2020",
+  logLevel: "silent",
+  plugins: [
+    {
+      name: "vendor-alias",
+      setup(b) {
+        b.onResolve({ filter: /^github:/ }, (args) => {
+          const name = args.path.slice("github:".length);
+          return {
+            path: path.resolve(projectDir, "ngm.vendor/github.com/demo", name, "index.ts"),
+          };
+        });
+      },
+    },
+    {
+      name: "text-as-module",
+      setup(b) {
+        b.onLoad({ filter: /\.txt$/ }, async (args) => {
+          const text = await fs.promises.readFile(args.path, "utf8");
+          return { contents: "export default " + JSON.stringify(text), loader: "js" };
+        });
+      },
+    },
+    {
+      name: "manifest",
+      setup(b) {
+        b.onEnd((result) => {
+          if (!result.metafile) return;
+          fs.writeFileSync(
+            path.join(projectDir, "meta.chain.paths.json"),
+            JSON.stringify(canon(result.metafile), null, 2) + "\n"
+          );
+        });
+      },
+    },
+  ],
+})
+  .then((r) => {
+    // **原始 metafile 原样落盘**：它是这份探针里唯一"已知不稳定"的东西，
+    // 因此被当作**稳定性测量的对照**——若它显示出 1 个取值，说明那台仪器测不出不稳，
+    // 而"其他形态都稳定"就什么也没证明。
+    //
+    // 它同时是那条注释（"原始 metafile 20 轮 20 个取值"）的**可复现证据**：
+    // 在此之前，那句话只存在于文字里。写到项目**根**（不在 dist 里），
+    // 且只以 `obs.` 前缀参与报告——诊断文件不参与门禁。
+    fs.writeFileSync(
+      path.join(projectDir, "raw.meta.json"),
+      JSON.stringify(r.metafile) + "\n"
     );
   })
   .catch((e) => {
@@ -260,6 +375,20 @@ build_all() {
     # 插件 + metafile（JS API）：Vite / Astro 走的就是这条路。
     # **门禁只看产物**（app.js）——metafile 是诊断文件，不是产物。
     run_form esbuild-plugin dist/plugin/app.js node "$WORK/tools/plugin-build.cjs" "$dir"
+    # 代码分割（v0.6）：两个入口 + 一个动态导入 → 必然产出**共享 chunk**。
+    # chunk 的文件名里带**内容哈希**，因此这一条同时覆盖"分割"与"名字里的指纹是否由内容决定"。
+    run_form esbuild-split dist/split $ESB --bundle src/split/a.ts src/split/b.ts \
+      --splitting --format=esm --minify --outdir=dist/split
+    # 资产指纹（v0.6）：loader 产出的文件按 `[name]-[hash]` 命名——Vite 的默认行为。
+    # 这里测的是"名字里的哈希只由内容决定"，与目录名无关。
+    run_form esbuild-assetnames dist/assetnames $ESB --bundle src/with-assets.ts \
+      --loader:.png=file --loader:.txt=text --asset-names=assets/[name]-[hash] \
+      --minify --outdir=dist/assetnames
+    # 三钩子插件链 + splitting（v0.6）：Vite 那条路上最常见的组合。
+    run_form esbuild-pluginchain dist/pluginchain node "$WORK/tools/plugin-chain.cjs" "$dir"
+    printf 'obs.pluginchain.metapaths=%s;' "$(hash_tree meta.chain.paths.json)" >> "$forms"
+    # 原始 metafile：**已知不稳定**，是稳定性测量的对照（见 PROBE_STABILITY）。
+    printf 'obs.pluginchain.rawmeta=%s;' "$(hash_tree raw.meta.json)" >> "$forms"
     # metafile 的路径内容另记一笔，前缀 `obs.` 表示**观察项、不参与门禁**：
     # 它仍是"路径是否泄漏"的证据（第一次跨机器比对就是靠它定位到根因的），
     # 但"诊断文件的路径字符串随平台变化"不等于"产物不可复现"。
@@ -270,7 +399,7 @@ build_all() {
 # 生成项目：入口 + 两级嵌套目录里的模块 + 两个依赖（镜像 vendor 布局）+ 两个资源
 make_project() {
   local p="$1"
-  mkdir -p "$p/src/util/deep" "$p/src/assets" \
+  mkdir -p "$p/src/util/deep" "$p/src/assets" "$p/src/split" \
            "$p/ngm.vendor/github.com/demo/one" \
            "$p/ngm.vendor/github.com/demo/two"
 
@@ -313,6 +442,31 @@ make_project() {
     printf 'export const banner = logo.length + note.length;\n'
   } > "$p/src/with-assets.ts"
 
+  # 代码分割的夹具（v0.6）：两个入口共享一个模块，其中一个还**动态导入**第三个。
+  # 这是真实项目的常态（路由级懒加载），而它必然产出共享 chunk——
+  # 也就是说**产物不再是一对一的"一个入口一个文件"**，那正是此前 7 个形态都没覆盖的形态。
+  printf 'export const shared = 1;\n' > "$p/src/split/shared.ts"
+  # 插件链形态的入口：它 import 一个 `.txt`（由 onLoad 钩子接住），并动态导入懒加载模块
+  # （于是 splitting 必然产出共享 chunk）。单独一个入口文件，是因为 `.txt` 的导入只有
+  # **那条插件链**能处理——CLI 形态的 split 夹具因此保持干净。
+  mkdir -p "$p/src/chain"
+  printf 'export const lazy = 2;\n'   > "$p/src/split/lazy.ts"
+  {
+    printf 'import { shared } from "./shared";\n'
+    printf 'export const a = shared;\n'
+    printf 'export const load = () => import("./lazy");\n'
+  } > "$p/src/split/a.ts"
+  {
+    printf 'import { shared } from "./shared";\n'
+    printf 'export const b = shared + 1;\n'
+  } > "$p/src/split/b.ts"
+  {
+    printf 'import { shared } from "../split/shared";\n'
+    printf 'import note from "../assets/note.txt";\n'
+    printf 'export const out = shared + note.length;\n'
+    printf 'export const load = () => import("../split/lazy");\n'
+  } > "$p/src/chain/entry.ts"
+
   printf '.card { color: red; }\n.card .title { font-weight: 700; }\n' \
       > "$p/src/app.css"
 }
@@ -326,6 +480,101 @@ fi
 for d in a bbbb-longer-directory-name; do
   make_project "$WORK/work/$d"
 done
+
+# ---------------------------------------------------------------- 稳定性模式（v0.6）
+#
+#	PROBE_STABILITY=20 bash scripts/probe-reproducibility.sh local
+#
+# 为什么需要它：**"路径无关"不等于"逐轮稳定"**。两个目录各构建一次得到的相同字节，
+# 也可能只是"这台机器上恰好每次都一样"。v0.5 的 metafile 事件就是这么发生的——
+# 本机两次运行同值、看起来通过，CI 一跑就红（原始 metafile 20 轮 20 个取值）。
+# 因此**新形态进闸门之前**，先在同一目录里重复构建 N 轮、数"不同取值"的个数。
+#
+# 它自带**对照**：`stab-control` 是一个**每轮都改一个字节**的源文件的产物
+# （`src/stability.ts` 里的那个数字），因此它必须在 N 轮里给出 **N 个**取值。
+# 若它给出 1 个，说明这台仪器分辨不出字节差异——那么"其他形态都稳定"什么也没证明，
+# 脚本会因此以非零退出（这是空跑保护，不是报告项）。
+#
+# 为什么对照不是"原始 metafile"（v0.5 曾这样记过）：v0.6 复测时它**不复现**——
+# esbuild 0.28.2、空闲 Windows、**38 个入口**、20 轮，原始 metafile 仍是 1 个取值
+# （连产物也是 1 个）。也就是说"原始 metafile 的字节不稳定"那条**不成立或只在特定负载下成立**；
+# 把它当对照会让这台仪器在这台机器上永远报"瞎"（一个假警报）。
+# 真正站得住的理由仍是**路径内容**：macOS 的 `/var` 符号链接 + 插件传绝对路径，
+# 那一半在 CI 上可复现（见 ADR-013 第四批）。`obs.pluginchain.rawmeta` 因此保留为
+# **观察项**（它显示路径内容是否会随目录/平台变化），但不再充当对照。
+#
+# 稳定性模式**替换**正常的双目录构建：两组测量各自独立，混在一起只会让输出更难读。
+if [ "${PROBE_STABILITY:-0}" -gt 0 ]; then
+  rounds="$PROBE_STABILITY"
+  project="$WORK/work/a"
+  for i in $(seq 1 "$rounds"); do
+    # 每轮前清掉产物与诊断文件：esbuild **不会**清理 outdir，而残留的旧 chunk
+    # （文件名里带内容哈希）会让"这一轮的产物"变成"历次产物的并集"——
+    # 那样测出来的是"残留随时间累积"，不是确定性。
+    rm -rf "$project/dist" "$project/meta.paths.json" \
+           "$project/meta.chain.paths.json" "$project/raw.meta.json"
+    if ! build_all "$project" "s$i" >/dev/null; then
+      echo "stability round $i failed to build" >&2
+      exit 1
+    fi
+
+    # 对照形态：源文件每轮都不同，产物因此**必须**每轮都不同。
+    printf 'export const round = %s;\n' "$i" > "$project/src/stability.ts"
+    if ! ( cd "$project" && $ESB --bundle src/stability.ts --minify \
+             --outfile=dist/stab-control/app.js ) >"$WORK/stab-control.log" 2>&1; then
+      head -c 300 "$WORK/stab-control.log" | tr "\n" " "
+      echo "stability control failed to build" >&2
+      exit 1
+    fi
+    printf 'stab-control=%s;' "$(hash_tree "$project/dist/stab-control/app.js")" \
+      >> "$WORK/work/s$i.forms"
+  done
+
+  node -e '
+    const fs = require("fs"), path = require("path");
+    const dir = process.argv[1], n = Number(process.argv[2]);
+    const per = new Map();
+    for (let i = 1; i <= n; i++) {
+      const f = path.join(dir, `s${i}.forms`);
+      if (!fs.existsSync(f)) { console.error(`missing round ${i}: ${f}`); process.exit(2); }
+      for (const part of fs.readFileSync(f, "utf8").split(";")) {
+        const j = part.indexOf("=");
+        if (j <= 0) continue;
+        const k = part.slice(0, j).trim(), v = part.slice(j + 1).trim();
+        if (!per.has(k)) per.set(k, new Set());
+        per.get(k).add(v);
+      }
+    }
+    const CONTROL = "stab-control";
+    const lines = [], unstableGated = [];
+    for (const k of [...per.keys()].sort()) {
+      const d = per.get(k).size, obs = k.startsWith("obs.");
+      lines.push(`  ${k.padEnd(30)} distinct=${String(d).padStart(3)}  ${d === 1 ? "STABLE" : "UNSTABLE"}${obs ? "  [obs]" : ""}`);
+      if (!obs && d > 1 && k !== CONTROL) unstableGated.push(k);
+    }
+    console.log(`stability over ${n} rounds, same directory:`);
+    console.log(lines.join("\n"));
+    if (!per.has(CONTROL)) {
+      console.error(`control ${CONTROL} missing — nothing proves this instrument can see a change`);
+      process.exit(3);
+    }
+    // 对照的判据是**精确**的：源文件每轮都不同，就该每轮都不同。
+    if (per.get(CONTROL).size !== n) {
+      console.error(`BLIND INSTRUMENT: the control (${CONTROL}) changed every round, ` +
+        `yet only ${per.get(CONTROL).size} of ${n} rounds produced a distinct hash. ` +
+        `An instrument that cannot see a change makes every "STABLE" above meaningless.`);
+      process.exit(1);
+    }
+    if (unstableGated.length > 0) {
+      console.error(`UNSTABLE GATED FORM(S): ${unstableGated.join(", ")} — ` +
+        `demote them to an "obs." item (printed, never gated), as metafile was in v0.5`);
+      process.exit(1);
+    }
+    console.log(`all gated forms stable over ${n} rounds; control unstable ` +
+      `(the instrument can see instability)`);
+  ' "$WORK/work" "$rounds"
+  exit $?
+fi
 
 # 逐个构建：工作目录 = 项目目录，参数相对路径（与 ngm 的调用方式一致）
 for d in a bbbb-longer-directory-name; do
