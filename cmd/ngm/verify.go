@@ -37,18 +37,30 @@ FLAGS:
                  to that dependency's own vendor subtree.
                  It only ever adds: a script that fails returns 2, a script that
                  passes changes nothing ngm concluded (ADR-012)
+  --signatures   report each dependency's Git signature status: the commit, or the
+                 tag when the commit is unsigned (most projects sign tags, not every
+                 commit). Verdicts come from **your own** Git key configuration
+                 (GPG keyring / gpg.ssh.allowedSignersFile) - ngm manages no keys.
+                 An unsigned dependency is a fact, not a failure; this is a report.
+  --require-signed
+                 make it a gate: anything unsigned, unverifiable with your keys, or
+                 with a broken signature returns 2. Implies --signatures.
 
 CHECK LEVELS (architecture/observability.md):
   ref      re-resolve refType and compare with the commit pinned in ngm.lock
   digest   rebuild the manifest from the local mirror at that commit and replay
            archiveDigest (fully local, works offline)
   landing  content store metadata + vendor tree structure; --deep adds byte hashes
+  signature
+           Git signature of the pinned commit (or of the tag it came from). Reported
+           only with --signatures; a gate only with --require-signed. Fully local.
 
 EXIT CODES:
   0  everything matches (or only expected updates, unless --strict)
   1  unexpected drift: a tag was moved, or a branch history was rewritten
-  2  integrity failure: digest replay mismatch, tampered bytes, or a dependency's
-     own verify.js failing / timing out under --sandbox
+  2  integrity failure: digest replay mismatch, tampered bytes, a dependency's own
+     verify.js failing / timing out under --sandbox, or --require-signed given and
+     some dependency is not signed by a key you trust
   3  configuration or lock error (including a permission denial)
   4  Git or network failure (including --offline with a cold mirror)
   5  --sandbox was requested, some dependency provides verify.js, and Deno is
@@ -73,6 +85,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	allowDrift := fs.Bool("allow-drift", false, "do not fail on unexpected drift")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	sandbox := fs.Bool("sandbox", false, "run dependency self-check scripts in a Deno sandbox")
+	signatures := fs.Bool("signatures", false, "report each dependency's Git signature status")
+	requireSigned := fs.Bool("require-signed", false,
+		"fail (exit 2) unless every dependency's commit or tag is signed by a key you trust")
 	fs.Usage = func() { fmt.Fprint(stderr, verifyUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
@@ -83,6 +98,8 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		{Name: "allow-drift", Bool: true},
 		{Name: "json", Bool: true},
 		{Name: "sandbox", Bool: true},
+		{Name: "signatures", Bool: true},
+		{Name: "require-signed", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -149,14 +166,45 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
 			return 1
 		}
-		return verifyWithSandbox(ctx, env, pf, lf, rep.Summary.ExitCode, *sandbox, stdout, stderr)
+		return finishVerify(ctx, env, pf, lf,
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
 	}
 
 	for i := range rep.Dependencies {
 		renderVerifyDep(stdout, &rep.Dependencies[i])
 	}
 	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline))
-	return verifyWithSandbox(ctx, env, pf, lf, rep.Summary.ExitCode, *sandbox, stdout, stderr)
+	return finishVerify(ctx, env, pf, lf,
+		rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
+}
+
+// finishVerify 追加可选的两层（签名、沙箱）并合成退出码。
+//
+// 两层都**只追加**：常规 verify 的判定对象与结论完全不变。任一层失败都返回 2
+// （完整性/信任类），`--allow-drift` 对它们无效。
+//
+// `--json` 时两层都写 **stderr**：stdout 必须是纯 JSON——那份输出标着
+// "CI should use this"。这一点此前是错的：`--json --sandbox` 会把沙箱段落
+// 混进 JSON 里，而 CI 正是要解析它。
+func finishVerify(
+	ctx context.Context,
+	env *projectEnv,
+	pf *config.ProjectFile,
+	lf *lock.File,
+	baseCode int,
+	sandbox, signatures, requireSigned, jsonMode bool,
+	stdout, stderr io.Writer,
+) int {
+	extraOut := io.Writer(stdout)
+	if jsonMode {
+		extraOut = stderr
+	}
+
+	code := baseCode
+	if signatures || requireSigned {
+		code = verifyWithSignatures(ctx, env, lf, code, requireSigned, jsonMode, extraOut, stderr)
+	}
+	return verifyWithSandbox(ctx, env, pf, lf, code, sandbox, extraOut, stderr)
 }
 
 // verifyWithSandbox 在常规判定之后追加"依赖自检"这一层（`--sandbox`）。

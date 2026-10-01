@@ -4,15 +4,15 @@
 
 | 命令 | 作用 | 成熟度 | 退出码 |
 |------|------|--------|--------|
-| `ngm verify` | ref 漂移 + digest 重放检查 | **done (v0.1)** | 0/1/2/3/4 |
-| `ngm why <dep>` | 为什么装了这个依赖 | planned (v0.2) | 当前 `exit 3` |
-| `ngm tree` | 依赖树可视化 | planned (v0.2) | 当前 `exit 3` |
-| `ngm outdated` | 哪些依赖有新版本 | planned (v0.2) | 当前 `exit 3` |
-| `ngm audit` | 已知漏洞扫描（OSV.dev） | planned (v0.2) | 当前 `exit 3`；规划 0/1/3/4 |
+| `ngm verify` | ref 漂移 + digest 重放检查（`--sandbox` 追加自检、`--signatures` 追加签名报告） | **done (v0.1)**；`--sandbox` v0.3、`--signatures` v0.4 | 0/1/2/3/4（`--sandbox` 缺 Deno 时 5） |
+| `ngm why <dep>` | 为什么装了这个依赖 | **done (v0.2)** | 见下节 |
+| `ngm tree` | 依赖树可视化 | **done (v0.2)** | 见下节 |
+| `ngm outdated` | 哪些依赖有新版本 | **done (v0.2)** | 见下节 |
+| `ngm audit` | 已知漏洞扫描（OSV.dev） | **done (v0.2)**；`--hook` v0.3 | 0/1/3/4 |
 
-> **标 `planned` 的四条命令尚未实现**：调用时会明确返回 `exit 3` 与可读提示，不会静默成功。
-> 至此「ngm verify」（v0.1）与「ngm audit / why / tree / outdated」（v0.2）各节
-> 描述的都是**已实现行为**，不再是规划稿。
+> 这五条命令**都已实现**，各节描述的都是已实现行为。本表此前标着 "planned" 与
+> "当前 exit 3"——那是 v0.1 时代的写法，v0.2 交付后没有跟着改。
+> 「文档说没做、实际做了」与反向的错误同样有害：它会让读者绕过一条可用的命令。
 
 ---
 
@@ -150,9 +150,10 @@ $ ngm audit
 |--------|------|
 | `0` | 全部匹配，或仅有"预期更新"（branch 前进；`--strict` 时升级为 1） |
 | `1` | 非预期漂移（tag 重打 / commit 改写；`--allow-drift` 可降级为 0） |
-| `2` | digest 重放不匹配（严重事件） |
+| `2` | digest 重放不匹配（严重事件）；`--sandbox` 下依赖自检脚本失败/超时；`--require-signed` 下某个依赖不是由**你信任的密钥**签名的 |
 | `3` | 配置/策略错误 |
 | `4` | Git 网络/操作失败（含 `--offline` 资源缺失） |
+| `5` | `--sandbox` 要求跑依赖自带的脚本，而 Deno 缺失或过旧（**不降级**为非沙箱执行） |
 
 ### 检查层次与开关
 
@@ -162,6 +163,7 @@ $ ngm audit
 | digest 重放 | 从 mirror 重建清单、重算 digest 对比 lock | ✓（本地、可离线） |
 | 落地完整性 | vendor 与 content store 的存在性/链接校验 | ✓ |
 | 逐文件哈希 | `--deep` 追加：全量校验 vendor 文件字节 | ✗ |
+| 签名 | `--signatures` 追加：报告锁定 commit（commit 未签时再看它来源的 tag）的 Git 签名状态。判定用**用户自己的**密钥配置，ngm 不管理密钥 | ✗（默认不查：每个依赖一到两次 git 子进程，而 verify 的主要成本就是 spawn） |
 
 ### 输出
 
@@ -211,7 +213,16 @@ verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 1. **ngm outdated 的 branch 需要 fetch**：tag 判定只读本地 mirror（不触网），但 branch 的最新 tip
    必须 fetch 才拿得到；离线时报 `unknown`（**不是**"已是最新"）
 2. **ngm audit 依赖 OSV.dev**：零日漏洞不在数据库中；多数公告按 semver 记录而非 commit
-3. **verify 的网络依赖（在线）**：ref 判定只读一次**远端 ref 广播**（`ls-remote`，不传输对象）；
+3. **verify 的签名检查（`--signatures` / `--require-signed`）**：
+   **未签名不是失败**——绝大多数依赖没有签名，把它当错误会让 verify 对所有人变红，
+   而假警报会让真的警报失效。要门槛的人自己开 `--require-signed`（exit 2）。
+   判定完全交给**用户自己的** Git 密钥配置（GPG keyring / `gpg.ssh.allowedSignersFile`）：
+   ngm 不管理密钥、不分发密钥、不发明签名格式（[ADR-014](../adr/adr-014-self-report-signatures.md)）。
+   它报告的是"这份代码由谁签名"这一事实，**不是**"这份代码安全"——签名证明"谁说的"，
+   不证明"说的是真的"。
+   覆盖范围：锁定 commit 的签名；commit 未签且声明是 tag 时，再看那个 tag 的签名
+   （多数项目只签 tag，不签每个 commit）。轻量 tag 无法携带签名，此时只会报 commit 的结论。
+4. **verify 的网络依赖（在线）**：ref 判定只读一次**远端 ref 广播**（`ls-remote`，不传输对象）；
    **对象按需才取**——只有 ref 已变（判性质需要祖先关系）或 lock 的 commit 不在本地时才 fetch。
    因此"什么都没变"的常见路径**完全不 fetch**（[ADR-010](../adr/adr-010-online-verify-fetch-policy.md)）。
    `--offline` 用本地 mirror 快照（缺失时 exit 4），digest 重放本身完全本地。
