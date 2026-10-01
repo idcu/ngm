@@ -36,10 +36,22 @@ function parseForms(s) {
   return out;
 }
 
+/**
+ * 观测项（`obs.` 前缀）**打印但不参与门禁**。
+ *
+ * 存在的理由：探针里有些哈希测的是**诊断文件**（如插件形态的 metafile），
+ * 而"诊断文件里的路径字符串随平台变化"不等于"产物不可复现"。
+ * 第一次跨机器比对正是靠这类观察项定位到根因的，所以它们必须继续被打印；
+ * 但它们不该让判定变红——否则门禁会退化成"哪天诊断文件写法变了就红"。
+ */
+const isObs = (k) => k.startsWith("obs.");
+
 /** 返回 a 与 b 中**取值不同**的形态名（含只出现在一边的），按名字排序。 */
-function differingForms(a, b) {
+function differingForms(a, b, includeObs = false) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  return [...keys].filter((k) => a[k] !== b[k]).sort();
+  return [...keys]
+    .filter((k) => (includeObs || !isObs(k)) && a[k] !== b[k])
+    .sort();
 }
 
 const root = process.argv[2];
@@ -180,6 +192,20 @@ if (trees.size > 1) {
       `  ${base.where} vs ${r.where}: ` +
         (diff.length ? `形态不同 → ${diff.join(", ")}` : "逐形态哈希**完全一致**（差异不在单个形态里）")
     );
+  }
+}
+
+// 观察项的跨平台差异：打印，但不判定。它是"诊断文件里有没有机器相关字符串"的证据。
+{
+  const base = rows[0];
+  for (const r of rows.slice(1)) {
+    const obs = differingForms(base.formsA, r.formsA, true).filter(isObs);
+    if (obs.length > 0) {
+      table.push(
+        `  [观察/不判定] ${base.where} vs ${r.where}: ${obs.join(", ")} —— ` +
+          `诊断文件（非产物）里的路径内容不同；产物见上面的逐形态哈希`
+      );
+    }
   }
 }
 

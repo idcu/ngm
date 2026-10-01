@@ -186,6 +186,14 @@ build({
     //
     // 因此写的是**规范化投影**：只保留"有哪些输入输出、各自多长、谁 import 谁"，
     // 数组按路径排序。它稳定 ⇔ 路径稳定——这才是这个形态想回答的问题。
+    //
+    // 写到 `dist/` **外面**（项目根）：它是**诊断文件**，不是产物。
+    // 实测（CI 第一次带形态定位的跑）：唯一跨机器不一致的就是它——
+    // `plugin.appjs` 三平台字节一致，而 `plugin.metapaths` 在 macOS 上连同一台机器
+    // 的两个目录都不同。根因是**路径字符串**：macOS 的 `/var` 是指向 `/private/var`
+    // 的符号链接，而本插件把**绝对路径**交给 esbuild（`path.resolve`，
+    // 真实插件如 Vite 也是这么做的），相对化因此在一侧成功、另一侧失败。
+    // 把它留在产物树里会让"产物是否可复现"这个判断被一个诊断文件的路径写法带偏。
     const canon = {
       inputs: Object.keys(r.metafile.inputs)
         .sort()
@@ -203,7 +211,7 @@ build({
         })),
     };
     fs.writeFileSync(
-      path.join(projectDir, "dist/plugin/meta.paths.json"),
+      path.join(projectDir, "meta.paths.json"),
       JSON.stringify(canon, null, 2) + "\n"
     );
   })
@@ -249,13 +257,13 @@ build_all() {
     # CSS 压缩链：postcss 那一步没有内建压缩，压缩由别的工具承担（这里用 esbuild）
     run_form esbuild-cssmin dist/css $ESB --bundle src/app.css \
       --minify --outfile=dist/css/app.min.css
-    # 插件 + metafile（JS API）：Vite / Astro 走的就是这条路
-    run_form esbuild-plugin dist/plugin node "$WORK/tools/plugin-build.cjs" "$dir"
-    # 再把这个形态**拆成两个文件**分别记一笔：整形态不同时，下一步该查的是
-    # "产物不同"还是"metafile 的路径内容不同"——这两件事的处置完全不同，
-    # 而它们长得一样（都是"插件形态的哈希变了"）。
-    printf 'plugin.appjs=%s;' "$(hash_tree dist/plugin/app.js)" >> "$forms"
-    printf 'plugin.metapaths=%s;' "$(hash_tree dist/plugin/meta.paths.json)" >> "$forms"
+    # 插件 + metafile（JS API）：Vite / Astro 走的就是这条路。
+    # **门禁只看产物**（app.js）——metafile 是诊断文件，不是产物。
+    run_form esbuild-plugin dist/plugin/app.js node "$WORK/tools/plugin-build.cjs" "$dir"
+    # metafile 的路径内容另记一笔，前缀 `obs.` 表示**观察项、不参与门禁**：
+    # 它仍是"路径是否泄漏"的证据（第一次跨机器比对就是靠它定位到根因的），
+    # 但"诊断文件的路径字符串随平台变化"不等于"产物不可复现"。
+    printf 'obs.plugin.metapaths=%s;' "$(hash_tree meta.paths.json)" >> "$forms"
   )
 }
 
