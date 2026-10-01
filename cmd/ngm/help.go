@@ -31,6 +31,7 @@ COMMANDS:
   typecheck      类型检查（adapter）
   typedecl       生成 .d.ts 声明（adapter）
   build          构建（adapter）
+  transform      单文件转换（adapter）
   css            CSS 编译（adapter）
   mappings       mappings 管理
   integrations   构建工具集成脚手架（v0.3）

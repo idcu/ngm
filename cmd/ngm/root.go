@@ -37,6 +37,7 @@ var commands = []*commandSpec{
 	{Name: "typecheck", Run: runTypecheck},
 	{Name: "typedecl", Run: runTypeDecl},
 	{Name: "build", Run: runBuild},
+	{Name: "transform", Run: runTransform},
 	{Name: "css", Run: runCSS},
 	{Name: "mappings", Run: runMappings},
 	{Name: "integrations", Run: runIntegrations},
