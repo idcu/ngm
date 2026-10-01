@@ -105,7 +105,8 @@ project/ngm.vendor/
 
 - **cache 可以在任何时刻整层删除**——可证明性由 mirror + content + lock 保证，与 cache 无关
 - `ngm cache clean` 清空缓存层
-- content store 与 mirror 的 GC（`ngm store gc`）依赖跨项目引用索引，列入 v0.2 规划
+- content store 与 mirror 的 GC **尚未排期**——它依赖跨项目引用索引，且刻意**不预告命令名**
+  （[CLI 参考](../guides/cli.md) 里写明了这条纪律：不承诺一个不存在的 `ngm store gc`）
 
 ---
 

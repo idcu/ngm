@@ -1,6 +1,7 @@
 # CLI 参考
 
-> 成熟度列标注该命令自哪个版本可用；`v0.1` 的命令已实现，并由[端到端验收](../development/v0.1-plan.md)守护。
+> 成熟度列标注该命令自哪个版本可用；v0.1 ~ v0.4 的命令**均已实现**，v0.1 的由
+> [端到端验收](../development/v0.1-plan.md)守护，其后的由各版验收测试守护。
 > 未实现的命令不会静默成功——它们明确返回 `exit 3` 与可读提示。
 
 ---
@@ -18,6 +19,7 @@
 | `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run]` | 构建（adapter） | v0.1 | [构建](./build.md) |
 | `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（`typescript` = tsc，未装则 exit 5） | [构建](./build.md) |
 | `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
+| `ngm transform [<file>] [--engine=<name>] [--outfile=<path>] [--loader=<name>] [--target=<es20xx>] [--format=<fmt>] [--minify] [--sourcemap] [--dry-run]` | **单文件**转换（adapter）；输入默认走 **stdin**，产物默认走 stdout。**不解析导入**——那是 `ngm build`。loader 按 `--loader` → 文件扩展名（推断会说出来）→ `engines.transform.options.loader` 的顺序取；都不适用时**不猜**，"必须有 loader" 由引擎自己判（esbuild 会） | **v0.5 已实现** | [构建](./build.md) |
 | `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter） | v0.1（`esbuild`）；v0.2 增 `postcss`（无内建压缩，`--minify` 会被明确告知忽略） | [构建](./build.md) |
 | `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
@@ -29,13 +31,21 @@
 | `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新" | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
 | `ngm integrations add <tool> [--dry-run] [--json]` | 生成 `vite` / `esbuild` / `deno` / `webpack` 集成配置（**不覆盖已有文件**，冲突 exit 3） | **v0.3 已实现** | [P5 — 外部工具集成](../modules/p5-integrations.md) |
-**content store 的回收尚未排期**：v0.1 的 store 只增不减，`ngm cache clean` 只清缓存层
-（不影响可证明性）。store GC 不在 v0.2 范围内，等需要时再排——这里**不预告具体命令名**，
+**content store 的回收至今未排期**：store 只增不减，`ngm cache clean` 只清缓存层
+（不影响可证明性）。等需要时再排——这里**不预告具体命令名**，
 以免文档承诺一个不存在的 `ngm store gc`。
 
-**v0.1 的构建引擎范围**：只适配了 esbuild（`bundle` + `transform`）。`tsc` / `deno` / `postcss`
-尚未适配，声明它们会得到明确的 `exit 5` 而不是静默降级——自行声明 subprocess 引擎的方法见
-[配置详解](./configuration.md) 与 [P4 协议](../modules/p4-ecosystem.md)。
+**内置引擎清单（v0.4 时点）**：`esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`，
+自带 `tsc --emitDeclarationOnly`，`optional`）、`postcss`（`css`，`optional`）、`self` stub；
+wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可用性**问题 → `exit 5`）。
+`remote` **按 [ADR-013](../adr/adr-013-remote-adapter.md) 决定不发布**，声明它会得到"按决定排除"而不是"待实现"。
+自行声明 subprocess 引擎的方法见 [配置详解](./configuration.md) 与 [P4 协议](../modules/p4-ecosystem.md)。
+
+**`transform` 自 v0.5 起有命令入口**（`ngm transform`，见下表）。在此之前它与 v0.4 之前的
+`typeDecl` 同型：能力在 adapter 层已实现，却没有任何命令驱动它——于是 `engines.transform`
+与 `engines.defaultTransform` 两个配置键对用户没有任何可观察的效果。补上入口时顺带修掉一处
+协议缺陷：`genericInvocation` 对 transform **只转发 loader 与 target**，
+`--format` / `--minify` / `--sourcemap` 会被静默丢弃（自定义引擎收不到它们）。
 
 ---
 

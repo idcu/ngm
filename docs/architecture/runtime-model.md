@@ -10,7 +10,7 @@
 └───────────────┬─────────────────┘
                 │
     ngm build / ngm typecheck
-    （adapter 调用；v0.1 只适配了 esbuild）
+    （adapter 调用；内置清单：esbuild / typescript / postcss + wasm，remote 按 ADR-013 排除）
                 │
                 ▼
 ┌─────────────────────────────────┐

@@ -155,8 +155,8 @@ func globalDefaultFor(g *config.GlobalEngines, kind adapter.EngineKind) string {
 
 // builtinDefaultFor 返回内置默认引擎。
 //
-// 只有 bundle 与 transform 有默认（esbuild）：v0.1 适配的引擎只有它，
-// 给 typeCheck / css 编一个默认值等于对用户撒谎——他会得到"引擎不可用"，
+// 只有 bundle 与 transform 有默认（esbuild）。typeCheck / css 的清单条目是 `optional`，
+// 给它们编一个默认值等于对用户撒谎——他会得到"引擎不可用"，
 // 却不知道自己什么时候配过那个引擎。
 func builtinDefaultFor(kind adapter.EngineKind) string {
 	switch kind {

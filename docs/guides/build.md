@@ -12,7 +12,7 @@ ngm build
 
 # 指定引擎
 ngm build --engine=esbuild
-ngm build --engine=deno      # v0.3 的能力；v0.1 没有内置 deno 引擎，现在会失败（见「其它引擎」）
+ngm build --engine=deno      # 已适配，但需在 ngm.engines.json 里自行声明（见「需要自行声明的引擎」）
 
 # 指定入口
 ngm build src/index.ts --engine=esbuild
@@ -25,7 +25,11 @@ ngm build --production --engine=esbuild
 
 ## 引擎选择
 
-### esbuild（v0.1 唯一适配的引擎）
+内置清单**自带** `esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`）
+与 `postcss`（`css`）；后两者是 `optional`，**没装不算清单问题**。
+`deno` 与 wasm 模块**不进内置清单**，需自行声明（理由见下）。
+
+### esbuild（内置的 bundle / transform 引擎）
 
 ```json
 {
@@ -42,30 +46,49 @@ ngm build --engine=esbuild
 
 adapter 调用 `esbuild` CLI。`ngm init` 生成的模板已包含这段配置，因此 `ngm build` 无需参数。
 
-### 其它引擎（v0.1 未适配）
+### typescript（内置的 typeCheck / typeDecl 引擎，v0.2 起）
 
-`tsc` / `deno` / `postcss` 的 adapter 排在 v0.2–v0.3。在 v0.1 里**按内置名声明它们不会静默降级**——
-你会得到明确的 `exit 5`（引擎不可用）与提示：内置清单里根本没有这些条目。
+```bash
+ngm typecheck --engine=typescript                    # 或在 ngm.json 里写 "typeCheck": "typescript"
+ngm typedecl --outdir=dist/types --engine=typescript # .d.ts 声明（v0.4 起有命令入口）
+```
 
-若你已经装好这些工具，可以**自行声明**一个 subprocess 引擎（协议见 [P4](../modules/p4-ecosystem.md)）——
-此时执行的是你给的命令行，与内置清单无关：
+`tsc` 未安装时是 `exit 5`（引擎不可用），**不是**"检查通过"。
+
+### postcss（内置的 css 引擎，v0.2 起）
+
+```bash
+ngm css src/app.css --engine=postcss --outfile=dist/app.css
+```
+
+postcss **没有内建压缩**：`--minify` 会被明确告知忽略，而不是假装压缩过。
+
+### 需要自行声明的引擎：deno / wasm
+
+`deno` 不进内置清单有两个理由：它的 `bundle` 是自身 ≥ 2.4 的实验特性；且内置会抢掉
+typeCheck 的默认顺序。wasm 模块则是**项目本地文件**，路径得由你给。两者都按
+[P4 协议](../modules/p4-ecosystem.md)自行声明（示例见
+[engine-adapter](../architecture/engine-adapter.md)）：
 
 ```json
 {
   "version": 1,
   "engines": [
-    {"name": "typescript", "kind": "typeCheck", "adapter": "subprocess",
-     "command": "tsc --noEmit", "defaultOptions": {}},
-    {"name": "postcss", "kind": "css", "adapter": "subprocess",
-     "command": "postcss", "defaultOptions": {}}
+    {"name": "deno", "kind": "typeCheck", "adapter": "subprocess",
+     "command": "deno check", "defaultOptions": {}},
+    {"name": "deno", "kind": "bundle", "adapter": "subprocess",
+     "command": "deno bundle", "defaultOptions": {}}
   ]
 }
 ```
 
 ```bash
-ngm typecheck --engine=typescript   # 需要你已声明上面的条目
-ngm css src/app.css --engine=postcss --outfile=dist/app.css
+ngm typecheck --engine=deno   # 需要你已声明上面的条目
+ngm build --engine=deno
 ```
+
+**按内置名声明不会静默降级**：清单里的名字对不上本 build 能做的事时，你会得到明确的
+`exit 5`（可用性）或 `exit 3`（清单结构），而不是一个"看起来通过"的结果。
 
 ### esbuild 不做类型检查
 
@@ -75,7 +98,8 @@ esbuild 只删类型标注。把 esbuild 声明为 `typeCheck` 引擎会被明�
 ```bash
 $ ngm typecheck --engine=esbuild
 EngineNotFound: typeCheck: esbuild: esbuild does not type-check: it only strips type annotations
-  hint:  tsc / deno are not adapted in this build; declare a `typeCheck` engine in ngm.engines.json
+  hint:  use the built-in `typescript` engine instead: pass --engine=typescript,
+         or set "typeCheck": "typescript" in ngm.json
 ```
 
 ### 先看清 ngm 会怎么调引擎
@@ -90,6 +114,43 @@ would bundle src/index.ts
 ```
 
 `--dry-run` 只打印、不执行，是排查"参数为什么没生效"最快的入口。
+
+---
+
+## 单文件转换（`ngm transform`，v0.5）
+
+`ngm build` 打包一个项目并解析导入；`ngm transform` 只碰**一个文件**，**不解析任何导入**。
+它面向的是"想要一个引擎、不想要一个打包器"的管道——测试运行器、开发服务器、自己的构建步骤。
+
+```bash
+# 从 stdin 读（管道形态），产物走 stdout
+cat src/util.ts | ngm transform --loader=ts --minify
+
+# 从文件读：loader 由扩展名推断，并且**会把推断说出来**
+ngm transform src/util.ts
+# note: loader "ts" inferred from .ts (pass --loader to override)
+
+# 产物落盘（由 ngm 写，不是引擎答应的）
+ngm transform src/util.ts --outfile=dist/util.js
+
+# 先看清它会怎么调引擎
+ngm transform src/util.ts --target=es2020 --dry-run
+```
+
+规则（每一条都有验收测试钉着）：
+
+| 规则 | 为什么 |
+|------|--------|
+| loader 按 **`--loader` → 文件扩展名 → `engines.transform.options.loader`** 的顺序取 | 三处来源各自的含义不同：命令行说得最明确、扩展名来自用户的输入、清单是团队声明 |
+| 扩展名不认识时**不猜**（不凭空造一个 `--loader=`） | 猜错的代价是语法错误或更糟的静默转换 |
+| "必须有 loader" **不是 ngm 的规则，是 esbuild 的**，由 adapter 判 | 自定义引擎可能压根不需要 loader。ngm 一度在 CLI 里复刻了这条规则，结果是**清单里声明好的 loader 被挡在门外**——与"声明了、没生效"同型 |
+| 给文件时 loader 由扩展名推断，**并打印出来** | "我替你选了一个"和"你选的那个生效了"是两件事（本项目在"相对路径按了 CWD"上栽过两次，都是同一类） |
+| `--outfile` 由 **ngm** 落盘 | transform 的引擎接口只有 stdout 一条出口（`TransformResult` 没有 outfile），所以这不是"引擎答应写的" |
+| `--dry-run` 在缺 loader 时**同样报错** | 让 dry-run 成功而真实调用失败，恰好把"先看清它会怎么调"这件事变成骗人的 |
+| **不解析导入** | 断言写着"import 仍在、被导入模块的代码不在产物里"；否则哪天它被实现成 bundle，用户会不知不觉拿到不一样的东西 |
+
+`--target` / `--format` / `--minify` / `--sourcemap` 会翻译成引擎参数并真的生效
+（`--sourcemap` 走内联：输出是 stdout，无法外链）。
 
 ---
 

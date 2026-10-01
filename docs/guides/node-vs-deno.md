@@ -55,8 +55,8 @@ ngm install
 # 构建（adapter → esbuild）
 ngm build --engine=esbuild
 
-# 类型检查 —— tsc adapter 属 v0.2：v0.1 没有内置的 typescript 引擎，这一步现在跑不通
-# ngm typecheck --engine=typescript
+# 类型检查 —— 内置 `typescript`（tsc，v0.2 起）；也可在 ngm.json 里写 "engines": {"typeCheck": "typescript"}
+ngm typecheck --engine=typescript
 ```
 
 ---
@@ -81,10 +81,10 @@ ngm add github:my-org/utils@v1.2.3 --ref-type tag
 # 安装
 ngm install
 
-# 构建（adapter → deno）—— deno adapter 属 v0.3，v0.1 没有内置的 deno 引擎
+# 构建（adapter → deno）—— deno 已适配，但**需自行声明**（bundle 是 Deno ≥ 2.4 的实验特性）
 # ngm build --engine=deno
 
-# 类型检查（adapter → deno）—— 同样属 v0.2/v0.3
+# 类型检查（adapter → deno）—— 同样需自行声明
 # ngm typecheck --engine=deno
 ```
 
@@ -100,13 +100,13 @@ ngm 不关心你运行时是谁。ngm 只关心：
 ### Node 项目
 
 - runtime = node
-- 引擎默认：`bundle` / `transform` 用 esbuild（v0.1 内置）；`typeCheck` 需自行声明（内置 tsc 属 v0.2）
+- 引擎默认：`bundle` / `transform` 用 esbuild（内置）；`typeCheck` 内置 `typescript`（tsc，`optional`，装了就能用）
 - mappings 供 Vite/esbuild 读取
 
 ### Deno 项目
 
 - runtime = deno
-- 引擎默认：与 Node 项目**相同**（v0.1 只有 esbuild）；deno adapter 属 v0.3
+- 引擎默认：与 Node 项目**相同**（内置 esbuild / typescript / postcss）；`deno` 已适配但**需自行声明**
 - mappings 需要你把 `ngm.mappings.json` **手工**接进 `deno.json` 的 import map（自动生成属 v0.3）
 
 ---

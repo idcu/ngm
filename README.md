@@ -4,11 +4,23 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 complete (M0 … M7)**. All four v0.1 exit criteria are met with executable evidence:
-`ngm install` works end to end, `ngm.lock` is byte-identical across platforms, `ngm verify` tells a
-re-tagged tag apart from an advanced branch, and a digest replay mismatch blocks the build.
-See [`docs/development/v0.1-retrospective.md`](./docs/development/v0.1-retrospective.md) for the measured
-results — including the two performance targets that were **not** met (`verify` at 100 dependencies).
+Status: **v0.1 … v0.4 delivered and released** (`v0.1.0` … `v0.4.0`, each with six platform
+binaries plus `SHA256SUMS` on GitHub). On Gitee only `v0.1.0` carries attachments so far —
+`v0.2` ~ `v0.4` are uploaded by hand and are still pending (see
+[`docs/development/README.md`](./docs/development/README.md) for the release checklist and
+[`docs/guides/installation.md`](./docs/guides/installation.md) for which version is downloadable where).
+`v0.5` scope is written down but not implemented yet.
+
+All four v0.1 exit criteria are met with executable evidence: `ngm install` works end to end,
+`ngm.lock` is byte-identical across platforms, `ngm verify` tells a re-tagged tag apart from an
+advanced branch, and a digest replay mismatch blocks the build. Since then: **v0.2** added OSV/audit,
+the policy engine, `why`/`tree`/`outdated`, the tsc/deno/postcss adapters and the CI install modes;
+**v0.3** added the wasm adapter, the Deno sandbox, enforced permissions and the integration
+scaffolds; **v0.4** added `ngm typedecl`, `verify --signatures` / `--require-signed`, and the
+mechanical "declared but not wired" config check.
+
+See [`docs/development/`](./docs/development/) for the per-version plans and retrospectives —
+including the performance targets that were **not** met at first (`verify` at 100 dependencies).
 
 ---
 
@@ -106,7 +118,7 @@ verified 3 dependency(ies): 1 ok, 1 expected, 1 critical (exit 2)
 **ngm core does not implement engines** (ADR-005). Every capability goes through an adapter that spawns an external tool; ngm decides *what*, the engine decides *how*.
 
 - **engine catalog** — `ngm.engines.json` (project) overrides `<ngm home>/ngm.engines.json` overrides the built-in catalog. One entry = one engine + one `kind` (`transform` / `bundle` / `typeCheck` / `typeDecl` / `css`); the same binary may appear under several kinds.
-- **what v0.1 adapts** — `esbuild` (bundle + transform) and the `self` stub. `tsc` / `deno` / `postcss` are **not** listed: the spec requires every listed engine to be adapted, and a catalog that advertises engines it cannot drive is worse than a short one. Declare your own in `ngm.engines.json` — the subprocess driver is generic.
+- **what the built-in catalog adapts** — `esbuild` (bundle + transform), `typescript` (typeCheck + typeDecl, `tsc --emitDeclarationOnly`, `optional`), `postcss` (css, `optional`) and the `self` stub; since v0.3 the `wasm` adapter runs engines inside a wasm runtime. `tsc` / `postcss` are marked `optional` so "not installed" is not a catalog problem. The `remote` adapter is **excluded by decision** (ADR-013) rather than "not implemented yet". Declare your own in `ngm.engines.json` — the subprocess driver is generic.
 - **engine selection** — `--engine=<name>` → `ngm.json` `engines.<kind>` → global defaults → built-in default (esbuild for bundle/transform). Shorthand `"esbuild"` and the full form `{"primary": "esbuild", "fallbacks": []}` resolve to the *same* command, byte for byte.
 - **fallback** — `fallbacks` are tried in order; every fallback is announced on stderr, so you always know which engine actually ran.
 - **`ngm build`** — bundles through the engine, and turns every `ngm.mappings.json` entry into `--alias:<from>=<to>/<main>` so a bare `import x from "github:org/repo"` resolves into `ngm.vendor` — the bytes ngm proved. That is the one thing it adds over calling esbuild yourself.
@@ -125,7 +137,8 @@ would bundle src/index.ts
     source:  built-in catalog
 ```
 
-`audit` / `why` / `tree` / `outdated` / `integrations` still report "not implemented" with exit code 3 — they belong to v0.2 / v0.3.
+`audit` / `why` / `tree` / `outdated` were delivered in v0.2 and the integration scaffolds
+(`ngm integrations add vite|esbuild|deno|webpack`) in v0.3 — see the roadmap below.
 
 ### Try it
 
@@ -148,7 +161,7 @@ go build -o ngm ./cmd/ngm
 
 ## Roadmap
 
-The complete v0.1 plan lives in [`docs/development/`](./docs/development/). At a glance:
+The complete per-version plans live in [`docs/development/`](./docs/development/). At a glance:
 
 | Milestone | Capability | State |
 |-----------|------------|-------|
@@ -158,8 +171,11 @@ The complete v0.1 plan lives in [`docs/development/`](./docs/development/). At a
 | M3 | Dependency graph, conflict detection, deterministic `ngm.lock`, `install` | done |
 | M4 | Vendor 4-layer (mirror / content store / link tree / cache), mappings | done |
 | M5 | `ngm verify` — three-level checks, drift classification, exit codes | done |
-| M6 | esbuild adapter, `ngm build` / `typecheck` / `css` / `engines` | done |
+| M6 | esbuild adapter, `ngm build` / `transform` / `typecheck` / `css` / `engines` | done |
 | M7 | End-to-end acceptance, cross-platform binaries, release pipeline | done |
+| v0.2 | OSV/`audit`, policy engine (minimumReleaseAge / allowlist / postInstallPolicy), `why` / `tree` / `outdated`, tsc·deno·postcss adapters, `install --frozen-lockfile` / `--offline` | delivered, untagged |
+| v0.3 | wasm adapter, Deno sandbox, enforced `permissions`, Vite / esbuild / Deno / Webpack scaffolds, mappings sub-paths | delivered, untagged |
+| v0.4 | `ngm typedecl`, `verify --signatures` / `--require-signed`, mechanical "declared but not wired" config check | delivered, untagged |
 
 ---
 
@@ -167,7 +183,7 @@ The complete v0.1 plan lives in [`docs/development/`](./docs/development/). At a
 
 ```bash
 go build -ldflags "\
-  -X github.com/idcu/ngm/internal/version.Version=0.1.0 \
+  -X github.com/idcu/ngm/internal/version.Version=0.4.0 \
   -X github.com/idcu/ngm/internal/version.GitCommit=$(git rev-parse --short HEAD) \
   -X github.com/idcu/ngm/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -o ngm ./cmd/ngm
@@ -210,7 +226,7 @@ go build ./... && go vet ./... && go test ./...
 test -z "$(gofmt -l .)" || gofmt -l .
 
 # milestone acceptance (one executable acceptance per milestone)
-go test -count=1 -run 'TestM[1-6]Acceptance' -v ./cmd/ngm
+go test -count=1 -run 'TestM[1-7]Acceptance' -v ./cmd/ngm
 
 # the engine integration test needs a real esbuild and skips without one
 npm install --global esbuild && go test -count=1 -run TestM6Acceptance_RealEsbuild -v ./cmd/ngm

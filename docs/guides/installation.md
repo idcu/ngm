@@ -1,7 +1,7 @@
 # 安装指南
 
 > 本页的命令与输出示例取自实际运行，并由 CI 的快照测试守护。
-> **预编译二进制已随 `v0.1.0` 发布**：六个平台 + `SHA256SUMS`。
+> **预编译二进制已随 `v0.1.0` ~ `v0.4.0` 发布**：每个版本六个平台 + `SHA256SUMS`。
 > 国内下载优先用「方式一」里的 Gitee 发行版；若该发行版尚无附件，退回 GitHub 或「方式二」。
 
 ---
@@ -25,12 +25,17 @@
 >
 > | 你的网络 | 用哪个 | 地址前缀 |
 > |---------|--------|---------|
-> | 国内 | **Gitee 发行版**（推荐） | `https://gitee.com/idcu/ngm/releases/download/v0.1.0` |
+> | 国内 | **Gitee 发行版**（推荐） | `https://gitee.com/idcu/ngm/releases/download/v0.4.0` |
 > | 海外 / 想始终取最新 | GitHub Release（上游） | `https://github.com/idcu/ngm/releases/latest/download` |
 >
 > 两个源的产物**字节完全相同**，共用同一份 `SHA256SUMS`，可以互相校验。
-> Gitee 的附件在每次发布后同步上传，因此只有**版本固定**地址（Gitee 没有 `latest/download` 形态）；
+> Gitee 的附件在每次发布后**手动**上传，因此只有**版本固定**地址（Gitee 没有 `latest/download` 形态）；
 > 若该地址 404，说明这一版的附件还没上传——改用 GitHub 或「方式二」。
+>
+> ⚠️ **当前可取性（2026-10-01）**：GitHub 上 `v0.1.0` ~ `v0.4.0` **都有** 7 个附件；
+> **Gitee 上目前只有 `v0.1.0`**——`v0.2` ~ `v0.4` 的附件待上传，用国内源取这三版会 404。
+> 需要 v0.2 以上时暂时走 GitHub 或「方式二」。上传进度见
+> [开发总览 · 发布清单](../development/README.md#补发记录2026-10-01)。
 
 产物命名统一为 **`ngm-<os>-<arch>[.exe]`**，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
 
@@ -49,7 +54,7 @@
 
 ```bash
 # 先把 BASE 换成你选的下载源前缀：
-#   Gitee（国内推荐）: BASE=https://gitee.com/idcu/ngm/releases/download/v0.1.0
+#   Gitee（国内推荐）: BASE=https://gitee.com/idcu/ngm/releases/download/v0.4.0
 #   GitHub（上游）   : BASE=https://github.com/idcu/ngm/releases/latest/download
 
 # macOS (Apple silicon)
@@ -63,7 +68,7 @@ Windows（PowerShell）：
 
 ```powershell
 # 国内用 Gitee；换成 GitHub 时改这一行即可
-$BASE = "https://gitee.com/idcu/ngm/releases/download/v0.1.0"
+$BASE = "https://gitee.com/idcu/ngm/releases/download/v0.4.0"
 Invoke-WebRequest -Uri "$BASE/ngm-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\ngm\ngm.exe"
 ```
 

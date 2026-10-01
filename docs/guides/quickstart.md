@@ -73,7 +73,7 @@ ngm verify
 > 没装时 ngm 返回 `exit 5`（引擎不可用）并给出提示，不会静默产出一个空文件。
 
 ```bash
-# 通过 adapter 调 esbuild（v0.1 唯一适配的 bundle 引擎）
+# 通过 adapter 调 esbuild（内置的 bundle 引擎）
 ngm build --engine=esbuild
 
 # 指定产物；不写 --outfile 时产物走 stdout（与直接跑 esbuild 一致）
@@ -87,7 +87,8 @@ ngm build --dry-run
 `import utils from "github:my-org/utils"` 能解析到 `ngm.vendor/` 里那份**可证明**的代码。
 
 ```bash
-# 或调 deno —— v0.3 适配；v0.1 可用 ngm.engines.json 自行声明 subprocess 引擎
+# 或调 deno —— 已适配，但**需自行声明**（它的 bundle 是 Deno ≥ 2.4 的实验特性，
+# 因此不进内置清单）；声明方法见 ngm.engines.json 与 P4 协议
 # ngm build --engine=deno
 ```
 
@@ -180,8 +181,9 @@ ngm build --engine=esbuild
 }
 ```
 
-> `typeCheck: "typescript"` 在 v0.1 尚不可用：ngm 只适配了 esbuild，声明未适配的引擎会得到
-> 明确的 `exit 5`（而不是静默跳过）。自行声明 subprocess 引擎的方法见[配置详解](./configuration.md)。
+> `typeCheck` / `typeDecl: "typescript"` 自 **v0.2** 起可用（`tsc` 未装时 `exit 5`，且它是
+> `optional` 引擎——"没装"不算清单问题）。声明一个未适配的引擎会得到明确的 `exit 5`
+> （而不是静默跳过）。自行声明 subprocess 引擎的方法见[配置详解](./configuration.md)。
 
 ---
 

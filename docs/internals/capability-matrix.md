@@ -25,7 +25,7 @@
 
 | 能力 | ngm adapter | 外部引擎 | 成熟度 | 备注 |
 |------|------------|---------|--------|------|
-| Transform | subprocess | esbuild | done (v0.1) | 有实现，尚无命令暴露（见复盘 §6） |
+| Transform | subprocess | esbuild | done (v0.1)；**命令入口 v0.5** | `ngm transform`：单文件、走 stdin/stdout、**不解析导入**（那是一 bundle 的事） |
 | Bundle | subprocess | esbuild | done (v0.1) | `ngm build` |
 | Tree-Shaking | 不内置 | esbuild 原生 | n/a | 依赖引擎 |
 | Type Check | subprocess | tsc / deno | done (v0.2) | tsc 内置（`optional`，未装不算 issue）；deno 需自行声明 |

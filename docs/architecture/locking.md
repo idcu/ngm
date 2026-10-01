@@ -96,7 +96,10 @@ vendor 落地的可复现定义：相同 lock + 相同 content store → 相同 
 
 - 格式为 `MAJOR.MINOR`；v0.1 冻结为 `1.0.0`
 - 同 MAJOR 内：只允许新增可选字段，旧版本工具应忽略未知字段继续工作
-- MAJOR 变更：破坏性字段调整（含 digest 清单规范版本升级），提供 `ngm lock migrate` 迁移命令（v0.2+ 规划）
+- MAJOR 变更：破坏性字段调整（含 digest 清单规范版本升级）。**该变更必须与迁移命令
+  （`ngm lock migrate`）同时交付**——至今未发生 MAJOR 变更，因此**该命令尚不存在**；
+  当前唯一可行路径是删除 `ngm.lock` 并重跑 `ngm install` 重新生成（v0.5 复核修正：
+  错误提示与文档曾引用这个不存在的命令）
 - `archiveDigest` 的清单规范版本与 `lockfileVersion` 绑定，见 [ADR-008](../adr/adr-008-archive-digest.md)
 
 ---

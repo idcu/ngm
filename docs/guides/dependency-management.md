@@ -67,8 +67,8 @@ ngm install
 
 ### install 的 `--frozen-lockfile` / `--offline`（v0.2 已实现）
 
-> **v0.1 的 `ngm install` 只有 `--dir` / `--digest`**：下面三条命令属 v0.2，现在照抄会因用法错误得到 `exit 3`。
-> 两个 flag 约束的是两件不同的事：frozen 管"装什么"（不许重新决定 commit），
+> 这两个 flag 自 **v0.2 起可用**（v0.1 的 `ngm install` 只有 `--dir` / `--digest`）。
+> 它们约束的是两件不同的事：frozen 管"装什么"（不许重新决定 commit），
 > offline 管"怎么拿"（不许联网）。只想要可复现性用前者即可（它仍可从网络取内容）；
 > 合并使用才得到"完全离线且可复现"。
 
@@ -204,7 +204,7 @@ project
 └── ngm.lock（包含所有层级）
 ```
 
-**传递性依赖也进入 lock 与 verify 的范围**；OSV / `audit` 属 v0.2，届时同样覆盖传递依赖。
+**传递性依赖也进入 lock 与 verify 的范围**；自 v0.2 起 OSV / `audit` 同样覆盖传递依赖。
 
 ---
 

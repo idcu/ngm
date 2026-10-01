@@ -3,15 +3,22 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 已完成并已发布（`v0.1.0`）**，三平台 CI 全部通过（含端到端验收与真实引擎集成）。
-预编译二进制见[安装指南](./guides/installation.md)。
+**当前状态：v0.1 ~ v0.4 均已交付并发布，v0.5 范围已成文、尚未实施。**
+`v0.1.0` ~ `v0.4.0` 都已打 tag，GitHub 上各有 7 个附件（六平台二进制 + `SHA256SUMS`，
+三平台 CI 全绿，含端到端验收与真实引擎集成）；
+**Gitee 上目前只有 `v0.1.0`**——后三版的附件需手动上传，见[安装指南](./guides/installation.md)
+与[发布清单](./development/README.md#补发记录2026-10-01)。各版证据见[复盘](./development/)；
+v0.5 的范围见[v0.5 计划](./development/v0.5-plan.md)（来源是[v0.5 复核](./development/v0.5-review.md)）。
 
 本目录每篇文档都用**成熟度**标注可用范围，不会让规划中的能力看起来像已经能用：
 
 | 标记 | 含义 |
 |------|------|
 | `done (v0.1)` | 现在就能用 |
-| `planned (v0.2)` / `planned (v0.3)` | 规划中，**尚未实现**；用到时会明确报错（通常 `exit 3`），不会静默成功 |
+| `done (v0.2)` / `done (v0.3)` / `done (v0.4)` | 该版本交付的能力，现已可用 |
+| `planned (vX.Y)` | 规划中，**尚未实现**；用到时会明确报错（通常 `exit 3`），不会静默成功 |
+
+> v0.1 ~ v0.4 的能力**全部已交付**；下表与各页保留版本号是为了说明"从哪一版起可用"。
 
 能力归属的唯一事实源是[能力矩阵](./internals/capability-matrix.md)；路线图是 [roadmap](./internals/roadmap.md)。
 其余文档引用它们，不复制——发现两处说法冲突时，以事实源为准。
@@ -111,7 +118,7 @@ ngm install
 # 4. 复核：ref 是否漂移、digest 是否可本地重放
 ngm verify
 
-# 5. 构建（通过 adapter 调 esbuild；v0.1 只适配 esbuild）
+# 5. 构建（通过 adapter 调引擎；内置 esbuild / typescript / postcss）
 ngm build --outfile=dist/app.js
 ```
 
@@ -140,7 +147,7 @@ my-app/
 
 ## 核心能力状态
 
-只有这些**现在就能用**（`done (v0.1)`）：
+v0.1 起就有的核心闭环（**现在就能用**）：
 
 | 能力 | 入口命令 | 说明 |
 |------|---------|------|
@@ -148,7 +155,7 @@ my-app/
 | 解析安装与锁定 | `ngm install` | 有 lock 则尊重 lock，不重新解析 ref |
 | ref 更新 | `ngm update` | 只有它会把锁定 commit 移到新位置 |
 | 漂移与完整性复核 | `ngm verify` | 三级检查 + `--deep` 全量字节校验 + `--json` |
-| 构建（adapter） | `ngm build` | 只适配 esbuild（`bundle`）；`typecheck` / `css` 在缺引擎时明确 `exit 5` |
+| 构建（adapter） | `ngm build` | 内置 esbuild（`bundle`）；`typecheck` / `css` / `typedecl` 在缺引擎时明确 `exit 5` |
 | mappings | `ngm mappings` | 生成 / 校验 `ngm.mappings.json` |
 | 缓存维护 | `ngm cache clean` | 清缓存层，不影响可证明性 |
 | 配置与引擎 | `ngm config` / `ngm engines` | 校验与查看 |
@@ -173,6 +180,17 @@ commit 的记录**，不等于安全——覆盖局限会写进每一份报告�
 **v0.3 已落地**：`ngm integrations add vite|esbuild|deno|webpack` —— 生成各构建工具消费
 mappings 所需的配置（含 tsconfig `paths`）。它**不覆盖**用户已有的配置文件：内容不同时
 报出差异并以 exit 3 结束，由用户决定怎么合。
+
+**v0.4 已落地**：`ngm typedecl --outdir=<dir>` 给 `typeDecl` 能力一个入口（此前该能力只有
+adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--require-signed` 报告或强制
+锁定 commit 的 Git 签名状态——**未签名不是失败**，判定交给你自己的密钥配置，ngm 不管理密钥
+（[ADR-014](./adr/adr-014-self-report-signatures.md)）。
+
+**v0.5 已落地**：`ngm transform` —— 单文件转换（输入默认 stdin、产物默认 stdout、
+**不解析导入**）。它补上了最后一项"能力在 adapter 层有实现、却没有命令驱动"的缺口：
+此前 `engines.transform` 与 `engines.defaultTransform` 对用户没有任何可观察的效果。
+补入口时顺带修掉一处协议缺陷：自定义引擎的 transform 分支**静默丢弃** `--format` /
+`--minify` / `--sourcemap`。
 
 至此 CLI 参考里列出的命令**全部已实现**，命令表中不再有占位项。没有列出的命令不存在，
 用到会明确报错，不会静默成功。逐项成熟度以[能力矩阵](./internals/capability-matrix.md)为准。
@@ -214,7 +232,7 @@ mappings 所需的配置（含 tsconfig `paths`）。它**不覆盖**用户已�
 |---|------|---------|------|
 | 1 | 同一 commit 是否能在断网、Git host 故障和 token 失效时继续**构建**？ | 可以：vendor 落地后构建不依赖网络。完全离线的*安装*用 `install --frozen-lockfile --offline`（v0.2 已实现） | [vendor 4 层](./architecture/vendor-layers.md) |
 | 2 | branch 前进时，`verify` 是否区分"预期更新"与"非预期漂移"？ | 区分：`driftKind`（`expected` / `unexpected` / `critical`），预期更新默认不阻断 | [信任模型](./architecture/trust-model.md) |
-| 3 | 传递性 Git 依赖是否也进入 lock、verify（与 v0.2 的 OSV）范围？ | 进入；v0.1 只识别上游 `ngm.json` 声明，上游 `package.json` 里的 Git 依赖不自动递归 | [依赖解析](./architecture/dependency-resolution.md) |
+| 3 | 传递性 Git 依赖是否也进入 lock、verify 与 OSV（v0.2 起）范围？ | 进入；只识别上游 `ngm.json` 声明，上游 `package.json` 里的 Git 依赖不自动递归 | [依赖解析](./architecture/dependency-resolution.md) |
 | 4 | `archiveDigest` 的 origin、normalization 和算法是否明确定义？ | 已定义：本地生成的规范化内容清单（path / mode / blob-sha256）+ sha256 | [ADR-008](./adr/adr-008-archive-digest.md) |
 
 ---
@@ -228,6 +246,8 @@ mappings 所需的配置（含 tsconfig `paths`）。它**不覆盖**用户已�
 | v0.1 | Git 声明/锁定 + vendor 4 层 + verify + 最小 esbuild adapter | **已完成**（四条退出标准全部达成） |
 | v0.2 | 供应链策略最小字段集 + OSV / audit + `why`·`tree`·`outdated` + **多引擎 adapter（tsc / deno / postcss）** + `install` 的 CI 模式 + verify 性能优化 | **已完成**（离线 verify 达标；在线 verify 差 1.1×，见[复盘](./development/v0.2-retrospective.md)） |
 | v0.3 | wasm adapter + 集成脚手架（Vite / esbuild / Deno / Webpack）+ Deno 沙箱 + 权限与凭证 + mappings 子路径扩展 | **已交付**（`remote` adapter 经 [ADR-013](./adr/adr-013-remote-adapter.md) 决定不发布） |
+| v0.4 | `ngm typedecl` + `verify --signatures` / `--require-signed` + 配置字段接线的机械检查 | **已交付**（沙箱自述文件签名检查经 [ADR-014](./adr/adr-014-self-report-signatures.md) 以"决定不做"结项） |
+| v0.5 | 尚未成文（开工前复核已完成：[v0.5 复核](./development/v0.5-review.md)） | 范围规划中 |
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 
@@ -242,7 +262,7 @@ mappings 所需的配置（含 tsconfig `paths`）。它**不覆盖**用户已�
 | [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 009）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | 能力矩阵 / 健康度指标 / 路线图 | 维护者 |
-| [development/](./development/) | 开发总览 / v0.1 ~ v0.3 实施计划 / v0.1 复盘 | 维护者 |
+| [development/](./development/) | 开发总览 / v0.1 ~ v0.5 实施计划与复盘 / v0.5 复核 | 维护者 |
 | [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比 | 评估者 |
 
 ### 单一事实源（SSOT）约定

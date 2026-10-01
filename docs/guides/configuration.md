@@ -313,7 +313,8 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 所有配置与协议文件（`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json`）都带版本标识，遵循同一演进规则（与 [lockfileVersion](../architecture/locking.md) 一致）：
 
 - 同一大版本内只新增可选字段，旧工具应忽略未知字段继续工作
-- 破坏性变更递增大版本，并提供迁移命令（`ngm lock migrate` 等，v0.2+ 规划）
+- 破坏性变更递增大版本，并**同时**提供迁移命令（`ngm lock migrate` 等）；
+  至今未发生此类变更，**迁移命令尚不存在**——唯一可行路径是重新生成
 - `archiveDigest` 的清单规范版本与之绑定（见 [ADR-008](../adr/adr-008-archive-digest.md)）
 
 ---

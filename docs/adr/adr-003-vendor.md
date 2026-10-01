@@ -76,7 +76,10 @@ project/
 2. **全量副本跨项目重复**：每个项目一份 vendor 副本，monorepo 下膨胀明显
 3. **提交 vendor/ 让 git 膨胀**：大依赖（如带 native 模块的包）不适合提交
 4. **hardlink 有平台限制**：需要同卷文件系统（Windows 需 NTFS），不支持时自动降级为复制
-5. **content store 只增不减**：v0.1 不提供 store GC，`ngm cache clean` 只能清缓存层（v0.2 规划 `ngm store gc`）
+5. **content store 只增不减**：不提供 store GC，`ngm cache clean` 只能清缓存层
+   > **补录（v0.5 复核）**：本条原写"v0.2 规划 `ngm store gc`"，**该计划未成立**——v0.2 ~ v0.4 均未排期
+   > store GC，且 [CLI 参考](../guides/cli.md) 明确**不预告**这个命令名。补录而非改写，是为了保留
+   > "曾经预告过一个没做的东西"这一事实。
 
 ---
 

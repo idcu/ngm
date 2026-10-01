@@ -1,7 +1,7 @@
 # P0 — ngm core
 
 > 核心层：CLI、配置加载、依赖图、lock schema、vendor 4 层、verify
-> （`audit` 属 P3，且为 v0.2 规划——见[能力矩阵](../internals/capability-matrix.md)）
+> （`audit` 属 P3，已随 v0.2 交付——见[能力矩阵](../internals/capability-matrix.md)）
 
 ---
 
@@ -120,7 +120,7 @@ const (
 | lock 机制 | done (v0.1) | **最高优先级** |
 | vendor 4 层 | done (v0.1) | mirror / content / link tree / cache |
 | verify | done (v0.1) | **核心差异化** |
-| engine adapter | done (v0.1)（仅 esbuild） | subprocess 优先；tsc / deno / postcss 属 v0.2 |
+| engine adapter | done (v0.1)；**v0.2 增 typescript / postcss，v0.3 增 wasm** | subprocess 优先；`remote` 按 [ADR-013](../adr/adr-013-remote-adapter.md) 排除 |
 | mappings | done (v0.1) | 供外部构建工具读取 |
 | audit | done (v0.2) | OSV.dev 集成；实现归 `internal/supplychain/`（P3） |
 

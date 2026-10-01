@@ -307,7 +307,7 @@ Deno 的 default-deny 哲学：默认不让依赖跑代码。
 | 白名单 | done (v0.2) | 对传递依赖生效；解析阶段判定 |
 | postinstall 执行入口 | **done (v0.3)** | 沙箱内、仅 `postinstall.js`；npm 风格 shell 钩子检测到不执行（见 ADR-009 决策 5/5a） |
 | postinstall 策略 | **done (v0.3)** | `deny`（默认）/ `prompt` 不执行并明说；`allow` 在沙箱内执行 |
-| 策略引擎 | planned (v0.2) | JSON-first；v0.1 只解析与校验字段 |
+| 策略引擎 | done (v0.2) | JSON-first；`allowedGitHosts` / `allowlistRepos` / `minimumReleaseAge` / `osvIgnoreSeverities` / `verifyOnLock` 均已生效 |
 
 > 成熟度口径与唯一事实源[能力矩阵](../internals/capability-matrix.md)一致。
 

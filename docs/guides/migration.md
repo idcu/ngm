@@ -85,7 +85,7 @@ ngm **不替代 lytd 的所有能力**。迁移时分两类：
 
 | lytd 能力 | ngm 的做法 |
 |----------|-----------|
-| 构建（bundle/transform） | engine adapter → esbuild（**v0.1 仅此**）；deno 属 v0.3 |
+| 构建（bundle/transform） | engine adapter → esbuild（**内置**）；deno 已适配但**需自行声明** |
 | 类型检查 | engine adapter → tsc / deno（**v0.2 起**） |
 | CSS | engine adapter → postcss（**v0.2 起**） |
 | 测试 | **交给 Vitest / Deno test** |

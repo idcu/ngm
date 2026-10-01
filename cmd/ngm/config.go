@@ -25,7 +25,7 @@ SUBCOMMANDS:
 
 // runConfig 处理 `ngm config <subcommand>`。
 //
-// v0.1 阶段只支持 validate 与 show；其他子命令返回 "未实现"。
+// 只支持 validate 与 show；其他子命令打印用法并以 exit 3 结束（不假装成功）。
 func runConfig(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("config")
 	fs.Usage = func() { fmt.Fprint(stderr, configUsage) }

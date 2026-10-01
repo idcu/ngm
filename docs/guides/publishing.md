@@ -73,7 +73,8 @@ jobs:
       - name: 安装 ngm
         run: |
           # 预编译二进制（v0.1.0 起可用）。国内把前缀换成 Gitee 发行版：
-          #   https://gitee.com/idcu/ngm/releases/download/v0.1.0
+          #   https://gitee.com/idcu/ngm/releases/download/v0.4.0
+          # （Gitee 的附件是手动上传的：v0.2 ~ v0.4 的附件待传，见 development/README.md）
           # 两个源的产物字节相同，共用同一份 SHA256SUMS。
           BASE=https://github.com/idcu/ngm/releases/latest/download
           curl -L "$BASE/ngm-linux-amd64" -o /usr/local/bin/ngm

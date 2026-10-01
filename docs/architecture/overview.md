@@ -48,9 +48,9 @@ refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 4 层落地
 | 依赖解析 | Git URL 归一化、refType 解析、commit 解析 | refType 必填、4 种协议归一化 |
 | 锁定机制 | commit + archiveDigest + resolvedAt | archive 与 commit 解耦验证 |
 | vendor 4 层 | mirror / content store / hardlink tree / cache | 借鉴 pnpm 但服务于可审计目标 |
-| 引擎层 | 统一 interface，第三方优先 | adapter 类型与内置清单唯一维护在[引擎 adapter](./engine-adapter.md)；v0.1 只内置 esbuild |
+| 引擎层 | 统一 interface，第三方优先 | adapter 类型与内置清单唯一维护在[引擎 adapter](./engine-adapter.md)（内置 esbuild / typescript / postcss + wasm；`remote` 按 ADR-013 排除） |
 | 供应链策略 | JSON-first 策略引擎 + audit(OSV) + 白名单 | v0.2：白名单与 minimumReleaseAge 已生效；postinstall 执行入口收窄到 v0.3（[ADR-009](../adr/adr-009-supply-chain-policy.md)） |
-| 可观测性 | `verify`（done v0.1）、`audit`（done v0.2）；`why` / `tree` / `outdated`（planned v0.2） | verify 区分"预期更新"与"非预期漂移" |
+| 可观测性 | `verify`（done v0.1）、`audit` / `why` / `tree` / `outdated`（done v0.2） | verify 区分"预期更新"与"非预期漂移" |
 
 ---
 

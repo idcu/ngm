@@ -86,7 +86,7 @@ pnpm 的 content-addressable store + hardlink 已经很高效。ngm 的 vendor �
 | commit 锁定 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 内容摘要（archiveDigest） | ✗ | partial（checksum） | ✓（checksum） | ✓（lockfile integrity） | ✓（integrity） | ✓（规范化清单，ADR-008） |
 | 漂移复核（ref 层） | ✗ | partial | partial（仅 lock 一致性） | ✗ | ✗ | ✓（区分预期/非预期） |
-| Git 依赖漏洞扫描 | ✗（面向 registry） | ✗（面向 registry） | ✗（面向 registry） | ✗（面向 registry） | ✗ | planned (v0.2)（OSV 按 commit，覆盖率有限） |
+| Git 依赖漏洞扫描 | ✗（面向 registry） | ✗（面向 registry） | ✗（面向 registry） | ✗（面向 registry） | ✗ | done (v0.2)（`ngm audit`，OSV 按 commit 查询，覆盖率有限） |
 | postinstall 控制 | partial（`--ignore-scripts`） | ✓（onlyBuiltDependencies） | partial | partial（trustedDependencies） | ✓（default deny） | ✓（默认 deny） |
 
 > 覆盖矩阵为 2026-09 的实现观察，细节以各官方文档为准。这张表是 ngm"流程闭环"差异化论据的事实来源：单项控制点大多不独有，但没有任何竞品把它们收束为同一默认流程。
@@ -111,7 +111,8 @@ ngm 的潜在价值在于**流程闭环**和**共享状态模型**：
 2. **core 用 Go**，宿主运行时支持 Node/Deno
 3. **所有引擎通过 adapter 调用外部工具**，不自研追赶
 4. **差异化在流程闭环**，不在单项性能
-5. **先窄后宽**：v0.1 只做依赖可证明性，v0.2 做供应链完整，v0.3 做引擎生态
+5. **先窄后宽**：v0.1 只做依赖可证明性，v0.2 做供应链完整，v0.3 做引擎生态，v0.4 收敛验证
+   （**"后续探索"里的方向——多语言 Git 依赖、SBOM 导出等——均未承诺，暂缓**）
 
 ---
 

@@ -1,7 +1,8 @@
 # 路线图
 
-> ngm 的产品路线。**v0.1 与 v0.2 均已实现**（证据见 [v0.1 复盘](../development/v0.1-retrospective.md) 与
-> [v0.2 复盘](../development/v0.2-retrospective.md)）；**v0.3 及以后仍为规划**。
+> ngm 的产品路线。**v0.1 ~ v0.4 均已交付**（证据见各版[复盘](../development/)；
+> `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布（2026-10-01 补齐后三版；Gitee 侧附件待上传））；
+> **v0.5 开工前复核已完成**（[v0.5 复核](../development/v0.5-review.md)），**v0.5 范围尚未成文**。
 >
 > 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
 
@@ -59,7 +60,7 @@
 | 策略 | minimumReleaseAge、白名单、postInstallPolicy | ✅ 三项均生效；**postInstallPolicy 的执行入口自 v0.3 起存在**（沙箱内、仅 JS 钩子，见 ADR-009 决策 5/5a） |
 | audit | `ngm audit` 命令 + 报告格式化 | ✅ |
 | 可观测性 | why / tree / outdated | ✅ |
-| adapter | tsc / deno / postcss adapter | ✅（deno 需自行声明；真实引擎 CI 覆盖仍是 esbuild，见复盘 §2.2） |
+| adapter | tsc / deno / postcss adapter | ✅（deno 需自行声明。**真引擎 CI 覆盖**：tsc / postcss 自 v0.3，**deno 的 `typeCheck` 自 v0.5**；`deno bundle` 仍等上游脱离实验，见 [v0.5 复核 §挂账](../development/v0.5-review.md)） |
 | CI | `--frozen-lockfile` / `--offline` 模式 | ✅ |
 | （追加） | `verifyOnLock` + verify 性能 | ✅ 已接线；offline 达标、在线差 1.1× |
 
@@ -110,6 +111,27 @@
 
 ---
 
+## v0.5 — 收敛与交付
+
+**目标**：把已经量出来但还剩着的三件事各自推到结论——性能贴着线、ADR-013 翻案条件未判、
+v0.2~v0.4 **三版从未发布**（发行源上只有 `v0.1.0`；**2026-10-01 已补发 GitHub 侧**，
+Gitee 附件待人工上传）。
+
+| 组 | 任务 | 状态 |
+|----|------|------|
+| A | 在线 verify 的 spawn 成本与方差（先立 ADR：`refType=commit` 跳过 `ls-remote`） | 计划 |
+| B | ADR-013 翻案条件的**判定**（新形态探针三平台结果 + 机器比对） | 计划 |
+| C | 权限施加点的机械核对（`read:`/`net:`/`run:`/`env:`，缺断言即失败） | 计划 |
+| D | **v0.2 ~ v0.4 补发布**（打 tag → 重建六平台产物 → 双源核对 `SHA256SUMS`） | ✅ GitHub 侧已完成（3 × 7 附件，2026-10-01）；**Gitee 附件待人工上传** |
+| E | 挂账项：`deno bundle` 固定"实验性警告必须转达"；store/mirror GC 等数据 | 计划 |
+
+> 实施计划见 [v0.5 计划](../development/v0.5-plan.md)；范围来源是
+> [v0.5 开工前复核](../development/v0.5-review.md)（已完成，含逐项证据）。
+> 复核期间**顺手交付**的部分（`ngm transform`、并行哈希、deno `typeCheck` 真引擎覆盖、
+> Deno 2 假失败夹具修复、CI 的 deno 版本对齐声明下限）不计入本版范围，已登记在该复核里。
+
+---
+
 ## 后续探索（不承诺）
 
 | 方向 | 前提 |
@@ -156,4 +178,4 @@ v0.3（引擎生态）
 - [能力矩阵](./capability-matrix.md)
 - [健康度指标](./metrics.md)
 - [模块分解（P0~P8）](../modules/)
-- [开发计划（v0.1 ~ v0.3）](../development/)
+- [开发计划与复盘（v0.1 ~ v0.5）](../development/)

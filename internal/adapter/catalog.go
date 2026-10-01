@@ -20,9 +20,9 @@ const (
 	AdapterEmbed AdapterKind = "embed"
 	// AdapterSubprocess spawn 外部 CLI —— **默认方式**。
 	AdapterSubprocess AdapterKind = "subprocess"
-	// AdapterWasm 在 wasm 运行时内执行（v0.3+，本 build 未实现）。
+	// AdapterWasm 在 wasm 运行时内执行（v0.3 起已实现，见 ADR-011）。
 	AdapterWasm AdapterKind = "wasm"
-	// AdapterRemote 调用远端构建服务（v0.3+，本 build 未实现）。
+	// AdapterRemote 调用远端构建服务——**按决定排除**，不是"还没做"（见 ADR-013）。
 	AdapterRemote AdapterKind = "remote"
 )
 
@@ -46,6 +46,9 @@ const (
 	CatalogVersion = 1
 	// FileName 是引擎清单文件名。
 	FileName = "ngm.engines.json"
+	// ProjectFileName 是项目清单文件名，**只用于提示措辞**（adapter 不读它，
+	// 以免为了一句话引入 adapter → config 的依赖）。
+	ProjectFileName = "ngm.json"
 	// SelfEngineName 是兜底 stub 引擎的名字。
 	SelfEngineName = "self"
 )
@@ -392,7 +395,7 @@ const (
 	IssueSchema IssueKind = "schema"
 	// IssueUnavailable 引擎在本机找不到 → exit 5。
 	IssueUnavailable IssueKind = "unavailable"
-	// IssueUnimplemented adapter 类型本 build 未实现 → exit 5。
+	// IssueUnimplemented 该 adapter 类型在本 build 不可用：`remote` 属**按决定排除**（ADR-013）→ exit 5。
 	IssueUnimplemented IssueKind = "unimplemented"
 	// IssueVersion 清单声明的版本与本机实际版本不一致 → **信息**，退出码 0。
 	//
@@ -458,7 +461,8 @@ func ExitCode(issues []Issue) int {
 // Validate 校验清单的结构与本机可用性。
 //
 // 返回的问题按 (清单顺序) 排列，便于稳定输出与快照。
-// adapter 未实现（wasm / remote）也算问题——清单声明了本 build 做不到的事。
+// 不可用的 adapter 也算问题——清单声明了本 build 做不到的事：`remote` 按决定排除（ADR-013），
+// `embed` 只有 `self` stub（wasm 自 v0.3 起已可用，不再属于这一类）。
 func (c *Catalog) Validate() []Issue {
 	var issues []Issue
 

@@ -128,6 +128,35 @@ Deno 版本门槛**按能力判定，不按版本号**：需要目录级的 `--a
 > 而沙箱真正要走的路径就是"跑一个脚本文件"。第一版探测正是写成了 `-e`，于是在完全够用的
 > 1.45.2 上判定"不支持"，把整个功能挡在门外——探测用别的形式，等于探测了另一件事。
 
+#### 补测（v0.5 复核）：Deno 2.x 上的行为，以及一处"假失败"
+
+上面那条实测只覆盖 1.45.2。v0.5 拿**真实 Deno 2.4.0**（`dvm` 装的，也是 `deno bundle` 的最低版本）
+把沙箱重测了一遍，因为仓库声明的是 "Deno >= 2.0"：
+
+| 事实 | 结论 |
+|------|------|
+| 同一组 argv（`--allow-read=<dir>` + 全部 `--deny-*` + `--no-remote`）在 2.4.0 上 | **边界照样成立**：目录外读取与写入都被拦下 ✓ |
+| 权限错误的 `name` | **`PermissionDenied` → `NotCapable`**（Deno 2 的改名） |
+| `--deny-write` / `--deny-read` / `--deny-net` / `--deny-run` / `--deny-env` / `--no-remote` | 仍被接受、仍生效 ✓ |
+
+**第一行是这次补测最重要的结论**：沙箱本身**没有**在 Deno 2 上失效，
+失效的是**我们的验收夹具**——它们用 `e.name === "PermissionDenied"` 判断"是否被拦下"，
+于是在 2.4.0 上把**已经被正确拦下**的读写报成了 "outside: READABLE" / "write: ALLOWED"。
+
+这类假失败的代价比一次测试失败更大：它把"沙箱坏了"和"错误类名变了"混成同一句话，
+读日志的人会先怀疑安全模型。因此处置分两步，两步都做了：
+
+1. 夹具改为**同时接受两种类名**，并把实际类名打进输出（`blocked (NotCapable)`）——
+   下一次改名会一眼可见，而不是又花一轮去猜。（`sandbox_acceptance_test.go`、
+   `postinstall_acceptance_test.go`、`audit_hook_acceptance_test.go`、`internal/security/sandbox_test.go`）
+2. 顺带修掉一处**弱断言**：`TestSandbox_RealDeno_NetOnlyWhenGranted` 的第二个子用例原本只断言
+   "不含 blocked"，而类名改名后"权限被拒"会落到另一个分支——也就是说它会**因为错误的原因通过**。
+   现在它断言正面事实（`not-a-permission-error`）。
+
+> **为什么它藏了这么久**：CI 此前装的是 `deno-version: v1.x`，而仓库声明的下限是 **Deno >= 2.0**——
+> 声明了的下限从未被验证过。这不违反"按能力探测"（那说的是 ngm 的判定方式），
+> 但它违反"声明即须验证"。ci.yml 已改为 **2.4.0**（本地实测过的版本），并写明升级要有意为之。
+
 ### 7. 与默认 verify 的关系
 
 `--sandbox` **只追加**"依赖自检"这一层，不改变任何既有判定：同一份漂移结论、同一份 digest 结论。

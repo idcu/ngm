@@ -145,7 +145,9 @@ ngm verify --sandbox
 
 ### 沙箱内不可做的事（实测确认）
 
-- 读 `~/.ssh/` 或 `~/.git-credentials`（允许目录之外的一切读取都被 `PermissionDenied` 拦下）
+- 读 `~/.ssh/` 或 `~/.git-credentials`（允许目录之外的一切读取都被权限错误拦下：
+  Deno 1.x 叫 `PermissionDenied`，Deno 2.x 叫 `NotCapable`——**两个名字都实测过**，
+  见 [ADR-012 补测](../adr/adr-012-sandbox.md)）
 - 访问网络（除非显式授予该 host）
 - 派生任何子进程
 - 读任何环境变量
