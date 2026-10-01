@@ -157,6 +157,10 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 - 进入 v0.3 前，先完成 v0.2 复盘：逐条对验收标准给证据、登记设计偏离与未达标项
   - ✅ 已完成：[v0.2 复盘](./v0.2-retrospective.md)（六组全部实现；在线 `verify` 差 1.1×；
     6 条设计偏离、6 处已修缺陷；其中 4 处是靠"做完之后再验证一次"发现的）
+- 进入 v0.4 前，先完成 v0.3 复盘：同上（逐条给证据、登记设计偏离与**未结项**）
+  - ✅ 已完成：[v0.3 复盘](./v0.3-retrospective.md)（五组交付项全部结项；`remote` 经
+    [ADR-013](../adr/adr-013-remote-adapter.md) 决定不发布；11 条设计偏离、8 处已修缺陷——
+    其中 2 处在**已发布代码**里；1 项未结项：沙箱自述文件签名检查）
 
 ---
 
@@ -182,7 +186,7 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md)
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）

@@ -72,18 +72,22 @@
 
 **目标**：让 ngm 能接入主流构建工具。
 
-| 模块 | 任务 |
-|------|------|
-| adapter | ~~wasm adapter~~（v0.3 已完成）；remote adapter **已排除**（[ADR-013](../adr/adr-013-remote-adapter.md)） |
-| 集成 | Vite / esbuild / Deno / Webpack 集成脚手架 |
-| sandbox | Deno 沙箱模式（**`postInstallPolicy` 执行入口的前置**） |
-| 凭证 | `~/.ngm/config.json` 权限管理 |
-| mappings | v2 协议（支持 monorepo） |
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| adapter | wasm adapter | ✅（[ADR-011](../adr/adr-011-wasm-runtime.md)：wazero v1.9.0 + WASI，argv / 产物 / 退出码同 subprocess） |
+| adapter | remote adapter | ❌ **已决定不发布**（[ADR-013](../adr/adr-013-remote-adapter.md)：产物无法被用户本地证明） |
+| 集成 | Vite / esbuild / Deno / Webpack 集成脚手架 | ✅（含 tsconfig `paths`；真 esbuild / tsc 验收） |
+| sandbox | Deno 沙箱模式（**`postInstallPolicy` 执行入口的前置**） | ✅（[ADR-012](../adr/adr-012-sandbox.md)；postinstall 与 audit hook 已在沙箱内执行） |
+| 凭证 | `~/.ngm/config.json` 权限管理 | ✅（`read:`/`write:`/`net:`/`run:`/`env:` 全部**真的施加**） |
+| mappings | monorepo 子路径（可选 `path`，**版本号保持 1**） | ✅（[P4](../modules/p4-ecosystem.md)） |
 
-> **候选（不构成承诺）**：[v0.2 复盘 §6](../development/v0.2-retrospective.md) 按证据强度列出
-> 惰性 fetch（在线 `verify` 达标的唯一已知途径）、`refType=commit` 跳过 `ls-remote`、
-> 真实引擎 CI 覆盖扩展到 tsc / postcss、单依赖内并行哈希。
-> 前两项会改变"在线 verify 意味着什么"的语义，**须先立 ADR**。
+> **验收与实测**见 [v0.3 实施计划](../development/v0.3-plan.md) 与
+> [v0.3 复盘](../development/v0.3-retrospective.md)（11 条设计偏离、8 处已修缺陷——
+> 其中 2 处在已发布代码里；1 项未结项：沙箱自述文件签名检查）。
+
+> **候选（不构成承诺）**：[v0.3 复盘 §6](../development/v0.3-retrospective.md) 按证据强度列出
+> 自述文件签名检查、可复现构建、deno 真引擎覆盖、单依赖内并行哈希。
+> `remote` adapter **不再列为候选**——它的翻案条件是"产物可复现且用户能抽样本地复现"。
 
 ---
 
@@ -93,7 +97,7 @@
 |------|------|
 | 多语言 Git 依赖（Go/Rust/Python） | JS/TS 场景证明可行 |
 | 自研 transformer（兜底） | subprocess 有不可接受短板 |
-| 远程构建缓存 | 企业级需求 |
+| 远程构建缓存 | 企业级需求；**须先回答 [ADR-013](../adr/adr-013-remote-adapter.md) 的第 2 问**（把源码送出本机后，产物如何被本地证明） |
 | SBOM 导出（SPDX/CycloneDX） | 合规需求 |
 
 ---
