@@ -137,7 +137,11 @@ if (rows.length < 2) {
 }
 
 // 第 3 层：引擎版本必须一致。跨版本比字节没有意义（探针头部也写了这条）。
-for (const key of ["esbuild", "tsc"]) {
+//
+// node 也在这一层：插件形态走的是 esbuild 的 **JS API**，脚本由 node 执行。
+// 它在结果里一直印着（v0.5 第一次跑就显示 macOS 是 v22.23.2、Linux 是 v22.23.3），
+// 但当时**没有任何一层看它**——印出来不等于被检查。
+for (const key of ["esbuild", "tsc", "node"]) {
   const seen = new Map();
   for (const r of rows) {
     const v = r[key];

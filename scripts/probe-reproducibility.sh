@@ -251,6 +251,11 @@ build_all() {
       --minify --outfile=dist/css/app.min.css
     # 插件 + metafile（JS API）：Vite / Astro 走的就是这条路
     run_form esbuild-plugin dist/plugin node "$WORK/tools/plugin-build.cjs" "$dir"
+    # 再把这个形态**拆成两个文件**分别记一笔：整形态不同时，下一步该查的是
+    # "产物不同"还是"metafile 的路径内容不同"——这两件事的处置完全不同，
+    # 而它们长得一样（都是"插件形态的哈希变了"）。
+    printf 'plugin.appjs=%s;' "$(hash_tree dist/plugin/app.js)" >> "$forms"
+    printf 'plugin.metapaths=%s;' "$(hash_tree dist/plugin/meta.paths.json)" >> "$forms"
   )
 }
 
