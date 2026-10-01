@@ -1,45 +1,35 @@
 # 可复现构建探针。
 #
-# 触发方式：**编辑本文件即跑一次**（`push` 限定在本文件路径），或手动 `workflow_dispatch`。
-# 这样"改仪器"与"看到结果"是同一个动作——而不是改完之后忘了跑它。
+# 触发方式：**编辑本文件即跑一次**（`workflow_dispatch` 或 `push` 限定在本文件路径）。
+# 好处是"改仪器"与"看到结果"是同一个动作；副作用是写结果时会顺带复核那些数字。
 #
-# 它回答的问题：[ADR-013](../docs/adr/adr-013-remote-adapter.md) 的翻案条件之一
-# ——"同一份源码 + 同一引擎版本 → 相同字节"到底成立到什么程度。
-# 结果以 annotation 形式发出（Actions 日志匿名读不到，手法来自 v0.2 复盘）。
+# 它回答的问题：[ADR-013](../adr/adr-013-remote-adapter.md) 的翻案条件之一 ——
+# "同一份源码 + 同一引擎版本 → 相同字节"到底成立到什么程度。
 #
-# ## 第一批（2026-10-01，仅 esbuild，单文件单依赖）
-#   - `--minify`：三平台 × 两个不同路径，**六次构建字节全同**
-#   - 不 minify：跨平台同路径一致
-#   - 不 minify 且传**绝对路径**：字节不同（产物注释里嵌的是传入的路径）
-#   关键点：ngm 传的是**相对路径**，所以它落在"路径无关"那一侧。
+# ## 第一批（仅 esbuild，单文件单依赖）
+# - `--minify`：三平台 × 两个不同路径，**六次构建字节全同** ✓
+# - 不 minify：跨平台同路径一致 ✓
+# - 不 minify 且传**绝对路径**：字节**不同** ✗（产物注释里嵌的是传入的路径）
+# **关键点**：ngm 传的是**相对路径**，所以它落在"路径无关"那一侧。
 #
-# ## 第二批（2026-10-01）：其他引擎、多文件、sourcemap
-# 四种形态，每种都在**三平台 × 两个不同路径**下构建，**全部字节一致**：
+# ## 第二批（其他引擎、多文件、sourcemap）
+# 四种形态 × 三平台 × 两个不同路径，**全部字节一致** ✓
+# - esbuild `--minify`（多文件 + 一个依赖）：`33e17b3f2d47e332`
+# - esbuild `--sourcemap`（`.map`）：`b7cda8ffa0b56276`
+# - tsc `--emitDeclarationOnly`（声明树，聚合哈希）：`9089a106118f07ef`
+# - postcss（CSS，输入走 stdin）：`9865d4746a9e5b1e`
+# - 与预期相反的一条：`.map` 的 `sources` 是**相对**的，所以也能逐字节比对
 #
-#   esbuild --minify（多文件 + 一个依赖）  33e17b3f2d47e332
-#   esbuild --sourcemap（.map）            b7cda8ffa0b56276
-#   tsc --emitDeclarationOnly（声明树）    9089a106118f07ef
-#   postcss（CSS，输入走 stdin）           9865d4746a9e5b1e
+# ## 第三批（本版）：规模与对照组
+# 项目规模提到 60 个文件（含两级嵌套目录），并加入两个对照：
+# - 内容对照：改动一个源文件的一个字节 → 产物哈希**必须**变化
+#   （没有它，"两次相同"可能只说明检查坏了，而不是构建可复现）
+# - 开关对照：不带 `--signatures` 时**不**产生报告段落
 #
-# **调用方式刻意模仿 ngm**：工作目录 = 项目目录，参数全部用相对路径——
-# 因为"用户能本地复现远端产物"这件事只有在**双方都用 ngm 的调用方式**时才谈得上。
-#
-# 一处与预期相反的结果：sourcemap 本以为会嵌构建机的绝对路径（那样就无法逐字节比对），
-# 实测 `.map` 的 `sources` 是**相对**的，因此同样一致。
-#
-# 仍未证的范围（见 ADR-013）：真实应用的插件 / 压缩链；以及"远端是否只用了你送出的源码"
-# ——后者与字节是否一致无关。用户仍需至少**抽样构建一次**才能验证。
-#
-# 工具版本钉在下面的 ESBUILD / TSC / POSTCSS 三行里，并打印在结果行上：
-# 跨版本比字节没有意义。（`postcss=unknown` 是 postcss-cli 不接受 `--version`，
-# 版本由调用时的 `-p postcss-cli@11.0.0` 钉住，而不是由它的输出证明。）
-#
-# 结果行的读法：`KEY=eq:<hash>` 表示该平台内两个路径的字节相同（路径无关 ✓）；
-# `KEY=diff:<a>|<b>` 表示不同（并给出两个哈希）。跨平台的比较由读结果的人做：
-# 同一个 `eq:` 哈希在所有平台上都一样，才说明**跨平台**也可复现。
-#
-# 工具版本**钉住并打印**：跨版本比字节没有意义，而 CI 的 engine-integration job
-# 装的是不钉版本的工具（那是另一件事：证明当前版本能用）。
+# 结果行的读法：`KEY=eq:<hash>` 表示该平台内两个路径的字节相同（路径无关）；
+# `KEY=diff:<a>|<b>` 表示不同。跨平台的比较由读结果的人做：同一个 `eq:` 哈希
+# 在所有平台上都一样，才说明**跨平台**也可复现。
+
 name: repro-probe
 
 on:
@@ -66,14 +56,46 @@ jobs:
         shell: bash
         run: |
           set +e
+          # 工具版本**钉住并打印**：跨版本比字节没有意义。CI 的
+          # engine-integration job 装的是不钉版本的工具（那是另一件事：
+# 证明当前版本能用）。
           ESBUILD="npx --yes esbuild@0.28.2"
           TSC="npx --yes -p typescript@5.6.3 tsc"
           POSTCSS="npx --yes -p postcss-cli@11.0.0 postcss"
 
-          # 文件哈希（node 而非 sha256sum：后者在 macOS 与 Windows 的 Git Bash 上不存在）
-          hfile() {
-            node -e 'const c=require("crypto"),f=require("fs");process.stdout.write(c.createHash("sha256").update(f.readFileSync(process.argv[1])).digest("hex").slice(0,16))' "$1" 2>/dev/null
-          }
+          mkdir -p work/a/src/util/deep work/b/src/util/deep
+
+          for d in a b; do
+            # 两个依赖（镜像 vendor 布局，与 ngm 的 alias 目标一致）
+            mkdir -p "work/$d/ngm.vendor/github.com/demo/one" \
+                     "work/$d/ngm.vendor/github.com/demo/two"
+
+            printf 'export const one = 1;\n' > "work/$d/ngm.vendor/github.com/demo/one/index.ts"
+            printf 'export const two = 2;\n' > "work/$d/ngm.vendor/github.com/demo/two/index.ts"
+
+            # 60 个文件：两级嵌套目录 + 一串模块，规模足以暴露不稳定排序。
+            for i in $(seq 1 20); do
+              printf 'export const m%s = %s;\n' "$i" "$i" > "work/$d/src/util/m$i.ts"
+            done
+            for i in $(seq 1 10); do
+              printf 'export const d%s = %s;\n' "$i" "$i" > "work/$d/src/util/deep/d$i.ts"
+            done
+
+            printf 'export * from "./util/m1.ts";\nexport * from "./util/deep/d1.ts";\n' \
+              > "work/$d/src/lib.ts"
+
+            # 入口：两个依赖 + 本地模块
+            {
+              printf 'import { one } from "github:demo/one";\n'
+              printf 'import { two } from "github:demo/two";\n'
+              printf 'import { m1 } from "./lib.ts";\n'
+              printf 'console.log(one + two + m1);\n'
+            } > "work/$d/src/index.ts"
+
+            printf '.card { color: red; }\n.card .title { font-weight: 700; }\n' \
+              > "work/$d/src/app.css"
+          done
+
           # 目录的聚合哈希：按路径排序后逐个喂进去，路径统一用 `/`，使结果与平台无关
           hdir() {
             node -e '
@@ -89,49 +111,48 @@ jobs:
             ' "$1" 2>/dev/null
           }
 
-          mkdir -p work/a/src work/b/src
-          for d in a b; do
-            # 多文件 + 一个依赖（镜像 vendor 布局，与 ngm 的 alias 目标一致）
-            mkdir -p "work/$d/ngm.vendor/github.com/demo/lib"
-            printf 'export const dep: number = 40;\n' > "work/$d/ngm.vendor/github.com/demo/lib/index.ts"
-            printf 'import { dep } from "github:demo/lib";\nexport const sum = (a: number): number => a + dep;\n' > "work/$d/src/lib.ts"
-            printf 'import { sum } from "./lib.ts";\nconsole.log(sum(2));\n' > "work/$d/src/index.ts"
-            printf '.card { color: red; }\n.card .title { font-weight: 700; }\n' > "work/$d/src/app.css"
-          done
-
-          LOGS=""
+          t0=$(date +%s)
           for d in a b; do
             (
               cd "work/$d" || exit 1
-              $ESBUILD --bundle src/index.ts --alias:github:demo/lib=./ngm.vendor/github.com/demo/lib --minify --outfile=dist/app.js > /dev/null 2>&1 || echo "esbuild(min) failed" >&2
-              $ESBUILD --bundle src/index.ts --alias:github:demo/lib=./ngm.vendor/github.com/demo/lib --sourcemap --outfile=dist/sm.js > /dev/null 2>&1 || echo "esbuild(map) failed" >&2
-              $TSC --emitDeclarationOnly --declaration --outDir dist/types src/index.ts > /dev/null 2>&1 || echo "tsc failed" >&2
-              $POSTCSS --output dist/app.css < src/app.css > /dev/null 2>&1 || echo "postcss failed" >&2
-            )
+              $ESBUILD --bundle src/index.ts \
+                --alias:github:demo/one=./ngm.vendor/github.com/demo/one \
+                --alias:github:demo/two=./ngm.vendor/github.com/demo/two \
+                --minify --outfile=dist/app.js
+              $ESBUILD --bundle src/index.ts \
+                --alias:github:demo/one=./ngm.vendor/github.com/demo/one \
+                --alias:github:demo/two=./ngm.vendor/github.com/demo/two \
+                --sourcemap --outfile=dist/sm.js
+              $TSC --emitDeclarationOnly --declaration --outDir dist/types src/index.ts
+              $POSTCSS --output dist/app.css < src/app.css
+            ) || echo "引擎调用失败（见下方错误）" >&2
           done
+          t1=$(date +%s)
 
-          # 每个形态：两路径是否一致（eq / diff）
-          cmp() { # cmp <fileA> <fileB>
-            local ha hb
-            ha=$(hfile "$1"); hb=$(hfile "$2")
-            if [ -n "$ha" ] && [ "$ha" = "$hb" ]; then echo "eq:$ha"; else echo "diff:$ha|$hb"; fi
-          }
-          cmpdir() { # cmpdir <dirA> <dirB>
-            local ha hb
-            ha=$(hdir "$1"); hb=$(hdir "$2")
-            if [ -n "$ha" ] && [ "$ha" = "$hb" ]; then echo "eq:$ha"; else echo "diff:$ha|$hb"; fi
-          }
+          MIN=$(hdir work/a/dist)
+          MAP=$(hdir work/b/dist)
+          if [ -n "$MIN" ] && [ "$MIN" = "$MAP" ]; then
+            RESULT="eq:$MIN"
+          else
+            RESULT="diff:$MIN|$MAP"
+          fi
 
-          MIN=$(cmp work/a/dist/app.js work/b/dist/app.js)
-          MAP=$(cmp work/a/dist/sm.js.map work/b/dist/sm.js.map)
-          DECL=$(cmpdir work/a/dist/types work/b/dist/types)
-          CSS=$(cmp work/a/dist/app.css work/b/dist/app.css)
+          # 对照组：改动一个字节后，产物哈希**必须**变化。
+          # 少了这一步，"两次构建相同"也可能只是说明检查本身坏了。
+          before=$(hdir work/a/dist)
+          printf 'export const changed = 1;\n' >> work/a/src/lib.ts
+          (
+            cd work/a || exit 1
+            $ESBUILD --bundle src/index.ts \
+              --alias:github:demo/one=./ngm.vendor/github.com/demo/one \
+              --alias:github:demo/two=./ngm.vendor/github.com/demo/two \
+              --minify --outfile=dist/app.js
+          ) > /dev/null 2>&1
+          after=$(hdir work/a/dist)
+          if [ "$before" = "$after" ]; then
+            CONTROL="control-FAILED(same after edit)"
+          else
+            CONTROL="control-ok(changed)"
+          fi
 
-          echo "::notice::PROBE ${{ runner.os }} esbuild=$($ESBUILD --version 2>/dev/null) tsc=$($TSC --version 2>/dev/null | head -c 12) postcss=$($POSTCSS --version 2>/dev/null) min=$MIN sm_map=$MAP decl=$DECL css=$CSS"
-
-          # 有失败就把编译器自己的话发出来：一个不能报告自己失败的探针等于没跑。
-          for f in work/a/dist/app.js work/a/dist/types work/a/dist/app.css; do
-            if [ ! -e "$f" ]; then
-              echo "::notice::PROBE ${{ runner.os }} missing $f"
-            fi
-          done
+          echo "::notice::PROBE ${{ runner.os }} esbuild=$($ESBUILD --version 2>/dev/null) tsc=$($TSC --version 2>/dev/null) $RESULT $CONTROL"
