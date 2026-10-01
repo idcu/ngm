@@ -93,6 +93,23 @@
 
 ---
 
+## v0.4 — 验证与收敛
+
+**目标**：把上一版留下来的开放问题收敛掉，并把"人工纪律"换成机器检查。
+
+| 模块 | 任务 | 状态 |
+|------|------|------|
+| 配置 | 端到端断言：每个配置键真的被读过 | ✅ `TestConfigKeysAreExercisedByTests`（首次运行即抓到第 4 例缺陷 ✓） |
+| 引擎 | `ngm typedecl`：给 typeDecl 能力一个入口 | ✅ + **真 tsc** 验收 ✓ |
+| verify | `--signatures` / `--require-signed` | ✅（ADR-014 决策 3）✓ |
+| adapter | remote adapter | ❌ **已决定不发布**（[ADR-013](../adr/adr-013-remote-adapter.md)） |
+
+> **验收与实测**见 [v0.4 计划](../development/v0.4-plan.md) 与 [v0.4 复盘](../development/v0.4-retrospective.md)。
+> v0.3 计划里最后一个未打勾的框（沙箱自述文件签名检查）由 [ADR-014](../adr/adr-014-self-report-signatures.md)
+> 以"决定不做"结项 ✓；并在同一份 ADR 里记下 ADR-013 翻案条件的实测进展 ✓。
+
+---
+
 ## 后续探索（不承诺）
 
 | 方向 | 前提 |
