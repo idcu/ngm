@@ -8,7 +8,9 @@
 #   - `--minify` 时路径注释被去掉 → 换目录字节一致
 # 因此剩下要测的是**跨平台**。
 #
-# 结果以 `::notice::` 发出（匿名 API 可读 annotations，见 v0.2 复盘）。
+# 第一版探针三平台全红、且没有发出任何 notice——失败发生在报告之前，而
+# Actions 日志匿名读不到。因此这一版把**整段执行输出**（含失败）收进
+# annotation：探测失败本身也必须可读，否则等于什么都没测。
 name: repro-probe (temporary)
 
 on:
@@ -30,31 +32,39 @@ jobs:
         with:
           node-version: '22'
 
-      # 版本必须钉住：跨版本比较字节没有意义。
-      - name: install a pinned esbuild
-        shell: bash
-        run: npm install -g esbuild@0.28.2
-
-      - name: build the same source in two different paths
+      # 全程 `set +e` + 把输出收进变量：任何一步失败都要变成可读的 annotation，
+      # 而不是一个"exit code 1"。
+      - name: probe
         shell: bash
         run: |
-          set -eu
-          for d in a bbbb-longer-directory-name; do
-            mkdir -p "probe/$d/src" "probe/$d/lang"
-            printf 'export const x: number = 41 + 1;\n' > "probe/$d/lang/index.ts"
-            printf 'import { x } from "./lang";\nconsole.log(x);\n' > "probe/$d/src/index.ts"
-          done
+          set +e
+          OUT=$(
+            set -x
+            ESB="npx --yes esbuild@0.28.2"
 
-          for d in a bbbb-longer-directory-name; do
-            esbuild --bundle "probe/$d/src/index.ts" --minify --outfile="probe/$d/min.js"
-          done
-          esbuild --bundle probe/a/src/index.ts --outfile=probe/a/plain.js
+            for d in a bbbb-longer-directory-name; do
+              mkdir -p "probe/$d/src" "probe/$d/lang"
+              printf 'export const x: number = 41 + 1;\n' > "probe/$d/lang/index.ts"
+              printf 'import { x } from "./lang";\nconsole.log(x);\n' > "probe/$d/src/index.ts"
+            done
 
-      - name: report the hashes
-        shell: bash
-        run: |
-          set -eu
-          h() { sha256sum "$1" | cut -c1-16; }
-          echo "::notice::PROBE os=${{ runner.os }} minified_path_a=$(h probe/a/min.js) minified_path_b=$(h probe/bbbb-longer-directory-name/min.js) plain_path_a=$(h probe/a/plain.js)"
-          echo "--- plain (not minified) output: does it embed the path? ---"
-          grep -c 'probe' probe/a/plain.js || true
+            $ESB --version
+            for d in a bbbb-longer-directory-name; do
+              $ESB --bundle "probe/$d/src/index.ts" --minify --outfile="probe/$d/min.js"
+            done
+            $ESB --bundle probe/a/src/index.ts --outfile=probe/a/plain.js
+
+            # 哈希用 node 算：sha256sum 在 macOS / Windows 的 Git Bash 上不存在。
+            for f in probe/a/min.js probe/bbbb-longer-directory-name/min.js probe/a/plain.js; do
+              node -e "const c=require('crypto'),f=require('fs');console.log('HASH',process.argv[1],c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "$f"
+            done
+            echo "PLAIN_CONTAINS_PATH=$(grep -c 'probe/' probe/a/plain.js)"
+            echo "MIN_CONTAINS_PATH=$(grep -c 'probe/' probe/a/min.js)"
+          )
+          echo "=== 输出开始 ==="
+          echo "$OUT"
+          echo "=== 输出结束 ==="
+          # 逐行发成 annotation（匿名 API 可读，见 v0.2 复盘）。
+          printf '%s\n' "$OUT" | tail -60 | while IFS= read -r line; do
+            echo "::notice::PROBE ${{ runner.os }} | $line"
+          done
