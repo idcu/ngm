@@ -179,18 +179,20 @@ NGM_BENCH=1 go test -count=1 -run TestBaseline -v ./cmd/ngm
 - `ngm transform`：补上最后一处"有能力、无入口"，并修掉一处会**静默丢弃** `--format` / `--minify` /
   `--sourcemap` 的协议缺陷
 
-### v0.6（计划：[v0.6-plan.md](./v0.6-plan.md)，**实施中**）
+### v0.6（计划：[v0.6-plan.md](./v0.6-plan.md) / **复盘：[v0.6-retrospective.md](./v0.6-retrospective.md)**）
+
+**已交付**（两处未完成都不是工程：缺凭据、读不到 CI）。
 
 v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了或数据不够**"：3s 目标在噪声里
 不可判别、可复现性只证到合成夹具、GC 缺磁盘数据。**v0.6 补的是可判别性**：
 
 | 组 | 内容 | 状态 |
 |----|------|------|
-| A | 真实项目形态的可复现证据（[ADR-017](../adr/adr-017-remote-adapter-release-decision.md) 门槛 a） | 进行中 |
+| A | 真实项目形态的可复现证据（[ADR-017](../adr/adr-017-remote-adapter-release-decision.md) 门槛 a） | ⚠️ **本机已证**（10 形态 × 20 轮全稳定）；**跨机器未取得**（读不到 CI） |
 | B | **spawn 预算**：把"次数优先于秒数"变成 CI 门禁 | ✅ **已交付**（开门第一天抓到一次**记账错误**：v0.5 C 组的重复记账让数字虚高 1/依赖） |
 | C | store / mirror 的磁盘增长数据（只测不做，为 GC 排期提供数据） | ✅ **已交付**（**160.2 KiB/commit**，是源码真实增量的 **20×**；结论：做 GC，但下一步是 ADR 而不是代码） |
 | D | Gitee 附件补传（把手工步骤降到一条命令） | ⚠️ **工具已就绪**（一条命令 + `-DryRun` 预检；已验无 token/坏 tag 明确失败）；**实际传入仍需 `GITEE_TOKEN`** |
-| E | 挂账：`deno bundle` 等上游 | 计划 |
+| E | 挂账：`deno bundle` 等上游 | ✅ 已核查（条件未变；**间接证据**，见[复盘](./v0.6-retrospective.md) §1.5） |
 
 > 本版**先行完成**的一项：[ADR-017](../adr/adr-017-remote-adapter-release-decision.md)
 > —— remote adapter 的发布决策（结论仍不发布，但把剩下的问题写成可判定的门槛）。
@@ -308,7 +310,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.5 复核](./v0.5-review.md)
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）
