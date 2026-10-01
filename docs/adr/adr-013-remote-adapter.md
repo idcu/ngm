@@ -266,7 +266,11 @@ REPRODUCIBLE ACROSS MACHINES: 3 platform(s) agree on treeA=7412c584ca107988
 **结论：仍是不发布，但理由的构成变了。** 翻案条件第 1 条的**技术前提**（某个真实引擎的产物可复现）
 现在有实测支撑；剩下的是产品问题——**用户是否愿意为了一次远端构建而在本地抽样构建一遍**，
 以及"合成夹具 vs 真实项目"这道差距。按纪律，**发布与否是一个新决策，必须另立 ADR 修订本文件**，
-而不是在这里顺手翻案（本 ADR 第 3 条决策）。这一条已登记为 v0.5 的收尾项。
+而不是在这里顺手翻案（本 ADR 第 3 条决策）。
+
+> **已办**：[ADR-017](./adr-017-remote-adapter-release-decision.md)（2026-10-02）承接了这个动作，
+> 结论仍是**不发布**，但把剩下的两个问题写成了**可判定的门槛**（真实形态的可复现证据 +
+> 抽样构建的成本数字），并写明两条都成立**也不自动发布**。本文件作为决策快照保持不动。
 
 ---
 
@@ -283,6 +287,7 @@ REPRODUCIBLE ACROSS MACHINES: 3 platform(s) agree on treeA=7412c584ca107988
 
 ## 相关文档
 
+- [ADR-017 remote adapter 的发布决策](./adr-017-remote-adapter-release-decision.md)（对本文件的修订，2026-10-02）
 - [ADR-002 为什么直接拉 Git 仓库](./adr-002-git-direct.md) / [ADR-003 为什么纯 vendor 目录](./adr-003-vendor.md)
 - [ADR-008 archiveDigest 的定义](./adr-008-archive-digest.md) / [ADR-009 供应链策略的执行时机与失败语义](./adr-009-supply-chain-policy.md)
 - [安全模型](../architecture/security-model.md) / [引擎与 adapter](../architecture/engine-adapter.md)
