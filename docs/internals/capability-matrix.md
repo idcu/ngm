@@ -13,7 +13,7 @@
 |------|---------|--------|---------|------|
 | Git 拉取 | 4 种协议归一化 | done (v0.1) | npm/pnpm/Yarn 都支持 | ngm 的 refType 是增量 |
 | 依赖锁定 | refType + commit + digest | done (v0.1) | npm 记录 commit | ngm 的 archiveDigest 是增量 |
-| vendor 落地 | 4 层模型 | done (v0.1) | pnpm content store | ngm 强调可审计/可提交 |
+| vendor 落地 | 4 层模型 | done (v0.1) | pnpm content store | ngm 强调可审计/可提交。**一处对 ngm 不利的差别（v0.6 实测）**：层 2 按**整棵树**寻址（`content/sha256/<digest>/tree/`），跨 commit **不去重**——pnpm 的 store 按**文件**寻址。实测每 commit 复制一整棵树（源码真实增量的 **20×**），且层 2 **没有任何人回收**（层 1 有 `git gc`）。见 [metrics · 磁盘增长](../internals/metrics.md#磁盘增长内容寻址-storev06) |
 | ref 漂移检测 | verify | done (v0.1) | Yarn immutable | ngm 区分预期/非预期 |
 | 供应链门禁 | JSON-first 策略 | done (v0.2)；**postinstall 入口 done (v0.3)** | pnpm/Deno/npm | 白名单与 minimumReleaseAge 生效；postinstall 只在沙箱内、只跑 JS 钩子（[ADR-009](../adr/adr-009-supply-chain-policy.md)） |
 | OSV 集成 | audit | done (v0.2) | npm/yarn audit | **按 commit 查询**，而非按版本 |
