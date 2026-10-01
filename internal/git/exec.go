@@ -75,23 +75,16 @@ type Result struct {
 func Run(ctx context.Context, opts Options, args ...string) (*Result, error) {
 	// 权限门禁在**启动之前**：拒绝 `run:git` 时不该留下任何副作用，
 	// 也不该让用户从"git 失败了"去猜"其实是我的配置不允许执行它"。
-	if opts.Policy != nil {
-		if err := opts.Policy.CheckRun("git"); err != nil {
-			return &Result{ExitCode: -1}, err
-		}
+	// 门禁与计数都在 newGitCommand 里（唯一的构造点）。
+	cmd, cerr := newGitCommand(ctx, opts, opts.Dir, args...)
+	if cerr != nil {
+		return &Result{ExitCode: -1}, cerr
 	}
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if opts.Dir != "" {
-		cmd.Dir = opts.Dir
-	}
-	cmd.Env = buildEnv(opts)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	noteSpawn()
 	err := cmd.Run()
 	res := &Result{
 		Stdout:   stdout.Bytes(),

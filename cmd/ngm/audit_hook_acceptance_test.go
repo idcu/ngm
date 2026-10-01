@@ -16,7 +16,7 @@ import (
 // 与 v0.2 的 audit 验收同一套做法：测试不依赖公网，端点由 NGM_OSV_URL 注入。
 func v3AuditProject(t *testing.T, osvBody string) string {
 	t.Helper()
-	isolateUserEnv(t)
+	home := isolateUserEnv(t)
 
 	scUpstream(t, "github:v3/audit", "export const a = 1\n", "")
 	proj := newProject(t)
@@ -33,6 +33,8 @@ func v3AuditProject(t *testing.T, osvBody string) string {
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("NGM_OSV_URL", srv.URL)
+	// 替身的主机要显式授权：`net:` 默认"需配置"（v0.5 C 组补齐了 OSV 的门禁）
+	grantNetFor(t, home, srv)
 
 	return proj
 }

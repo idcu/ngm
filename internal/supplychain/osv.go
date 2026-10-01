@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,6 +62,20 @@ type OSVConfig struct {
 	NoCache bool
 	// Now 用于测试；为空时用 time.Now。
 	Now func() time.Time
+
+	// CheckNet 在**发起请求之前**判定 `net:<host>` 权限。
+	//
+	// 为什么放在这里而不是调用方（v0.5 C 组）：只有本函数知道最终要访问哪个主机
+	// （BaseURL 可被覆盖，测试指向 httptest 时主机是 127.0.0.1）。放在调用方
+	// 就会出现"判定的主机与实际访问的主机不是同一个"这种漏洞——
+	// 而那正是门禁类改动最容易留下的形态。
+	//
+	// **只在实际要发请求时判定**：命中缓存与 `--offline` 都不碰网络，因此都不需要
+	// `net:` 权限（与"本地 mirror 不算网络访问"同一条纪律）。
+	//
+	// nil 表示调用方没有可用的判定器：本函数不替它假设，直接放行。
+	// cmd/ngm 永远传入真实策略（配置读不出来时也是更严的那一侧）。
+	CheckNet func(host string) error
 }
 
 // cacheEnvelope 是缓存文件的结构。
@@ -114,10 +129,40 @@ func QueryOSV(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, error)
 	return vulns, nil
 }
 
+// hostOf 取出端点 URL 的主机名，供 `net:` 判定使用。
+//
+// 取不到主机名时**不继续**：拿不到就意味着门禁无法判定，而此时放行等于跳过门禁。
+// 端点写成 `https://`、忘了协议、或写成相对路径都会走到这里。
+func hostOf(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", errs.Wrap(errs.CodeConfigInvalid, "parse the OSV endpoint "+raw, "", err)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return "", errs.New(errs.CodeConfigInvalid,
+			"the OSV endpoint has no host: "+raw,
+			"set NGM_OSV_URL to a full URL such as "+DefaultOSVURL)
+	}
+	return host, nil
+}
+
 func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, error) {
 	base := strings.TrimSpace(cfg.BaseURL)
 	if base == "" {
 		base = DefaultOSVURL
+	}
+
+	// 门禁在**构造请求之前**（与 git 的 run:git 同一条纪律：拒绝时不该留下任何副作用，
+	// 也不该让用户从"连不上"去猜"其实是我的配置不允许访问它"）。
+	if cfg.CheckNet != nil {
+		host, herr := hostOf(base)
+		if herr != nil {
+			return nil, herr
+		}
+		if err := cfg.CheckNet(host); err != nil {
+			return nil, err
+		}
 	}
 
 	body, err := json.Marshal(map[string]string{"commit": commit})

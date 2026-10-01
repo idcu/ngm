@@ -170,7 +170,7 @@ func TestV02SupplyChainAcceptance(t *testing.T) {
 	})
 
 	t.Run("audit reports a known vulnerability with exit 1", func(t *testing.T) {
-		isolateUserEnv(t)
+		home := isolateUserEnv(t)
 
 		scUpstream(t, "github:sc/vuln", "export const v = 1\n", "")
 		proj := newProject(t)
@@ -189,6 +189,7 @@ func TestV02SupplyChainAcceptance(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 		t.Setenv("NGM_OSV_URL", srv.URL)
+		grantNetFor(t, home, srv)
 
 		code, out := runCaptureCode(t, "audit", "--dir="+proj)
 		if code != 1 {
@@ -204,7 +205,7 @@ func TestV02SupplyChainAcceptance(t *testing.T) {
 	})
 
 	t.Run("audit --json is machine readable", func(t *testing.T) {
-		isolateUserEnv(t)
+		home := isolateUserEnv(t)
 
 		scUpstream(t, "github:sc/clean", "export const c = 1\n", "")
 		proj := newProject(t)
@@ -221,6 +222,7 @@ func TestV02SupplyChainAcceptance(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 		t.Setenv("NGM_OSV_URL", srv.URL)
+		grantNetFor(t, home, srv)
 
 		code, out := runCaptureCode(t, "audit", "--json", "--dir="+proj)
 		if code != 0 {

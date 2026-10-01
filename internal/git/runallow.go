@@ -17,17 +17,18 @@ import (
 //
 // 仍然会把"git 不存在"这类启动失败当作错误返回。
 func RunAllowFailure(ctx context.Context, opts Options, args ...string) (*Result, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if opts.Dir != "" {
-		cmd.Dir = opts.Dir
+	// 与 Run 共用同一个构造点（门禁 + 计数）——这里此前**没有** `run:git` 门禁，
+	// 于是 `deny run:git` 的配置在探测类调用上完全失效（v0.5 实测）。
+	cmd, cerr := newGitCommand(ctx, opts, opts.Dir, args...)
+	if cerr != nil {
+		// 与"启动失败"同一形状：调用方只看 err，不该去看 res 的退出码。
+		return &Result{ExitCode: -1}, cerr
 	}
-	cmd.Env = buildEnv(opts)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	noteSpawn()
 	err := cmd.Run()
 	res := &Result{
 		Stdout:   stdout.Bytes(),

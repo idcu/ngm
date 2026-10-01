@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -32,9 +31,12 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 		return nil, nil
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
-	cmd.Dir = repoPath
-	cmd.Env = buildEnv(opts)
+	// 与 Run / RunAllowFailure 共用同一个构造点（门禁 + 计数）——
+	// 这里此前同样**没有** `run:git` 门禁，于是 digest 重放会在被禁止的配置下照跑。
+	cmd, cerr := newGitCommand(ctx, opts, repoPath, "cat-file", "--batch")
+	if cerr != nil {
+		return nil, cerr
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
