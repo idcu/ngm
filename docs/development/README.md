@@ -16,6 +16,7 @@
 > | v0.6 | [计划](./v0.6-plan.md) | [复盘](./v0.6-retrospective.md) | 让结论**可判别** |
 > | v0.7 | [计划](./v0.7-plan.md) | [复盘](./v0.7-retrospective.md)（补写） | store 占用可见、残骸可回收 |
 > | v0.8 | [计划](./v0.8-plan.md) | [复盘](./v0.8-retrospective.md) | 层 2 换布局：20.0× → 0.6× |
+> | v0.9 | [计划](./v0.9-plan.md) | 实施中 | 让 store 的读数说真话（共享/独占/孤儿）+ 锚点检查 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -208,6 +209,17 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 > —— remote adapter 的发布决策（结论仍不发布，但把剩下的问题写成可判定的门槛）。
 > 收尾时又补上 [ADR-018](../adr/adr-018-store-reclaim.md)
 > ——内容寻址 store 的回收与去重（**不做**按可达性自动删除；写入侧去重是长期解法）。
+
+### v0.9（计划：[v0.9-plan.md](./v0.9-plan.md)）— **实施中**
+
+**让 store 的读数说真话**：v0.8 换了布局之后，这一层的数字开始需要解释
+（逻辑体积 / 共享 / 独占是三个不同的东西），而"能不能回收"至今没有数据。
+
+| 组 | 内容 | 状态 |
+|----|------|------|
+| A | `store usage` 把 blob 池切成**共享 / 独占 / 孤儿**，每棵树报"丢掉它能回收多少" | ✅ **已交付**（断言是不变量，已验证有牙齿：把共享算进独占立刻红） |
+| B | 锚点检查（`[label](x.md#anchor)` 的锚点此前**无人校验**） | ✅ **已交付**（Go 测试，46 个锚点全验；放回死锚点即红并给出正确答案） |
+| C | blob 池的规模（10 万级，**只测不做**） | 计划 |
 
 ### v0.8（计划：[v0.8-plan.md](./v0.8-plan.md)）— **已交付**
 
@@ -446,7 +458,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 
 ## 相关文档
 
-- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md)
+- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md)
 - [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / **[v0.7 复盘](./v0.7-retrospective.md)**（补写）/ **[v0.8 复盘](./v0.8-retrospective.md)** / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)

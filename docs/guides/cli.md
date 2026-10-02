@@ -23,7 +23,7 @@
 | `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter） | v0.1（`esbuild`）；v0.2 增 `postcss`（无内建压缩，`--minify` 会被明确告知忽略） | [构建](./build.md) |
 | `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
-| `ngm store usage` | 报告 content store 的占用：**只读**，按布局分组——blob 池（去重后的真实内容）、v2 树清单、v1 遗留树，各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现**；v0.8 输出按布局分组 | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) |
+| `ngm store usage` | 报告 content store 的占用：**只读**，按布局分组——blob 池（去重后的真实内容，并切成**共享 / 独占 / 孤儿**）、v2 树清单、v1 遗留树，各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现**；v0.8 输出按布局分组；**v0.9 加共享/独占/孤儿**（见下） | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) |
 | `ngm store prune [--dry-run]` | 清掉**中断留下的解包残骸**（`.unpack-*`）。**不碰任何内容树**，并报告"留下了 N 份没动" | **v0.7 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) |
 | `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
@@ -37,6 +37,20 @@
 **只增不减**，但占用现在可见（`ngm store usage`，只读）、残骸可回收（`ngm store prune`）。
 **没有、也不预告**一个会删除内容树的 `ngm store gc`——按可达性删除需要一个 ngm 没有的
 项目注册表，误删会让别的项目的 `ngm verify` 在某天突然验不过。
+
+**三个数字，三个问题**（**v0.9**）：`store usage` 把 blob 池切开之后，这一层第一次能
+分开回答"去重省了多少"和"我还能回收多少"：
+
+| 数 | 回答的问题 | 口径 |
+|----|-----------|------|
+| **共享**（shared by 2+ trees） | 去重省了多少 | 被 2 棵及以上内容树引用的 blob 字节和（若不去重，这一块要乘以引用数） |
+| **独占**（exclusive） | 丢掉某一棵树能回收多少 | 只被**那棵**树引用的 blob；每棵树一行，**只算 blob**——所以 `exclusive <= logical`，且各树独占之和**恰好**等于池里那一块 |
+| **孤儿**（orphaned） | 有多少空间没有任何人需要 | 没有任何清单引用的 blob。**不是"垃圾"的同义词**（也可能来自被删掉的项目），而且 `prune` **不会**清它 |
+
+> 每行那两列也要分开读：`logical` 是**逻辑体积**（共享 blob 会被重复计算，把所有行加起来
+> 会比 store 还大），`exclusive` 才是"丢掉它能回收多少"。
+> 这三个数也是 ADR-018 将来判"要不要做 GC"所需的数据——在那之前，它们只是把
+> "没有人回收"从一句印象变成一个数字。
 
 真正能改变增长曲线的是**层 2 的写入侧去重**（**v0.8 已落地**，[ADR-019](../adr/adr-019-content-addressed-blobs.md)）：
 布局改为 blob 池 + 树清单，实测把同一场景的放大比从 **20×** 降到 **0.6×**
