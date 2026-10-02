@@ -19,8 +19,9 @@ prevent, made once for `v0.2`~`v0.4` and then again for four more versions). Tha
 longer left to memory: `scripts/check-release-status.sh` (CI job `release-status`) requires
 **a retrospective ⇔ a tag**. See [`docs/README.md` §发布状态](./docs/README.md#发布状态) and
 [`docs/development/v0.8-retrospective.md`](./docs/development/v0.8-retrospective.md).
-GitHub releases for `v0.5.0` … `v0.8.0` appear once the mirror forwards the tags; their Gitee
-attachments still need the manual step.
+The tags are on GitHub, but the mirror forwarding them did **not** trigger `release.yml`, so those
+four GitHub releases still have to be produced via Actions → Release → **Run workflow** (a
+`workflow_dispatch` entry added for exactly this); their Gitee attachments need the manual step too.
 Prebuilt binaries for `v0.1.0` … `v0.4.0` are available from **both** sources with identical
 `SHA256SUMS` (verified byte-for-byte); see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and

@@ -267,13 +267,17 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|-----|----------------|-----------|
 | `v0.1.0` | ✅ | ✅ | ✅ 7 个 | ✅ 7 个 |
 | `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
-| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已推 `origin`） | ⏳ 等镜像转发后由 `release.yml` 生成 | ⏳ 待上传（`scripts/upload-gitee-assets.ps1`） |
+| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在 GitHub 上） | ❌ **未生成**：镜像转发了 tag 但没有触发 `release.yml` → 走 **Actions → Release → Run workflow** 补发 | ⏳ 待上传（`scripts/upload-gitee-assets.ps1`） |
 
-> **这一栏不再靠人记**：`scripts/check-release-status.sh`（CI job `release-status`）机械地要求
-> **有复盘 ⇔ 有 tag**（按 `vX.Y` 配对），缺一边即红。它判据用的是复盘文件而不是计划里的
+> **"tag" 这一栏不再靠人记**：`scripts/check-release-status.sh`（CI job `release-status`）机械地
+> 要求**有复盘 ⇔ 有 tag**（按 `vX.Y` 配对），缺一边即红。它判据用的是复盘文件而不是计划里的
 > 状态行——因为状态行是散文、格式历来不统一，**会漏的判据等于没有判据**。
 > 为什么必须有这条：清单第 0 步正是为 v0.2~v0.4 的同类事故写的，却仍被跨过四次
 > （记在 [v0.8 复盘 §5.6](./development/v0.8-retrospective.md)）。
+>
+> **"GitHub release" 这一栏有它自己的教训**：tag 有 tag 的检查，而"发布到底出来了没有"
+> 目前**没有门禁**——这次是"tag 全在、release 一个没有"，只能靠人（或一条 URL）去看。
+> 下一次该把这一步也做成可读的读数。
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 

@@ -3,8 +3,10 @@
 > **当前阶段：v0.1 ~ v0.8 均已交付**；**`v0.1.0` ~ `v0.8.0` 八个 tag 均已打**。
 > 其中 `v0.1.0` ~ `v0.4.0` 已在两个源上发布（后三版于 2026-10-01 补发，
 > Gitee 侧 2026-10-02 补齐），GitHub 上各有 7 个附件；
-> **`v0.5.0` ~ `v0.8.0` 的 tag 于 2026-10-02 补打**（附注 tag，已推 `origin`），
-> GitHub release 等镜像转发后由 `release.yml` 生成，**Gitee 侧附件待上传**。
+> **`v0.5.0` ~ `v0.8.0` 的 tag 于 2026-10-02 补打**（附注 tag，已在 Gitee 与 GitHub 上）；
+> 但**镜像转发了 tag 却没有触发 `release.yml`**，所以那四版的 GitHub release 尚未生成
+> ——补发走 Actions → Release → **Run workflow**（见[发布清单](#发布清单每个版本)第 2 步），
+> **Gitee 侧附件随后待上传**。
 > 首个提交 `a47b0ad` 已推送 Gitee 主仓并镜像到 GitHub，CI（GitHub Actions）三平台全绿。
 > "已交付 ⇔ 已打 tag"现在由 `scripts/check-release-status.sh`（CI job `release-status`）机械守住。
 >
@@ -319,9 +321,24 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 0. **交付该版本时立刻打 tag**（不要等"下次一起发"）：版本的最后一次提交（本项目的惯例是
    该版的复盘提交）上打附注 tag。判据很简单：**这一版的产物能不能被用户下载到**。
 1. `git tag -a v0.x.y -m "..."`，然后 `git push origin v0.x.y`
-2. Gitee 镜像把 tag 推到 GitHub → `release.yml` 自动执行：**先跑全量测试**，再交叉编译六平台，
+2. Gitee 镜像把 tag 推到 GitHub → `release.yml` 执行：**先跑全量测试**，再交叉编译六平台，
    最后 `gh release create` 发布（含 `SHA256SUMS`）
+
+   ⚠️ **别假定这一步发生了**（2026-10-02 实测）：`v0.5.0` ~ `v0.8.0` 四个 tag 已经出现在
+   GitHub 上（`git ls-remote` 可见、附注对象完整），但 `release.yml` **一次都没跑**
+   （`/actions/workflows/370079274/runs` 只有 v0.1.0 ~ v0.4.0 四次），而同一时段的分支推送
+   照常触发 CI。也就是说：**镜像转发了 branch，却没有为 tag 产生那个 `push` 事件**
+   （或者它没触发工作流）——**原因不在本仓库可观测的范围内**。
+   因此补发有一条**不依赖镜像**的入口：Actions → Release → **Run workflow**，填已存在的 tag
+   （`workflow_dispatch`，v0.8 收尾时加的）。它跑的是同一份脚本与同一组断言，产物一致。
+   **别用"删掉 tag 再推一次"**——那是拿同一条已被证明不可靠的路径再赌一次。
 3. 核对 GitHub release 的 7 个 asset（6 个二进制 + `SHA256SUMS`）
+
+   > **本步可以自己读**：`https://api.github.com/repos/idcu/ngm/actions/runs?per_page=5`
+   > （公开仓库的 Actions 结果是**公开 REST API**，不需要 token；某个 run 的失败 job 见
+   > `.../runs/<id>/jobs`）。v0.8 收尾时正是因为一直假定"读不到 CI"，让 `main` 连红了四次
+   > 才发现——见 [v0.8 复盘 §5.7](./v0.8-retrospective.md) 与
+   > [v0.6 复盘 §5.4](./v0.6-retrospective.md)。
 4. **把这 7 个文件从 GitHub release 上传到 Gitee 发行版**（在 Gitee 无 API token 时，这是最短且最稳的路径）。
    上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
 5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）

@@ -4,8 +4,11 @@
 > `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布，**GitHub 与 Gitee 两个源都可取到**
 > （2026-10-01 补齐后三版，2026-10-02 补齐 Gitee 侧附件，两源已比对）。
 > **`v0.5.0` ~ `v0.8.0` 的 tag 已于 2026-10-02 补打**（此前这四版"已交付但取不到"，
-> 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)）；GitHub release 等镜像转发，
-> Gitee 侧附件待上传。**"已交付 ⇔ 已打 tag"现在有机械检查**（`scripts/check-release-status.sh`）。
+> 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)）；但镜像转发 tag **没有触发**
+> `release.yml`，那四版的 GitHub release 尚未生成——补发走手动入口（Actions → Release →
+> Run workflow），Gitee 侧附件随后待上传。
+> **"已交付 ⇔ 已打 tag"现在有机械检查**（`scripts/check-release-status.sh`）——
+> 但"release 是否真的出来了"还没有，见[发布清单](../development/README.md#发布清单每个版本)。
 > v0.6 / v0.7 / v0.8 的计划与复盘见[开发总览](../development/README.md)。
 >
 > 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
