@@ -13,11 +13,14 @@ layout with a **blob pool + tree manifests**, cutting the measured cost of 12 co
 **20.0× the real source delta to 0.6×** (`1.88 MiB → 59.9 KiB`).
 Per-version plans and retrospectives live in [`docs/development/`](./docs/development/README.md).
 
-⚠️ **`v0.5.0` … `v0.8.0` are not tagged yet** — delivered in source but not downloadable, which is
-exactly the mistake the release checklist's step 0 was written to prevent (it happened for
-`v0.2`~`v0.4`, and then again for four more versions). See
-[`docs/README.md` §发布状态](./docs/README.md#发布状态) and
+All eight tags `v0.1.0` … `v0.8.0` now exist (the last four were caught-up on 2026-10-02 after
+being delivered-but-untagged — the same mistake the release checklist's step 0 was written to
+prevent, made once for `v0.2`~`v0.4` and then again for four more versions). That pairing is no
+longer left to memory: `scripts/check-release-status.sh` (CI job `release-status`) requires
+**a retrospective ⇔ a tag**. See [`docs/README.md` §发布状态](./docs/README.md#发布状态) and
 [`docs/development/v0.8-retrospective.md`](./docs/development/v0.8-retrospective.md).
+GitHub releases for `v0.5.0` … `v0.8.0` appear once the mirror forwards the tags; their Gitee
+attachments still need the manual step.
 Prebuilt binaries for `v0.1.0` … `v0.4.0` are available from **both** sources with identical
 `SHA256SUMS` (verified byte-for-byte); see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and

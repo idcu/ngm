@@ -3,8 +3,9 @@
 > ngm 的产品路线。**v0.1 ~ v0.8 均已交付**（证据见各版[复盘](../development/)与计划）；
 > `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布，**GitHub 与 Gitee 两个源都可取到**
 > （2026-10-01 补齐后三版，2026-10-02 补齐 Gitee 侧附件，两源已比对）。
-> ⚠️ **`v0.5.0` ~ `v0.8.0` 尚未打 tag/发布**——见
-> [v0.8 复盘 §2](../development/v0.8-retrospective.md#2-未能达成的项)。
+> **`v0.5.0` ~ `v0.8.0` 的 tag 已于 2026-10-02 补打**（此前这四版"已交付但取不到"，
+> 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)）；GitHub release 等镜像转发，
+> Gitee 侧附件待上传。**"已交付 ⇔ 已打 tag"现在有机械检查**（`scripts/check-release-status.sh`）。
 > v0.6 / v0.7 / v0.8 的计划与复盘见[开发总览](../development/README.md)。
 >
 > 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
