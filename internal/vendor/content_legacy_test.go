@@ -45,6 +45,11 @@ func downgradeToV1(t *testing.T, store *ContentStore, dg string) {
 		if err := os.WriteFile(p, body, permForMode(e.Mode)); err != nil {
 			t.Fatal(err)
 		}
+		// 显式 chmod：`os.WriteFile` 的 perm 会被 umask 削（例如 umask 077 会把 0755 变成 0700），
+		// 而本夹具的意义正是"v1 树里带着可执行位"——被 umask 削掉就会让断言测错东西。
+		if err := os.Chmod(p, permForMode(e.Mode)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	meta, err := store.ReadMeta(dg)
 	if err != nil {
