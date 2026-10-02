@@ -23,8 +23,23 @@ const unpackPrefix = ".unpack-"
 type ContentStoreEntry struct {
 	// Digest 是 `sha256:<hex>` 形态的标识（目录名是它的 hex 部分）。
 	Digest string
-	// Bytes 是该内容树占用的字节数（含 `tree/` 与 `meta.json`）。
+	// Bytes 是该内容树占用的字节数。
+	//
+	// **口径随布局不同**，这是有意保留的差别：
+	//   - v1：整棵树的真实字节（`tree/` + `meta.json`）——一份内容就是一块磁盘。
+	//   - v2：**逻辑体积**（清单里各条目 size 之和）——共享的 blob 会被重复计算，
+	//     真实占用看 `ContentStoreUsage.BlobBytes`；"丢掉它能回收多少"看 ExclusiveBytes。
 	Bytes int64
+	// ExclusiveBytes 只对 v2 有意义：**只被这棵树引用的那些 blob 的字节和**
+	// （即"不再需要这个源时，blob 池里能回收的那一块"）。
+	//
+	// 口径刻意**只算 blob**，不含这棵树自己的清单与 meta：
+	//   - 于是 `ExclusiveBytes <= Bytes` 恒成立（独占的是逻辑里的一部分），
+	//     而且 `Σ ExclusiveBytes` **恰好等于** `ContentStoreUsage.BlobExclusiveBytes`
+	//     ——两个不变量的好处是"把共享 blob 算进每一棵树"这种错法立刻可见（数字会超）。
+	//   - 清单与 meta 的体积在 `ContentStoreUsage.V2TreeBytes` 里按整池报，
+	//     `ngm store usage` 的那一行就在上面。
+	ExclusiveBytes int64
 	// Repo / Commit 来自 meta.json；MetaReadable 为 false 时两者为空。
 	Repo         string
 	Commit       string
@@ -58,6 +73,27 @@ type ContentStoreUsage struct {
 	// Blobs / BlobBytes 是 blob 池的文件数与体积，即**去重后的真实内容占用**。
 	Blobs     int
 	BlobBytes int64
+	// BlobSharedBytes / BlobExclusiveBytes 把 blob 池按"被多少棵树引用"切开：
+	// 共享 = 被 2 棵及以上引用，独占 = 只被 1 棵引用。
+	//
+	// 这两个数回答两个不同的问题：**去重省了多少**（共享字节，若不去重它就是共享字节
+	// 乘以引用数），以及**丢掉某一棵树能回收多少**（那棵树的 ExclusiveBytes）。
+	BlobSharedBytes    int64
+	BlobExclusiveBytes int64
+	// BlobOrphans / BlobOrphanBytes 是**没有任何清单引用**的 blob。
+	//
+	// 它不一定是"垃圾"（可能来自被删掉的项目、或某个 digest 重写后的历史），也**不会**
+	// 被 `prune` 清掉——[ADR-018](../docs/adr/adr-018-store-reclaim.md) 决策 5 明确不做
+	// 按可达性删除。但它**必须被报出来**：否则"没有人回收"就只剩一句印象，
+	// 而 ADR-018 将来判 GC 需要的正是这个数字（"层 2 只增不减"的具体形状）。
+	BlobOrphans     int
+	BlobOrphanBytes int64
+	// UnreadableManifests 是读不出条目的 v2 清单数。
+	//
+	// 不为 0 时上面那组数字**只是下界**：那些清单引用了什么，这里看不到。
+	// 报出来而不是当成 0，是因为"读不出来"与"没引用"在数字上无法区分——
+	// 那正是仪器说谎的形状（v0.6 复盘 §5.1）。
+	UnreadableManifests int
 	// TempCount / TempBytes 是解包残骸（`.unpack-*`）的数量与体积。
 	// 它们不是内容树，是**中断留下的垃圾**，也是 `prune` 唯一会清的东西。
 	TempCount int
@@ -73,7 +109,17 @@ func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return out, errs.Wrap(errs.CodeConfigInvalid, "read content store", "", err)
 	}
-	// v2：清单与 blob 池
+	// v2：清单与 blob 池。**两遍读**，顺序不能反：
+	// 第一遍把清单读出来（顺便数每个 blob 被引用了几次、每棵树自己占了多少），
+	// 第二遍在**知道每个 blob 多大之后**才能给每棵树算"独占字节"。
+	type v2Tree struct {
+		digest string
+		entry  ContentStoreEntry
+		blobs  []string // 该清单引用的 blob 名（symlink 没有 blob）
+	}
+	var v2Trees []v2Tree
+	refs := map[string]int{}
+
 	if tdir, terr := os.ReadDir(s.treesRoot()); terr == nil {
 		out.Exists = true
 		for _, e := range tdir {
@@ -95,28 +141,34 @@ func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 			out.V2Trees++
 			out.V2TreeBytes += bytes
 
-			entry := ContentStoreEntry{Digest: digest.Algorithm + ":" + e.Name()}
-			if m, merr := s.readManifest(entry.Digest); merr == nil && m != nil {
+			dg := digest.Algorithm + ":" + e.Name()
+			tree := v2Tree{digest: dg, entry: ContentStoreEntry{Digest: dg}}
+			if m, merr := s.readManifest(dg); merr == nil && m != nil {
 				var logical int64
 				for _, me := range m.Entries {
 					logical += me.Size
+					if me.SHA == "" {
+						continue // symlink：内容就是目标字符串，不占 blob
+					}
+					tree.blobs = append(tree.blobs, me.SHA)
+					refs[me.SHA]++
 				}
-				entry.Bytes = logical
-				if meta, err := s.readMetaV2(entry.Digest); err == nil && meta != nil {
-					entry.MetaReadable = true
-					entry.Repo = meta.Repo
-					entry.Commit = meta.Commit
-				}
+				tree.entry.Bytes = logical
+			} else {
+				// 读不出来就**不能**当成"没引用任何 blob"——那会让它的 blob 被算成孤儿。
+				// 报出来，并让下面的数字以下界的形式被读。
+				out.UnreadableManifests++
 			}
-			out.V2Entries = append(out.V2Entries, entry)
+			if meta, err := s.readMetaV2(dg); err == nil && meta != nil {
+				tree.entry.MetaReadable = true
+				tree.entry.Repo = meta.Repo
+				tree.entry.Commit = meta.Commit
+			}
+			v2Trees = append(v2Trees, tree)
 		}
-		sort.Slice(out.V2Entries, func(i, j int) bool {
-			if out.V2Entries[i].Bytes != out.V2Entries[j].Bytes {
-				return out.V2Entries[i].Bytes > out.V2Entries[j].Bytes
-			}
-			return out.V2Entries[i].Digest < out.V2Entries[j].Digest
-		})
 	}
+
+	blobSizes := map[string]int64{}
 	if bdir, berr := os.ReadDir(s.blobsRoot()); berr == nil {
 		out.Exists = true
 		for _, shard := range bdir {
@@ -134,9 +186,41 @@ func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 				}
 				out.Blobs++
 				out.BlobBytes += info.Size()
+				blobSizes[f.Name()] = info.Size()
 			}
 		}
 	}
+
+	// 第二遍：blob 池按引用数切开，每棵树算"丢掉它能回收多少"。
+	for sha, size := range blobSizes {
+		switch refs[sha] {
+		case 0:
+			out.BlobOrphans++
+			out.BlobOrphanBytes += size
+		case 1:
+			out.BlobExclusiveBytes += size
+		default:
+			out.BlobSharedBytes += size
+		}
+	}
+	for _, tree := range v2Trees {
+		var exclusive int64
+		for _, sha := range tree.blobs {
+			if refs[sha] == 1 {
+				exclusive += blobSizes[sha]
+			}
+		}
+		// 只算 blob（口径见 ContentStoreEntry.ExclusiveBytes）：这样 Σ 恰好等于
+		// BlobExclusiveBytes，而"把共享 blob 算进每一棵树"的错法会让两组数字对不上。
+		tree.entry.ExclusiveBytes = exclusive
+		out.V2Entries = append(out.V2Entries, tree.entry)
+	}
+	sort.Slice(out.V2Entries, func(i, j int) bool {
+		if out.V2Entries[i].Bytes != out.V2Entries[j].Bytes {
+			return out.V2Entries[i].Bytes > out.V2Entries[j].Bytes
+		}
+		return out.V2Entries[i].Digest < out.V2Entries[j].Digest
+	})
 
 	if entries != nil {
 		out.Exists = true

@@ -86,7 +86,27 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fmt.Fprintf(stdout, "content store: %s\n", u.Root)
 	if u.V2Trees > 0 || u.Blobs > 0 {
 		fmt.Fprintf(stdout, "  blobs (deduplicated content): %d (%s)\n", u.Blobs, storeBytes(u.BlobBytes))
+		// 三个数回答三个不同的问题：去重省了多少（共享）、丢掉某一棵树能回收多少（独占）、
+		// 有多少空间**没有任何人需要**（孤儿）。最后那个不是垃圾的同义词，也不会被 prune 清掉
+		// （ADR-018 决策 5），所以它必须出现在这里——否则"没人回收"只剩一句印象。
+		fmt.Fprintf(stdout,
+			"    └ shared by 2+ trees: %s · exclusive to one tree: %s · orphaned: %d (%s)\n",
+			storeBytes(u.BlobSharedBytes), storeBytes(u.BlobExclusiveBytes),
+			u.BlobOrphans, storeBytes(u.BlobOrphanBytes))
+		if u.BlobOrphans > 0 {
+			fmt.Fprintln(stdout,
+				"      orphaned blobs are NOT removed by \"ngm store prune\": reachability-based\n"+
+					"      deletion is deliberately not implemented (ADR-018). This is their count.")
+		}
 		fmt.Fprintf(stdout, "  tree manifests (v2): %d (%s)\n", u.V2Trees, storeBytes(u.V2TreeBytes))
+	}
+	if u.UnreadableManifests > 0 {
+		// 方向要说清，否则这三个数会被当成事实：读不出来的清单，它的 blob 会**失去引用**，
+		// 于是孤儿被**多算**、共享被**少算**。两种偏差方向相反，所以不能说"是下界"。
+		fmt.Fprintf(stdout,
+			"  note: %d manifest(s) unreadable — an unread manifest's blobs look unreferenced,\n"+
+				"        so the orphan count above is an over-count and \"shared\" is an under-count\n",
+			u.UnreadableManifests)
 	}
 	// v1 那一行**总是**打印：它同时是"迁移收敛到什么程度"的读数——
 	// 全是 0 就说明这个 store 已经不再有旧布局的残留（ADR-019 的收敛目标）。
@@ -104,14 +124,17 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 
 	const show = 10
 	if len(u.V2Entries) > 0 {
-		// 体积是**逻辑体积**（条目字节之和）：多棵树共享 blob 时会重复计算，
-		// 真实占用看上面那行 blobs。两个数都报，免得把逻辑体积读成磁盘占用。
-		fmt.Fprintln(stdout, "  trees (v2, logical size; shared blobs counted once above):")
-		storeEntryLines(stdout, u.V2Entries, show)
+		// 两列数**必须一起报**，因为它们回答的是不同的问题，而只看一列都会读错：
+		//   logical   = 这棵树里所有文件的字节和（共享的 blob 会被重复计算）
+		//   exclusive = **丢掉这棵树能回收多少**（只被它引用的 blob + 它自己的清单）
+		// 所有树的 exclusive 加起来 + 共享字节 = blob 池总量；logical 没有这个性质。
+		fmt.Fprintln(stdout, "  trees (v2; \"logical\" double-counts shared blobs, \"exclusive\" is what dropping it frees):")
+		storeEntryLines(stdout, u.V2Entries, show, true)
 	}
 	if len(u.Trees) > 0 {
+		// v1 没有这个区别：一份内容树就是一块磁盘，报出来的就是真实字节。
 		fmt.Fprintln(stdout, "  trees (v1 legacy, whole tree per digest):")
-		storeEntryLines(stdout, u.Trees, show)
+		storeEntryLines(stdout, u.Trees, show, false)
 	}
 	if u.TempCount > 0 {
 		fmt.Fprintf(stdout,
@@ -127,7 +150,9 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 //
 // 顺序由 `Usage` 负责**确定**（体积降序、同体积按 digest 升序）：
 // 依赖目录遍历顺序的输出会让人误以为"内容变了"。
-func storeEntryLines(stdout io.Writer, entries []vendor.ContentStoreEntry, show int) {
+//
+// showExclusive 只对 v2 有意义（v1 的 Bytes 本来就是真实字节，没有"共享"这回事）。
+func storeEntryLines(stdout io.Writer, entries []vendor.ContentStoreEntry, show int, showExclusive bool) {
 	for i, e := range entries {
 		if i == show {
 			fmt.Fprintf(stdout, "    ... and %d more (sorted by size)\n", len(entries)-show)
@@ -136,6 +161,11 @@ func storeEntryLines(stdout io.Writer, entries []vendor.ContentStoreEntry, show 
 		who := "meta unreadable"
 		if e.MetaReadable {
 			who = fmt.Sprintf("%s@%s", e.Repo, git.ShortSHA(e.Commit))
+		}
+		if showExclusive {
+			fmt.Fprintf(stdout, "    %-71s %10s logical  %10s exclusive  %s\n",
+				e.Digest, storeBytes(e.Bytes), storeBytes(e.ExclusiveBytes), who)
+			continue
 		}
 		fmt.Fprintf(stdout, "    %-71s %10s  %s\n", e.Digest, storeBytes(e.Bytes), who)
 	}
