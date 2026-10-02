@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -153,6 +154,65 @@ func TestV07StoreAcceptance(t *testing.T) {
 			t.Errorf("must still report the trees it left alone:\n%s", out)
 		}
 	})
+}
+
+// TestV08StoreUsagePointsAtV1Legacy 锁定 v0.8 的一条**如实告知**（ADR-019 §修订 5）：
+// 旧布局的条目**不会**自动迁移——`install` 在 `Store.Has` 为真时直接短路，而那是
+// "无网络也能安装"的承诺（不能为了迁移去动它）；而健康的 v1 条目 `Has` 正是真。
+//
+// 因此 `usage` 在 v1 遗留非零时**必须把出路说出来**，而不是让用户以为"升级之后
+// 空间会自己变好"。这条断言守的正是那句话，别让它变成一句无声的希望。
+func TestV08StoreUsagePointsAtV1Legacy(t *testing.T) {
+	testutils.MustHaveGit(t)
+	isolateUserEnv(t)
+
+	layout, err := vendor.DefaultLayout()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 伪造一个 v1 遗留条目：形状与旧版本写下的完全一致（一棵树 + meta.json）。
+	hex := strings.Repeat("a", 64)
+	v1Dir := filepath.Join(layout.ContentRoot(), digest.Algorithm, hex)
+	if err := os.MkdirAll(filepath.Join(v1Dir, "tree"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v1Dir, "tree", "index.ts"), []byte("export const x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta := vendor.Meta{
+		SchemaVersion: vendor.MetaSchemaVersion,
+		Repo:          "github:v08/legacy",
+		Commit:        strings.Repeat("b", 40),
+		Digest:        "sha256:" + hex,
+	}
+	raw, merr := json.MarshalIndent(meta, "", "  ")
+	if merr != nil {
+		t.Fatal(merr)
+	}
+	if werr := os.WriteFile(filepath.Join(v1Dir, "meta.json"), append(raw, '\n'), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+
+	code, out := runCaptureCode(t, "store", "usage")
+	if code != 0 {
+		t.Fatalf("store usage exit=%d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "content trees (v1 legacy): 1") {
+		t.Errorf("must count the v1 leftover:\n%s", out)
+	}
+	if !strings.Contains(out, "github:v08/legacy") {
+		t.Errorf("the v1 entry's origin should be reported (meta is readable):\n%s", out)
+	}
+	// 出路必须写出来，而且必须是**这个 store 的**那个目录（不能是猜的路径）。
+	if !strings.Contains(out, filepath.Join(layout.ContentRoot(), digest.Algorithm)) {
+		t.Errorf("the hint must name this store's v1 directory:\n%s", out)
+	}
+	for _, want := range []string{"not migrated automatically", "rm -rf", "layer 2 is derived"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("usage must point at the way out (%q missing):\n%s", want, out)
+		}
+	}
 }
 
 // v07DirBytes 递归求和目录里所有文件的字节数（只读，用于"usage 不改动 store"的断言）。

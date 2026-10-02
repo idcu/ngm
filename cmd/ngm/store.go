@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
+	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/git"
 	"github.com/idcu/ngm/internal/vendor"
 )
@@ -89,6 +91,16 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// v1 那一行**总是**打印：它同时是"迁移收敛到什么程度"的读数——
 	// 全是 0 就说明这个 store 已经不再有旧布局的残留（ADR-019 的收敛目标）。
 	fmt.Fprintf(stdout, "  content trees (v1 legacy): %d (%s)\n", len(u.Trees), storeBytes(u.TreeBytes))
+	if len(u.Trees) > 0 {
+		// **它不会自己变好**（ADR-019 §修订 5）：健康的 v1 条目 `Has` 为真，install 因此
+		// 直接短路、不会重写它们——而那条短路是"无网络也能安装"的承诺，不能为了迁移去动它。
+		// 所以这里把出路写出来，而不是让用户以为"升级之后空间会自己回收"。
+		fmt.Fprintf(stdout,
+			"    └ pre-v0.8 layout: still readable, but not migrated automatically "+
+				"(only newly installed dependencies use the v2 layout).\n"+
+				"      to reclaim them: rm -rf %s && ngm install   (layer 2 is derived; it rebuilds)\n",
+			filepath.Join(u.Root, digest.Algorithm))
+	}
 
 	const show = 10
 	if len(u.V2Entries) > 0 {
