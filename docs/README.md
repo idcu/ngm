@@ -55,6 +55,7 @@
 | 搞懂它为什么这样设计 | [架构总览](./architecture/overview.md) | 贡献者 |
 | 查某个设计决策的理由 | [ADR 索引](./adr/README.md) | 贡献者 |
 | 看 ngm 与竞品的差异 | [竞品分析](./COMPETITIVE-ANALYSIS.md) | 评估者 |
+| **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
 | 参与开发 | [开发总览](./development/README.md) | 维护者 |
 
 ---
@@ -269,7 +270,8 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|-----|----------------|-----------|
 | `v0.1.0` | ✅ | ✅ | ✅ 7 个 | ✅ 7 个 |
 | `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
-| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在 GitHub 上） | ❌ **未生成**：镜像转发了 tag 但没有触发 `release.yml` → 走 **Actions → Release → Run workflow** 补发 | ⏳ 待上传（`scripts/upload-gitee-assets.ps1`） |
+| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在 GitHub 上） | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——**2026-10-03 决定暂缓**：恢复时走 **Actions → Release → Run workflow** | ⏳ 待上传（**暂缓**） |
+| `v0.9.0` / `v0.10.0` | ✅ | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ⏳ 待上传（**暂缓**） |
 
 > **"tag" 这一栏不再靠人记**：`scripts/check-release-status.sh`（CI job `release-status`）机械地
 > 要求**有复盘 ⇔ 有 tag**（按 `vX.Y` 配对），缺一边即红。它判据用的是复盘文件而不是计划里的
@@ -291,11 +293,11 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|------|
 | [guides/](./guides/) | 安装 / 快速上手 / 配置 / 依赖管理 / 构建 / CLI 参考 / 术语表 / Node vs Deno / 测试 / 发布 / 迁移 | 使用者 |
 | [architecture/](./architecture/) | 总览 / 运行时模型 / 信任模型 / vendor 4 层 / 引擎 adapter / 供应链 / 依赖解析 / 锁定 / 安全 / 可观测性 | 贡献者 |
-| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 009）与 ADR 流程 | 贡献者 |
+| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 019）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
-| [internals/](./internals/) | 能力矩阵 / 健康度指标 / 路线图 | 维护者 |
-| [development/](./development/) | 开发总览 / v0.1 ~ v0.6 实施计划与复盘 / v0.5 复核 | 维护者 |
-| [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比 | 评估者 |
+| [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
+| [development/](./development/) | 开发总览 / v0.1 ~ v0.10 实施计划与复盘 / v0.5 复核 | 维护者 |
+| [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比（**能力矩阵与竞品表的引用方**） | 评估者 |
 
 ### 单一事实源（SSOT）约定
 

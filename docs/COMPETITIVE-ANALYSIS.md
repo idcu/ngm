@@ -78,6 +78,13 @@ pnpm 的 content-addressable store + hardlink 已经很高效。ngm 的 vendor �
 
 **vendor 的价值必须重新定义为：可审计、可提交、可离线。**
 
+> **更新（2026-10-03，v0.8 之后）**：这条判断**一半被修掉了**。层 2 在 v0.8 换成按文件寻址
+> （blob 池 + 树清单）后，同一场景的放大比从 **20.0× 降到 0.6×**——"跨 commit 不去重"这个
+> 具体劣势不再成立。**仍然成立的一半**是：`ngm.vendor` 落地层仍是每项目一份（copy 模式下
+> 真实复制字节），且**这一层没有任何人回收**（层 1 有 `git gc`，pnpm 有 `store prune`）。
+> 见 [metrics · 磁盘增长](./internals/metrics.md#磁盘增长内容寻址-storev06) 与
+> [项目状态评估](./internals/project-state.md#71-那页写完之后变了的)。
+
 ### 5. Git 依赖的安全控制点覆盖（ngm 的窄缺口）
 
 | 控制点 | npm | pnpm | Yarn | Bun | Deno | ngm |

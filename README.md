@@ -11,7 +11,10 @@ measured content-store growth); `v0.7` made the content store's footprint **visi
 (`ngm store usage`) and its residues reclaimable (`ngm store prune`); and `v0.8` replaced the layer-2
 layout with a **blob pool + tree manifests**, cutting the measured cost of 12 commits from
 **20.0× the real source delta to 0.6×** (`1.88 MiB → 59.9 KiB`).
-Per-version plans and retrospectives live in [`docs/development/`](./docs/development/README.md).
+Per-version plans and retrospectives live in [`docs/development/`](./docs/development/README.md);
+for a single-page assessment of **what works today, what is blocked and why** — plus how it compares
+to pnpm / npm / Yarn / Bun / Deno — see
+[`docs/internals/project-state.md`](./docs/internals/project-state.md).
 
 All eight tags `v0.1.0` … `v0.8.0` now exist (the last four were caught-up on 2026-10-02 after
 being delivered-but-untagged — the same mistake the release checklist's step 0 was written to
