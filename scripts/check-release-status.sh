@@ -219,8 +219,16 @@ if [ "$PUBLISHED" -eq 1 ]; then
   missing_release=""
   thin_release=""
   inconclusive=""
+  rate_limited=0
   while IFS= read -r tag; do
     [ -n "$tag" ] || continue
+    if [ "$rate_limited" -eq 1 ]; then
+      # 限额撞上之后**不再逐个去撞**：每个 tag 一次请求，10 个版本会把匿名配额
+      # （60 次/小时）一次用掉六分之一，而结果全是同一句 403。
+      printf '  %-8s NOT CHECKED (rate limit hit earlier)\n' "$tag"
+      inconclusive+=" $tag"
+      continue
+    fi
     body="$(mktemp)"
     code="$(curl -sS -o "$body" -w '%{http_code}' \
       -H 'Accept: application/vnd.github+json' ${auth[@]+"${auth[@]}"} \
@@ -242,6 +250,14 @@ if [ "$PUBLISHED" -eq 1 ]; then
         printf '  %-8s MISSING      (tag exists, no release)\n' "$tag"
         missing_release+=" $tag"
         echo "::warning::no GitHub release for $tag — Actions → Release → Run workflow (input: $tag)"
+        ;;
+      403|429)
+        # 限额：说明一次，然后**不再逐个去撞**（见循环开头）。
+        printf '  %-8s COULD NOT CHECK (HTTP %s)\n' "$tag" "$code"
+        inconclusive+=" $tag"
+        rate_limited=1
+        echo "  note: GitHub 的匿名 API 限额是 60 次/小时（本检查每个 tag 一次请求）；"
+        echo "       带上 GITHUB_TOKEN / GH_TOKEN 可到 5000 次/小时，否则等一会儿再试。"
         ;;
       *)
         printf '  %-8s COULD NOT CHECK (HTTP %s)\n' "$tag" "$code"
