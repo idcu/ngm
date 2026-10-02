@@ -332,9 +332,22 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    因此补发有一条**不依赖镜像**的入口：Actions → Release → **Run workflow**，填已存在的 tag
    （`workflow_dispatch`，v0.8 收尾时加的）。它跑的是同一份脚本与同一组断言，产物一致。
    **别用"删掉 tag 再推一次"**——那是拿同一条已被证明不可靠的路径再赌一次。
-3. 核对 GitHub release 的 7 个 asset（6 个二进制 + `SHA256SUMS`）
+3. 核对 GitHub release 的 7 个 asset（6 个二进制 + `SHA256SUMS`）——**一条命令**：
 
-   > **本步可以自己读**：`https://api.github.com/repos/idcu/ngm/actions/runs?per_page=5`
+   ```bash
+   bash scripts/check-release-status.sh --published
+   ```
+
+   它对每个 tag 问一次 GitHub：有没有 release、资产是不是 7 个、`SHA256SUMS` 在不在，
+   并给缺失项打印可直接照做的出路（`Actions → Release → Run workflow`）。
+   退出码 `0` = 全部就绪，`1` = 有缺，`3` = 查不动（网络/限额）——**查不动不报成功**。
+
+   > 它同时是"**tag 存在 ≠ 产物能被下载**"这条的机械读数：2026-10-02 就是四个 tag 全在、
+   > release 一个没有，而当时没有任何检查会红。CI 里它作为 `release status` job 的
+   > 第二个步骤跑（**告警不阻塞**：那四个缺失只有维护者能清，一条推送清不掉的红 job
+   > 会训练人忽略红色；补齐后改成真门禁）。
+
+   > **CI 结果本身也可以自己读**：`https://api.github.com/repos/idcu/ngm/actions/runs?per_page=5`
    > （公开仓库的 Actions 结果是**公开 REST API**，不需要 token；某个 run 的失败 job 见
    > `.../runs/<id>/jobs`）。v0.8 收尾时正是因为一直假定"读不到 CI"，让 `main` 连红了四次
    > 才发现——见 [v0.8 复盘 §5.7](./v0.8-retrospective.md) 与

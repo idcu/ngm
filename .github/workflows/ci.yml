@@ -273,6 +273,22 @@ jobs:
         shell: bash
         run: bash scripts/check-release-status.sh
 
+      # 在线那一半：**tag 存在证明不了产物能被下载**。
+      # 2026-10-02 实测：四个 tag 都在 GitHub 上，而镜像转发它们并没有启动 release.yml，
+      # 于是"已打 tag"的四条记录下面一个 release 都没有——当时没有任何检查会红。
+      #
+      # 为什么 continue-on-error：这会红在一个**只有维护者能清掉**的条件上（要去
+      # Actions → Release → Run workflow 点四下）。一条"推送无法让它变绿"的红 job
+      # 会训练人忽略红色——那比没有检查更糟。所以它**先**只做可见的告警：
+      # 每个缺失的 release 会打成 ::warning:: 注解（出现在 run 的摘要里），
+      # 步骤标红但 job 不失败。等那四个 release 补齐后，把它改成真门禁。
+      - name: Check published releases (online, advisory)
+        shell: bash
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/check-release-status.sh --published
+
   # lock 字节可复现回归（M3 起生效）。
   # 这条纪律是 v0.1 的退出标准之一，因此独立成一个 job（而不是混在 acceptance 里
   # 被一长串 -run 表达式掩盖）。同一 ngm.json + 同一上游状态 → 除 resolvedAt 外
