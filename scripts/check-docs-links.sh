@@ -29,6 +29,14 @@ for f in "${files[@]}"; do
     */node_modules/*|*/vendor/*) continue ;;
   esac
 
+  # **先剥掉行内代码**（成对反引号里的内容）：那里出现的 `[label](x.md)` 是**示例**，
+  # 不是链接。不剥掉的话，凡是要介绍"链接怎么写"的文档都会让这条检查误报——
+  # 而一个会误报的门禁会被忽略（比漏报更糟）。
+  #
+  # 只处理同一行内成对的反引号（`sed` 的能力边界）；跨行的代码块由下面的事实兜住：
+  # 代码块里的路径通常不是真实相对路径，真报了也一眼能看出是示例。
+  cleaned="$(sed -E 's/`[^`]*`//g' "$f")"
+
   # 提取所有 [label](path) 中的 path
   while IFS= read -r line; do
     # 从 grep 输出 "行号:[label](target)" 中取出 target：
@@ -61,7 +69,7 @@ for f in "${files[@]}"; do
       echo "BROKEN LINK in $f: $line"
       bad=$((bad + 1))
     fi
-  done < <(grep -nEo '\[[^]]+\]\([^)]+\)' "$f" 2>/dev/null || true)
+  done < <(printf '%s\n' "$cleaned" | grep -nEo '\[[^]]+\]\([^)]+\)' 2>/dev/null || true)
 done
 
 if [ "$bad" -gt 0 ]; then

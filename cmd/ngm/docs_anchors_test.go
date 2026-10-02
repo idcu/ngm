@@ -90,6 +90,10 @@ func TestDocsAnchorsResolve(t *testing.T) {
 	}
 
 	linkRe := regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
+	// 行内代码里的例子不是链接：`[label](x.md#anchor)` 这种形状会出现在
+	// "教人怎么写文档"的地方。不剥掉它，这条检查就会对着**示例**报错——
+	// 而会误报的门禁会被忽略（`scripts/check-docs-links.sh` 同样剥掉，两处规则一致）。
+	codeRe := regexp.MustCompile("`[^`]*`")
 	var problems []string
 	checked := 0
 
@@ -98,7 +102,8 @@ func TestDocsAnchorsResolve(t *testing.T) {
 		if rerr != nil {
 			t.Fatalf("read %s: %v", rel, rerr)
 		}
-		for i, line := range strings.Split(string(data), "\n") {
+		for i, rawLine := range strings.Split(string(data), "\n") {
+			line := codeRe.ReplaceAllString(rawLine, "")
 			for _, m := range linkRe.FindAllStringSubmatch(line, -1) {
 				target := strings.TrimSpace(m[1])
 				if target == "" || strings.HasPrefix(target, "http://") ||
