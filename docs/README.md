@@ -3,16 +3,17 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.8 均已交付**（v0.1 ~ v0.4 已发布；v0.6 见
-[复盘](./development/v0.6-retrospective.md)——含**跨机器可复现性的实测判定**：
-三平台 + 本机同值 `treeA=124f03b1de58091a`；v0.8 见[计划](./development/v0.8-plan.md)——
-层 2 换布局，把"每 commit 复制一整棵树"的 **20×** 放大降到 **0.6×**）。
-`v0.1.0` ~ `v0.4.0` 都已打 tag，**GitHub 与 Gitee 上各有 7 个附件**
+**当前状态：v0.1 ~ v0.8 均已交付**（其中 **`v0.1.0` ~ `v0.4.0` 已发布**，
+`v0.5.0` ~ `v0.8.0` **尚未打 tag**——见[发布清单](./development/README.md#发布清单每个版本)与
+[发布状态](#发布状态)）。各版计划与复盘见[开发总览](./development/README.md)；
+其中 v0.6 的[复盘](./development/v0.6-retrospective.md)含**跨机器可复现性的实测判定**
+（三平台 + 本机同值 `treeA=124f03b1de58091a`），v0.8 的[复盘](./development/v0.8-retrospective.md)
+记录了层 2 换布局：把"每 commit 复制一整棵树"的 **20.0×** 放大降到 **0.6×**。
+
+`v0.1.0` ~ `v0.4.0` 的附件在 **GitHub 与 Gitee 上各有 7 个**
 （六平台二进制 + `SHA256SUMS`，三平台 CI 全绿，含端到端验收与真实引擎集成）；
 两源的 `SHA256SUMS` 已逐个比对为**逐字节相同**，见[安装指南](./guides/installation.md)
-与[发布清单](./development/README.md#补发记录2026-10-02gitee-侧)。各版证据见[复盘](./development/)；
-v0.5 的范围见[v0.5 计划](./development/v0.5-plan.md)、结果与偏离见 [v0.5 复盘](./development/v0.5-retrospective.md)
-（来源是 [v0.5 复核](./development/v0.5-review.md)）。
+与[发布清单](./development/README.md#补发记录2026-10-02gitee-侧)。
 
 本目录每篇文档都用**成熟度**标注可用范围，不会让规划中的能力看起来像已经能用：
 
@@ -253,8 +254,22 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.4 | `ngm typedecl` + `verify --signatures` / `--require-signed` + 配置字段接线的机械检查 | **已交付**（沙箱自述文件签名检查经 [ADR-014](./adr/adr-014-self-report-signatures.md) 以"决定不做"结项） |
 | v0.5 | 在线 verify 的成本与方差 + ADR-013 翻案条件判定 + 权限施加点的机械核对 + **v0.2~v0.4 补发布** + 挂账项收尾 | **已交付**（详见[复盘](./development/v0.5-retrospective.md)；残项已于 2026-10-02 补齐：Gitee 侧 21 个附件） |
 | v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)） |
-| v0.7 | content store 的**占用可见**（`ngm store usage`，只读）与**残骸可回收**（`ngm store prune`） | **已交付**（[计划](./development/v0.7-plan.md)） |
-| v0.8 | 层 2 换布局（blob 池 + 树清单，[ADR-019](./adr/adr-019-content-addressed-blobs.md)）：先让消费方与布局解耦，再换布局 | **已交付**（[计划](./development/v0.8-plan.md)：20.0× → 0.6×；一处用户可见的变化：`symlink` 落地模式退化） |
+| v0.7 | content store 的**占用可见**（`ngm store usage`，只读）与**残骸可回收**（`ngm store prune`） | **已交付**（[计划](./development/v0.7-plan.md) / [复盘](./development/v0.7-retrospective.md)） |
+| v0.8 | 层 2 换布局（blob 池 + 树清单，[ADR-019](./adr/adr-019-content-addressed-blobs.md)）：先让消费方与布局解耦，再换布局 | **已交付**（[计划](./development/v0.8-plan.md) / [复盘](./development/v0.8-retrospective.md)：20.0× → 0.6×；一处用户可见的变化：`symlink` 落地模式退化） |
+
+### 发布状态
+
+**"交付"与"发布"是两件事**，这一页把它们分开写——因为本项目已经两次把后者漏掉。
+
+| 版本 | 源码 | tag | GitHub release | Gitee 附件 |
+|------|------|-----|----------------|-----------|
+| `v0.1.0` | ✅ | ✅ | ✅ 7 个 | ✅ 7 个 |
+| `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
+| v0.5 ~ v0.8 | ✅ | ❌ **未打** | ❌ | ❌ |
+
+> v0.5 ~ v0.8 的 tag 待补（工序见[发布清单](./development/README.md#发布清单每个版本)）。
+> 这是"写进清单≠会发生"的第二次现身：清单第 0 步正是为 v0.2~v0.4 的同类事故而写的，
+> 却仍然被跨过了四次——记在 [v0.8 复盘 §2](./development/v0.8-retrospective.md#2-未能达成的项)。
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 

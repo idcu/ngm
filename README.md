@@ -4,16 +4,20 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.8 delivered** (`v0.1.0` … `v0.4.0` tagged and published, each with six platform
-binaries plus `SHA256SUMS`). `v0.5` was the convergence and delivery pass; `v0.6` made the remaining
-conclusions *decidable* (a git spawn budget as a CI gate, real-world reproducibility forms, measured
-content-store growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and
-its residues reclaimable (`ngm store prune`); and `v0.8` replaced the layer-2 layout with a
-**blob pool + tree manifests**, cutting the measured cost of 12 commits from **20.0× the real source
-delta to 0.6×** (`1.88 MiB → 59.9 KiB`). See
-[`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md),
-[`docs/development/v0.6-retrospective.md`](./docs/development/v0.6-retrospective.md) and
-[`docs/development/v0.8-plan.md`](./docs/development/v0.8-plan.md).
+Status: **v0.1 … v0.8 delivered in source** (`v0.1.0` … `v0.4.0` tagged and published, each with six
+platform binaries plus `SHA256SUMS`). `v0.5` was the convergence and delivery pass; `v0.6` made the
+remaining conclusions *decidable* (a git spawn budget as a CI gate, real-world reproducibility forms,
+measured content-store growth); `v0.7` made the content store's footprint **visible**
+(`ngm store usage`) and its residues reclaimable (`ngm store prune`); and `v0.8` replaced the layer-2
+layout with a **blob pool + tree manifests**, cutting the measured cost of 12 commits from
+**20.0× the real source delta to 0.6×** (`1.88 MiB → 59.9 KiB`).
+Per-version plans and retrospectives live in [`docs/development/`](./docs/development/README.md).
+
+⚠️ **`v0.5.0` … `v0.8.0` are not tagged yet** — delivered in source but not downloadable, which is
+exactly the mistake the release checklist's step 0 was written to prevent (it happened for
+`v0.2`~`v0.4`, and then again for four more versions). See
+[`docs/README.md` §发布状态](./docs/README.md#发布状态) and
+[`docs/development/v0.8-retrospective.md`](./docs/development/v0.8-retrospective.md).
 Prebuilt binaries for `v0.1.0` … `v0.4.0` are available from **both** sources with identical
 `SHA256SUMS` (verified byte-for-byte); see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and
