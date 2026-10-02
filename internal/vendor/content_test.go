@@ -288,7 +288,10 @@ func TestContentStore_ExecutableBitPreserved(t *testing.T) {
 	//    就是它落地后的权限（见 blobKey）。这一条是"hardlink 也能保住可执行位"
 	//    的**充分条件**：blob 错，落地就是错的。
 	if runtime.GOOS == "windows" {
-		t.Skip("可执行位在 Windows 上不可表示；清单里的 mode 已在上方断言")
+		// 只跳过"blob 的权限位"这一段——上面两条断言（清单里的 mode、内容可读）
+		// 在所有平台都跑过了，所以用 return 而不是 Skip：Skip 会把整个用例报成"没验过"，
+		// 而它其实验了一半（且是可跨平台的那一半）。
+		return
 	}
 	st, serr := os.Stat(byPath["scripts/run.sh"].Full)
 	if serr != nil {
