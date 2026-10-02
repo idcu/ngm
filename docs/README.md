@@ -251,7 +251,8 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.3 | wasm adapter + 集成脚手架（Vite / esbuild / Deno / Webpack）+ Deno 沙箱 + 权限与凭证 + mappings 子路径扩展 | **已交付**（`remote` adapter 经 [ADR-013](./adr/adr-013-remote-adapter.md) 决定不发布） |
 | v0.4 | `ngm typedecl` + `verify --signatures` / `--require-signed` + 配置字段接线的机械检查 | **已交付**（沙箱自述文件签名检查经 [ADR-014](./adr/adr-014-self-report-signatures.md) 以"决定不做"结项） |
 | v0.5 | 在线 verify 的成本与方差 + ADR-013 翻案条件判定 + 权限施加点的机械核对 + **v0.2~v0.4 补发布** + 挂账项收尾 | **已交付**（详见[复盘](./development/v0.5-retrospective.md)；残项已于 2026-10-02 补齐：Gitee 侧 21 个附件） |
-| v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)）；唯一未完成的是跨机器结论（读不到 CI） |
+| v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)） |
+| v0.7 | content store 的**占用可见**（`ngm store usage`，只读）与**残骸可回收**（`ngm store prune`） | **实施中**（[计划](./development/v0.7-plan.md)；两组均已交付） |
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 

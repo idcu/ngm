@@ -203,18 +203,20 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 > 收尾时又补上 [ADR-018](../adr/adr-018-store-reclaim.md)
 > ——内容寻址 store 的回收与去重（**不做**按可达性自动删除；写入侧去重是长期解法）。
 
-### v0.7 候选（**范围未成文**）
+### v0.7（计划：[v0.7-plan.md](./v0.7-plan.md)，**实施中**）
 
-按证据强度排序（详见 [v0.6 复盘 §7](./v0.6-retrospective.md#7-v07-候选按证据强度排序非路线图承诺)）：
+范围 = [ADR-018](../adr/adr-018-store-reclaim.md) 决策 2 的落地：让 content store 的
+**占用可见**（`ngm store usage`，只读）与**残骸可回收**（`ngm store prune`，只清解包残骸）。
+两组均已交付 ✅。
+
+**剩下的候选**（按证据强度排序，详见 [v0.6 复盘 §7](./v0.6-retrospective.md#7-v07-候选按证据强度排序非路线图承诺)）：
 
 | # | 候选 | 前置 |
 |---|------|------|
-| 1 | `ngm store usage`（只读占用报告）与 `ngm store prune`（只清半成品） | [ADR-018](../adr/adr-018-store-reclaim.md) 已定方向 |
-| 2 | 层 2 **写入侧去重**（按文件内容寻址 + 布局迁移） | 同上，需先出 schema 与迁移方案 |
-| 3 | ~~补上可复现性的**跨机器结论**~~ ✅ **本版已完成** | —— |
-| 4 | `remote` adapter 门槛 b：抽样构建的**成本数字** | **门槛 a 已满足** → 这是"要不要发布"**唯一**剩下的条件 |
-| 5 | `deno bundle` 真引擎覆盖 | 上游把 bundle 标为稳定（截至 2026-10-02 未变） |
-| 6 | 3s 目标的口径重定义 | 等次数门禁稳定运行几个版本 |
+| 1 | 层 2 **写入侧去重**（按文件内容寻址 + 布局迁移） | [ADR-018](../adr/adr-018-store-reclaim.md)；**唯一能改变 20× 增长曲线的一项**，需先出 schema 与迁移方案 |
+| 2 | `remote` adapter 门槛 b：抽样构建的**成本数字** | **门槛 a 已满足** → 这是"要不要发布"**唯一**剩下的条件 |
+| 3 | `deno bundle` 真引擎覆盖 | 上游把 bundle 标为稳定（截至 2026-10-02 未变） |
+| 4 | 3s 目标的口径重定义 | 等次数门禁稳定运行几个版本 |
 
 ---
 
@@ -356,7 +358,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 
 ## 相关文档
 
-- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md)
+- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md)
 - [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)

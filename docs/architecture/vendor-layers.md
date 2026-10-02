@@ -105,8 +105,11 @@ project/ngm.vendor/
 
 - **cache 可以在任何时刻整层删除**——可证明性由 mirror + content + lock 保证，与 cache 无关
 - `ngm cache clean` 清空缓存层
-- content store 与 mirror 的 GC **尚未排期**——它依赖跨项目引用索引，且刻意**不预告命令名**
-  （[CLI 参考](../guides/cli.md) 里写明了这条纪律：不承诺一个不存在的 `ngm store gc`）
+- content store 与 mirror 的 GC：由 [ADR-018](../adr/adr-018-store-reclaim.md) 裁定——
+  **不做**按可达性自动删除的 GC（它依赖跨项目引用索引，而 ngm 没有，也不该去扫用户的磁盘）；
+  代之以 `ngm store usage`（只读占用报告）与 `ngm store prune`（**只清**解包残骸），
+  而真正能改变增长曲线的是**层 2 的写入侧去重**（排期目标）。
+  纪律不变：[CLI 参考](../guides/cli.md) 不会预告一个不存在的 `ngm store gc`
 
 ---
 

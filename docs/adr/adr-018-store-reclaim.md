@@ -94,7 +94,8 @@ rm -rf ~/.ngm/content     # 下次 install/verify 会重建（代价：重新解
 
 1. **不实现按可达性自动删除的 GC**（选项 A 不选），并把这**写成文档**：
    层 2 只增不减是已知的、有意的取舍，不是遗漏。
-2. **当下提供两件低风险工具**（**v0.7 排期**，本 ADR 只定方向）：
+2. **当下提供两件低风险工具**（**v0.7 已实现**：`ngm store usage` / `ngm store prune`，
+   验收见 [v0.7 计划](../development/v0.7-plan.md)）：
    - `ngm store usage`：**只读**报告（各 digest 的体积、合计、顶层占用），
      让"磁盘到底被什么占了"可回答。
    - `ngm store prune`：**只清半成品**——`Put` 的解包临时目录 `.unpack-*`
