@@ -4,14 +4,14 @@
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
 **当前状态：v0.1 ~ v0.6 均已交付**（v0.1 ~ v0.4 已发布；v0.6 见
-[复盘](./development/v0.6-retrospective.md)——两处未完成**都不是工程**：
-Gitee 侧 21 个附件缺凭据、可复现性的跨机器结论读不到 CI）。
-`v0.1.0` ~ `v0.4.0` 都已打 tag，GitHub 上各有 7 个附件（六平台二进制 + `SHA256SUMS`，
-三平台 CI 全绿，含端到端验收与真实引擎集成）；
-**Gitee 上目前只有 `v0.1.0`**——后三版的附件需手动上传，见[安装指南](./guides/installation.md)
-与[发布清单](./development/README.md#补发记录2026-10-01)。各版证据见[复盘](./development/)；
+[复盘](./development/v0.6-retrospective.md)——唯一未完成的是**可复现性的跨机器结论**，
+因本环境读不到 CI 结果；那一步的探针与比对脚本都已就绪）。
+`v0.1.0` ~ `v0.4.0` 都已打 tag，**GitHub 与 Gitee 上各有 7 个附件**
+（六平台二进制 + `SHA256SUMS`，三平台 CI 全绿，含端到端验收与真实引擎集成）；
+两源的 `SHA256SUMS` 已逐个比对为**逐字节相同**，见[安装指南](./guides/installation.md)
+与[发布清单](./development/README.md#补发记录2026-10-02gitee-侧)。各版证据见[复盘](./development/)；
 v0.5 的范围见[v0.5 计划](./development/v0.5-plan.md)、结果与偏离见 [v0.5 复盘](./development/v0.5-retrospective.md)
-（来源是 [v0.5 复核](./development/v0.5-review.md)）。**v0.5 的唯一残项**是 Gitee 侧 21 个附件待人工上传。
+（来源是 [v0.5 复核](./development/v0.5-review.md)）。
 
 本目录每篇文档都用**成熟度**标注可用范围，不会让规划中的能力看起来像已经能用：
 
@@ -250,8 +250,8 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.2 | 供应链策略最小字段集 + OSV / audit + `why`·`tree`·`outdated` + **多引擎 adapter（tsc / deno / postcss）** + `install` 的 CI 模式 + verify 性能优化 | **已完成**（离线 verify 达标；在线 verify 差 1.1×，见[复盘](./development/v0.2-retrospective.md)） |
 | v0.3 | wasm adapter + 集成脚手架（Vite / esbuild / Deno / Webpack）+ Deno 沙箱 + 权限与凭证 + mappings 子路径扩展 | **已交付**（`remote` adapter 经 [ADR-013](./adr/adr-013-remote-adapter.md) 决定不发布） |
 | v0.4 | `ngm typedecl` + `verify --signatures` / `--require-signed` + 配置字段接线的机械检查 | **已交付**（沙箱自述文件签名检查经 [ADR-014](./adr/adr-014-self-report-signatures.md) 以"决定不做"结项） |
-| v0.5 | 在线 verify 的成本与方差 + ADR-013 翻案条件判定 + 权限施加点的机械核对 + **v0.2~v0.4 补发布** + 挂账项收尾 | **已交付**（详见[复盘](./development/v0.5-retrospective.md)；残项：Gitee 侧 21 个附件待人工上传） |
-| v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)）；两处未完成都不是工程：Gitee 附件缺 token、跨机器结论读不到 CI |
+| v0.5 | 在线 verify 的成本与方差 + ADR-013 翻案条件判定 + 权限施加点的机械核对 + **v0.2~v0.4 补发布** + 挂账项收尾 | **已交付**（详见[复盘](./development/v0.5-retrospective.md)；残项已于 2026-10-02 补齐：Gitee 侧 21 个附件） |
+| v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)）；唯一未完成的是跨机器结论（读不到 CI） |
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 

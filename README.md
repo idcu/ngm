@@ -11,9 +11,9 @@ real-world reproducibility forms (code splitting, asset fingerprints, a three-ho
 measured content-store growth; see
 [`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md) and
 [`docs/development/v0.6-retrospective.md`](./docs/development/v0.6-retrospective.md).
-Two items are still open and **neither is an engineering gap**: the Gitee attachments for
-`v0.2` ~ `v0.4` need a credential, and the cross-machine reproducibility verdict needs someone
-who can read the Actions results.
+Prebuilt binaries for `v0.1.0` … `v0.4.0` are available from **both** sources with identical
+`SHA256SUMS` (verified byte-for-byte). One item is still open and **it is not an engineering gap**:
+the cross-machine reproducibility verdict needs someone who can read the Actions results.
 On Gitee only `v0.1.0` carries attachments so far — `v0.2` ~ `v0.4` are uploaded by hand and
 **are still pending**, which is the one open item of v0.5 (see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and
