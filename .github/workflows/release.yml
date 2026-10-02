@@ -5,6 +5,24 @@ on:
   push:
     tags: ['v*']
 
+  # 手动补发入口（v0.8 收尾时加的，因为它真的需要过）。
+  #
+  # 为什么需要：**镜像把 tag 推到 GitHub，并不保证触发这里的 `push` 事件**。
+  # 实测 2026-10-02：`v0.5.0` ~ `v0.8.0` 四个 tag 已经出现在 GitHub 上
+  # （`git ls-remote` 可见、附注对象完整），但本工作流**一次都没跑**
+  # （`/actions/workflows/370079274/runs` 只有 v0.1.0 ~ v0.4.0 四次），
+  # 而同一时段的分支推送照常触发 CI。没有这条入口时，补发只能靠
+  # "删掉 tag 再推一次"去赌同一条路径——而它刚刚证明不可靠。
+  #
+  # 用法：Actions → Release → Run workflow，填入**已存在**的 tag（例如 `v0.8.0`）。
+  # 那条路径与 tag 推送的产物完全一致：同一个 tag 上跑同一段脚本、同一组断言。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已存在的 tag（例如 v0.8.0）'
+        required: true
+        type: string
+
 # 创建 release 需要写权限（默认的 GITHUB_TOKEN 在 tag 事件下是只读的）
 permissions:
   contents: write
@@ -19,11 +37,36 @@ jobs:
     name: build and publish assets
     runs-on: ubuntu-latest
     steps:
+      # 先定下"要发布哪个 tag"：tag 推送时就是 GITHUB_REF_NAME，
+      # 手动触发时来自输入（**先过一遍 env，不要直接插进 run 脚本里**）。
+      - name: resolve the tag to release
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            name="${DISPATCH_TAG}"
+          else
+            name="${GITHUB_REF_NAME}"
+          fi
+          if [ -z "${name}" ]; then
+            echo "::error::no tag to release (empty)"
+            exit 1
+          fi
+          case "${name}" in
+            v*) ;;
+            *) echo "::error::tag must look like vX.Y.Z, got '${name}'"; exit 1 ;;
+          esac
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "releasing ${name}"
+
       - uses: actions/checkout@v4
         with:
           # 取全量历史：build-release.sh 用 `git rev-parse --short HEAD` 注入短哈希，
           # 浅克隆下这个值会是错的（甚至是空的）。
           fetch-depth: 0
+          # 手动触发时默认取的是分支；显式指向那个 tag，两条路径才是同一份源码。
+          ref: ${{ steps.tag.outputs.name }}
 
       - uses: actions/setup-go@v5
         with:
@@ -38,16 +81,19 @@ jobs:
       # bash 显式调用而不是 ./script：Windows 上创建的脚本文件没有可执行位，
       # 提交到 git 后 checkout 出来仍是 100644，直接执行会 permission denied。
       - name: build artifacts
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
         run: |
-          version="${GITHUB_REF_NAME#v}"   # v0.1.0 -> 0.1.0（--version 不带 v 前缀）
+          version="${TAG#v}"   # v0.1.0 -> 0.1.0（--version 不带 v 前缀）
           VERSION="$version" COMMIT="$(git rev-parse --short HEAD)" \
             bash scripts/build-release.sh
 
       - name: publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
+          gh release create "$TAG" \
+            --title "$TAG" \
             --generate-notes \
             dist/ngm-* dist/SHA256SUMS
