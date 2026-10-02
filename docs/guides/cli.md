@@ -37,7 +37,8 @@
 **只增不减**，但占用现在可见（`ngm store usage`，只读）、残骸可回收（`ngm store prune`）。
 **没有、也不预告**一个会删除内容树的 `ngm store gc`——按可达性删除需要一个 ngm 没有的
 项目注册表，误删会让别的项目的 `ngm verify` 在某天突然验不过。
-真正能改变增长曲线的是**层 2 的写入侧去重**（排期目标，单列一版）。
+真正能改变增长曲线的是**层 2 的写入侧去重**：布局改为 blob 池 + 树清单，
+schema 与迁移方案见 [ADR-019](../adr/adr-019-content-addressed-blobs.md)（实现单列一版）。
 
 **内置引擎清单（v0.4 时点）**：`esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`，
 自带 `tsc --emitDeclarationOnly`，`optional`）、`postcss`（`css`，`optional`）、`self` stub；

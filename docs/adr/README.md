@@ -26,6 +26,7 @@
 | [ADR-016](./adr-016-mirror-url-local-read.md) | mirror 远端地址改为读 config 文件 | 已定（v0.5 A4）：形状不认识即回退子进程；tag 型 4.00 → **3.00 次/依赖** |
 | [ADR-017](./adr-017-remote-adapter-release-decision.md) | remote adapter 的**发布决策** | 已定（v0.6）：**仍不发布**；剩下的问题写成可判定的门槛（修订 [ADR-013](./adr-013-remote-adapter.md)） |
 | [ADR-018](./adr-018-store-reclaim.md) | 内容寻址 store 的**回收与去重** | 已定（v0.6）：**不做**按可达性自动删除；`store usage` / `store prune` 排期；**写入侧去重**是长期解法 |
+| [ADR-019](./adr-019-content-addressed-blobs.md) | 层 2 改为**按文件内容寻址**（blob 池 + 树清单） | 已定（v0.7）：schema 与**不就地迁移**方案已定；**实现单列一个版本**。digest 定义不变 |
 
 ---
 

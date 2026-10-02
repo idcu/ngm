@@ -108,7 +108,8 @@ project/ngm.vendor/
 - content store 与 mirror 的 GC：由 [ADR-018](../adr/adr-018-store-reclaim.md) 裁定——
   **不做**按可达性自动删除的 GC（它依赖跨项目引用索引，而 ngm 没有，也不该去扫用户的磁盘）；
   代之以 `ngm store usage`（只读占用报告）与 `ngm store prune`（**只清**解包残骸），
-  而真正能改变增长曲线的是**层 2 的写入侧去重**（排期目标）。
+  而真正能改变增长曲线的是**层 2 的写入侧去重**——布局改为 blob 池 + 树清单，
+  schema 与迁移方案见 [ADR-019](../adr/adr-019-content-addressed-blobs.md)（实现单列一版）。
   纪律不变：[CLI 参考](../guides/cli.md) 不会预告一个不存在的 `ngm store gc`
 
 ---
