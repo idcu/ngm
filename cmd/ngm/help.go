@@ -36,6 +36,7 @@ COMMANDS:
   mappings       mappings 管理
   integrations   构建工具集成脚手架（v0.3）
   cache          缓存维护
+  store          内容寻址 store 的占用报告与残骸清理（**只读/只清残骸**，见 ADR-018）
   config         配置管理
   engines        引擎管理
 

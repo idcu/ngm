@@ -175,7 +175,9 @@ func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath
 	if err := os.MkdirAll(filepath.Join(s.root, digest.Algorithm), 0o755); err != nil {
 		return PutResult{}, errs.Wrap(errs.CodeConfigInvalid, "create content store root", "", err)
 	}
-	tmpDir, err := os.MkdirTemp(filepath.Join(s.root, digest.Algorithm), ".unpack-*")
+	// 临时目录名前缀用 `unpackPrefix`（与 `Prune` 共用同一个常量）：
+	// "哪些目录是残骸"这件事只能有一处定义。
+	tmpDir, err := os.MkdirTemp(filepath.Join(s.root, digest.Algorithm), unpackPrefix+"*")
 	if err != nil {
 		return PutResult{}, errs.Wrap(errs.CodeConfigInvalid, "create temp unpack dir", "", err)
 	}

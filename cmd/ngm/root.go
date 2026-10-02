@@ -42,6 +42,7 @@ var commands = []*commandSpec{
 	{Name: "mappings", Run: runMappings},
 	{Name: "integrations", Run: runIntegrations},
 	{Name: "cache", Run: runCache},
+	{Name: "store", Run: runStore},
 	{Name: "config", Run: runConfig},
 	{Name: "engines", Run: runEngines},
 }
