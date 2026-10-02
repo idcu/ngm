@@ -16,7 +16,8 @@
 > | v0.6 | [计划](./v0.6-plan.md) | [复盘](./v0.6-retrospective.md) | 让结论**可判别** |
 > | v0.7 | [计划](./v0.7-plan.md) | [复盘](./v0.7-retrospective.md)（补写） | store 占用可见、残骸可回收 |
 > | v0.8 | [计划](./v0.8-plan.md) | [复盘](./v0.8-retrospective.md) | 层 2 换布局：20.0× → 0.6× |
-> | v0.9 | [计划](./v0.9-plan.md) | [复盘](./v0.9-retrospective.md) | 让 store 的读数说真话（共享/独占/孤儿）+ 锚点检查 |
+> | v0.9 | [计划](./v0.9-plan.md) | [复盘](./v0.9-retrospective.md) | 让 store 的读数说真话（共享/独占/孤儿）+ 锚点检查 + 10 万级规模实测 |
+> | v0.10 | [计划](./v0.10-plan.md) | [复盘](./v0.10-retrospective.md) | 检查推到最外圈：根 README + store 不完整的两条承诺 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -210,7 +211,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 > 收尾时又补上 [ADR-018](../adr/adr-018-store-reclaim.md)
 > ——内容寻址 store 的回收与去重（**不做**按可达性自动删除；写入侧去重是长期解法）。
 
-### v0.10（计划：[v0.10-plan.md](./v0.10-plan.md)）— **实施中**
+### v0.10（计划：[v0.10-plan.md](./v0.10-plan.md) / 复盘：[v0.10-retrospective.md](./v0.10-retrospective.md)）— **已交付**
 
 **把检查推到最外圈**：v0.9 让 store 的读数说了真话；这一版补两个**没人看的角落**——
 最外圈的文档（根 `README.md`）与用户真会遇到的一种失败（store 不完整）。
@@ -481,7 +482,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md) / [v0.10](./v0.10-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / **[v0.7 复盘](./v0.7-retrospective.md)**（补写）/ **[v0.8 复盘](./v0.8-retrospective.md)** / [v0.5 复核](./v0.5-review.md)
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / **[v0.7 复盘](./v0.7-retrospective.md)**（补写）/ **[v0.8 复盘](./v0.8-retrospective.md)** / [v0.9 复盘](./v0.9-retrospective.md) / [v0.10 复盘](./v0.10-retrospective.md) / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）
