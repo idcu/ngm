@@ -221,6 +221,26 @@ jobs:
             echo "no docs/ directory yet; will be enabled after ngm-doc merge"
           fi
 
+  # 发布状态检查：**有复盘 ⇔ 有 tag**（按 vX.Y 配对），见 scripts/check-release-status.sh。
+  #
+  # 为什么值得单独一个 job：本条检查的是"交付"与"发布"有没有对上，而这是本项目
+  # **唯一**不产生编译错误、也没有任何其他自动提醒的交付动作——v0.2~v0.4 因此漏了，
+  # 清单补了第 0 步之后，v0.5 ~ v0.8 **又漏了四版**（v0.8 复盘 §5.6）。
+  #
+  # fetch-depth: 0 是必须的：默认的 depth 1 不取 tag，那样这条检查会（正确地）报
+  # "所有版本都没 tag"并红——本脚本刻意不做"看不到就跳过"，而宁可吵闹。
+  release-status:
+    name: release status (retrospective <-> tag)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check release status (bash)
+        shell: bash
+        run: bash scripts/check-release-status.sh
+
   # lock 字节可复现回归（M3 起生效）。
   # 这条纪律是 v0.1 的退出标准之一，因此独立成一个 job（而不是混在 acceptance 里
   # 被一长串 -run 表达式掩盖）。同一 ngm.json + 同一上游状态 → 除 resolvedAt 外
