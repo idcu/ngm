@@ -1,4 +1,4 @@
-# 构建 v0.1 发布产物（Windows 本地用）。逻辑与 scripts/build-release.sh 对齐：
+﻿# 构建 v0.1 发布产物（Windows 本地用）。逻辑与 scripts/build-release.sh 对齐：
 # 同样的六个目标、同样的命名、同样的 SHA256SUMS 格式。
 #
 # 用法：
