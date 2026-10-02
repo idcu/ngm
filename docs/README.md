@@ -4,8 +4,8 @@
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
 **当前状态：v0.1 ~ v0.6 均已交付**（v0.1 ~ v0.4 已发布；v0.6 见
-[复盘](./development/v0.6-retrospective.md)——唯一未完成的是**可复现性的跨机器结论**，
-因本环境读不到 CI 结果；那一步的探针与比对脚本都已就绪）。
+[复盘](./development/v0.6-retrospective.md)——含**跨机器可复现性的实测判定**：
+三平台 + 本机同值 `treeA=124f03b1de58091a`。v0.7 范围尚未成文，候选池在[路线图](./internals/roadmap.md)）。
 `v0.1.0` ~ `v0.4.0` 都已打 tag，**GitHub 与 Gitee 上各有 7 个附件**
 （六平台二进制 + `SHA256SUMS`，三平台 CI 全绿，含端到端验收与真实引擎集成）；
 两源的 `SHA256SUMS` 已逐个比对为**逐字节相同**，见[安装指南](./guides/installation.md)

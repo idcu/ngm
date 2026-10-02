@@ -317,13 +317,37 @@ v0.6 复测**不支持**这句话：esbuild 0.28.2、空闲 Windows、**38 个�
 > 并行完成顺序不同），但**不可复现的实测不能继续当结论用**——尤其当它正被引用来支撑
 > 一个门禁设计时。把它留着，下一轮还会有人照着它去解释现象。
 
-###### 本批的跨平台结论：**未取得**（如实标注）
+###### 本批的跨平台结论：**已取得**（2026-10-02）
 
-新形态的三平台比对需要一次能读到结果的运行，而当前环境没有 `gh`、也没有 token；
-`repro-probe.yml` 的 `push.paths` 含探针文件本身，因此**推送即触发**，
-但**结果读不到**。所以本批只能写：**本机（Windows）两路径一致 + 20 轮稳定**；
-跨平台那一步由下一次能读到结果的运行补上——**不得由"工作流没红"推断为通过**
-（那是"没测出来读成通过"，本 ADR 的对照组纪律正是为此而设）。
+推送触发的 `repro-probe` 运行（`9324266`）**三平台全绿**，compare job 的原文：
+
+```
+per-platform results:
+  Linux   (Linux/x86_64)   : treeA=124f03b1de58091a treeB=124f03b1de58091a ctrl=5bca3dd58309bd79 esbuild=0.28.2 tsc=5.6.3
+  Windows (Windows/x86_64) : treeA=124f03b1de58091a treeB=124f03b1de58091a ctrl=5bca3dd58309bd79 esbuild=0.28.2 tsc=5.6.3
+  macOS   (macOS/arm64)    : treeA=124f03b1de58091a treeB=124f03b1de58091a ctrl=5bca3dd58309bd79 esbuild=0.28.2 tsc=5.6.3
+  [观察/不判定] Linux vs macOS: obs.plugin.metapaths —— 诊断文件（非产物）里的路径内容不同
+REPRODUCIBLE ACROSS MACHINES: 3 platform(s) agree on treeA=124f03b1de58091a (esbuild=0.28.2, tsc=5.6.3)
+```
+
+**逐形态**也是一致的（三个新形态在三平台上同值）：
+
+| 形态 | Linux | macOS | Windows |
+|------|-------|-------|---------|
+| `esbuild-split`（代码分割 + 共享 chunk） | `805bb7bec8ee1d0c` | 同 | 同 |
+| `esbuild-assetnames`（资产指纹 `[name]-[hash]`） | `bc1d79fe4029d668` | 同 | 同 |
+| `esbuild-pluginchain`（三钩子 + splitting） | `44c9101a4bc47e80` | 同 | 同 |
+
+**另外两台机器**：CI 的 `treeA=124f03b1de58091a` 与本机（Windows 10 / i3-10100）**两次运行的值
+完全相同**——所以"跨机器"这一维现在是 **3 个 runner + 1 台开发机**一致，而不仅是三个 runner。
+
+> 方法上的一句：这三行是**读出来的**，不是由"工作流没红"推断的——
+> 三份 `probe-result.json` 都取回本机，用仓库自己的 `scripts/compare-probe-results.mjs`
+> 重判了一遍（同一结论）。"没测出来"不得读成"通过"，是本 ADR 的对照组纪律。
+
+**门槛 a 因此成立**：真实项目**必然**打开的形态（代码分割、资产指纹）与多钩子插件链，
+在三平台 × 两个不同路径下产物字节一致，且判定由机器做出（含引擎版本一致这一层）。
+剩下的只有 [ADR-017](./adr-017-remote-adapter-release-decision.md) 的门槛 b。
 
 ---
 
