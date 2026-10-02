@@ -62,21 +62,52 @@ func VerifyVendorTreeShallow(vendorTree, contentTree string) (VerifyResult, erro
 	return verifyTrees(vendorTree, contentTree, false)
 }
 
-// verifyTrees 是浅/深校验的共同实现。
-//
-// deep=false 时用「大小相同」代替「内容哈希」；其余判定完全一致，
-// 因此两个入口不会出现"一个检出了某类问题、另一个却检不出"的漂移。
+// verifyTrees 是"两棵目录树"的浅/深校验（旧入口：两侧都是目录）。
 func verifyTrees(vendorTree, contentTree string, deep bool) (VerifyResult, error) {
-	var res VerifyResult
-
 	left, err := scanTree(vendorTree)
 	if err != nil {
-		return res, err
+		return VerifyResult{}, err
 	}
 	right, err := scanTree(contentTree)
 	if err != nil {
-		return res, err
+		return VerifyResult{}, err
 	}
+	return compareTrees(left, right, deep)
+}
+
+// VerifyVendorAgainstEntries 比较 vendor 落地树与 store 的**条目集合**。
+//
+// 与 VerifyVendorTree* 的关系：判定逻辑**完全相同**（都走 compareTrees），
+// 只是"右侧"从"扫一个目录"变成"直接用条目"——层 2 换布局之后
+// （[ADR-019](../docs/adr/adr-019-content-addressed-blobs.md)）右侧不再是一棵目录树，
+// 而判定不能因此出现"浅校验检得出、深校验检不出"这类漂移。
+func VerifyVendorAgainstEntries(vendorTree string, entries []ContentEntry, deep bool) (VerifyResult, error) {
+	left, err := scanTree(vendorTree)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	return compareTrees(left, entriesToTree(entries), deep)
+}
+
+// entriesToTree 把条目集合转成判定逻辑用的映射。
+//
+// 它刻意复用 `treeEntry`：**不**为"条目形态"另写一份比较逻辑。
+func entriesToTree(entries []ContentEntry) map[string]treeEntry {
+	out := make(map[string]treeEntry, len(entries))
+	for _, e := range entries {
+		out[e.Path] = treeEntry{full: e.Full, symlink: e.Symlink, linkTarget: e.LinkTarget, size: e.Size}
+	}
+	return out
+}
+
+// compareTrees 是浅/深校验的共同实现：两侧都已经是"路径 → 条目"的映射。
+//
+// 为什么把"扫描"留在调用方：层 2 换布局后其中一侧不再是目录，因此判定只能依赖映射。
+//
+// deep=false 时用「大小相同」代替「内容哈希」；其余判定完全一致，
+// 因此两个入口不会出现"一个检出了某类问题、另一个却检不出"的漂移。
+func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, error) {
+	var res VerifyResult
 
 	// 1) 路径集合比对
 	for path := range left {

@@ -480,12 +480,24 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	// 这是唯一能发现**层 2 内容被就地篡改**的检查：默认 layout 下 vendor 与
 	// content 是同一 inode，篡改会同时改变两侧，因此"vendor ↔ content 比对"
 	// （第 3 步）看不出任何异常；只有对着 lock 里的 digest 重放才能发现。
+	// store 的条目（已按 monorepo 子路径收窄）：层 2 换布局后它不再是一棵目录树
+	// （ADR-019），因此下面两处都吃条目，不吃路径。
+	var storeEntries []vendor.ContentEntry
+	if hasStore {
+		all, eerr := store.Entries(d.ArchiveDigest)
+		if eerr != nil {
+			problems = append(problems, "cannot read the content store: "+eerr.Error())
+		} else {
+			storeEntries = vendor.EntriesUnder(all, d.SubPath)
+		}
+	}
+
 	if opts.Deep {
 		switch {
 		case mirrorPath == "":
 			notes = append(notes, "the content digest could not be replayed because the local mirror is unavailable")
-		case hasStore:
-			got, derr := replayDigestFromStore(ctx, mirrorPath, store.TreePath(d.ArchiveDigest), d, opts)
+		case hasStore && storeEntries != nil:
+			got, derr := replayDigestFromEntries(ctx, mirrorPath, storeEntries, d, opts)
 			if derr != nil {
 				problems = append(problems, "cannot replay the digest from the content store: "+derr.Error())
 			} else if got != d.ArchiveDigest {
@@ -502,12 +514,8 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	if _, err := os.Stat(vendorTree); err != nil {
 		problems = append(problems, "vendor path is missing: "+vendorTree)
 	} else {
-		compare := vendor.VerifyVendorTreeShallow
-		if opts.Deep {
-			compare = vendor.VerifyVendorTree
-		}
 		var verr error
-		vr, verr = compare(vendorTree, contentTreeFor(store, d))
+		vr, verr = vendor.VerifyVendorAgainstEntries(vendorTree, storeEntries, opts.Deep)
 		if verr != nil {
 			problems = append(problems, "cannot compare vendor with the content store: "+verr.Error())
 		} else {
@@ -546,10 +554,20 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 //
 // 返回的 error 表示"无法完成重放"（文件缺失、无法读取）——调用方按完整性失败
 // 处理：证明不出来就必须阻断。
-func replayDigestFromStore(ctx context.Context, mirrorPath, storeRoot string, d *lock.Dependency, opts Options) (string, error) {
+// replayDigestFromEntries 用「Git 权威的路径与模式 + store 条目的字节」重算 digest。
+//
+// 参数从"store 根目录"改成"条目集合"，理由与上面一致：层 2 换布局后（ADR-019）
+// 不再有一个可以拼路径的目录根；而这里真正需要的只是"每个 Git 条目对应的字节"。
+func replayDigestFromEntries(ctx context.Context, mirrorPath string, storeEntries []vendor.ContentEntry,
+	d *lock.Dependency, opts Options) (string, error) {
 	entries, err := git.ListTree(ctx, opts.GitOpts, mirrorPath, d.Commit)
 	if err != nil {
 		return "", err
+	}
+
+	byPath := make(map[string]vendor.ContentEntry, len(storeEntries))
+	for _, e := range storeEntries {
+		byPath[e.Path] = e
 	}
 
 	records := make([]digest.Record, 0, len(entries))
@@ -557,17 +575,22 @@ func replayDigestFromStore(ctx context.Context, mirrorPath, storeRoot string, d 
 		if e.Mode == digest.ModeTree {
 			continue
 		}
-		full := filepath.Join(storeRoot, filepath.FromSlash(e.Path))
+		se, ok := byPath[e.Path]
+		if !ok {
+			return "", fmt.Errorf("%s: missing from the content store", e.Path)
+		}
 
 		var content []byte
 		if e.Mode == digest.ModeSymlink {
-			target, lerr := os.Readlink(full)
-			if lerr != nil {
-				return "", fmt.Errorf("%s: expected a symlink in the content store: %w", e.Path, lerr)
+			if !se.Symlink {
+				return "", fmt.Errorf("%s: expected a symlink in the content store", e.Path)
 			}
-			content = []byte(target)
+			content = []byte(se.LinkTarget)
 		} else {
-			content, err = os.ReadFile(full)
+			if se.Full == "" {
+				return "", fmt.Errorf("%s: has no content location in the store", e.Path)
+			}
+			content, err = os.ReadFile(se.Full)
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", e.Path, err)
 			}
@@ -614,17 +637,9 @@ func metaMismatches(d *lock.Dependency, meta *vendor.Meta) []string {
 	return out
 }
 
-// contentTreeFor 返回该依赖在 content store 中的内容树根（已展开 monorepo 子路径）。
-//
-// 与 cmd 层 env.ContentReader 的口径一致：monorepo 只落地并校验子目录。
-func contentTreeFor(store *vendor.ContentStore, d *lock.Dependency) string {
-	root := store.TreePath(d.ArchiveDigest)
-	sub := strings.Trim(filepath.ToSlash(d.SubPath), "/")
-	if sub == "" {
-		return root
-	}
-	return filepath.Join(root, filepath.FromSlash(sub))
-}
+// （原 contentTreeFor 已移除：它返回的是"store 里的目录根"，而层 2 换布局后
+// 不再有这样一个目录（ADR-019）。子路径的收窄改由 vendor.EntriesUnder 在**条目层**做，
+// 与 cmd 层 env.ContentReader 的口径一致：monorepo 只落地并校验子目录。）
 
 // aggregateDrift 取各检查中最严重的分类（critical > unexpected > expected）。
 func aggregateDrift(checks []CheckResult) DriftKind {
