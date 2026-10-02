@@ -126,5 +126,5 @@ ADR-013 的形状一致（指向 ADR-013；如需追溯本 ADR，从 ADR-013 的
 - [ADR-013 remote adapter 的信任边界](./adr-013-remote-adapter.md)（本 ADR 修订的对象）
 - [ADR-002 为什么直接拉 Git 仓库](./adr-002-git-direct.md) / [ADR-008 archiveDigest 的定义](./adr-008-archive-digest.md) /
   [ADR-009 供应链策略的执行时机与失败语义](./adr-009-supply-chain-policy.md)
-- [v0.5 复盘 §7](../development/v0.5-retrospective.md#7-v06-候选项按证据强度排序非路线图承诺)（候选来源）
+- [v0.5 复盘 §7](../development/v0.5-retrospective.md#7-v06-候选按证据强度排序非路线图承诺)（候选来源）
 - [安全模型](../architecture/security-model.md) / [引擎与 adapter](../architecture/engine-adapter.md)

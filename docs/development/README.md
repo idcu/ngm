@@ -260,7 +260,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   |------|------|--------|
   | `go test ./...` + 验收组 | `ci.yml` | 行为与不变量（含权限网、spawn 预算、store 布局） |
   | `gofmt -l` + 行尾 | `ci.yml` | 格式与 LF（golden 按字节比对，CRLF 会让它永久失配） |
-  | `scripts/check-docs-links.sh` | `ci.yml` job `docs-links` | 文档相对链接与锚点 |
+  | `scripts/check-docs-links.sh` | `ci.yml` job `docs-links` | 文档**相对链接的目标文件是否存在**（**不校验锚点**——中文标题的 GitHub 锚点算法不复刻，见脚本头部） |
   | `scripts/check-release-status.sh` | `ci.yml` job `release-status` | **有复盘 ⇔ 有 tag**（"已交付"与"已发布"不许脱节） |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
