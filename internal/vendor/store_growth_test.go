@@ -72,8 +72,18 @@ func TestV06StoreGrowthInventory(t *testing.T) {
 	}
 
 	total := v06DirBytes(t, store.Root())
-	if total < treeBytes*int64(commits)/2 {
-		t.Fatalf("store 只长了 %s，而 %d 棵树至少该有 %s —— Put 看起来没有真的落地",
+
+	// **上界**断言（v0.8 起）。它守的是布局本身：
+	//
+	//	v0.6 实测（v1 布局，每个 digest 一棵完整树）：12 个 commit → 1.88 MiB ≈ **20×** 树。
+	//	v0.8 换成 blob 池 + 清单（ADR-019）之后，同一份 fixture 应当只在**一份树**上下浮动
+	//	（唯一内容 8 KiB 的 blob + 每个 commit 一份约 3.7 KiB 的清单）。
+	//
+	// 所以判据从"至少要有 N 棵树"翻转成"**不得接近 N 棵树**"——同一把尺子，
+	// 量的从"放大得有多严重"变成"去重是否真的生效"。
+	if total >= treeBytes*int64(commits)/2 {
+		t.Fatalf("store 长了 %s，接近 %d 棵树的量级（%s）—— 跨 commit 的去重看起来失效了"+
+			"（写路径是否又回到了按整棵树寻址？ADR-019）",
 			v06Bytes(total), commits, v06Bytes(treeBytes*int64(commits)/2))
 	}
 
@@ -83,16 +93,17 @@ func TestV06StoreGrowthInventory(t *testing.T) {
 	// 这一格的分工很清楚：层 1 的增长由 **git 自己的 gc** 管，层 2 的增长**没有任何人管**。
 	gitBytes := v06DirBytes(t, filepath.Join(repo.Dir, ".git"))
 	t.Logf("结论：%d 个 commit 后 content store = %s（平均 %s/commit）；"+
-		"同期源码的**真实增量**只有 %s。比值 **%.1f×** —— 跨 commit 没有去重：",
+		"同期源码的**真实增量**只有 %s。比值 **%.1f×** —— 跨 commit 已去重（v0.6 的同一场景是 **20.0×**）：",
 		commits, v06Bytes(total), v06Bytes(perCommit), v06Bytes(commits*fileSize),
 		float64(perCommit)/float64(fileSize))
 	t.Logf("同一份历史的 Git 对象库（层 1 的上界估计）= %s，即 content store 是它的 **%.1f×**。"+
 		"两层分工不同：层 1 的增长由 `git gc` 管（用户随时可跑），"+
 		"层 2 的增长**没有任何人去回收**——它只增不减。",
 		v06Bytes(gitBytes), float64(total)/float64(gitBytes))
-	t.Logf("布局是 content/sha256/<digest>/tree/，**按整棵树**寻址，" +
-		"因此同一仓库的每个新 commit 都会完整复制一遍内容树。" +
-		"这条数字就是 GC 排期缺的那一项（是否值得做由它决定，不由猜测）。")
+	t.Logf("布局是 blobs/<aa>/<sha> + trees/<digest>/manifest.json（ADR-019），" +
+		"内容按 sha256 只存一份，每个 commit 只多一份**清单**。" +
+		"于是\"只增不减\"的性质没变（ADR-018 的两个条件仍未成立），但**斜率**从 20× 降到了 ~1×——" +
+		"去重改的是斜率，不是终点。")
 }
 
 // v06DirBytes 递归求和目录里所有文件的字节数（目录自身不计）。

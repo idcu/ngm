@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -178,18 +177,18 @@ func TestM2Acceptance(t *testing.T) {
 		if meta.ManifestVersion != digest.ManifestVersion {
 			t.Errorf("meta.ManifestVersion=%q", meta.ManifestVersion)
 		}
-		// 解包内容抽查
-		body, err := os.ReadFile(filepath.Join(store.TreePath(wantDigest), "nested", "deep", "dir", "mod.ts"))
-		if err != nil {
-			t.Fatalf("unpacked file missing: %v", err)
+		// 内容抽查：走与布局无关的入口（v2 读 blob、v1 读树，ADR-019）
+		body, ok, rerr := store.ReadFile(wantDigest, "nested/deep/dir/mod.ts")
+		if rerr != nil || !ok {
+			t.Fatalf("stored file missing: ok=%v err=%v", ok, rerr)
 		}
 		if string(body) != "export const x = 1\n" {
-			t.Errorf("unpacked content=%q", body)
+			t.Errorf("stored content=%q", body)
 		}
-		// 解包的 CRLF 文件必须保留原始字节
-		crlf, err := os.ReadFile(filepath.Join(store.TreePath(wantDigest), "crlf.txt"))
-		if err != nil {
-			t.Fatal(err)
+		// CRLF 文件必须保留原始字节
+		crlf, ok, rerr := store.ReadFile(wantDigest, "crlf.txt")
+		if rerr != nil || !ok {
+			t.Fatalf("crlf.txt: ok=%v err=%v", ok, rerr)
 		}
 		if string(crlf) != "line1\r\nline2\r\n" {
 			t.Errorf("content store must preserve CRLF bytes, got %q", crlf)

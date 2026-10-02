@@ -468,7 +468,7 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	if !hasStore {
 		problems = append(problems, fmt.Sprintf(
 			"content store has no usable entry for %s (looked in %s)",
-			d.ArchiveDigest, store.PathForDigest(d.ArchiveDigest)))
+			d.ArchiveDigest, store.Root()))
 	} else if meta, err := store.ReadMeta(d.ArchiveDigest); err != nil {
 		problems = append(problems, "content store meta.json is unreadable: "+err.Error())
 	} else {

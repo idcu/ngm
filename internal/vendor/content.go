@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/idcu/ngm/internal/digest"
@@ -15,16 +16,22 @@ import (
 
 // ContentStore 是 vendor 层 2：内容寻址的不可变内容树存储。
 //
-// 布局（architecture/vendor-layers.md §层 2）：
+// **两种布局并存**（[ADR-019](../docs/adr/adr-019-content-addressed-blobs.md)）：
 //
-//	~/.ngm/content/sha256/<digest-hex>/
-//	├── tree/        归一化内容树（文件 + symlink，真实存在于磁盘）
-//	└── meta.json    repo / commit / digest 规范版本
+//	v2（新写路径）：blobs/<aa>/<sha256> + trees/<digest>/{manifest.json,meta.json}
+//	v1（遗留只读）：sha256/<digest>/{tree/,meta.json}
+//
+// 读路径两种都认——否则升级后旧项目会**立刻**验不过（本项目最忌的失败形态）；
+// 写路径只写 v2，同一 digest 以 v2 写成功后旧的整棵树会被删掉（**不做就地迁移**）。
+//
+// 布局差异被**收在两个方法里**：`Entries`（列出条目）与 `ReadFile`（取字节）。
+// 判定（verify）与落地（LinkTree）只吃条目，因此换布局不触碰安全关键路径。
 //
 // 不可变性：同一 digest 只存一份，跨项目共享。写入是原子的——先解包到临时目录，
-// 再整体 rename 就位；因此中断不会留下"半个内容树"。
+// 再把内容逐文件发布进 blob 池、最后 rename 清单目录就位；因此中断不会留下
+// "半个内容树"（**清单不存在 = 这份 digest 不存在**）。
 //
-// 与 mirror 的关系：mirror 是**对象库**（Git 裸仓），content 是**解包后的树**。
+// 与 mirror 的关系：mirror 是**对象库**（Git 裸仓），content 是**解包后的内容**。
 // archiveDigest 从 mirror 生成（ADR-008）；content 只是 digest 的落地副本，
 // 任何时刻可"重建清单 → 重算 digest"来校验它是否被篡改（verify 的本地重放）。
 type ContentStore struct {
@@ -74,9 +81,23 @@ func (s *ContentStore) PathForDigest(digestID string) string {
 	return filepath.Join(s.root, digest.Algorithm, digestHex(digestID))
 }
 
-// TreePath 返回某个 digest 的内容树目录（解包结果所在处）。
+// TreePath 返回某个 digest 的 **v1** 内容树目录（解包结果所在处）。
+//
+// v2 布局下没有这样一棵已物化的树（内容在 blob 池里）——因此本方法只用于
+// v1 兼容路径与"symlink 模式能否整目录链接"的判断，**不要**用它去读内容：
+// 那件事请用 `Entries` / `ReadFile`。
 func (s *ContentStore) TreePath(digestID string) string {
 	return filepath.Join(s.PathForDigest(digestID), "tree")
+}
+
+// contentDir 返回该 digest **当前布局**下的目录（v2 的清单目录 / v1 的树目录）。
+//
+// 仅用于返回给调用方做展示与诊断；读内容请走 `Entries` / `ReadFile`。
+func (s *ContentStore) contentDir(digestID string) string {
+	if s.hasManifest(digestID) {
+		return s.V2Dir(digestID)
+	}
+	return s.PathForDigest(digestID)
 }
 
 // MetaPath 返回 meta.json 路径。
@@ -84,23 +105,45 @@ func (s *ContentStore) MetaPath(digestID string) string {
 	return filepath.Join(s.PathForDigest(digestID), "meta.json")
 }
 
-// Has 报告某个 digest 的内容树是否已就绪。
+// Has 报告某个 digest 的内容是否已就绪。
 //
-// 判定条件：meta.json 可解析 + tree/ 目录存在。不做内容校验
-// （那属于 verify 的职责，见 --deep）。
+// v2：清单存在且 meta.json 可解析；v1：meta.json 可解析且 tree/ 目录存在。
+// 不做内容校验（那属于 verify 的职责，见 --deep）。
 func (s *ContentStore) Has(digestID string) bool {
 	if digestID == "" {
 		return false
 	}
-	if _, err := s.ReadMeta(digestID); err != nil {
+	// v2 优先（清单 + meta），其次回落到 v1（meta + 已物化的树）——
+	// 读路径必须同时认两种布局，否则升级后旧项目会**立刻**验不过。
+	if s.hasManifest(digestID) {
+		_, err := s.readMetaV2(digestID)
+		return err == nil
+	}
+	if _, err := s.readMetaV1(digestID); err != nil {
 		return false
 	}
 	st, err := os.Stat(s.TreePath(digestID))
 	return err == nil && st.IsDir()
 }
 
-// ReadMeta 读取并校验 meta.json。
+// ReadMeta 读取并校验 meta.json，**v2 在前、回落 v1**。
+//
+// 两处的 meta.json 内容结构完全相同，只是位置不同（v1 在 `sha256/<digest>/`、
+// v2 在 `trees/<digest>/`），因此调用方不必知道布局——`verify` 的层 2 检查
+// 正是靠这一点在换布局后一个字都不用改。
+//
+// 为什么先看**清单**存在性再决定读哪一个，而不是"先试 v2、失败再试 v1"：
+// 后者会把"v2 的 meta 损坏"误判成"这份 digest 不存在"，从而回落到一棵
+// 可能已被收敛删掉的 v1 树，报出误导性的错误。
 func (s *ContentStore) ReadMeta(digestID string) (*Meta, error) {
+	if s.hasManifest(digestID) {
+		return s.readMetaV2(digestID)
+	}
+	return s.readMetaV1(digestID)
+}
+
+// readMetaV1 读取 v1 布局（`sha256/<digest>/meta.json`）的 meta.json。
+func (s *ContentStore) readMetaV1(digestID string) (*Meta, error) {
 	data, err := os.ReadFile(s.MetaPath(digestID))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -127,7 +170,7 @@ type PutResult struct {
 	AlreadyPresent bool
 }
 
-// Put 把 mirror 中 commit 的内容树解包到 store。
+// Put 把 mirror 中 commit 的内容**发布进 v2 布局**（blob 池 + 树清单）。
 //
 // 前置条件：meta.Digest 必须与 mirror 中该 commit 实际算出的 digest 一致——
 // 本方法会**重新计算并校验**，防止"把 A 的内容写进 B 的槽位"这类错误
@@ -135,7 +178,17 @@ type PutResult struct {
 //
 // 幂等：目标 digest 已存在时立即返回（content store 是不可变的）。
 //
-// 原子性：解包到同层临时目录再 rename 就位。
+// 原子性：**先逐文件落 blob，再写清单、最后整体 rename 就位**。因此任何中断都
+// 不会留下"半个可被引用的内容树"——清单不存在就等于这份 digest 不存在。
+//
+// 为什么不再"解包出一棵树"（v0.8 B 阶段去掉的一步）：[ADR-019](../docs/adr/adr-019-content-addressed-blobs.md)
+// 的形态本来就是"blob 池 + 清单"，中间那棵树只是为了再走一遍把它拆开。直接从
+// Git 的条目构建有两个实际好处，且都不是理论的：
+//
+//  1. **mode 以 Git 为准**，不再从解包后的文件权限反推。否则在 Windows 上
+//     可执行位不可表示，同一 commit 会算出不同的清单（跨平台不一致）。
+//  2. **store 不再需要创建 symlink**——symlink 的目标字符串直接进清单。
+//     于是"仓库里有 symlink"不再让 Windows 用户需要开发者模式才能填充 store。
 func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath string, meta Meta) (PutResult, error) {
 	if meta.Commit == "" {
 		return PutResult{}, errs.New(errs.CodeConfigInvalid, "content meta is missing commit", "")
@@ -153,9 +206,8 @@ func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath
 		meta.ManifestVersion = digest.ManifestVersion
 	}
 
-	finalDir := s.PathForDigest(meta.Digest)
 	if s.Has(meta.Digest) {
-		return PutResult{Path: finalDir, AlreadyPresent: true}, nil
+		return PutResult{Path: s.contentDir(meta.Digest), AlreadyPresent: true}, nil
 	}
 
 	// 内容与 digest 的一致性校验（见方法文档）
@@ -171,109 +223,71 @@ func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath
 			"the lock file and the mirror disagree; run `ngm verify` to classify the drift")
 	}
 
-	// 解包到临时目录
-	if err := os.MkdirAll(filepath.Join(s.root, digest.Algorithm), 0o755); err != nil {
-		return PutResult{}, errs.Wrap(errs.CodeConfigInvalid, "create content store root", "", err)
-	}
-	// 临时目录名前缀用 `unpackPrefix`（与 `Prune` 共用同一个常量）：
-	// "哪些目录是残骸"这件事只能有一处定义。
-	tmpDir, err := os.MkdirTemp(filepath.Join(s.root, digest.Algorithm), unpackPrefix+"*")
+	// Git 权威的内容树：路径 + mode + blob sha。
+	tree, err := git.ListTree(ctx, opts, mirrorRepoPath, meta.Commit)
 	if err != nil {
-		return PutResult{}, errs.Wrap(errs.CodeConfigInvalid, "create temp unpack dir", "", err)
-	}
-	defer func() {
-		// 成功路径已 rename；失败路径清理
-		_ = os.RemoveAll(tmpDir)
-	}()
-
-	if err := unpackTree(ctx, opts, mirrorRepoPath, meta.Commit, filepath.Join(tmpDir, "tree")); err != nil {
-		return PutResult{}, err
-	}
-	if err := writeJSON(filepath.Join(tmpDir, "meta.json"), meta); err != nil {
 		return PutResult{}, err
 	}
 
-	if err := os.Rename(tmpDir, finalDir); err != nil {
-		// 并发场景下可能已被另一进程就位
-		if s.Has(meta.Digest) {
-			return PutResult{Path: finalDir, AlreadyPresent: true}, nil
-		}
-		return PutResult{}, errs.Wrap(errs.CodeConfigInvalid, "publish content tree", "", err)
-	}
-	return PutResult{Path: finalDir}, nil
-}
-
-// unpackTree 把 commit 的内容树解包到 dst。
-//
-// 语义（与清单一致）：
-//   - 100644 → 普通文件（0644）
-//   - 100755 → 可执行文件（0755）
-//   - 120000 → symlink，目标为 blob 内容
-//
-// 解包的条目集合与 digest 的输入完全一致，这是"内容树可重放"的前提。
-func unpackTree(ctx context.Context, opts git.Options, repoPath, commit, dst string) error {
-	entries, err := git.ListTree(ctx, opts, repoPath, commit)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "create content tree dir", "", err)
-	}
-	if len(entries) == 0 {
-		return nil
-	}
-
-	shas := make([]string, 0, len(entries))
-	kept := make([]git.TreeEntry, 0, len(entries))
-	for _, e := range entries {
-		if e.Mode == digest.ModeTree {
-			continue
-		}
+	// 分类。与解包时代的口径完全一致（gitlink 与未知 mode 一律拒绝——
+	// 它们无法被忠实地重放，放行就等于让 verify 对着一个假内容树通过）。
+	var shas []string
+	kept := make([]git.TreeEntry, 0, len(tree))
+	for _, e := range tree {
 		switch e.Mode {
+		case digest.ModeTree:
+			continue
 		case digest.ModeRegular, digest.ModeExecutable, digest.ModeSymlink:
 			shas = append(shas, e.SHA)
 			kept = append(kept, e)
 		case digest.ModeGitlink:
-			return errs.New(errs.CodeConfigInvalid,
+			return PutResult{}, errs.New(errs.CodeConfigInvalid,
 				fmt.Sprintf("cannot unpack gitlink at %q: submodules are not supported in v0.1", e.Path),
 				"vendor the submodule into this repository")
 		default:
-			return errs.New(errs.CodeConfigInvalid,
+			return PutResult{}, errs.New(errs.CodeConfigInvalid,
 				fmt.Sprintf("cannot unpack unsupported mode %q at %q", e.Mode, e.Path), "")
 		}
 	}
 
-	contents, err := git.CatFileBatch(ctx, opts, repoPath, shas)
+	contents, err := git.CatFileBatch(ctx, opts, mirrorRepoPath, shas)
 	if err != nil {
-		return err
+		return PutResult{}, err
 	}
 
+	mf := Manifest{
+		SchemaVersion:   layoutSchemaVersion,
+		ManifestVersion: digest.ManifestVersion,
+		Digest:          meta.Digest,
+		Entries:         make([]ManifestEntry, 0, len(kept)),
+	}
 	for i, e := range kept {
-		target := filepath.Join(dst, filepath.FromSlash(e.Path))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return errs.Wrap(errs.CodeConfigInvalid, "create parent dir for "+e.Path, "", err)
+		path := filepath.ToSlash(e.Path)
+		if e.Mode == digest.ModeSymlink {
+			// symlink 的"内容"就是目标字符串。它**不落 blob**：为几个字节多一个文件
+			// 没有意义，而它也不会被 hardlink（落地时原样重建 symlink）。
+			target := string(contents[i])
+			mf.Entries = append(mf.Entries, ManifestEntry{
+				Path: path, Mode: digest.ModeSymlink, Size: int64(len(target)), Target: target,
+			})
+			continue
 		}
-
-		switch e.Mode {
-		case digest.ModeSymlink:
-			linkTarget := string(contents[i])
-			if err := os.Symlink(linkTarget, target); err != nil {
-				return errs.Wrap(errs.CodeConfigInvalid,
-					fmt.Sprintf("cannot create symlink %q → %q in the content store", e.Path, linkTarget),
-					"on Windows, enable Developer Mode (or run as Administrator) so symlinks can be created; "+
-						"alternatively pin a commit that contains no symlinks", err)
-			}
-		case digest.ModeExecutable:
-			if err := os.WriteFile(target, contents[i], 0o755); err != nil {
-				return errs.Wrap(errs.CodeConfigInvalid, "write "+e.Path, "", err)
-			}
-		default:
-			if err := os.WriteFile(target, contents[i], 0o644); err != nil {
-				return errs.Wrap(errs.CodeConfigInvalid, "write "+e.Path, "", err)
-			}
+		sha, berr := s.writeBlob(contents[i], e.Mode)
+		if berr != nil {
+			return PutResult{}, berr
 		}
+		mf.Entries = append(mf.Entries, ManifestEntry{
+			Path: path, Mode: e.Mode, SHA: sha, Size: int64(len(contents[i])),
+		})
 	}
-	return nil
+	// 清单按 path 升序：它必须是确定的（可 diff、可快照），否则又会出现
+	// "两次构建字节不同"这类假失败（v0.5 的 metafile 事件就是这么来的）。
+	sort.Slice(mf.Entries, func(i, j int) bool { return mf.Entries[i].Path < mf.Entries[j].Path })
+
+	if err := s.publishManifest(mf, meta); err != nil {
+		return PutResult{}, err
+	}
+	return PutResult{Path: s.V2Dir(meta.Digest)}, nil
 }
 
 func writeJSON(path string, v any) error {

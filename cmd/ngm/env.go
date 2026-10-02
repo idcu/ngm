@@ -287,22 +287,17 @@ func digestNodeFromLock(d *lock.Dependency, repo resolve.Canonical) digestNode {
 //
 // monorepo 时根即子路径——与 vendor 落地的源目录保持同一口径，
 // 因此 mappings 里的入口路径一定真实存在于 vendor 中。
+//
+// 读取走 `ContentStore.ReadFile`（按条目），**不拼 v1 的树目录路径**：
+// v2 布局下那棵目录不存在（ADR-019 §阶段 A 的解耦就包含这一处）。
 func (e *projectEnv) ContentReader(dn digestNode) mappings.FileReader {
-	root := e.Store.TreePath(dn.Digest)
-	if sub := strings.Trim(dn.SubPath, "/"); sub != "" {
-		root = filepath.Join(root, filepath.FromSlash(sub))
-	}
+	prefix := strings.Trim(dn.SubPath, "/")
 	return func(rel string) ([]byte, bool, error) {
-		p := filepath.Join(root, filepath.FromSlash(rel))
-		info, err := os.Stat(p)
-		if err != nil || info.IsDir() {
-			return nil, false, nil
+		p := filepath.ToSlash(rel)
+		if prefix != "" {
+			p = prefix + "/" + p
 		}
-		data, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return nil, false, rerr
-		}
-		return data, true, nil
+		return e.Store.ReadFile(dn.Digest, p)
 	}
 }
 

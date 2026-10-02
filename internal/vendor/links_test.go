@@ -20,6 +20,43 @@ func contentFixture(t *testing.T, build func(t *testing.T) *testutils.GitRepo) (
 	return dg, store
 }
 
+// storeEntries 取某 digest 的条目集合（换布局后"内容侧"只能这样拿）。
+func storeEntries(t *testing.T, store *ContentStore, dg string) []ContentEntry {
+	t.Helper()
+	entries, err := store.Entries(dg)
+	if err != nil {
+		t.Fatalf("Entries(%s): %v", dg, err)
+	}
+	return entries
+}
+
+// contentPathOf 返回某个树内路径在**当前布局**下的字节位置
+// （v2：blob；v1：树目录里的文件）。hardlink 之类的 inode 断言需要它。
+func contentPathOf(t *testing.T, store *ContentStore, dg, rel string) string {
+	t.Helper()
+	for _, e := range storeEntries(t, store, dg) {
+		if e.Path == rel {
+			if e.Full == "" {
+				t.Fatalf("%s has no byte location (symlink?)", rel)
+			}
+			return e.Full
+		}
+	}
+	t.Fatalf("%s not found in the content store for %s", rel, dg)
+	return ""
+}
+
+// verifyAgainstStore 用条目版入口做 vendor ↔ store 的一致性校验
+// （与 `verify` 走的是同一条路径，见 ADR-019）。
+func verifyAgainstStore(t *testing.T, store *ContentStore, dg, vendorTree string, deep bool) VerifyResult {
+	t.Helper()
+	vr, err := VerifyVendorAgainstEntries(vendorTree, storeEntries(t, store, dg), deep)
+	if err != nil {
+		t.Fatalf("VerifyVendorAgainstEntries: %v", err)
+	}
+	return vr
+}
+
 func basicRepo(t *testing.T) *testutils.GitRepo {
 	r := testutils.NewGitRepo(t)
 	r.WriteFile("index.ts", "export const x = 1\n")
@@ -57,11 +94,11 @@ func TestLinkTree_AutoUsesHardlink(t *testing.T) {
 		t.Errorf("content=%q", body)
 	}
 
-	// hardlink 语义：vendor 文件与 content 文件是同一个 inode
+	// hardlink 语义：vendor 文件与 store 里的字节是同一个 inode
+	// （v2 下"store 里的字节"是 blob，不再是树目录里的文件）
 	vendorFile := filepath.Join(res.Path, "index.ts")
-	contentFile := filepath.Join(store.TreePath(dg), "index.ts")
-	if !SameFile(vendorFile, contentFile) {
-		t.Errorf("auto mode should hardlink; %s and %s are different files", vendorFile, contentFile)
+	if !SameFile(vendorFile, contentPathOf(t, store, dg, "index.ts")) {
+		t.Errorf("auto mode should hardlink; %s is not the same file as the stored blob", vendorFile)
 	}
 }
 
@@ -79,16 +116,13 @@ func TestLinkTree_CopyModeProducesIndependentFiles(t *testing.T) {
 	}
 
 	vendorFile := filepath.Join(res.Path, "index.ts")
-	contentFile := filepath.Join(store.TreePath(dg), "index.ts")
+	contentFile := contentPathOf(t, store, dg, "index.ts")
 	if SameFile(vendorFile, contentFile) {
 		t.Errorf("copy mode must NOT share an inode with the content store")
 	}
 
 	// 内容仍必须一致
-	vr, err := VerifyVendorTree(res.Path, store.TreePath(dg))
-	if err != nil {
-		t.Fatal(err)
-	}
+	vr := verifyAgainstStore(t, store, dg, res.Path, true)
 	if !vr.OK() {
 		t.Errorf("copy output should match content: %v", vr.Mismatches)
 	}
@@ -113,14 +147,12 @@ func TestLinkTree_HardlinkModeReportsFailure(t *testing.T) {
 	}
 }
 
-func TestLinkTree_SymlinkModeLinksWholeDir(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		probe := filepath.Join(t.TempDir(), "probe")
-		if err := os.Symlink("t", probe); err != nil {
-			t.Skipf("symlinks unavailable: %v", err)
-		}
-	}
-
+// TestLinkTree_SymlinkModeFallsBackObservably 锁定 v2 下 symlink 模式的**行为变化**：
+// 没有"一棵已物化的树"可整目录链接，于是逐条目落地——但**必须如实报告实际用的 mode**
+// （vendor-layers.md：所有链接失败路径必须可观测）。
+//
+// 磁盘收益不变：hardlink 与目录 symlink 同样不复制内容。
+func TestLinkTree_SymlinkModeFallsBackObservably(t *testing.T) {
 	dg, store := contentFixture(t, basicRepo)
 	vendorRoot := filepath.Join(t.TempDir(), VendorDirName)
 	lt := NewLinkTree(vendorRoot, store, LinkSymlink)
@@ -129,26 +161,23 @@ func TestLinkTree_SymlinkModeLinksWholeDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
-	if res.Mode != LinkSymlink {
-		t.Errorf("mode=%s", res.Mode)
+	// 请求的是 symlink，实际用的是 hardlink——而且**说得出来**。
+	if res.Mode == LinkSymlink {
+		t.Fatalf("v2 has no materialized tree to symlink; mode must not be reported as symlink")
 	}
-	if res.Files != 0 {
-		t.Errorf("symlink mode links the whole dir; files should be 0, got %d", res.Files)
+	if lt.Mode() != LinkSymlink {
+		t.Errorf("the *requested* mode must still be visible: Mode()=%s", lt.Mode())
+	}
+	if res.Files != 3 {
+		t.Errorf("fallback lands entry by entry: files=%d want 3", res.Files)
 	}
 
-	info, err := os.Lstat(res.Path)
-	if err != nil {
-		t.Fatal(err)
+	// 落地结果本身必须是正确的（内容、可执行位都在）
+	if vr := verifyAgainstStore(t, store, dg, res.Path, true); !vr.OK() {
+		t.Errorf("fallback output must still match the store: %v", vr.Mismatches)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("vendor entry should be a symlink, mode=%v", info.Mode())
-	}
-	target, err := os.Readlink(res.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target != store.TreePath(dg) {
-		t.Errorf("symlink target=%q want %q", target, store.TreePath(dg))
+	if !SameFile(filepath.Join(res.Path, "index.ts"), contentPathOf(t, store, dg, "index.ts")) {
+		t.Errorf("the fallback should hardlink (no content copies)")
 	}
 }
 
@@ -344,10 +373,7 @@ func TestVerifyVendorTree_Matches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vr, err := VerifyVendorTree(res.Path, store.TreePath(dg))
-	if err != nil {
-		t.Fatalf("VerifyVendorTree: %v", err)
-	}
+	vr := verifyAgainstStore(t, store, dg, res.Path, true)
 	if !vr.OK() {
 		t.Errorf("freshly materialized tree should match content: %v", vr.Mismatches)
 	}
@@ -386,10 +412,7 @@ func TestVerifyVendorTree_DetectsContentChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vr, err := VerifyVendorTree(res.Path, store.TreePath(dg))
-	if err != nil {
-		t.Fatal(err)
-	}
+	vr := verifyAgainstStore(t, store, dg, res.Path, true)
 	if vr.OK() {
 		t.Fatalf("tampered vendor file must be detected")
 	}
@@ -418,10 +441,7 @@ func TestVerifyVendorTree_DetectsMissingAndExtra(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vr, err := VerifyVendorTree(res.Path, store.TreePath(dg))
-	if err != nil {
-		t.Fatal(err)
-	}
+	vr := verifyAgainstStore(t, store, dg, res.Path, true)
 	joined := strings.Join(vr.Mismatches, "\n")
 	if !strings.Contains(joined, "index.ts") || !strings.Contains(joined, "missing from vendor") {
 		t.Errorf("missing file not reported:\n%s", joined)
@@ -456,10 +476,7 @@ func TestVerifyVendorTree_DetectsSymlinkTargetChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vr, err := VerifyVendorTree(res.Path, store.TreePath(dg))
-	if err != nil {
-		t.Fatal(err)
-	}
+	vr := verifyAgainstStore(t, store, dg, res.Path, true)
 	joined := strings.Join(vr.Mismatches, "\n")
 	if !strings.Contains(joined, "link.txt") {
 		t.Errorf("symlink type change not reported:\n%s", joined)

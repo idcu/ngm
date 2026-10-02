@@ -40,11 +40,24 @@ type ContentStoreUsage struct {
 	Root string
 	// Exists 为 false 表示 store 还不存在（没有可报告的东西，这不是错误）。
 	Exists bool
-	// Trees 是内容树清单，按**体积降序、同体积按 digest 升序**排列——
+	// Trees 是**v1 遗留**的内容树清单，按**体积降序、同体积按 digest 升序**排列——
 	// 顺序必须是确定的：依赖目录遍历顺序的输出会让人误以为"内容变了"。
+	// （v2 布局下没有"树"可列，见下面的 V2Trees / Blobs。）
 	Trees []ContentStoreEntry
-	// TreeBytes 是所有内容树的字节合计。
+	// TreeBytes 是 v1 遗留内容树的字节合计。
 	TreeBytes int64
+	// V2Trees / V2TreeBytes 是 v2 布局下的**清单**数与体积（ADR-019）。它很小——
+	// 真正的内容在 blob 池里。
+	V2Trees     int
+	V2TreeBytes int64
+	// V2Entries 是 v2 的逐清单明细（digest + **逻辑体积** + 来自哪个 repo@commit）。
+	//
+	// 逻辑体积 = 该树各条目字节之和；多棵树共享 blob 时它会重复计算，
+	// 因此**真实占用看 BlobBytes**——两个数都报，免得把逻辑体积读成磁盘占用。
+	V2Entries []ContentStoreEntry
+	// Blobs / BlobBytes 是 blob 池的文件数与体积，即**去重后的真实内容占用**。
+	Blobs     int
+	BlobBytes int64
 	// TempCount / TempBytes 是解包残骸（`.unpack-*`）的数量与体积。
 	// 它们不是内容树，是**中断留下的垃圾**，也是 `prune` 唯一会清的东西。
 	TempCount int
@@ -54,16 +67,80 @@ type ContentStoreUsage struct {
 // Usage 只读地统计 content store 的占用。
 func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 	algDir := filepath.Join(s.root, digest.Algorithm)
-	out := ContentStoreUsage{Root: algDir}
+	out := ContentStoreUsage{Root: s.root}
 
 	entries, err := os.ReadDir(algDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return out, nil // 还没有 store：没有东西可报告，不是错误
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return out, errs.Wrap(errs.CodeConfigInvalid, "read content store", "", err)
 	}
-	out.Exists = true
+	// v2：清单与 blob 池
+	if tdir, terr := os.ReadDir(s.treesRoot()); terr == nil {
+		out.Exists = true
+		for _, e := range tdir {
+			// `trees/` 下也可能有 `.unpack-*` 残骸（Put 的临时清单目录就建在它下面）——
+			// 它属于 TempCount，不是一棵树；漏掉它会让 `usage` 少报一块占用。
+			if strings.HasPrefix(e.Name(), unpackPrefix) {
+				bytes, berr := dirBytes(filepath.Join(s.treesRoot(), e.Name()))
+				if berr != nil {
+					return out, berr
+				}
+				out.TempCount++
+				out.TempBytes += bytes
+				continue
+			}
+			bytes, berr := dirBytes(filepath.Join(s.treesRoot(), e.Name()))
+			if berr != nil {
+				return out, berr
+			}
+			out.V2Trees++
+			out.V2TreeBytes += bytes
+
+			entry := ContentStoreEntry{Digest: digest.Algorithm + ":" + e.Name()}
+			if m, merr := s.readManifest(entry.Digest); merr == nil && m != nil {
+				var logical int64
+				for _, me := range m.Entries {
+					logical += me.Size
+				}
+				entry.Bytes = logical
+				if meta, err := s.readMetaV2(entry.Digest); err == nil && meta != nil {
+					entry.MetaReadable = true
+					entry.Repo = meta.Repo
+					entry.Commit = meta.Commit
+				}
+			}
+			out.V2Entries = append(out.V2Entries, entry)
+		}
+		sort.Slice(out.V2Entries, func(i, j int) bool {
+			if out.V2Entries[i].Bytes != out.V2Entries[j].Bytes {
+				return out.V2Entries[i].Bytes > out.V2Entries[j].Bytes
+			}
+			return out.V2Entries[i].Digest < out.V2Entries[j].Digest
+		})
+	}
+	if bdir, berr := os.ReadDir(s.blobsRoot()); berr == nil {
+		out.Exists = true
+		for _, shard := range bdir {
+			if !shard.IsDir() {
+				continue
+			}
+			files, ferr := os.ReadDir(filepath.Join(s.blobsRoot(), shard.Name()))
+			if ferr != nil {
+				return out, errs.Wrap(errs.CodeConfigInvalid, "read blob shard", "", ferr)
+			}
+			for _, f := range files {
+				info, ierr := f.Info()
+				if ierr != nil {
+					return out, ierr
+				}
+				out.Blobs++
+				out.BlobBytes += info.Size()
+			}
+		}
+	}
+
+	if entries != nil {
+		out.Exists = true
+	}
 
 	for _, e := range entries {
 		name := e.Name()
@@ -78,7 +155,9 @@ func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 			continue
 		}
 		entry := ContentStoreEntry{Digest: digest.Algorithm + ":" + name, Bytes: bytes}
-		if m, merr := s.ReadMeta(entry.Digest); merr == nil && m != nil {
+		// 这里循环的就是 `sha256/` 下的目录，因此**只读 v1 的 meta**——
+		// 用双布局的 `ReadMeta` 会让"v1 条目缺 meta"被 v2 的 meta 悄悄补上。
+		if m, merr := s.readMetaV1(entry.Digest); merr == nil && m != nil {
 			entry.MetaReadable = true
 			entry.Repo = m.Repo
 			entry.Commit = m.Commit
@@ -121,35 +200,40 @@ type PruneResult struct {
 //
 // 幂等：没有残骸时 0 删除、不报错。
 func (s *ContentStore) Prune(dryRun bool) (PruneResult, error) {
-	algDir := filepath.Join(s.root, digest.Algorithm)
-	out := PruneResult{Root: algDir, DryRun: dryRun}
+	out := PruneResult{Root: s.root, DryRun: dryRun}
 
-	entries, err := os.ReadDir(algDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return out, nil
+	// 残骸可能出现在**两个**目录：`Put` 的解包临时目录建在 `sha256/` 下
+	// （v2 也是——它解包时还没有布局可言），而 `trees/` 下也可能留下**发布失败**的
+	// 半个目录。而"什么是残骸"仍然只有一处定义（`unpackPrefix`）——
+	// 布局变了，规则不能跟着分叉，否则后果是删错东西。
+	dirs := []string{filepath.Join(s.root, digest.Algorithm), s.treesRoot()}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return out, errs.Wrap(errs.CodeConfigInvalid, "read content store", "", err)
 		}
-		return out, errs.Wrap(errs.CodeConfigInvalid, "read content store", "", err)
-	}
-
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, unpackPrefix) {
-			out.KeptTrees++
-			continue
-		}
-		path := filepath.Join(algDir, name)
-		bytes, berr := dirBytes(path)
-		if berr != nil {
-			return out, berr
-		}
-		out.BytesFreed += bytes
-		out.Removed = append(out.Removed, name)
-		if dryRun {
-			continue
-		}
-		if rerr := os.RemoveAll(path); rerr != nil {
-			return out, errs.Wrap(errs.CodeConfigInvalid, "remove unpack residue "+name, "", rerr)
+		for _, e := range entries {
+			name := e.Name()
+			path := filepath.Join(dir, name)
+			if !strings.HasPrefix(name, unpackPrefix) {
+				out.KeptTrees++
+				continue
+			}
+			bytes, berr := dirBytes(path)
+			if berr != nil {
+				return out, berr
+			}
+			out.BytesFreed += bytes
+			out.Removed = append(out.Removed, filepath.Join(filepath.Base(dir), name))
+			if dryRun {
+				continue
+			}
+			if rerr := os.RemoveAll(path); rerr != nil {
+				return out, errs.Wrap(errs.CodeConfigInvalid, "remove unpack residue "+name, "", rerr)
+			}
 		}
 	}
 	return out, nil

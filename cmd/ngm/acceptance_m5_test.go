@@ -71,11 +71,31 @@ func m5Install(t *testing.T, proj, slug string) lock.Dependency {
 	return *d
 }
 
-// m5ContentFile 返回某 digest 的内容树中某个文件的绝对路径。
+// m5ContentFile 返回某 digest 中某个条目的**字节当前所在的位置**
+// （v2：blob 文件；v1：树目录里的文件）——篡改类用例需要能直接写到它。
+//
+// 它此前返回的是 v1 树里的路径；层 2 换布局后那棵目录不存在（ADR-019），
+// 因此改为经条目取位置。"就地篡改层 2"这个动作本身没变，变的只是位置。
 func m5ContentFile(t *testing.T, digest, rel string) string {
 	t.Helper()
 	layout := defaultLayoutForTest(t)
-	return filepath.Join(vendor.NewContentStore(layout.ContentRoot()).TreePath(digest), filepath.FromSlash(rel))
+	store := vendor.NewContentStore(layout.ContentRoot())
+	entries, err := store.Entries(digest)
+	if err != nil {
+		t.Fatalf("Entries(%s): %v", digest, err)
+	}
+	want := filepath.ToSlash(rel)
+	for _, e := range entries {
+		if e.Path != want {
+			continue
+		}
+		if e.Full == "" {
+			t.Fatalf("%s is not a regular file (symlink?)", rel)
+		}
+		return e.Full
+	}
+	t.Fatalf("%s not found in the content store for %s", rel, digest)
+	return ""
 }
 
 // m5VendorFile 返回 vendor 树中某个文件的绝对路径。

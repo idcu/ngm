@@ -31,6 +31,12 @@ const (
 	// LinkCopy：普通复制（网络文件系统、要提交 vendor 的保守场景）。
 	LinkCopy LinkMode = "copy"
 	// LinkSymlink：依赖目录**整体** symlink 指向 content 树（不逐文件链接）。
+	//
+	// v2 布局下没有"一棵已物化的树"可指（ADR-019：内容在 blob 池里），因此
+	// **该模式退化为逐条目 hardlink**，并在结果里如实报告实际使用的 mode
+	// （vendor-layers.md 要求"所有链接失败路径必须可观测"）。
+	// 磁盘收益不受影响——hardlink 与目录 symlink 同样不复制内容。
+	// 已有的 v1 digest 仍按老语义整目录 symlink（读路径两种布局都认）。
 	LinkSymlink LinkMode = "symlink"
 )
 
@@ -128,12 +134,14 @@ func (lt *LinkTree) Materialize(digest, canonicalPath, subPath string) (LinkResu
 			"run `ngm install` to populate the content store first")
 	}
 
-	// 源：content 树（monorepo 时下钻到子路径）
-	srcTree := lt.store.TreePath(digest)
-	if sub := strings.Trim(filepath.ToSlash(subPath), "/"); sub != "" {
-		srcTree = filepath.Join(srcTree, filepath.FromSlash(sub))
+	// 源：**条目集合**（v2 清单 / v1 扫描），不再假定 store 里有一棵目录树（ADR-019）。
+	all, eerr := lt.store.Entries(digest)
+	if eerr != nil {
+		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid,
+			"read the content store entry list for "+digest, "", eerr)
 	}
-	if st, serr := os.Stat(srcTree); serr != nil || !st.IsDir() {
+	entries := EntriesUnder(all, subPath)
+	if sub := strings.Trim(filepath.ToSlash(subPath), "/"); sub != "" && len(entries) == 0 {
 		return LinkResult{}, errs.New(
 			errs.CodeConfigInvalid,
 			"monorepo sub-path "+subPath+" does not exist in the content tree for "+digest,
@@ -151,96 +159,92 @@ func (lt *LinkTree) Materialize(digest, canonicalPath, subPath string) (LinkResu
 		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid, "create vendor parent dir", "", err)
 	}
 
+	// 整目录 symlink 只在**还有一棵树可链**时成立（v1 布局）。
+	// v2 下没有这样的目录，于是逐条目落地，并在结果里如实报告实际使用的 mode
+	// （vendor-layers.md 要求"所有链接失败路径必须可观测"）。
 	if lt.mode == LinkSymlink {
-		if err := os.Symlink(srcTree, dst); err != nil {
-			return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid,
-				"cannot symlink "+dst+" → "+srcTree,
-				symlinkHint(), err)
+		srcTree := lt.store.TreePath(digest)
+		if sub := strings.Trim(filepath.ToSlash(subPath), "/"); sub != "" {
+			srcTree = filepath.Join(srcTree, filepath.FromSlash(sub))
 		}
-		return LinkResult{Path: dst, Mode: LinkSymlink}, nil
+		if st, serr := os.Stat(srcTree); serr == nil && st.IsDir() {
+			if err := os.Symlink(srcTree, dst); err != nil {
+				return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid,
+					"cannot symlink "+dst+" → "+srcTree,
+					symlinkHint(), err)
+			}
+			return LinkResult{Path: dst, Mode: LinkSymlink}, nil
+		}
 	}
 
-	used, files, degraded, err := lt.linkTree(srcTree, dst)
+	used, files, degraded, err := lt.linkEntries(entries, dst)
 	if err != nil {
 		return LinkResult{}, err
 	}
 	return LinkResult{Path: dst, Mode: used, Degraded: degraded, Files: files}, nil
 }
 
-// linkTree 逐条目把 src 落地到 dst，返回实际使用的 mode 与文件数。
-func (lt *LinkTree) linkTree(src, dst string) (used LinkMode, files int, degraded bool, err error) {
+// linkEntries 按条目把内容落地到 dst，返回实际使用的 mode 与文件数。
+//
+// 与旧 `linkTree(src, dst)` 的差别只是**来源**：过去扫一个目录，现在吃条目集合——
+// 因为 v2 布局下那份"目录"并不存在。落地规则（hardlink → copy 降级、symlink 原样重建、
+// 权限位保留）与过去完全一致。
+func (lt *LinkTree) linkEntries(entries []ContentEntry, dst string) (used LinkMode, files int, degraded bool, err error) {
 	// auto 模式从 hardlink 起步；首次失败即整树降级为 copy
 	current := lt.mode
-	if current == LinkAuto {
+	if current == LinkAuto || current == LinkSymlink {
 		current = LinkHardlink
 	}
-
-	walkErr := filepath.Walk(src, func(path string, info os.FileInfo, werr error) error {
-		if werr != nil {
-			return werr
-		}
-		rel, rerr := filepath.Rel(src, path)
-		if rerr != nil {
-			return rerr
-		}
-		if rel == "." {
-			return os.MkdirAll(dst, 0o755)
-		}
-		target := filepath.Join(dst, rel)
-
-		switch {
-		case info.IsDir():
-			return os.MkdirAll(target, 0o755)
-
-		case info.Mode()&os.ModeSymlink != 0:
-			// symlink 条目原样重建（不 hardlink）
-			linkTarget, lerr := os.Readlink(path)
-			if lerr != nil {
-				return lerr
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			if err := os.Symlink(linkTarget, target); err != nil {
-				return err
-			}
-			files++
-			return nil
-
-		default:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			if current == LinkHardlink {
-				if lerr := os.Link(path, target); lerr == nil {
-					files++
-					return nil
-				} else if lt.mode == LinkHardlink {
-					// 强制 hardlink：不得降级，明确报错
-					return errs.Wrap(errs.CodeConfigInvalid,
-						"hardlink failed for "+rel+" (linkMode=hardlink forbids falling back to copy)",
-						"set vendor.linkMode to \"auto\" or \"copy\" to allow a copy fallback", lerr)
-				}
-				// auto：降级为 copy（整树）
-				current = LinkCopy
-				degraded = true
-			}
-			if cerr := copyFile(path, target, info.Mode().Perm()); cerr != nil {
-				return cerr
-			}
-			files++
-			return nil
-		}
-	})
-
-	if walkErr != nil {
-		// 若内部已构造 NgmError，原样返回
-		if _, ok := walkErr.(*errs.NgmError); ok {
-			return "", 0, false, walkErr
-		}
-		return "", 0, false, errs.Wrap(errs.CodeConfigInvalid,
-			"materialize vendor tree from "+src, "", walkErr)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return "", 0, false, err
 	}
+
+	for _, e := range entries {
+		target := filepath.Join(dst, filepath.FromSlash(e.Path))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return "", files, degraded, err
+		}
+
+		if e.Symlink {
+			// symlink 条目原样重建（不 hardlink）
+			if rerr := os.RemoveAll(target); rerr != nil {
+				return "", files, degraded, rerr
+			}
+			if serr := os.Symlink(e.LinkTarget, target); serr != nil {
+				return "", files, degraded, serr
+			}
+			files++
+			continue
+		}
+
+		src := e.Full
+		if _, serr := os.Stat(src); serr != nil {
+			return "", files, degraded, errs.Wrap(errs.CodeConfigInvalid,
+				"content blob for "+e.Path+" is missing", "re-run `ngm install` to rebuild the content store", serr)
+		}
+
+		if current == LinkHardlink {
+			if lerr := os.Link(src, target); lerr == nil {
+				files++
+				continue
+			} else if lt.mode == LinkHardlink {
+				// 强制 hardlink：不得降级，明确报错
+				return "", files, degraded, errs.Wrap(errs.CodeConfigInvalid,
+					"hardlink failed for "+e.Path+" (linkMode=hardlink forbids falling back to copy)",
+					"set vendor.linkMode to \"auto\" or \"copy\" to allow a copy fallback", lerr)
+			}
+			// auto：降级为 copy
+			current = LinkCopy
+			degraded = true
+		}
+		// copy 的权限取自**条目**而不是源文件的权限：v2 的 blob 本身就按 mode 落盘，
+		// 但 v1 的树在某些平台（Windows）表达不了可执行位，而清单里的 mode 是权威的。
+		if cerr := copyFile(src, target, permForMode(e.Mode)); cerr != nil {
+			return "", files, degraded, cerr
+		}
+		files++
+	}
+
 	return current, files, degraded, nil
 }
 

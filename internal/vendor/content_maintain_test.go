@@ -39,13 +39,24 @@ func TestContentStore_UsageReportsWhatTheStoreHolds(t *testing.T) {
 	if !u.Exists {
 		t.Fatal("the store has two content trees; Usage must report it exists")
 	}
-	if len(u.Trees) != 2 {
-		t.Fatalf("trees=%d, want 2", len(u.Trees))
+	// v2（ADR-019）：Put 写的是 blob 池 + 清单，因此 v1 的 Trees 必须是空的——
+	// 若这里变成 2，说明写路径又回到"整棵树"了。
+	if len(u.Trees) != 0 || u.TreeBytes != 0 {
+		t.Errorf("v1 legacy trees must be empty after v2 writes, got %d / %d bytes",
+			len(u.Trees), u.TreeBytes)
 	}
-	if u.TreeBytes <= 0 {
-		t.Errorf("TreeBytes=%d, want > 0", u.TreeBytes)
+	if len(u.V2Entries) != 2 {
+		t.Fatalf("v2 manifests=%d, want 2", len(u.V2Entries))
 	}
-	for _, e := range u.Trees {
+	if u.V2TreeBytes <= 0 {
+		t.Errorf("V2TreeBytes=%d, want > 0", u.V2TreeBytes)
+	}
+	// blob 池里应有真实内容（两份 fixture 的文件内容各不相同）
+	if u.Blobs == 0 || u.BlobBytes <= 0 {
+		t.Errorf("blob pool reported %d blobs / %d bytes; Put must have written content",
+			u.Blobs, u.BlobBytes)
+	}
+	for _, e := range u.V2Entries {
 		if !e.MetaReadable {
 			t.Errorf("%s: meta.json was written by Put, so it must be readable", e.Digest)
 		}
@@ -59,7 +70,7 @@ func TestContentStore_UsageReportsWhatTheStoreHolds(t *testing.T) {
 			t.Fatal(aerr)
 		}
 		var got []string
-		for _, e := range again.Trees {
+		for _, e := range again.V2Entries {
 			got = append(got, e.Digest)
 		}
 		if round == 0 {
@@ -70,13 +81,13 @@ func TestContentStore_UsageReportsWhatTheStoreHolds(t *testing.T) {
 			t.Errorf("round %d order differs: %v vs %v", round, got, first)
 		}
 	}
-	// 大的排在前面。
-	if u.Trees[0].Bytes < u.Trees[1].Bytes {
-		t.Errorf("not sorted by size desc: %d then %d", u.Trees[0].Bytes, u.Trees[1].Bytes)
+	// 大的排在前面（v2 报的是**逻辑体积**，见 ContentStoreUsage.V2Entries）。
+	if u.V2Entries[0].Bytes < u.V2Entries[1].Bytes {
+		t.Errorf("not sorted by size desc: %d then %d", u.V2Entries[0].Bytes, u.V2Entries[1].Bytes)
 	}
 	// 两份都在（不是只报了一份）。
 	reported := map[string]bool{}
-	for _, e := range u.Trees {
+	for _, e := range u.V2Entries {
 		reported[e.Digest] = true
 	}
 	for _, dg := range []string{small, big} {

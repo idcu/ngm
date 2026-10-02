@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -110,12 +109,18 @@ func TestM4Acceptance(t *testing.T) {
 		d, _ := lf.Find("github:m4/varied", "")
 
 		layout := defaultLayoutForTest(t)
-		contentTree := vendor.NewContentStore(layout.ContentRoot()).TreePath(d.ArchiveDigest)
+		store := vendor.NewContentStore(layout.ContentRoot())
+		entries, eerr := store.Entries(d.ArchiveDigest)
+		if eerr != nil {
+			t.Fatalf("Entries: %v", eerr)
+		}
 		vendorTree := filepath.Join(proj, vendor.VendorDirName, "github.com", "m4", "varied")
 
-		vr, err := vendor.VerifyVendorTree(vendorTree, contentTree)
+		// 校验走**条目版**入口——层 2 换布局后那棵目录树不存在（ADR-019），
+		// 而 `ngm verify` 自己也走这条路径。
+		vr, err := vendor.VerifyVendorAgainstEntries(vendorTree, entries, true)
 		if err != nil {
-			t.Fatalf("VerifyVendorTree: %v", err)
+			t.Fatalf("VerifyVendorAgainstEntries: %v", err)
 		}
 		if !vr.OK() {
 			t.Errorf("vendor must match content exactly:\n%s", strings.Join(vr.Mismatches, "\n"))
@@ -131,22 +136,19 @@ func TestM4Acceptance(t *testing.T) {
 	t.Run("linkMode matrix", func(t *testing.T) {
 		m4LeafRepo(t, "github:m4/modes", nil)
 
+		// 注意 `symlink` 这一行的两个值**在本版变了**（v0.8 / ADR-019）：
+		// 层 2 换成 blob 池之后不再有"一棵已物化的树"可以整目录链接，
+		// 因此 symlink 模式退化为**逐条目 hardlink**（磁盘收益不变，且 CLI 会
+		// 如实打印实际使用的 mode）。这是本版唯一一处用户可见的行为变化，
+		// 记在 ADR-019 的修订里与 guides/configuration.md。
 		cases := []struct {
 			mode         string
 			wantSymlink  bool
-			wantSameFile bool // 与 content 是否同一 inode（hardlink 的特征）
+			wantSameFile bool // 与 store 里的字节是否同一 inode（hardlink 的特征）
 		}{
 			{"auto", false, true},
 			{"copy", false, false},
-		}
-		if runtime.GOOS != "windows" {
-			// symlink 模式需要文件系统支持；上面已用 probe 在 links_test 中处理，
-			// 这里在 Windows 上直接跳过
-			cases = append(cases, struct {
-				mode         string
-				wantSymlink  bool
-				wantSameFile bool
-			}{"symlink", true, false})
+			{"symlink", false, true},
 		}
 
 		for _, tc := range cases {
@@ -183,16 +185,28 @@ func TestM4Acceptance(t *testing.T) {
 					t.Errorf("content=%q", body)
 				}
 
-				if !tc.wantSymlink {
-					lf, _ := lock.Read(lock.Find(proj))
-					d, _ := lf.Find("github:m4/modes", "")
-					layout := defaultLayoutForTest(t)
-					contentFile := filepath.Join(
-						vendor.NewContentStore(layout.ContentRoot()).TreePath(d.ArchiveDigest), "index.ts")
-					got := vendor.SameFile(filepath.Join(entry, "index.ts"), contentFile)
-					if got != tc.wantSameFile {
-						t.Errorf("hardlink=%v want %v (mode=%s)", got, tc.wantSameFile, tc.mode)
+				lf, _ := lock.Read(lock.Find(proj))
+				d, _ := lf.Find("github:m4/modes", "")
+				layout := defaultLayoutForTest(t)
+				// "store 里的字节"在 v2 下是 blob（v1 是树目录里的文件），
+				// 因此 inode 断言要走条目给出当前位置。
+				store := vendor.NewContentStore(layout.ContentRoot())
+				entries, eerr := store.Entries(d.ArchiveDigest)
+				if eerr != nil {
+					t.Fatal(eerr)
+				}
+				stored := ""
+				for _, e := range entries {
+					if e.Path == "index.ts" {
+						stored = e.Full
 					}
+				}
+				if stored == "" {
+					t.Fatalf("index.ts has no byte location in the store")
+				}
+				got := vendor.SameFile(filepath.Join(entry, "index.ts"), stored)
+				if got != tc.wantSameFile {
+					t.Errorf("hardlink=%v want %v (mode=%s)", got, tc.wantSameFile, tc.mode)
 				}
 			})
 		}
