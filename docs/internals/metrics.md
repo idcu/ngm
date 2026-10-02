@@ -201,7 +201,11 @@ go test -count=1 -run TestV06StoreGrowthInventory -v ./internal/vendor
 | 1 mirror（Git 裸仓） | **`git gc`** —— git 的既有能力，用户随时可跑 | 有出路 |
 | 2 content store | **没有任何人** | **只增不减** |
 
-**结论（v0.6 判定）：数据支持排期做 GC，但第一步不是写代码，而是先立 ADR。**
+**结论（v0.6 判定）**：数据支持排期，但第一步不是写代码，而是先立 ADR——**已办**：
+[ADR-018](../adr/adr-018-store-reclaim.md) 决定**不做按可达性自动删除的 GC**
+（缺项目注册表；误删会让别的项目某天突然验不过），当下只做 `ngm store usage`（只读报告）
+与 `ngm store prune`（只清半成品），并把**写入侧去重**记为长期解法。
+下列理由正是那份 ADR 判定的依据。
 store 是**跨项目共享**的（`~/.ngm/content`），"删哪些 digest 安全"因此是一个设计问题：
 某个 digest 对 A 项目已废弃，对 B 项目可能正是它 vendor 的来源。
 在默认 `hardlink` 落地模式下，已落地的 vendor 文件即使 store 被删**仍读得到**（inode 还在），
