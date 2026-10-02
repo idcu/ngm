@@ -156,6 +156,22 @@ Gitee 附件待人工上传）。
 
 ---
 
+## v0.8 — 层 2 换布局（ADR-019 分阶段落地）
+
+**计划**：[v0.8 计划](../development/v0.8-plan.md)。顺序是**先让消费方与布局解耦，再换布局**——
+因为 `verify` 是安全关键路径，不能与布局改动同时发生。
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| A | 消费方与布局解耦（`Entries` + `compareTrees` + `VerifyVendorAgainstEntries`） | ✅ **已交付**（等价重构：既有测试一字未改全部通过） |
+| B | `Put` 写 v2（blobs + manifest），读路径 v2 优先、回落 v1；`LinkTree` 按条目落地 | 计划 |
+| C | 收敛与观测（v1 重写时回收；`usage` 分别报告两种布局） | 计划 |
+
+> B 阶段的**尺子**已写进 [ADR-019](../adr/adr-019-content-addressed-blobs.md)：
+> 重跑 `TestV06StoreGrowthInventory`，12 个 commit 的占用应从 **1.88 MiB** 降到**百 KiB 量级**。
+
+---
+
 ## v0.7 — store 的占用可见、残骸可回收
 
 **计划已成文并实施中**：[v0.7 计划](../development/v0.7-plan.md)（当前范围 = [ADR-018](../adr/adr-018-store-reclaim.md) 决策 2）。

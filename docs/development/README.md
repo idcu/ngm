@@ -203,6 +203,14 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 > 收尾时又补上 [ADR-018](../adr/adr-018-store-reclaim.md)
 > ——内容寻址 store 的回收与去重（**不做**按可达性自动删除；写入侧去重是长期解法）。
 
+### v0.8（计划：[v0.8-plan.md](./v0.8-plan.md)，**实施中**）
+
+层 2 换布局（[ADR-019](../adr/adr-019-content-addressed-blobs.md)：blob 池 + 树清单）分三阶段落地：
+**A 消费方与布局解耦** ✅ 已交付（等价重构，既有测试一字未改全部通过）；
+B 写 v2 + 双布局读取；C 收敛与观测。
+顺序之所以是"先解耦、再换布局"：`verify` 是安全关键路径，它的偏差都是"看起来通过"，
+不能与布局改动同时发生。
+
 ### v0.7（计划：[v0.7-plan.md](./v0.7-plan.md)，**实施中**）
 
 范围 = [ADR-018](../adr/adr-018-store-reclaim.md) 决策 2 的落地：让 content store 的
@@ -358,7 +366,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 
 ## 相关文档
 
-- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md)
+- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md)
 - [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
