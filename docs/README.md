@@ -257,7 +257,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)） |
 | v0.7 | content store 的**占用可见**（`ngm store usage`，只读）与**残骸可回收**（`ngm store prune`） | **已交付**（[计划](./development/v0.7-plan.md) / [复盘](./development/v0.7-retrospective.md)） |
 | v0.8 | 层 2 换布局（blob 池 + 树清单，[ADR-019](./adr/adr-019-content-addressed-blobs.md)）：先让消费方与布局解耦，再换布局 | **已交付**（[计划](./development/v0.8-plan.md) / [复盘](./development/v0.8-retrospective.md)：20.0× → 0.6×；一处用户可见的变化：`symlink` 落地模式退化） |
-| v0.9 | 让 store 的读数**说真话**：blob 池切成共享/独占/孤儿 + 锚点检查 | **实施中**（[计划](./development/v0.9-plan.md)；A/B 两组已交付） |
+| v0.9 | 让 store 的读数**说真话**：blob 池切成共享/独占/孤儿 + 锚点检查 | **已交付**（[计划](./development/v0.9-plan.md)：blob 池切成共享/独占/孤儿 + 锚点检查 + 10 万级规模实测） |
 
 ### 发布状态
 
