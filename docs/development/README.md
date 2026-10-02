@@ -336,14 +336,25 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 2. Gitee 镜像把 tag 推到 GitHub → `release.yml` 执行：**先跑全量测试**，再交叉编译六平台，
    最后 `gh release create` 发布（含 `SHA256SUMS`）
 
-   ⚠️ **别假定这一步发生了**（2026-10-02 实测）：`v0.5.0` ~ `v0.8.0` 四个 tag 已经出现在
-   GitHub 上（`git ls-remote` 可见、附注对象完整），但 `release.yml` **一次都没跑**
-   （`/actions/workflows/370079274/runs` 只有 v0.1.0 ~ v0.4.0 四次），而同一时段的分支推送
-   照常触发 CI。也就是说：**镜像转发了 branch，却没有为 tag 产生那个 `push` 事件**
-   （或者它没触发工作流）——**原因不在本仓库可观测的范围内**。
-   因此补发有一条**不依赖镜像**的入口：Actions → Release → **Run workflow**，填已存在的 tag
-   （`workflow_dispatch`，v0.8 收尾时加的）。它跑的是同一份脚本与同一组断言，产物一致。
-   **别用"删掉 tag 再推一次"**——那是拿同一条已被证明不可靠的路径再赌一次。
+   ⚠️ **别假定这一步发生了**（2026-10-02 实测）：同一批补打的 tag 里，
+   `v0.5.0` ~ `v0.8.0` 四个**没有**触发 `release.yml`（`git ls-remote` 可见、附注对象完整，
+   而 `/actions/workflows/370079274/runs` 里只有 v0.1.0 ~ v0.4.0 四次），
+   而稍后补打的 `v0.9.0` **触发了**。同样的路径、同样的手法，结果不一致——
+   **原因不在本仓库可观测的范围内**。
+
+   所以规则不是"它会不会触发"，而是"**打完必须验**"：
+
+   ```bash
+   bash scripts/check-release-status.sh --published
+   ```
+
+   它逐个 tag 问 GitHub：release 在不在、资产是不是 7 个。缺的走**不依赖镜像**的入口：
+   Actions → Release → **Run workflow**（填那个 tag；`workflow_dispatch` 是 v0.8 收尾时加的，
+   与 tag 推送跑同一份脚本与同一组断言）。**别用"删掉 tag 再推一次"**——
+   那是拿同一条已被证明不稳定的路径再赌一次。
+
+   > 本地跑受**匿名 API 限额**（60 次/小时）约束；有 `GITHUB_TOKEN` / `GH_TOKEN` 时带上。
+   > 查不动时它以 `exit 3` 报告"没查成"——**不报成功**（这条与脚本里的其它空跑保护同源）。
 3. 核对 GitHub release 的 7 个 asset（6 个二进制 + `SHA256SUMS`）——**一条命令**：
 
    ```bash
