@@ -82,18 +82,24 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	}
 
 	fmt.Fprintf(stdout, "content store: %s\n", u.Root)
-	fmt.Fprintf(stdout, "  content trees: %d (%s)\n", len(u.Trees), storeBytes(u.TreeBytes))
+	if u.V2Trees > 0 || u.Blobs > 0 {
+		fmt.Fprintf(stdout, "  blobs (deduplicated content): %d (%s)\n", u.Blobs, storeBytes(u.BlobBytes))
+		fmt.Fprintf(stdout, "  tree manifests (v2): %d (%s)\n", u.V2Trees, storeBytes(u.V2TreeBytes))
+	}
+	// v1 那一行**总是**打印：它同时是"迁移收敛到什么程度"的读数——
+	// 全是 0 就说明这个 store 已经不再有旧布局的残留（ADR-019 的收敛目标）。
+	fmt.Fprintf(stdout, "  content trees (v1 legacy): %d (%s)\n", len(u.Trees), storeBytes(u.TreeBytes))
+
 	const show = 10
-	for i, e := range u.Trees {
-		if i == show {
-			fmt.Fprintf(stdout, "    ... and %d more (sorted by size)\n", len(u.Trees)-show)
-			break
-		}
-		who := "meta unreadable"
-		if e.MetaReadable {
-			who = fmt.Sprintf("%s@%s", e.Repo, git.ShortSHA(e.Commit))
-		}
-		fmt.Fprintf(stdout, "    %-71s %10s  %s\n", e.Digest, storeBytes(e.Bytes), who)
+	if len(u.V2Entries) > 0 {
+		// 体积是**逻辑体积**（条目字节之和）：多棵树共享 blob 时会重复计算，
+		// 真实占用看上面那行 blobs。两个数都报，免得把逻辑体积读成磁盘占用。
+		fmt.Fprintln(stdout, "  trees (v2, logical size; shared blobs counted once above):")
+		storeEntryLines(stdout, u.V2Entries, show)
+	}
+	if len(u.Trees) > 0 {
+		fmt.Fprintln(stdout, "  trees (v1 legacy, whole tree per digest):")
+		storeEntryLines(stdout, u.Trees, show)
 	}
 	if u.TempCount > 0 {
 		fmt.Fprintf(stdout,
@@ -103,6 +109,24 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fmt.Fprintln(stdout,
 		"note: read-only, nothing was changed. Deleting a content tree is deliberately not offered (ADR-018).")
 	return 0
+}
+
+// storeEntryLines 打印一行一条内容树（v2 的清单与 v1 的整棵树共用同一格式）。
+//
+// 顺序由 `Usage` 负责**确定**（体积降序、同体积按 digest 升序）：
+// 依赖目录遍历顺序的输出会让人误以为"内容变了"。
+func storeEntryLines(stdout io.Writer, entries []vendor.ContentStoreEntry, show int) {
+	for i, e := range entries {
+		if i == show {
+			fmt.Fprintf(stdout, "    ... and %d more (sorted by size)\n", len(entries)-show)
+			break
+		}
+		who := "meta unreadable"
+		if e.MetaReadable {
+			who = fmt.Sprintf("%s@%s", e.Repo, git.ShortSHA(e.Commit))
+		}
+		fmt.Fprintf(stdout, "    %-71s %10s  %s\n", e.Digest, storeBytes(e.Bytes), who)
+	}
 }
 
 // runStorePrune 只清解包残骸；**绝不碰内容树**。

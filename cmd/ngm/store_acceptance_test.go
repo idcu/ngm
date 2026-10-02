@@ -70,8 +70,16 @@ func TestV07StoreAcceptance(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("store usage exit=%d:\n%s", code, out)
 		}
-		if !strings.Contains(out, "content trees: 2") {
-			t.Errorf("must report 2 content trees:\n%s", out)
+		// v0.8（ADR-019）后写路径落的是 blob 池 + 清单，因此"两棵树"现在
+		// 表现为两份清单；v1 那一行必须仍是 0（写路径没有回到整棵树）。
+		if !strings.Contains(out, "tree manifests (v2): 2") {
+			t.Errorf("must report 2 v2 tree manifests:\n%s", out)
+		}
+		if !strings.Contains(out, "content trees (v1 legacy): 0") {
+			t.Errorf("a store written by v0.8 must have no v1 leftovers:\n%s", out)
+		}
+		if !strings.Contains(out, "blobs (deduplicated content): ") {
+			t.Errorf("must report the blob pool (it is where the real bytes are):\n%s", out)
 		}
 		for _, dg := range []string{dgSmall, dgBig} {
 			if !strings.Contains(out, dg) {
