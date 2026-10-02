@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,7 +36,10 @@ import (
 // GitHub 是去掉还是保留，于是两个变体**都算存在**。放宽只可能漏报（把一个真死的
 // 锚点当成通过），不会误报——而误报会让这条门禁被忽略，那比漏报更糟。
 func TestDocsAnchorsResolve(t *testing.T) {
-	docsRoot := filepath.Join("..", "..", "docs")
+	// 相对**仓库根**的路径空间：docs/ 递归 + 仓库根的 *.md。
+	// 根 README 是最多人读的一份文档，此前不在任何检查范围内（v0.10 B 组）。
+	repoRoot := filepath.Join("..", "..")
+	docsRoot := filepath.Join(repoRoot, "docs")
 
 	files := map[string]bool{}
 	var docs []string
@@ -50,7 +54,7 @@ func TestDocsAnchorsResolve(t *testing.T) {
 		if rerr != nil {
 			return rerr
 		}
-		rel = filepath.ToSlash(rel)
+		rel = "docs/" + filepath.ToSlash(rel)
 		files[rel] = true
 		docs = append(docs, rel)
 		return nil
@@ -61,12 +65,20 @@ func TestDocsAnchorsResolve(t *testing.T) {
 	if len(docs) < 10 {
 		t.Fatalf("只找到 %d 个文档——这条检查多半在扫错目录（docs 树不该这么小）", len(docs))
 	}
+	// 根 README：显式列出来，缺了就是缺了（不静默当成"没有这个文件"）。
+	const rootReadme = "README.md"
+	if _, serr := os.Stat(filepath.Join(repoRoot, rootReadme)); serr == nil {
+		files[rootReadme] = true
+		docs = append(docs, rootReadme)
+	} else if !errors.Is(serr, os.ErrNotExist) {
+		t.Fatalf("stat %s: %v", rootReadme, serr)
+	}
 	sort.Strings(docs)
 
 	// 每个文件的标题 slug 集合（严格 + 放宽两个变体）。
 	slugs := map[string]map[string]bool{}
 	for _, rel := range docs {
-		data, rerr := os.ReadFile(filepath.Join(docsRoot, filepath.FromSlash(rel)))
+		data, rerr := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
 		if rerr != nil {
 			t.Fatalf("read %s: %v", rel, rerr)
 		}
@@ -98,7 +110,7 @@ func TestDocsAnchorsResolve(t *testing.T) {
 	checked := 0
 
 	for _, rel := range docs {
-		data, rerr := os.ReadFile(filepath.Join(docsRoot, filepath.FromSlash(rel)))
+		data, rerr := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
 		if rerr != nil {
 			t.Fatalf("read %s: %v", rel, rerr)
 		}
@@ -167,7 +179,10 @@ func describe(file string, line int, link, target, anchor string, available map[
 	if len(near) > 0 {
 		hint = "  该文件里形近的锚点：" + strings.Join(near, " | ")
 	}
-	return "  docs/" + file + ":" + strconv.Itoa(line) + "  " + link +
+	// 路径**原样**打印：`file` 已经是相对仓库根的路径（v0.10 B 组把扫描范围扩到根 README
+	// 时，这里曾经硬编码着 `docs/` 前缀，于是失败信息会把根 README 说成 `docs/README.md`
+	// ——报错指错文件，等于让人去翻错地方）。
+	return "  " + file + ":" + strconv.Itoa(line) + "  " + link +
 		"  → " + target + "#" + anchor + " 不存在。" + hint
 }
 

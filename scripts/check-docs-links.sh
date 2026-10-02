@@ -1,28 +1,49 @@
 #!/usr/bin/env bash
-# scripts/check-docs-links.sh —— 检查 docs/ 下的 Markdown 文件中的相对链接。
+# scripts/check-docs-links.sh —— 检查 Markdown 里的相对链接指向的文件是否存在。
 #
 # 规则：
-#   1. 仅扫描 docs/**/*.md
-#   2. 匹配形如 [label](path) 的内联链接：path 若是 .md 相对路径，必须存在
-#   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）
-#   4. CI 友好：发现首个坏链接即 exit 1，并打印文件:行号
+#   1. 扫描给到的根：目录递归取 `**/*.md`，文件直接取（默认 `docs README.md`）
+#   2. 匹配形如 [label](path) 的内联链接：path 若是 .md/.txt 相对路径，必须存在
+#   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）、**行内代码里的示例**
+#   4. CI 友好：打印每个坏链接（文件:行号）并在最后 exit 1
 #
-# 用法：scripts/check-docs-links.sh [docs_root]
-#   docs_root 默认 docs/
+# 用法：scripts/check-docs-links.sh [root ...]
+#   默认 `docs README.md`——**根 README 也要查**：它是最多人读的一份文档，
+#   而它此前不在任何检查范围内（v0.10 B 组补上）。
 #
-# 这是 M0 阶段的最小可用版本；M3+ 可替换为 lychee 等成熟工具。
+# 注意：本检查只看"目标文件是否存在"，**不校验锚点**（`#xxx` 部分被剥掉）。
+# 锚点由 `cmd/ngm/docs_anchors_test.go` 单独检查（中文标题的 slug 规则放在 Go 里，
+# 因为 `grep -P` 的 Unicode 行为依赖 locale）。
 set -euo pipefail
 
-ROOT="${1:-docs}"
-if [ ! -d "$ROOT" ]; then
-  echo "no $ROOT directory; skipping"
-  exit 0
+if [ "$#" -gt 0 ]; then
+  roots=( "$@" )
+  strict=1
+else
+  roots=( docs README.md )
+  strict=0
 fi
 
 shopt -s globstar nullglob
 
 bad=0
-files=( "$ROOT"/**/*.md )
+files=()
+for r in "${roots[@]}"; do
+  if [ -d "$r" ]; then
+    files+=( "$r"/**/*.md )
+  elif [ -f "$r" ]; then
+    files+=( "$r" )
+  elif [ "$strict" -eq 1 ]; then
+    # **显式点名的根不存在 = 调用方写错了**，绝不是"没有东西要查"。
+    # 静默跳过正是本项目反复吃亏的那种"看起来通过"（v0.8 复盘 §5.8）。
+    echo "BROKEN ROOT (does not exist): $r"
+    bad=$((bad + 1))
+  else
+    # 默认根（CI 里 docs/ 一定在）：缺失时说明并跳过，保持旧行为。
+    echo "no $r; skipping"
+  fi
+done
+
 for f in "${files[@]}"; do
   # 跳过 node_modules / vendor 等
   case "$f" in

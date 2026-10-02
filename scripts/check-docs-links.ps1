@@ -22,7 +22,9 @@
 
 [CmdletBinding()]
 param(
-    [string]$Root = "docs"
+    # 默认查**根 README + docs/**：README 是最多人读的一份文档，
+    # 而它此前不在任何检查范围内（v0.10 B 组补上）。
+    [string[]]$Root = @("docs", "README.md")
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,15 +62,17 @@ if (-not (Test-Path -LiteralPath $sh)) {
     exit 2
 }
 
-# 目录不存在时**自己**报错，而不是把它交给 .sh（.sh 对缺失目录是 "skipping"+exit 0，
-# 那是给 CI 用的：CI 里 docs/ 一定在。放在这里就变成"什么都没查却报成功"）。
-if (-not (Test-Path -LiteralPath $Root)) {
-    Write-Host "no $Root directory to scan (nothing was checked)"
-    exit 2
+# 根不存在时**自己**报错，而不是把它交给 .sh：.sh 在**无参数**时对缺失的默认根是
+# "skipping"+exit 0（那是给 CI 用的，CI 里 docs/ 一定在）。这里逐个点名，缺一个就报错。
+$abs = @()
+foreach ($r in $Root) {
+    if (-not (Test-Path -LiteralPath $r)) {
+        Write-Host "no $r to scan (nothing was checked for it)"
+        exit 2
+    }
+    # 传绝对路径（正斜杠，Git Bash 与 WSL 都能认）；相对路径在 bash 的 CWD 与 PS 不一致时会错位。
+    $abs += ((Resolve-Path -LiteralPath $r).Path -replace '\\', '/')
 }
 
-# 传绝对路径（正斜杠，Git Bash 与 WSL 都能认）；相对路径在 bash 的 CWD 与 PS 不一致时会错位。
-$absRoot = (Resolve-Path -LiteralPath $Root).Path -replace '\\', '/'
-
-& $bash $sh $absRoot
+& $bash $sh @abs
 exit $LASTEXITCODE

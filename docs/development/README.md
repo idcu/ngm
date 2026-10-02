@@ -210,6 +210,16 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 > 收尾时又补上 [ADR-018](../adr/adr-018-store-reclaim.md)
 > ——内容寻址 store 的回收与去重（**不做**按可达性自动删除；写入侧去重是长期解法）。
 
+### v0.10（计划：[v0.10-plan.md](./v0.10-plan.md)）— **实施中**
+
+**把检查推到最外圈**：v0.9 让 store 的读数说了真话；这一版补两个**没人看的角落**——
+最外圈的文档（根 `README.md`）与用户真会遇到的一种失败（store 不完整）。
+
+| 组 | 内容 | 状态 |
+|----|------|------|
+| A | "store 里少了一个 blob"时的报错与残骸行为 | ✅ **已交付**（两条承诺钉进测试：点名条目 + 给出路；残骸必须被 `verify` 认出） |
+| B | 检查边界：根 `README.md` 的链接与锚点 | ✅ **已交付**（显式根缺失 = 失败；53 个锚点；双向牙齿测试） |
+
 ### v0.9（计划：[v0.9-plan.md](./v0.9-plan.md) / 复盘：[v0.9-retrospective.md](./v0.9-retrospective.md)）— **已交付**
 
 **让 store 的读数说真话**：v0.8 换了布局之后，这一层的数字开始需要解释
@@ -470,7 +480,7 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 
 ## 相关文档
 
-- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md)
+- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md) / [v0.10](./v0.10-plan.md)
 - [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / **[v0.7 复盘](./v0.7-retrospective.md)**（补写）/ **[v0.8 复盘](./v0.8-retrospective.md)** / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)

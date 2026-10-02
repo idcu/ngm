@@ -248,7 +248,7 @@ jobs:
         shell: bash
         run: |
           if [ -d docs ]; then
-            bash scripts/check-docs-links.sh docs
+            bash scripts/check-docs-links.sh docs README.md
           else
             echo "no docs/ directory yet; will be enabled after ngm-doc merge"
           fi
