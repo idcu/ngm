@@ -1,6 +1,6 @@
 # ADR-019：层 2 改为按文件内容寻址（blob 池 + 树清单）
 
-- **状态**：已定（**本 ADR 只定 schema 与迁移方案**；实现单列一个版本）
+- **状态**：已定 **并已实施**（[v0.8](../development/v0.8-plan.md) 落地；本文末有[修订](#修订v08-实现时发现并改掉的四处)）
 - **日期**：2026-10-02
 - **范围**：vendor 层 2（`~/.ngm/content`）的存储布局
 - **关系**：承接 [ADR-018](./adr-018-store-reclaim.md) 决策 3（写入侧去重是长期解法）；
@@ -79,7 +79,9 @@ v0.6 的实测（`TestV06StoreGrowthInventory`）：一个仓库、12 个 commit
 - **entries 按 path 升序**：清单本身必须是确定的（可 diff、可快照），否则又会出现
   "两次构建字节不同"这类假失败（v0.5 的 metafile 事件就是这么来的）。
 - `mode` 沿用 Git 的 100644 / 100755 / 120000（与 digest 层的口径一致）。
-- `sha` 是 blob 内容的 sha256；symlink 的 blob 内容就是**链接目标字符串**（与 digest 层一致）。
+- `sha` 是 blob 名。**实现改为 `H(mode, 内容)` 而不是"内容的 sha256"**——
+  理由与代价见文末[修订](#修订v08-实现时发现并改掉的四处)。
+- symlink 条目**不落 blob**：链接目标字符串直接写在 `target` 字段里（实现修订）。
 
 ### `meta.json`
 
@@ -117,8 +119,10 @@ v0.6 的实测（`TestV06StoreGrowthInventory`）：一个仓库、12 个 commit
 
 - v1：vendor 直接 hardlink / copy 到 `content/sha256/<digest>/tree/` 这棵已物化的树。
 - v2：**没有物化树**，所以 `LinkTree` 要按 `manifest.json` 逐条目工作——
-  建目录、把 `blobs/<sha>` link（或 copy）到目标路径、按 `mode` chmod、
-  `120000` 则创建 symlink（目标从 blob 内容读出）。
+  建目录、把 `blobs/<sha>` link（或 copy）到目标路径、`120000` 则创建 symlink。
+
+  > 原文这里写的是"按 `mode` chmod"——**那一步对 hardlink 是错的**（chmod 改的是共享的
+  > inode，会连带改掉 blob 自己），实现改为"mode 随 blob 落盘"。见文末修订。
 
 好处是：层 2 不再需要"一份已展开的树"，**磁盘占用再降一档**；
 代价是 link 层从"整棵树"变成"逐条目"，要处理部分失败与清理。
@@ -148,11 +152,60 @@ v0.6 的实测（`TestV06StoreGrowthInventory`）：一个仓库、12 个 commit
 
 ---
 
+## 修订（v0.8 实现时发现并改掉的四处）
+
+> 实施计划见 [v0.8 计划](../development/v0.8-plan.md)。下面四处都是**写 ADR 时看不到、
+> 动手才暴露**的，因此按本项目的纪律逐条记下来——而不是悄悄改掉。
+
+### 1. 可执行位无法只靠"内容寻址"承载（**本方案唯一的语义代价**）
+
+落地层默认用 hardlink，而 **hardlink 共享 inode**，inode 上的 mode 是共享的。于是
+"同一份字节、一处 100644、一处 100755"在纯内容寻址的 blob 池里无法表达：要么副本丢掉
+可执行位（静默错），要么落地时被迫复制（`hardlink` 模式承诺的"零重复磁盘"就破了）。
+
+**改法**：blob 的身份里带上 mode —— `sha = H(mode ‖ 内容)`，且 blob 在池里就按该 mode 落盘。
+于是 hardlink 天然带对可执行位，落地层不再需要"按 mode chmod"那一步。
+
+**代价**：同一份内容若在两处 mode 不同，会存**两份**。这是可忽略的——内容去重（本布局存在的
+理由）在"同一文件在多个 commit 里不变"这个主导场景下完全不受影响，而那正是本 ADR 要解决的 20× 放大。
+落地实现见 `internal/vendor/content_v2.go` 的 `blobKey`，断言见 `TestContentStore_BlobKeyFoldsInMode`。
+
+### 2. `symlink` 落地模式在 v2 下**没有整棵树可链**（用户可见的行为变化）
+
+v2 不再物化一棵树，于是"依赖目录整体 symlink 指向内容树"这一条**不再成立**。
+它退化为**逐条目 hardlink**，并在结果里如实报告实际使用的 mode（vendor-layers.md 要求
+"所有链接失败路径必须可观测"）。磁盘收益不变；仍然只有 v1 数据的旧 store 保持老语义。
+
+**这是本版唯一一处用户可见的行为变化**，已同步到 [vendor-layers](../architecture/vendor-layers.md)
+与 [配置详解](../guides/configuration.md)，并在 `TestM4Acceptance/linkMode matrix` 里显式固定。
+
+> 若将来要恢复它，正确做法是"为 symlink 模式按需物化一棵 hardlink 树"——那等于把本 ADR
+> 去掉的那棵树以**可选缓存**的形式请回来，属于新决策。
+
+### 3. 不再解包一棵中间树：直接从 Git 的条目构建
+
+原计划是"解包到临时目录 → 逐文件搬进 blob 池"，实现改为**直接读 Git 的条目**（`ListTree` +
+`CatFileBatch`）构建 blob 与清单。两个好处都不是理论的：
+
+1. **mode 以 Git 为准**，不再从解包后的文件权限反推——否则 Windows 上可执行位不可表示，
+   同一 commit 会算出**不同的清单**（跨平台不一致）。顺带让 blob 名也跨平台一致。
+2. **store 不再创建 symlink**——目标字符串直接进清单。于是"仓库里有 symlink"不再让
+   Windows 用户需要开发者模式才能填充 store。
+
+### 4. `store usage` 的输出按布局分组
+
+v1 的"内容树"一栏改为 `content trees (v1 legacy)`（**总是**打印，它同时是"迁移收敛到什么程度"
+的读数），新增 `blobs (deduplicated content)` 与 `tree manifests (v2)` 两行。v2 的逐条明细报的是
+**逻辑体积**（条目字节之和），共享 blob 会重复计算——因此与 `blobs` 一行并列出现，免得被读成磁盘占用。
+
+---
+
 ## 什么条件下重新考虑
 
 - 若实施中发现"逐条目 link"在 Windows（hardlink 不可用时降级为 copy）上的代价
   **超过**去重带来的收益，应先做一次实测再决定——**收益是可以量的**（同一份
   `TestV06StoreGrowthInventory` 就是尺子：12 个 commit 后应当从 1.88 MiB 降到百 KiB 量级）。
+  → **v0.8 已量：59.9 KiB**（同一 fixture、同一台机器），尺子满足。
 - 若 blob 数量增长带来新的问题（目录规模、inode），再评估是否需要合并/分片策略。
 
 ---
@@ -162,5 +215,6 @@ v0.6 的实测（`TestV06StoreGrowthInventory`）：一个仓库、12 个 commit
 - [ADR-018 内容寻址 store 的回收与去重](./adr-018-store-reclaim.md)（本 ADR 承接其决策 3）
 - [ADR-008 archiveDigest 的定义](./adr-008-archive-digest.md)（本 ADR 不动它）
 - [ADR-003 为什么纯 vendor 目录](./adr-003-vendor.md) · [vendor 层模型](../architecture/vendor-layers.md)
-- [metrics · 磁盘增长](../internals/metrics.md#磁盘增长内容寻址-storev06)（20× 的实测依据）
+- [metrics · 磁盘增长](../internals/metrics.md#磁盘增长内容寻址-storev06)（20× 的实测与 v2 后的复测）
 - [v0.7 计划](../development/v0.7-plan.md)（本 ADR 的实施被明确排除在该版之外）
+- [v0.8 计划](../development/v0.8-plan.md)（本 ADR 的落地：先解耦消费方，再换布局）

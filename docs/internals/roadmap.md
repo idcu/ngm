@@ -1,10 +1,10 @@
 # 路线图
 
-> ngm 的产品路线。**v0.1 ~ v0.6 均已交付**（证据见各版[复盘](../development/)）；
+> ngm 的产品路线。**v0.1 ~ v0.8 均已交付**（证据见各版[复盘](../development/)与计划）；
 > `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布，**GitHub 与 Gitee 两个源都可取到**
 > （2026-10-01 补齐后三版，2026-10-02 补齐 Gitee 侧附件，两源已比对）；
-> v0.6 见[计划](../development/v0.6-plan.md)与[复盘](../development/v0.6-retrospective.md)。
-> **v0.7 范围尚未成文**，候选池见下。
+> v0.6 见[计划](../development/v0.6-plan.md)与[复盘](../development/v0.6-retrospective.md)；
+> v0.7 见[计划](../development/v0.7-plan.md)；v0.8 见[计划](../development/v0.8-plan.md)。
 >
 > 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
 
@@ -116,8 +116,8 @@
 ## v0.5 — 收敛与交付
 
 **目标**：把已经量出来但还剩着的三件事各自推到结论——性能贴着线、ADR-013 翻案条件未判、
-v0.2~v0.4 **三版从未发布**（发行源上只有 `v0.1.0`；**2026-10-01 已补发 GitHub 侧**，
-Gitee 附件待人工上传）。
+v0.2~v0.4 **三版从未发布**（发行源上只有 `v0.1.0`；**2026-10-01 补发 GitHub 侧、
+2026-10-02 补齐 Gitee 侧**）。
 
 | 组 | 任务 | 状态 |
 |----|------|------|
@@ -164,17 +164,29 @@ Gitee 附件待人工上传）。
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | A | 消费方与布局解耦（`Entries` + `compareTrees` + `VerifyVendorAgainstEntries`） | ✅ **已交付**（等价重构：既有测试一字未改全部通过） |
-| B | `Put` 写 v2（blobs + manifest），读路径 v2 优先、回落 v1；`LinkTree` 按条目落地 | 计划 |
-| C | 收敛与观测（v1 重写时回收；`usage` 分别报告两种布局） | 计划 |
+| B | `Put` 写 v2（blobs + manifest），读路径 v2 优先、回落 v1；`LinkTree` 按条目落地 | ✅ **已交付**（含双布局验收） |
+| C | 收敛与观测（v1 被重写时回收；`usage` 分别报告两种布局） | ✅ **已交付** |
 
-> B 阶段的**尺子**已写进 [ADR-019](../adr/adr-019-content-addressed-blobs.md)：
-> 重跑 `TestV06StoreGrowthInventory`，12 个 commit 的占用应从 **1.88 MiB** 降到**百 KiB 量级**。
+**尺子已量**（[ADR-019](../adr/adr-019-content-addressed-blobs.md) 写死的那个）：
+12 个 commit 的占用 **1.88 MiB → 59.9 KiB（20.0× → 0.6×）**。
+`TestV06StoreGrowthInventory` 的断言已从"至少要有 N 棵树"**翻转**为"不得接近 N 棵树"——
+同一段代码，量的从"放大得有多严重"变成"去重是否真的生效"。
+
+**两处实施时才发现、ADR 没写到的点**（记在 [ADR-019 §修订](../adr/adr-019-content-addressed-blobs.md#修订v08-实现时发现并改掉的四处)）：
+
+1. **可执行位无法只靠"内容寻址"承载**（hardlink 共享 inode）→ blob 身份改为 `H(mode, 内容)`；
+   不这么做，可执行文件落地后会**静默丢掉可执行位**。
+2. **`symlink` 落地模式在 v2 下退化为逐条目 hardlink**（如实报告实际 mode）——
+   本版**唯一一处用户可见的行为变化**。
+
+> **它改的是斜率，不是终点**：blob 同样只增不减，回收仍受
+> [ADR-018](../adr/adr-018-store-reclaim.md) 那两个条件约束。
 
 ---
 
 ## v0.7 — store 的占用可见、残骸可回收
 
-**计划已成文并实施中**：[v0.7 计划](../development/v0.7-plan.md)（当前范围 = [ADR-018](../adr/adr-018-store-reclaim.md) 决策 2）。
+**计划**：[v0.7 计划](../development/v0.7-plan.md)（范围 = [ADR-018](../adr/adr-018-store-reclaim.md) 决策 2）——**已交付**。
 
 | 组 | 内容 | 状态 |
 |----|------|------|
@@ -187,7 +199,7 @@ Gitee 附件待人工上传）。
 | # | 候选 | 前置 |
 |---|------|------|
 | 1 | ~~`ngm store usage` + `ngm store prune`~~ ✅ **已在 v0.7 完成** | —— |
-| 2 | 层 2 **写入侧去重**（blob 池 + 树清单） | **schema 与迁移方案已定**：[ADR-019](../adr/adr-019-content-addressed-blobs.md)（不就地迁移、digest 不变）；**实现单列一个版本**——它也是唯一能把 20× 从源头消掉的一项 |
+| 2 | ~~层 2 **写入侧去重**（blob 池 + 树清单）~~ ✅ **已在 v0.8 完成**（[ADR-019](../adr/adr-019-content-addressed-blobs.md)：20.0× → 0.6×；改的是斜率，不是终点） | —— |
 | 3 | ~~补上可复现性的**跨机器结论**~~ ✅ **已在 v0.6 完成**（三平台 + 本机同值） | —— |
 | 4 | `remote` adapter 门槛 b：抽样构建的**成本数字** | **门槛 a 已满足** → b 是"要不要发布"唯一剩下的条件，也是决定性的一问 |
 | 5 | `deno bundle` 真引擎覆盖 | 上游把 bundle 标为稳定（截至 2026-10-02 未变） |

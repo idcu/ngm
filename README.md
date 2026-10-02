@@ -4,20 +4,24 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.5 delivered and released** (`v0.1.0` … `v0.4.0` tagged and published,
-each with six platform binaries plus `SHA256SUMS` on GitHub; `v0.5` was the convergence and
-delivery pass and `v0.6` made the remaining conclusions *decidable* — a git spawn budget as a CI gate,
-real-world reproducibility forms (code splitting, asset fingerprints, a three-hook plugin chain), and
-measured content-store growth; see
-[`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md) and
-[`docs/development/v0.6-retrospective.md`](./docs/development/v0.6-retrospective.md).
+Status: **v0.1 … v0.8 delivered** (`v0.1.0` … `v0.4.0` tagged and published, each with six platform
+binaries plus `SHA256SUMS`). `v0.5` was the convergence and delivery pass; `v0.6` made the remaining
+conclusions *decidable* (a git spawn budget as a CI gate, real-world reproducibility forms, measured
+content-store growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and
+its residues reclaimable (`ngm store prune`); and `v0.8` replaced the layer-2 layout with a
+**blob pool + tree manifests**, cutting the measured cost of 12 commits from **20.0× the real source
+delta to 0.6×** (`1.88 MiB → 59.9 KiB`). See
+[`docs/development/v0.5-retrospective.md`](./docs/development/v0.5-retrospective.md),
+[`docs/development/v0.6-retrospective.md`](./docs/development/v0.6-retrospective.md) and
+[`docs/development/v0.8-plan.md`](./docs/development/v0.8-plan.md).
 Prebuilt binaries for `v0.1.0` … `v0.4.0` are available from **both** sources with identical
-`SHA256SUMS` (verified byte-for-byte). One item is still open and **it is not an engineering gap**:
-the cross-machine reproducibility verdict needs someone who can read the Actions results.
-On Gitee only `v0.1.0` carries attachments so far — `v0.2` ~ `v0.4` are uploaded by hand and
-**are still pending**, which is the one open item of v0.5 (see
+`SHA256SUMS` (verified byte-for-byte); see
 [`docs/development/README.md`](./docs/development/README.md) for the release checklist and
-[`docs/guides/installation.md`](./docs/guides/installation.md) for which version is downloadable where).
+[`docs/guides/installation.md`](./docs/guides/installation.md) for which version is downloadable where.
+
+> v0.8 changes one user-visible behaviour: the `symlink` link mode degrades to per-entry hardlinks
+> under the v2 layout (same disk savings, reported honestly); see
+> [`docs/adr/adr-019-content-addressed-blobs.md`](./docs/adr/adr-019-content-addressed-blobs.md).
 
 All four v0.1 exit criteria are met with executable evidence: `ngm install` works end to end,
 `ngm.lock` is byte-identical across platforms, `ngm verify` tells a re-tagged tag apart from an

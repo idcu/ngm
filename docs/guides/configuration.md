@@ -213,7 +213,11 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | `auto`（默认） | hardlink 优先，跨卷/不支持时自动降级复制 |
 | `hardlink` | 强制 hardlink，失败即报错 |
 | `copy` | 普通复制（网络文件系统、提交 vendor 的保守选择） |
-| `symlink` | 依赖目录整体 symlink 到 content store（Windows 需开发者模式） |
+| `symlink` | 依赖目录整体 symlink 到内容树（Windows 需开发者模式） |
+
+> **`symlink` 自 v0.8 起在 v2 布局下退化为逐条目 hardlink**（[ADR-019](../adr/adr-019-content-addressed-blobs.md) §修订）：
+> 层 2 不再有"一棵已物化的树"可以整目录链接，因此实际落地是与 `auto` 相同的逐文件 hardlink
+> （磁盘收益不变），CLI 会如实打印实际使用的 mode。只有 v1 数据的旧 store 保持"整目录链接"。
 
 > **`auto` / `hardlink` 的就地写入风险**：这两种模式落地的是指向 content store 的硬链接，
 > 因此**直接编辑 `ngm.vendor/` 里的文件会同时改写 content store**，且后续 `ngm install`

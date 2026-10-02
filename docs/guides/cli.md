@@ -23,7 +23,7 @@
 | `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter） | v0.1（`esbuild`）；v0.2 增 `postcss`（无内建压缩，`--minify` 会被明确告知忽略） | [构建](./build.md) |
 | `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
-| `ngm store usage` | 报告 content store 的占用：**只读**，列出内容树数、体积、各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) |
+| `ngm store usage` | 报告 content store 的占用：**只读**，按布局分组——blob 池（去重后的真实内容）、v2 树清单、v1 遗留树，各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现**；v0.8 输出按布局分组 | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) |
 | `ngm store prune [--dry-run]` | 清掉**中断留下的解包残骸**（`.unpack-*`）。**不碰任何内容树**，并报告"留下了 N 份没动" | **v0.7 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) |
 | `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
@@ -37,8 +37,11 @@
 **只增不减**，但占用现在可见（`ngm store usage`，只读）、残骸可回收（`ngm store prune`）。
 **没有、也不预告**一个会删除内容树的 `ngm store gc`——按可达性删除需要一个 ngm 没有的
 项目注册表，误删会让别的项目的 `ngm verify` 在某天突然验不过。
-真正能改变增长曲线的是**层 2 的写入侧去重**：布局改为 blob 池 + 树清单，
-schema 与迁移方案见 [ADR-019](../adr/adr-019-content-addressed-blobs.md)（实现单列一版）。
+
+真正能改变增长曲线的是**层 2 的写入侧去重**（**v0.8 已落地**，[ADR-019](../adr/adr-019-content-addressed-blobs.md)）：
+布局改为 blob 池 + 树清单，实测把同一场景的放大比从 **20×** 降到 **0.6×**
+（[metrics](../internals/metrics.md#磁盘增长内容寻址-storev06)）。
+**但这改的是斜率，不是终点**：blob 同样只增不减，回收仍受 ADR-018 那两个条件约束。
 
 **内置引擎清单（v0.4 时点）**：`esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`，
 自带 `tsc --emitDeclarationOnly`，`optional`）、`postcss`（`css`，`optional`）、`self` stub；

@@ -3,9 +3,10 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.6 均已交付**（v0.1 ~ v0.4 已发布；v0.6 见
+**当前状态：v0.1 ~ v0.8 均已交付**（v0.1 ~ v0.4 已发布；v0.6 见
 [复盘](./development/v0.6-retrospective.md)——含**跨机器可复现性的实测判定**：
-三平台 + 本机同值 `treeA=124f03b1de58091a`。v0.7 范围尚未成文，候选池在[路线图](./internals/roadmap.md)）。
+三平台 + 本机同值 `treeA=124f03b1de58091a`；v0.8 见[计划](./development/v0.8-plan.md)——
+层 2 换布局，把"每 commit 复制一整棵树"的 **20×** 放大降到 **0.6×**）。
 `v0.1.0` ~ `v0.4.0` 都已打 tag，**GitHub 与 Gitee 上各有 7 个附件**
 （六平台二进制 + `SHA256SUMS`，三平台 CI 全绿，含端到端验收与真实引擎集成）；
 两源的 `SHA256SUMS` 已逐个比对为**逐字节相同**，见[安装指南](./guides/installation.md)
@@ -253,7 +254,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.5 | 在线 verify 的成本与方差 + ADR-013 翻案条件判定 + 权限施加点的机械核对 + **v0.2~v0.4 补发布** + 挂账项收尾 | **已交付**（详见[复盘](./development/v0.5-retrospective.md)；残项已于 2026-10-02 补齐：Gitee 侧 21 个附件） |
 | v0.6 | 让结论**可判别**：spawn 预算门禁 + 真实形态的可复现证据 + store 增长数据 + Gitee 补传 | **已交付**（[复盘](./development/v0.6-retrospective.md)） |
 | v0.7 | content store 的**占用可见**（`ngm store usage`，只读）与**残骸可回收**（`ngm store prune`） | **已交付**（[计划](./development/v0.7-plan.md)） |
-| v0.8 | 层 2 换布局（blob 池 + 树清单，[ADR-019](./adr/adr-019-content-addressed-blobs.md)）：先让消费方与布局解耦，再换布局 | **实施中**（[计划](./development/v0.8-plan.md)；阶段 A 已交付） |
+| v0.8 | 层 2 换布局（blob 池 + 树清单，[ADR-019](./adr/adr-019-content-addressed-blobs.md)）：先让消费方与布局解耦，再换布局 | **已交付**（[计划](./development/v0.8-plan.md)：20.0× → 0.6×；一处用户可见的变化：`symlink` 落地模式退化） |
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 
