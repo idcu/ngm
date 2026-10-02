@@ -43,6 +43,10 @@
 （[metrics](../internals/metrics.md#磁盘增长内容寻址-storev06)）。
 **但这改的是斜率，不是终点**：blob 同样只增不减，回收仍受 ADR-018 那两个条件约束。
 
+**升级已有 store 时**：新装的依赖立刻用新布局，**老条目不会自动迁移**（`install` 见到
+`Has` 为真就短路——那是"无网络也能安装"的承诺）。`ngm store usage` 在存在老条目时会把
+出路打印出来：删掉整个 `sha256/` 再 `ngm install`（层 2 是派生物，可重建）。
+
 **内置引擎清单（v0.4 时点）**：`esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`，
 自带 `tsc --emitDeclarationOnly`，`optional`）、`postcss`（`css`，`optional`）、`self` stub；
 wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可用性**问题 → `exit 5`）。

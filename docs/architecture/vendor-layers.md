@@ -58,6 +58,11 @@ project/
 └── sha256/<digest-hex>/tree/            # v1（旧布局）遗留：只读，不再新增
 ```
 
+**升级已有 store 时**：新装的依赖立刻落 v2（去重生效），但**健康的老条目不会被自动迁移**——
+`install` 见到 `Has` 为真就短路（那是"无网络也能安装"的承诺），不会去重写它。
+老条目的空间需要一次手工步骤：删掉整个 `sha256/` 再 `ngm install`（层 2 是派生物，可重建）。
+`ngm store usage` 在存在 v1 遗留时会把这个出路打印出来（[ADR-019 §修订 5](../adr/adr-019-content-addressed-blobs.md#修订v08-实现时发现并改掉的五处)）。
+
 **布局 v2（blob 池 + 树清单）自 v0.8 起**，见 [ADR-019](../adr/adr-019-content-addressed-blobs.md)：
 按文件内容寻址，同一份字节在层 2 只存一份。v1 的"每个 digest 一棵完整解包树"
 在实测中把 12 个 commit 的占用放大到源码真实增量的 **20×**（[metrics](../internals/metrics.md#磁盘增长内容寻址-storev06)）；
