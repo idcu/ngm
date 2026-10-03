@@ -40,7 +40,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 
 ## 2. 任务进度
 
-十版全部交付（每版都有计划 + 复盘，除 v0.7 是补写的——见 [v0.7 复盘 §5.2](../development/v0.7-retrospective.md)）。
+**十一版全部交付**（每版都有计划 + 复盘，除 v0.7 是补写的——见 [v0.7 复盘 §5.2](../development/v0.7-retrospective.md)）。
 
 | 版本 | 主题 | 交付 |
 |------|------|------|
@@ -54,69 +54,82 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | v0.8 | 层 2 换布局 | blob 池 + 树清单（ADR-019）：**20.0× → 0.6×** |
 | v0.9 | 读数说真话 | blob 池切成共享/独占/孤儿 + 锚点检查 + 10 万级规模实测 |
 | v0.10 | 检查推到最外圈 | 根 README 的链接与锚点 + "store 不完整"的两条承诺（实现 0 行改动） |
+| **v0.11** | **结项 + 第一次真回收** | **ADR-020~023**（4 项待决策全部结掉）+ **`store prune --orphans`**（层 2 第一次真回收）+ workflow YAML 门禁 + `cmd.WaitDelay` 修复 + 端到端复核 |
 
 **发布状态**（`bash scripts/check-release-status.sh --published`，2026-10-03 复核）：
 
 | 版本 | tag | GitHub release | Gitee 附件 |
 |------|-----|----------------|-----------|
 | `v0.1.0` ~ `v0.4.0` | ✅ | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
-| `v0.5.0` ~ `v0.8.0` | ✅ | ❌ **未生成**（**你决定暂缓**，见 §4） | ❌ 同上 |
-| `v0.9.0` / `v0.10.0` | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ❌ 待上传（**暂缓**） |
+| `v0.5.0` ~ `v0.8.0` | ✅ | ❌ **未生成**（**2026-10-03 已取消暂缓**，待补发，见 §3.2） | ❌ 同上 |
+| `v0.9.0` / `v0.10.0` / `v0.11.0` | ✅ | ✅ 前两版各 7 个（tag 推送触发，已复核） | ❌ 待上传（**已取消暂缓**） |
 
-**表面数字**（[metrics](./metrics.md)）：14 个测试包 + 16 个 CI job（三平台）；
+**表面数字**（[metrics](./metrics.md)）：14 个测试包 + 17 个 CI job（三平台，含新增 `workflow-lint`）；
 `verify` 的 spawn 预算 2.00（commit）/ 3.00（tag）每依赖；层 2 磁盘增长 0.6×；
-10 万 blob 下 `usage` 244 ms。
+10 万 blob 下 `usage` 244 ms。文档检查覆盖**72 个锚点**（含根 README）。
+
+**端到端实测**（v0.11 C 组，真实 git + 真实 esbuild 0.28.2）：
+`install` 2.32s · `verify` 0.81s · `build` 0.66s · `store usage` 0.42s；
+`install --frozen-lockfile --offline` 完全不需要 git（`all 1 served from the content store`）。
 
 ---
 
 ## 3. 未完成任务
 
-按"谁能推动"分四类——**这个分类比"优先级"更有用，因为它直接说明下一步该找谁**。
+> **v0.11 已把上一版的四件"待决策"全部结掉**（ADR-020 ~ 023）。下面是**结项后**的
+> 剩余清单——它比上一版短，且剩下的都不是"等拍板"了。
 
-### 3.1 需要**你**决策（数据都已就位）
+### 3.1 ~~需要**你**决策~~ → **已全部结项**
 
-| # | 任务 | 数据 | 为什么卡在决策 |
-|---|------|------|---------------|
-| 1 | **是否发布 `remote` adapter** | 门槛 a 已满足（3 平台 × 7 形态字节一致） | 门槛 b 是"用户是否愿意为一次远端构建而在本地抽样构建"——产品问题，[ADR-017](../adr/adr-017-remote-adapter-release-decision.md) 已把它写成可判定的门槛 |
-| 2 | **`symlink` 落地模式是否恢复** | v0.8 起退化为逐条目 hardlink（语义等价、磁盘收益不变） | 要恢复得"按需物化一棵 hardlink 树"——新决策，不是回滚 |
-| 3 | **blob 回收（GC）是否排期** | v0.9 已把"孤儿字节"变成可读的数；ADR-018 的两个条件未变（ngm 没有项目注册表） | 删内容树的风险需要一个明确的决策 |
-| 4 | **3s 目标的口径** | v0.5 证明它在噪声里不可判别；v0.6 已把次数做成门禁 | 需要一句正式的"目标线退役/降级为观测值" |
+| 原待决策 | 结论 | 文档 |
+|---------|------|------|
+| 是否发布 `remote` adapter | **搁置**——关键新事实：它在代码里**不存在**，"发布"=从零写一套远端执行协议 | [ADR-020](../adr/adr-020-remote-adapter-shelved.md) |
+| `symlink` 落地模式是否恢复 | **保留降级**（不实现"按需物化一棵 hardlink 树"） | [ADR-021](../adr/adr-021-symlink-link-mode.md) |
+| blob 回收（GC）是否排期 | **做**，但只做"无人引用的字节"：`store prune --orphans`。洞察：孤儿由构造可判定，**不需要注册表** | [ADR-023](../adr/adr-023-orphan-reclaim.md) |
+| 3s 目标的口径 | **降级为观测值**，门禁是 spawn 预算 | [ADR-022](../adr/adr-022-verify-performance-target.md) |
+
+> 三条的结论是**不做**，且都写明了重新考虑的触发条件。这比留四条"待定"更有用：
+> 待定会一直看起来像待办，而"不做 + 何时重启"是一条可执行的结论。
 
 ### 3.2 需要**人工动作**（你做一次，我随后可核对）
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 5 | `v0.5.0` ~ `v0.8.0` 的 GitHub release | **暂缓**（2026-10-03）。恢复时：Actions → Release → Run workflow，填 tag |
-| 6 | `v0.9.0` / `v0.10.0` 的 Gitee 附件 | **暂缓**。恢复时：`scripts/upload-gitee-assets.ps1 -Tag vX.Y.0`（需 `GITEE_TOKEN`） |
+| 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release | **2026-10-03 取消暂缓**。恢复时：Actions → Release → Run workflow，填 tag |
+| 2 | `v0.9.0` / `v0.10.0` / `v0.11.0` 的 Gitee 附件 | **2026-10-03 取消暂缓**。恢复时：`scripts/upload-gitee-assets.ps1 -Tag vX.Y.0`（需 `GITEE_TOKEN`） |
 
 ### 3.3 等**上游**
 
 | # | 任务 | 条件 |
 |---|------|------|
-| 7 | `deno bundle` 真引擎覆盖 | Deno 把 bundle 标为稳定（截至 2026-10-03 未变） |
+| 3 | `deno bundle` 真引擎覆盖 | Deno 把 bundle 标为稳定（截至 2026-10-03 未变） |
 
 ### 3.4 **可以自动推进**（无需决策、无外部依赖）
 
 | # | 任务 | 说明 |
 |---|------|------|
-| 8 | workflow 的 **YAML 有效性门禁** | 改坏 `release.yml` 会**静默不跑**（没有 run 就没有失败可读）；判据未定——需要先确认"坏文件在 API 里长什么样" |
-| 9 | 更多"没人检查的角落" | v0.9/v0.10 的方法是先审计再接线；可继续地毯式找 |
-| 10 | 端到端可用性复核 | 在干净环境跑一遍 quickstart（含真实引擎），把摩擦点记下来 |
+| 4 | **自建 Git 的非默认端口** | v0.11 C 组实测：`https://host:8443/org/repo` 的**端口被静默丢弃**（`normalize.go` 的 `splitURLForm`）。要修需给 `Canonical` 加字段——schema 级变更，如实记录先于悄悄支持一半 → [metrics · 已知限制](./metrics.md#已知限制非默认端口v011-c-组实测) |
+| 5 | 更多"没人检查的角落" | v0.9~v0.11 的方法是先审计再接线；可继续地毯式找 |
+| 6 | workflow 的 **YAML 有效性门禁** | v0.11 已加（CI job `workflow-lint`，用真实解析器 js-yaml）✅ |
+| 7 | 端到端可用性复核 | **v0.11 C 组已完成**（真实 esbuild + 真实 git server，见复盘）；后续可按季度重跑 |
 
 ---
 
 ## 4. 阻塞原因
 
-**逐条追因**（不是"没做"，而是"为什么没做完"）：
+**逐条追因**（不是"没做"，而是"为什么没做完"）。**前四条已在 v0.11 结项**，
+保留在表里是因为它们解释了今天的状态：
 
-| 阻塞 | 根因 | 证据 |
-|------|------|------|
-| `remote` adapter 不发布 | **产品判断**，不是技术：需要有人回答"用户愿不愿意为一次远端构建付一次本地抽样构建" | [ADR-013](../adr/adr-013-remote-adapter.md)（翻案条件第 1 条的技术前提**已成立**）· [ADR-017](../adr/adr-017-remote-adapter-release-decision.md) |
-| 四个 release 未生成 | **镜像转发 tag 不保证触发 `release.yml`**：`v0.5.0`~`v0.8.0`（一批四个）没触发，而 `v0.9.0`/`v0.10.0`（单独打）**都触发了**。原因不在本仓库可观测范围内 | [发布清单](../development/README.md#发布清单每个版本) · v0.8 复盘 §2 |
-| Gitee 附件 | Gitee 无 API token 时是**人工上传**；工具已就绪（幂等、双向校验） | `scripts/upload-gitee-assets.ps1` |
-| blob 回收 | ADR-018 的两个条件：**需要项目注册表**（ngm 没有）与**跨项目共享**（删一个 digest 会影响别的项目） | [ADR-018](../adr/adr-018-store-reclaim.md) |
-| 3s 目标 | v0.5 实测：受控对照（未优化）最大 2.433s **也过线**，而跨机器方差 ≥0.3s > 本轮收益 0.45s | [v0.5 复盘 §2.3](../development/v0.5-retrospective.md) |
-| 无 registry 生态 | **非目标是刻意的**：registry 包管理交给 pnpm/npm/yarn | capability-matrix |
+| 阻塞 | 根因 | 状态 / 证据 |
+|------|------|-----------|
+| `remote` adapter 不做 | **成本被低估了一个量级**：它在代码里**根本不存在**（`catalog.go` 里只是"按决定排除 → exit 5"），"发布"=从零写一套远端执行协议 + 产物抽样复算 | ✅ **已结项**（ADR-020，搁置；三条触发条件）· 此前 [ADR-013](../adr/adr-013-remote-adapter.md) · [ADR-017](../adr/adr-017-remote-adapter-release-decision.md) |
+| blob 回收 | ADR-018 卡在"按**可达性**删除"：需要 ngm 没有的**项目注册表**，误删会让别的项目某天突然验不过 | ✅ **部分解掉**（ADR-023）：**孤儿**（无人引用）由构造可判定、不需要注册表 → 已实现。真正的可达性删除**仍然不做** |
+| 3s 目标 | v0.5 实测：受控对照（未优化）最大 2.433s **也过线**，而跨机器方差 ≥0.3s > 本轮收益 0.45s | ✅ **已结项**（ADR-022）：3s 降级为观测值，门禁改为 spawn 预算 |
+| `symlink` 模式 | 恢复它要"按需物化一棵 hardlink 树"，是**新决策**不是回滚 | ✅ **已结项**（ADR-021）：保留降级 |
+| 四个 release 未生成 | **镜像转发 tag 不保证触发 `release.yml`**：`v0.5.0`~`v0.8.0`（一批四个）没触发，而 `v0.9.0`/`v0.10.0`（单独打）**都触发了**。原因不在本仓库可观测范围内 | ⏳ **待人工触发**（暂缓已取消）· [发布清单](../development/README.md#发布清单每个版本) · v0.8 复盘 §2 |
+| Gitee 附件 | Gitee 无 API token 时是**人工上传**；工具已就绪（幂等、双向校验） | ⏳ **待上传**（暂缓已取消）· `scripts/upload-gitee-assets.ps1` |
+| 自建 Git 非默认端口 | `splitURLForm` **显式剥掉端口**，`Canonical` 只存 `Host`+`Path`；修它要给 `Canonical` 加字段 = schema 级变更 | ⏳ **已知限制**，如实记录（v0.11 C 组实测）· [metrics](./metrics.md#已知限制非默认端口v011-c-组实测) |
+| 无 registry 生态 | **非目标是刻意的**：registry 包管理交给 pnpm/npm/yarn | 不变 · capability-matrix |
 
 > **一条结构性阻塞值得单独说**：这个项目的"进度"曾经两次卡在**与代码无关的动作**上
 > （v0.2~v0.4 不打 tag；v0.5~v0.8 不打 tag）。现在有门禁守着（`release-status`），
@@ -127,13 +140,14 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 
 ## 5. 下一步任务（建议顺序）
 
+v0.11 把上一版的前三项都做完了。剩下的是**结果**，不是欠账：
+
 | 序 | 做什么 | 为什么排这里 |
 |----|--------|------------|
-| 1 | **`symlink` / `remote` / GC / 3s 四件决策**（写 ADR，把选项与代价摆出来） | 它们是**唯一**还挂在"等决策"上的事；数据都已就位，拖延的成本是文档里长期挂着四条"待定" |
-| 2 | **workflow YAML 门禁** | 唯一"改坏了会静默失效"的角落：`release.yml` 是发布路径，而我们刚证明它会被改（加 `workflow_dispatch`） |
-| 3 | **端到端可用性复核**（干净环境 + 真实引擎） | 10 个版本都在做"内部一致性"，**没人从头当一次用户**；这一步最可能发现真问题 |
-| 4 | 恢复发布（四个 release + Gitee 附件） | 你已暂缓；恢复时是两条命令的事，且有门禁与工具兜着 |
-| 5 | 继续找没人检查的角落 | 边际收益递减，但对这类"证据型"项目仍是最稳的推进方式 |
+| 1 | **补发四个 GitHub release + 上传 Gitee 附件** | 你已取消暂缓。四个 release 走 Actions → Release → Run workflow（填 tag）；Gitee 走 `upload-gitee-assets.ps1`。**这是"已交付"变成"可下载"的最后一步** |
+| 2 | **找一个真实使用场景** | 唯一能回答"门槛 b"与"采用"两件事的动作。技术侧的账已经算得足够细，再加门禁的边际收益低于一个真实用户 |
+| 3 | **自建 Git 非默认端口** | v0.11 唯一的已知功能缺口。**先有真实需求再改**——`Canonical` 是 lock/mirror/slug 的共同基础，属schema 级变更 |
+| 4 | 继续找没人检查的角落 | 边际收益递减，但对这类"证据型"项目仍是最稳的推进方式（v0.9~v0.11 三处真缺陷都是这么找到的） |
 
 ---
 
@@ -154,11 +168,11 @@ git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ### 6.2 最小闭环
 
 ```bash
-ngm init --runtime=node                 # 初始化项目（也可 --runtime=deno）
-ngm add github:org/repo --ref-type=tag --ref=v1.2.0   # refType 必填
-ngm install                             # 解析 ref → commit、算 digest、落地 vendor、写 ngm.lock
-ngm verify                              # 复核：ref 是否漂移 + digest 能否本地重放
-ngm build                               # 通过 adapter 调引擎（内置 esbuild）
+ngm init github.com/my-org/my-app --runtime=node   # 初始化项目（也可 --runtime=deno）
+ngm add github:org/repo@v1.2.0 --ref-type=tag      # refType 必填；ref 跟在@ 之后
+ngm install                                         # 解析 ref → commit、算 digest、落地 vendor、写 ngm.lock
+ngm verify                                          # 复核：ref 是否漂移 + digest 能否本地重放
+ngm build                                           # 通过adapter 调引擎（内置 esbuild）
 ```
 
 ### 6.3 日常会用的其余命令

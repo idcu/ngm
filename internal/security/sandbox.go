@@ -27,6 +27,17 @@ const SandboxScriptName = "verify.js"
 // 用一个近似手段会造成"已经限制住了"的错觉（ADR-012 决策 5）。
 const SandboxTimeout = 30 * time.Second
 
+// waitDelayAfterCancel 是 ctx 取消后**额外**等待管道关闭的宽限期。
+//
+// 为什么需要（v0.11 C 组实测）：`CommandContext` 只杀直接子进程，
+// 而孙进程继承 stdout 写端时`cmd.Wait()` 会越过 ctx 期限——
+// 最小复现里 ctx 5s 实际耗时 25.3s。宽限期给正常收尾留余地，
+// 超时则强行截断管道，让调用有确定的返回点。
+//
+// 对沙箱尤其重要：跑的是**用户自己的 postinstall 钩子**，
+// 一个派生后台进程并持有管道的脚本，不该让 `ngm install` 无限期挂住。
+const waitDelayAfterCancel = 2 * time.Second
+
 // Needs 描述一次沙箱执行**想要**什么。它是需求，不是授权。
 //
 // 注意**没有**"要执行某个程序"这一项：沙箱里一律不派生进程，见 DenoArgs 的说明。
@@ -202,6 +213,11 @@ func (d Deno) Probe(ctx context.Context) error {
 	args = append(args, script)
 
 	cmd := exec.CommandContext(runCtx, d.Path, args...)
+	// 见 runProcess 的同类说明（internal/adapter/subprocess.go）：
+	// ctx 只杀直接子进程，孙进程持有管道时 Wait() 会越过期限。
+	// **这里尤其要紧**：跑的是用户自己的 postinstall 钩子，
+	// 一个能派生后台进程的脚本不该让沙箱调用无限期挂住。
+	cmd.WaitDelay = waitDelayAfterCancel
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -242,6 +258,8 @@ func (d Deno) RunScript(ctx context.Context, req ScriptRequest) (*Result, error)
 	args = append(args, req.Script)
 
 	cmd := exec.CommandContext(runCtx, d.Path, args...)
+	// 同上：让"ctx 到期"是一个**有界**的返回，而不是一个愿望。
+	cmd.WaitDelay = waitDelayAfterCancel
 	cmd.Dir = req.Dir
 	if len(req.Stdin) > 0 {
 		cmd.Stdin = bytes.NewReader(req.Stdin)

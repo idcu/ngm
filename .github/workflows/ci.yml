@@ -253,6 +253,42 @@ jobs:
             echo "no docs/ directory yet; will be enabled after ngm-doc merge"
           fi
 
+  # workflow 文件本身的有效性。
+  #
+  # 为什么值得一个 job：**改坏 workflow 不会红**。YAML 不合法时 GitHub 不创建 run——
+  # 没有失败、没有日志，只有"以后再也不跑"。这是本项目里少见的"静默失效"形态，
+  # 而 release.yml 是发布路径（v0.8 收尾刚给它加过 workflow_dispatch）。
+  #
+  # 判据用**真实解析器**（js-yaml），不自己写近似校验：
+  # 会误报的门禁会被忽略，会漏报的门禁等于没有（v0.8 复盘 §5.8）。
+  #
+  # 代价要说清：`npx` 首次要下载包 → **依赖 npm registry**。网络失败会表现为
+  # 这个 job 红，且日志里是 npm 的报错——与"YAML 坏了"（js-yaml 的 YAMLException）
+  # 在日志上可区分。宁可这样，也不做一个自己写的、会漏报的校验器。
+  workflow-lint:
+    name: workflow YAML validity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: every .github/workflows/*.yml must parse
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in .github/workflows/*.yml; do
+            [ -e "$f" ] || continue
+            if npx --yes js-yaml@4.1.0 "$f" > /dev/null 2> js-yaml.err; then
+              echo "ok      $f"
+            else
+              echo "::error file=$f::does not parse as YAML — GitHub would create no run at all"
+              sed -n '1,5p' js-yaml.err
+              fail=1
+            fi
+          done
+          rm -f js-yaml.err
+          exit "$fail"
+
   # 发布状态检查：**有复盘 ⇔ 有 tag**（按 vX.Y 配对），见 scripts/check-release-status.sh。
   #
   # 为什么值得单独一个 job：本条检查的是"交付"与"发布"有没有对上，而这是本项目

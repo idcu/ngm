@@ -100,6 +100,67 @@ pnpm 的 content-addressable store + hardlink 已经很高效。ngm 的 vendor �
 
 ---
 
+## 6 生态已经换了一套语言：SLSA L1–L4（2026-10 补充）
+
+> 本节是 2026-10-03 检索后补写的。上面那张控制点矩阵是**按能力项**列的，
+> 而生态如今更常用**按信任等级**描述自己——不补这一节，读者会拿ngm 去比
+> 一个它本来就不在比的坐标系。
+
+SLSA v1.2 定义四级：
+
+| 级别 | 证明了什么 | 机制 |
+|------|-----------|------|
+| **L1** 完整性 | 产物没被篡改 | lock 文件 checksum |
+| **L2** 溯源 | 产物由**已知来源**构建 | 加密签名 + source repo |
+| **L3** 可审计 | 签名者身份可验证且记在**公开日志** | 签名者 ID + 透明日志（Rekor） |
+| **L4** 全量 | 整棵依赖树（直接 + 传递）都达到 L3 | 全树验证 |
+
+每级包含前一级。**L1 是最低门槛，L4 目前几乎没有生态达到。**
+
+| 生态 | 达到 | 现状（2026-03~ 2026-10 观察） |
+|------|------|------------------------|
+| **npm** | **L3** | 最成熟：`--provenance`（SLSA v1）+ Sigstore/Rekor；Trusted Publishing 自 2025-07 GA起**默认附provenance**（opt-out）；`npm audit signatures` 一条命令验证全lockfile |
+| **PyPI** | **L3** | 同一套 Sigstore 栈；PEP 740 证明；但**采用率仅约 17%** |
+| pnpm | L1 | lockfile checksum + `--verify-store-integrity`（10.x） |
+| Yarn (Berry) | L1 | 自有 checksum + `enableImmutableInstalls` |
+| Deno | L1 | `integrity` + `minimumDependencyAge` |
+| Bun | L1 | lockfile integrity |
+| **ngm** | **L1+（不同维度）** | 见下——**它不在同一条轴上** |
+
+### 关键：ngm 与 SLSA 是**正交**，不是高下
+
+这是本节最容易被误读的地方，所以写清楚：
+
+| | SLSA provenance 证明 | ngm archiveDigest 证明 |
+|---|---|---|
+| 回答的问题 | "这个 tarball 是**谁、哪次 CI、哪个 commit** 构建的" | "这份**内容**是否就是锁定的那个 commit" |
+| 不证明什么 | **不证明代码无害**（恶意 commit 会被如实证明）；**不覆盖传递依赖**（只覆盖那一个包）；不证明 workflow 本身可信 | 不证明来源可信（一个被攻破的仓库照样算出稳定 digest） |
+
+所以：
+- **npm 的 L3 比 ngm 高**，在"这个发布物是谁发的"这件事上ngm 完全没有对应物；
+- **但 L3 不回答 ngm 回答的问题**——tag 重打、branch 前进、上游悄悄换内容，
+  这些 provenance **一概看不见**，因为它们发生在**构建之前**；
+- 两者叠加才有意义：**provenance 锁"谁构建的"，archiveDigest 锁"构建出来的东西是什么"**。
+
+> 另一条现实约束：provenance 的**采用率远未普及**（npm top500 约 1/5，
+> 长尾更低；PyPI 17%）。"reject 任何没有 provenance 的包"这样的策略
+> 今天会让构建失败，因此生态真正的做法是**告警**而非拒绝。
+> 这意味着单靠 provenance 也不构成默认闭环——**与上面第 1 节的结论一致**。
+
+### 诚实结论
+
+按SLSA 这条轴，ngm **不领先**，也没有落后——**它测的是另一件事**。
+它的refType 必填、ref 漂移三态、按 commit 查 OSV 三项在主流工具里仍无对应物，
+但这三项都不属于 SLSA 的分级维度。
+
+如果要往 SLSA 这条轴上走，ngm 的天然位置是 **L2 的一半**：
+`archiveDigest` 已经有"内容 ↔ commit"的绑定（比 L1 强），
+但**没有签名**，因而拿不到 L2 要求的"由已知来源构建"的**可验证**部分。
+ADR-014已就"自证文件签名"做过决定（不做），若将来要接，
+最省事的形状是给 manifest 加一层 SLSA 谓词，而不是自造一套。
+
+---
+
 ## ngm 的真实差异化
 
 ngm 的潜在价值在于**流程闭环**和**共享状态模型**：

@@ -24,7 +24,7 @@
 | `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
 | `ngm store usage` | 报告 content store 的占用：**只读**，按布局分组——blob 池（去重后的真实内容，并切成**共享 / 独占 / 孤儿**）、v2 树清单、v1 遗留树，各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现**；v0.8 输出按布局分组；**v0.9 加共享/独占/孤儿**（见下） | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) |
-| `ngm store prune [--dry-run]` | 清掉**中断留下的解包残骸**（`.unpack-*`）。**不碰任何内容树**，并报告"留下了 N 份没动" | **v0.7 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) |
+| `ngm store prune [--dry-run] [--orphans] [--older-than=<dur>]` | 清掉**中断留下的解包残骸**（`.unpack-*`）。**不碰任何内容树**，并报告"留下了 N 份没动"。加 `--orphans` 时**额外**删掉"没有任何清单引用、且比门槛（默认 24h）更旧"的 blob | **v0.7 已实现**；`--orphans` **v0.11 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-023](../adr/adr-023-orphan-reclaim.md) |
 | `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
 | `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook=<script.js>]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存）；`--hook` 在沙箱里跑团队自己的策略（报告从 stdin 进入，否决 → exit 1） | **v0.2 已实现**；`--hook` **v0.3** | [供应链防护](../architecture/supply-chain.md) · [ADR-012](../adr/adr-012-sandbox.md) |
@@ -33,10 +33,26 @@
 | `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新" | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
 | `ngm integrations add <tool> [--dry-run] [--json]` | 生成 `vite` / `esbuild` / `deno` / `webpack` 集成配置（**不覆盖已有文件**，冲突 exit 3） | **v0.3 已实现** | [P5 — 外部工具集成](../modules/p5-integrations.md) |
-**content store 的回收**（[ADR-018](../adr/adr-018-store-reclaim.md)，**v0.7**）：store 仍然
-**只增不减**，但占用现在可见（`ngm store usage`，只读）、残骸可回收（`ngm store prune`）。
-**没有、也不预告**一个会删除内容树的 `ngm store gc`——按可达性删除需要一个 ngm 没有的
-项目注册表，误删会让别的项目的 `ngm verify` 在某天突然验不过。
+**content store 的回收**（[ADR-018](../adr/adr-018-store-reclaim.md) / [ADR-023](../adr/adr-023-orphan-reclaim.md)）：
+占用可见（`ngm store usage`，只读，**v0.7**）、残骸可回收（`ngm store prune`，**v0.7**）。
+**v0.11 起**多了一件：`prune --orphans` 可以删掉**没有任何清单引用**的 blob（带年龄门槛）。
+
+两件事**仍然不做**，而且是有意的：
+
+- **没有按可达性删除**（"这个 digest 还有没有人要"）：那需要一个 ngm 没有的项目注册表，
+  误删会让别的项目的 `ngm verify` 在某天突然验不过；
+- **没有自动回收**：回收是**显式的一步**，默认什么都不删——不带 `--orphans` 时
+  `prune` 的行为与 v0.7 完全一致。
+
+`--orphans` 的安全边界（写进实现的，不是承诺口吻）：
+
+| 约束 | 为什么 |
+|------|--------|
+| 只删"没有任何清单引用"的字节 | 由构造可判定，不需要注册表（与上一条的区别在这里） |
+| 年龄门槛（默认 24h） | `Put` 先写 blob、后发布清单，刚写下的东西必须不动 |
+| **有清单读不出来时拒绝删除** | 那时"无人引用"只是下界，删了可能破坏那份清单 |
+| `--dry-run` 同样拒绝 | 一份在那种状态下"将会删 X"的报告是误导 |
+| 输出必须报"留下多少"与"多少被引用的没动" | 删除类命令的安全声明该在的地方 |
 
 **三个数字，三个问题**（**v0.9**）：`store usage` 把 blob 池切开之后，这一层第一次能
 分开回答"去重省了多少"和"我还能回收多少"：

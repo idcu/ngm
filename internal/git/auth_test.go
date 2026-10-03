@@ -173,6 +173,16 @@ func TestRun_EnvPassthrough(t *testing.T) {
 }
 
 func TestBuildEnv_AllowPrompt(t *testing.T) {
+	// 这条断言关心的是"ngm 自己**不注入** GIT_TERMINAL_PROMPT=0"，
+	// 因此必须先把**环境里已有的**那个清掉——否则它会经 os.Environ() 继承进来，
+	// 让断言在"ngm 行为正确"时也变红。
+	//
+	// 复现条件很普通：一台机器上设过 `GIT_TERMINAL_PROMPT=0`（CI 镜像、
+	// 开发机profile、某些 shell 的默认值都会这样）就会撞上。
+	// 2026-10-03 在Windows 上首次撞到：本地设了该变量 → 无论实现对不对都红。
+	// 教训与 v0.6 的"仪器会说谎"同族：**测试要先确认它测的是自己声称测的东西**。
+	t.Setenv("GIT_TERMINAL_PROMPT", "")
+
 	env := buildEnv(Options{AllowPrompt: true})
 	if containsEnv(env, "GIT_TERMINAL_PROMPT=0") {
 		t.Errorf("AllowPrompt=true should not force GIT_TERMINAL_PROMPT=0")

@@ -19,3 +19,7 @@ Thumbs.db
 
 # Local user data (mirrors, content store, cache) — never commit
 /.ngm-local/
+
+# AI 助手的本地工作区（会话记忆等）——与项目无关，不入库。
+# 锚定到仓库根，避免误伤任何名为 .workbuddy 的子目录。
+/.workbuddy/

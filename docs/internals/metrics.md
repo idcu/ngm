@@ -284,6 +284,30 @@ NGM_STORE_SCALE_BLOBS=100000 go test -count=1 -run TestV09BlobPoolScale -v ./int
 | 平台 | macOS / Linux / Windows |
 | Git host | GitHub / Gitee / GitLab / 自建 |
 
+### 已知限制：非默认端口（v0.11 C 组实测）
+
+**自建 Git 若跑在非默认端口上，ngm 目前连不上**——`https://git.example.com:8443/org/repo`
+里的 `:8443` 会被静默丢弃，实际访问的是 `https://git.example.com/org/repo`。
+
+根因在 `internal/resolve/normalize.go` 的 `splitURLForm`：它显式剥掉端口
+（`hostPart = hostPart[:c]`），而 `Canonical` 只存`Host` + `Path`，
+`CloneURL` 只能按 `Host` 重新拼 URL——**端口信息在建Canonical 时就丢了**。
+
+| 输入 | 期望访问 | 实际访问 |
+|------|---------|---------|
+| `https://git.example.com:8443/org/repo` | `:8443` | 默认端口（失败或连错服务） |
+| `git@git.example.com:org/repo` | ssh 默认端口 | 同（ssh 走 22，本就正常） |
+
+**为什么现在没修**：它需要给 `Canonical` 增加一个字段，而 `Canonical` 是
+lock file、mirror 路径、slug 与mappings 的共同基础——改它是一次
+schema 级变更，与"当一次用户"不是同一件事，也不该在没有真实自建需求时凭空做。
+**已知限制、如实记录**，比悄悄支持一半更安全。
+
+> 与 v0.11 C 组另外两条实测发现同族：能力边界要**写在文档里**，
+> 否则用户只能在失败后自己推导出原因（本次是 502/CONNECT 隧道错误，
+> 报错指向"网络连通性"，而真实原因是端口被丢）。
+
+
 ---
 
 ## 诚实边界

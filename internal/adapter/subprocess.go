@@ -264,6 +264,25 @@ type runResult struct {
 //
 // 输入约定（modules/p4-ecosystem.md §subprocess 协议）：小文件走 stdin，
 // 大文件/多文件走命令行路径参数；产物走 stdout，诊断走 stderr，退出码为成败。
+//
+// # 为什么设 WaitDelay（v0.11 C 组实测发现的缺陷）
+//
+// ctx 到期时 `CommandContext` 只**杀掉直接子进程**。但 Windows 上引擎常是
+// 批处理/包装脚本（npm 装的 esbuild 就是 `esbuild.cmd` + 一个 sh 包装），
+// 它们会**再起一个进程**；那个孙进程继承了 stdout 管道写端。于是：
+//
+//	ctx 5s 到期 → 直接子进程被杀 → 但孙进程仍持有管道写端
+//	→ cmd.Wait() 一直等 io.Copy 把管道读完 → 远超 ctx 期限
+//
+// 实测（`go test ./...` 全量跑时）：版本探测声称上限 5s，实际卡了 **9 分钟**，
+// 单独跑同一条测试只要 4.35s——即"上限生效与否"取决于机器负载，
+// 也就是**它在最需要的时候不生效**。最小复现：ctx 5s +孙进程持管道 → 实际 25.3s。
+//
+// WaitDelay 的作用是：ctx 取消后再给一个宽限期，然后**强行关闭管道**，
+// 让Wait 有一个确定的返回点。宽限期给正常收尾留余地（管道读到 EOF），
+// 超时则截断——对一个卡住的外部命令，**有界的失败远好过无界的挂起**。
+const waitDelayAfterCancel = 2 * time.Second
+
 func runProcess(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv []string) (*runResult, error) {
 	cmd := exec.CommandContext(ctx, program, args...)
 	if dir != "" {
@@ -273,6 +292,8 @@ func runProcess(ctx context.Context, program string, args []string, dir string, 
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
+	// 见上方说明：没有这一行，ctx 只是"杀直接子进程"，管不住继承管道的孙进程。
+	cmd.WaitDelay = waitDelayAfterCancel
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

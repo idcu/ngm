@@ -6,8 +6,10 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/idcu/ngm/internal/digest"
+	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/git"
 	"github.com/idcu/ngm/internal/vendor"
 )
@@ -21,10 +23,25 @@ SUBCOMMANDS:
   usage   report what the content store is holding (read-only)
   prune   remove unpack residue left by interrupted builds (--dry-run available)
 
+PRUNE FLAGS:
+  --dry-run              print what would be removed without removing anything
+  --orphans              ALSO remove blob bytes that no manifest references
+                         (age-guarded: --older-than, default 24h)
+  --older-than=<dur>     age guard for --orphans (e.g. 24h, 30m); only valid with --orphans
+
 NOTES:
   The content store is derived data: it can always be rebuilt from the mirror by
-  re-running "ngm install". There is deliberately **no** subcommand that deletes a
-  content tree — see docs/adr/adr-018-store-reclaim.md.
+  re-running "ngm install".
+
+  There is deliberately **no** reachability-based deletion ("this digest is no longer
+  wanted anywhere"): that needs a project registry ngm does not have, and getting it
+  wrong makes some other project fail verification one day — see
+  docs/adr/adr-018-store-reclaim.md.
+
+  --orphans is a different thing: it removes bytes that NO manifest in this store
+  references at all. That is decidable by construction (no registry needed), and it is
+  age-guarded because "ngm install" writes bytes before it publishes the manifest they
+  belong to. See docs/adr/adr-023-orphan-reclaim.md.
 `
 
 // runStore 处理 `ngm store <subcommand>`。
@@ -94,9 +111,15 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 			storeBytes(u.BlobSharedBytes), storeBytes(u.BlobExclusiveBytes),
 			u.BlobOrphans, storeBytes(u.BlobOrphanBytes))
 		if u.BlobOrphans > 0 {
+			// v0.11 起这一行必须改：孤儿**已经可以**回收了（ADR-023），
+			// 继续写"NOT removed"会让用户以为这些字节拿不回来——
+			// 而它们恰恰是唯一一类"能安全删掉"的字节（无人引用，由构造可判定）。
+			// 措辞要说清**为什么现在能删**：与"按可达性删除"是两件事。
 			fmt.Fprintln(stdout,
-				"      orphaned blobs are NOT removed by \"ngm store prune\": reachability-based\n"+
-					"      deletion is deliberately not implemented (ADR-018). This is their count.")
+				"      orphaned blobs have NO manifest referencing them, so they are reclaimable:\n"+
+					"        `ngm store prune --orphans` (age-guarded; see ADR-023).\n"+
+					"      This is NOT reachability-based deletion, which is deliberately not\n"+
+					"      implemented — it would need a project registry ngm does not have (ADR-018).")
 		}
 		fmt.Fprintf(stdout, "  tree manifests (v2): %d (%s)\n", u.V2Trees, storeBytes(u.V2TreeBytes))
 	}
@@ -179,6 +202,10 @@ func storeEntryLines(stdout io.Writer, entries []vendor.ContentStoreEntry, show 
 func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("store prune")
 	dryRun := fs.Bool("dry-run", false, "print what would be removed without removing anything")
+	orphans := fs.Bool("orphans", false,
+		"also remove blob bytes that NO manifest references (and that are older than --older-than)")
+	olderThan := fs.Duration("older-than", 24*time.Hour,
+		"age guard for --orphans: blobs newer than this are never removed (a concurrent install writes bytes before publishing its manifest)")
 	fs.Usage = func() { fmt.Fprint(stderr, storeUsage) }
 	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
 		return 3
@@ -187,12 +214,21 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 		fmt.Fprint(stderr, storeUsage)
 		return 3
 	}
+	// `--older-than` 只在 `--orphans` 下有意义：给了却不带 `--orphans` 就是"以为它会做点什么"
+	// ——那种沉默比报错更糟（本项目对"看起来生效"的一贯态度）。
+	if !*orphans && fs.Lookup("older-than").Value.String() != (24*time.Hour).String() {
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"--older-than 只在 --orphans 下有效",
+			"加上 --orphans，或去掉 --older-than"))
+	}
 
 	layout, err := vendor.DefaultLayout()
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
-	res, err := vendor.NewContentStore(layout.ContentRoot()).Prune(*dryRun)
+	store := vendor.NewContentStore(layout.ContentRoot())
+
+	res, err := store.Prune(*dryRun)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
@@ -211,6 +247,27 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 		}
 	}
 	fmt.Fprintf(stdout, "kept %d content tree(s) untouched\n", res.KeptTrees)
+
+	if *orphans {
+		ores, oerr := store.PruneOrphans(*olderThan, time.Now(), *dryRun)
+		if oerr != nil {
+			return runErr(ctx, stdout, stderr, oerr)
+		}
+		overb := "removed"
+		if ores.DryRun {
+			overb = "would remove"
+		}
+		fmt.Fprintf(stdout, "%s %d orphaned blob(s), freeing %s (older than %s)\n",
+			overb, len(ores.Removed), storeBytes(ores.BytesFreed), ores.OlderThan)
+		if ores.KeptYoung > 0 {
+			// 把"没删的那些"也说出来：它是并发安装的安全阀，也是"为什么没全清掉"的答案。
+			fmt.Fprintf(stdout,
+				"  kept %d orphaned blob(s) younger than %s (%s) — a concurrent install\n"+
+					"  writes bytes before it publishes its manifest, so recent ones are never removed\n",
+				ores.KeptYoung, ores.OlderThan, storeBytes(ores.KeptYoungBytes))
+		}
+		fmt.Fprintf(stdout, "  %d referenced blob(s) untouched\n", ores.Referenced)
+	}
 	return 0
 }
 

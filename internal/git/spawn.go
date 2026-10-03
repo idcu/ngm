@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"sync/atomic"
+	"time"
 )
 
 // newGitCommand 是**唯一**构造 git 子进程的地方：门禁、计数与进程构造都在这里。
@@ -32,8 +33,31 @@ func newGitCommand(ctx context.Context, opts Options, dir string, args ...string
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = buildEnv(opts)
+	// 见下方 waitDelayAfterCancel 的说明：没有这一行，ctx 只是"杀直接子进程"，
+	// 管不住继承 stdout 管道的孙进程——git 在 Windows 上正是这种形状
+	// （PortableGit 的 sh 包装、credential helper 会再起进程）。
+	//
+	// 放在**唯一的构造点**而不是各个 Run 里，与"计数只在一处"是同一条纪律：
+	// 三个出口分散着写，就一定会漏一处。
+	cmd.WaitDelay = waitDelayAfterCancel
 	return cmd, nil
 }
+
+// waitDelayAfterCancel 是 ctx 取消后额外等待 stdout/stderr 管道关闭的宽限期。
+//
+// # 为什么需要（v0.11 实测）
+//
+// ctx 到期时 `CommandContext` 只**杀掉直接子进程**。若它的子进程继承了
+// stdout 写端（Windows 上 git 常经由 sh 包装与 credential helper 派生进程），
+// `cmd.Wait()` 会一直等 `io.Copy` 把管道读完——**越过 ctx 期限**。
+//
+// 实测症状：`go test ./...` 全量跑时，一条 git 相关的验收测试被拖到
+// **15 分钟超时**（单独跑只要几秒）。"上限在什么时候生效"本身就是它的可靠性：
+// 全量跑时不生效、单独跑时生效，说明这个上限在最需要的时候不可靠。
+//
+// 宽限期给正常收尾留余地（管道读到 EOF），超时则强行关闭——
+// 对一个卡住的 git，**有界的失败远好过无界的挂起**。
+const waitDelayAfterCancel = 2 * time.Second
 
 // spawnCount 记录本进程启动 git 子进程的次数。
 //

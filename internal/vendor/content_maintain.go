@@ -1,11 +1,13 @@
 package vendor
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/errs"
@@ -100,6 +102,63 @@ type ContentStoreUsage struct {
 	TempBytes int64
 }
 
+// manifestScan 是一次清单扫描的结果。
+//
+// **"什么算引用"只在这里定义**：`usage` 用它算共享/独占/孤儿，而
+// `prune --orphans` 用它决定"哪些 blob 无人引用"。这两件事一旦各写一份判断，
+// 后果不是数字对不上，而是**删掉还有人要的字节**——那是 [ADR-018](../../docs/adr/adr-018-store-reclaim.md)
+// 判定"不做按可达性删除"时最担心的形态。
+type manifestScan struct {
+	// refs 是 blob 名 → 被多少份清单引用。
+	refs map[string]int
+	// treeBlobs 是 digest → 该清单引用的 blob 名（symlink 不计）。
+	treeBlobs map[string][]string
+	// logical 是 digest → 逻辑体积（各条目 size 之和）。
+	logical map[string]int64
+	// unreadable 是读不出条目的清单数：它们引用了什么**看不见**，
+	// 因此调用方必须把 refs 当**下界**读（读不出的清单可能引用着某些 blob）。
+	unreadable int
+}
+
+// scanManifests 读遍 `trees/` 下的清单，如实汇总引用关系。
+func (s *ContentStore) scanManifests() (manifestScan, error) {
+	scan := manifestScan{
+		refs:      map[string]int{},
+		treeBlobs: map[string][]string{},
+		logical:   map[string]int64{},
+	}
+	tdir, err := os.ReadDir(s.treesRoot())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return scan, nil
+		}
+		return scan, errs.Wrap(errs.CodeConfigInvalid, "read the content store tree list", "", err)
+	}
+	for _, e := range tdir {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), unpackPrefix) {
+			continue
+		}
+		dg := digest.Algorithm + ":" + e.Name()
+		m, merr := s.readManifest(dg)
+		if merr != nil || m == nil {
+			// 读不出来就**不能**当成"没引用任何 blob"——那会让它的 blob 被当成孤儿删掉。
+			scan.unreadable++
+			continue
+		}
+		var logical int64
+		for _, me := range m.Entries {
+			logical += me.Size
+			if me.SHA == "" {
+				continue // symlink：内容就是目标字符串，不占 blob
+			}
+			scan.treeBlobs[dg] = append(scan.treeBlobs[dg], me.SHA)
+			scan.refs[me.SHA]++
+		}
+		scan.logical[dg] = logical
+	}
+	return scan, nil
+}
+
 // Usage 只读地统计 content store 的占用。
 func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 	algDir := filepath.Join(s.root, digest.Algorithm)
@@ -118,7 +177,15 @@ func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 		blobs  []string // 该清单引用的 blob 名（symlink 没有 blob）
 	}
 	var v2Trees []v2Tree
-	refs := map[string]int{}
+
+	// 先扫一遍清单：引用关系（以及"读不出的清单"）由 `scanManifests` 单点给出，
+	// `usage` 与 `prune --orphans` 都读它，不各写一份判断。
+	scan, serr := s.scanManifests()
+	if serr != nil {
+		return out, serr
+	}
+	refs := scan.refs
+	out.UnreadableManifests = scan.unreadable
 
 	if tdir, terr := os.ReadDir(s.treesRoot()); terr == nil {
 		out.Exists = true
@@ -142,22 +209,10 @@ func (s *ContentStore) Usage() (ContentStoreUsage, error) {
 			out.V2TreeBytes += bytes
 
 			dg := digest.Algorithm + ":" + e.Name()
-			tree := v2Tree{digest: dg, entry: ContentStoreEntry{Digest: dg}}
-			if m, merr := s.readManifest(dg); merr == nil && m != nil {
-				var logical int64
-				for _, me := range m.Entries {
-					logical += me.Size
-					if me.SHA == "" {
-						continue // symlink：内容就是目标字符串，不占 blob
-					}
-					tree.blobs = append(tree.blobs, me.SHA)
-					refs[me.SHA]++
-				}
-				tree.entry.Bytes = logical
-			} else {
-				// 读不出来就**不能**当成"没引用任何 blob"——那会让它的 blob 被算成孤儿。
-				// 报出来，并让下面的数字以下界的形式被读。
-				out.UnreadableManifests++
+			tree := v2Tree{
+				digest: dg,
+				entry:  ContentStoreEntry{Digest: dg, Bytes: scan.logical[dg]},
+				blobs:  scan.treeBlobs[dg],
 			}
 			if meta, err := s.readMetaV2(dg); err == nil && meta != nil {
 				tree.entry.MetaReadable = true
@@ -317,6 +372,113 @@ func (s *ContentStore) Prune(dryRun bool) (PruneResult, error) {
 			}
 			if rerr := os.RemoveAll(path); rerr != nil {
 				return out, errs.Wrap(errs.CodeConfigInvalid, "remove unpack residue "+name, "", rerr)
+			}
+		}
+	}
+	return out, nil
+}
+
+// PruneOrphansResult 描述一次 orphan 回收（`ngm store prune --orphans`）。
+type PruneOrphansResult struct {
+	Root string
+	// Removed 是被删掉的 blob 名（sha）。dry-run 时是"将会被删"。
+	Removed []string
+	// BytesFreed 是释放的字节数（dry-run 时是"将会释放"）。
+	BytesFreed int64
+	// KeptYoung / KeptYoungBytes 是**是孤儿、但比门槛新**的 blob（见 OlderThan）。
+	KeptYoung      int
+	KeptYoungBytes int64
+	// Referenced 是被至少一份清单引用的 blob 数——**一律不动**，报出来作为安全声明。
+	Referenced int
+	// OlderThan 是本次使用的年龄门槛。
+	OlderThan time.Duration
+	// DryRun 为 true 表示本次没有真的删除。
+	DryRun bool
+}
+
+// PruneOrphans 删掉**没有任何清单引用、且比门槛更旧**的 blob。
+//
+// # 为什么这条删除是安全的
+//
+// [ADR-018](../../docs/adr/adr-018-store-reclaim.md) 判定"不做按**可达性**删除"，理由是
+// ngm 没有项目注册表——"某个 digest 还有没有人要"无法在本机判定。而**孤儿不需要那个注册表**：
+// "store 里没有任何清单引用它"是一个**由构造可判定**的事实，与"还有没有人要"不是同一个问题。
+//
+// 三条依据：
+//
+//  1. **本机所有引用都经过 `trees/` 下的清单**——某个 digest 只要还在 store 里，它的清单就在，
+//     它的 blob 就会被算作"被引用"；
+//  2. **已落地的 vendor 文件不受影响**：hardlink 与池里的名字指向同一个 inode，
+//     删掉池里的名字不删数据（copy 模式下更是各存一份）；
+//  3. **未来的安装不受影响**：内容来自镜像/远端，`install` 本来就会重新写池。
+//
+// # 为什么要年龄门槛
+//
+// `Put` 是**先写 blob、后发布清单**（清单最后就位，失败即不留半棵树）。因此池里
+// 短暂存在"已写、还没被引用"的 blob——如果这时另一个进程跑回收，就会删掉正在安装的内容。
+// 门槛（默认 24h）把这个并发窗口变得不可能：**刚写下的东西一律不动**。
+//
+// # 读不出清单时**拒绝删除**
+//
+// 读不出的清单引用了什么是看不见的，那些 blob 会被算成孤儿。那不是"多删了一点"，
+// 而是**可能删掉那份清单还需要的字节**。因此遇到这种情况**不删**，报错并给出出路
+// （修好或删掉那份清单再试）——宁可什么都不做，也不做一件说不清后果的事。
+func (s *ContentStore) PruneOrphans(olderThan time.Duration, now time.Time, dryRun bool) (PruneOrphansResult, error) {
+	out := PruneOrphansResult{Root: s.root, OlderThan: olderThan, DryRun: dryRun}
+	if olderThan < 0 {
+		return out, errs.New(errs.CodeConfigInvalid,
+			"--older-than 不能是负数",
+			"给它一个正的时间段，例如 24h")
+	}
+
+	scan, serr := s.scanManifests()
+	if serr != nil {
+		return out, serr
+	}
+	if scan.unreadable > 0 {
+		return out, errs.New(errs.CodeConfigInvalid,
+			fmt.Sprintf("%d 份清单读不出来；无法判定哪些 blob 无人引用", scan.unreadable),
+			"修好或删掉那些清单（`ngm store usage` 会列出它们）后再跑回收")
+	}
+
+	cutoff := now.Add(-olderThan)
+	shards, err := os.ReadDir(s.blobsRoot())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return out, nil // 没有池，就没有可回收的东西
+		}
+		return out, errs.Wrap(errs.CodeConfigInvalid, "read the blob pool", "", err)
+	}
+	for _, shard := range shards {
+		if !shard.IsDir() {
+			continue
+		}
+		files, ferr := os.ReadDir(filepath.Join(s.blobsRoot(), shard.Name()))
+		if ferr != nil {
+			return out, errs.Wrap(errs.CodeConfigInvalid, "read blob shard", "", ferr)
+		}
+		for _, f := range files {
+			sha := f.Name()
+			if scan.refs[sha] > 0 {
+				out.Referenced++
+				continue
+			}
+			info, ierr := f.Info()
+			if ierr != nil {
+				return out, ierr
+			}
+			if info.ModTime().After(cutoff) {
+				out.KeptYoung++
+				out.KeptYoungBytes += info.Size()
+				continue
+			}
+			out.Removed = append(out.Removed, sha)
+			out.BytesFreed += info.Size()
+			if dryRun {
+				continue
+			}
+			if rerr := os.Remove(filepath.Join(s.blobsRoot(), shard.Name(), sha)); rerr != nil {
+				return out, errs.Wrap(errs.CodeConfigInvalid, "remove orphaned blob "+sha, "", rerr)
 			}
 		}
 	}

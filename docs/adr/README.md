@@ -27,6 +27,10 @@
 | [ADR-017](./adr-017-remote-adapter-release-decision.md) | remote adapter 的**发布决策** | 已定（v0.6）：**仍不发布**；剩下的问题写成可判定的门槛（修订 [ADR-013](./adr-013-remote-adapter.md)） |
 | [ADR-018](./adr-018-store-reclaim.md) | 内容寻址 store 的**回收与去重** | 已定（v0.6）：**不做**按可达性自动删除；`store usage` / `store prune` 排期；**写入侧去重**是长期解法 |
 | [ADR-019](./adr-019-content-addressed-blobs.md) | 层 2 改为**按文件内容寻址**（blob 池 + 树清单） | 已定（v0.7）**并已实施（v0.8）**：digest 定义不变、blob 里含 mode（§修订）、`symlink` 落地模式退化；实测 20.0× → 0.6× |
+| [ADR-020](./adr-020-remote-adapter-shelved.md) | `remote` adapter **正式搁置** | 已定（2026-10-03）：该 adapter **在代码里不存在**（"发布"= 从零写协议）；三条触发条件（真实需求 / 本地算力证据 / 跨生态标准） |
+| [ADR-021](./adr-021-symlink-link-mode.md) | `symlink` 落地模式**保留降级** | 已定（2026-10-03）：不实现"按需物化一棵 hardlink 树"；触发条件是"具体的工具/流程要求 + 实测数字" |
+| [ADR-022](./adr-022-verify-performance-target.md) | verify 的性能目标改为**次数门禁 + 秒数观测** | 已定（2026-10-03）：3s 不再是验收目标（v0.5 实测它在噪声里不可判别）；门禁是 spawn 预算 |
+| [ADR-023](./adr-023-orphan-reclaim.md) | 回收**无人引用的 blob**（`store prune --orphans`） | 已定**并已实施**（2026-10-03）：只删"没有任何清单引用 + 比门槛更旧"的字节；**有清单读不出来时拒绝删除**；仍不做按可达性删除 |
 
 ---
 

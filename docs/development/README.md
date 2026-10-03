@@ -23,6 +23,7 @@
 > | v0.8 | [计划](./v0.8-plan.md) | [复盘](./v0.8-retrospective.md) | 层 2 换布局：20.0× → 0.6× |
 > | v0.9 | [计划](./v0.9-plan.md) | [复盘](./v0.9-retrospective.md) | 让 store 的读数说真话（共享/独占/孤儿）+ 锚点检查 + 10 万级规模实测 |
 > | v0.10 | [计划](./v0.10-plan.md) | [复盘](./v0.10-retrospective.md) | 检查推到最外圈：根 README + store 不完整的两条承诺 |
+> | v0.11 | [计划](./v0.11-plan.md) | [复盘](./v0.11-retrospective.md) | 四项决策结项（ADR-020~023）+ **第一次真回收**（`store prune --orphans`）+ workflow YAML 门禁 + `WaitDelay` 修复 + 端到端复核 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -215,6 +216,25 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 > —— remote adapter 的发布决策（结论仍不发布，但把剩下的问题写成可判定的门槛）。
 > 收尾时又补上 [ADR-018](../adr/adr-018-store-reclaim.md)
 > ——内容寻址 store 的回收与去重（**不做**按可达性自动删除；写入侧去重是长期解法）。
+
+### v0.11（计划：[v0.11-plan.md](./v0.11-plan.md) / 复盘：[v0.11-retrospective.md](./v0.11-retrospective.md)）— **已交付**
+
+**把挂着的决策结掉，并第一次真正回收**：v0.10 之后剩下的事几乎全是"等决策"——
+数据都已就位，缺的是拍板。这一版把四件拍完（三件写 ADR、一件写 ADR **并实现**），
+再补一处"改坏了会静默失效"的门禁，最后**当一次用户**走完整条路。
+
+| 组 | 内容 | 状态 |
+|----|------|------|
+| A | 四项决策结项：[ADR-020](../adr/adr-020-remote-adapter-shelved.md)（`remote` 搁置——它在代码里**不存在**）· [ADR-021](../adr/adr-021-symlink-link-mode.md)（symlink 保留降级）· [ADR-022](../adr/adr-022-verify-performance-target.md)（3s 降级为观测值）· [ADR-023](../adr/adr-023-orphan-reclaim.md)（**回收孤儿，含实现**） | ✅ **已交付** |
+| A4 | `ngm store prune --orphans [--older-than] [--dry-run]`：层 2 第一次真回收。判据单点（`scanManifests` 被 `usage` 与回收**共用**）+ 年龄门槛 + **有清单读不出来时拒绝删除** | ✅ **已交付**（实测：回收 21 B 后 `verify` 仍 `1 ok`） |
+| B | workflow 的 **YAML 有效性门禁**（CI job `workflow-lint`，判据用真实解析器 js-yaml） | ✅ **已交付** |
+| C | 端到端可用性复核（干净环境 + 真实 git + 真实 esbuild） | ✅ **已交付**——6 步闭环全通，**抓到 5 个问题**（C 组 3 个：1 已知限制 / 2 已修；全量测试 2 个：`WaitDelay` 三处同缺、不 hermetic 的测试） |
+
+> **本版最值得记住的两条**：
+> ① **ADR-023 的洞察可迁移**——当一条设计卡在"缺项目注册表"时，先问有没有
+> **更弱但由构造可判定**的版本（"无人引用"不需要注册表，而它覆盖了大部分实际收益）；
+> ② **C 组抓到的三个问题，在锚点/链接/单测/门禁全绿时依然存在**——
+> 内部一致性检查证明不了"对外真的能用"（详见[复盘 §5.1](./v0.11-retrospective.md)）。
 
 ### v0.10（计划：[v0.10-plan.md](./v0.10-plan.md) / 复盘：[v0.10-retrospective.md](./v0.10-retrospective.md)）— **已交付**
 
@@ -491,8 +511,8 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 
 ## 相关文档
 
-- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md) / [v0.10](./v0.10-plan.md)
-- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / **[v0.7 复盘](./v0.7-retrospective.md)**（补写）/ **[v0.8 复盘](./v0.8-retrospective.md)** / [v0.9 复盘](./v0.9-retrospective.md) / [v0.10 复盘](./v0.10-retrospective.md) / [v0.5 复核](./v0.5-review.md)
+- [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md) / [v0.10](./v0.10-plan.md) / **[v0.11](./v0.11-plan.md)**
+- [v0.1 复盘](./v0.1-retrospective.md) / [v0.2 复盘](./v0.2-retrospective.md) / [v0.3 复盘](./v0.3-retrospective.md) / [v0.4 复盘](./v0.4-retrospective.md) / [v0.5 复盘](./v0.5-retrospective.md) / [v0.6 复盘](./v0.6-retrospective.md) / **[v0.7 复盘](./v0.7-retrospective.md)**（补写）/ **[v0.8 复盘](./v0.8-retrospective.md)** / [v0.9 复盘](./v0.9-retrospective.md) / [v0.10 复盘](./v0.10-retrospective.md) / **[v0.11 复盘](./v0.11-retrospective.md)** / [v0.5 复核](./v0.5-review.md)
 - [internals/roadmap.md](../internals/roadmap.md)
 - [internals/metrics.md](../internals/metrics.md)
 - [modules/p0-core.md](../modules/p0-core.md)（包级结构唯一事实源）
