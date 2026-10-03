@@ -228,7 +228,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 | A | 四项决策结项：[ADR-020](../adr/adr-020-remote-adapter-shelved.md)（`remote` 搁置——它在代码里**不存在**）· [ADR-021](../adr/adr-021-symlink-link-mode.md)（symlink 保留降级）· [ADR-022](../adr/adr-022-verify-performance-target.md)（3s 降级为观测值）· [ADR-023](../adr/adr-023-orphan-reclaim.md)（**回收孤儿，含实现**） | ✅ **已交付** |
 | A4 | `ngm store prune --orphans [--older-than] [--dry-run]`：层 2 第一次真回收。判据单点（`scanManifests` 被 `usage` 与回收**共用**）+ 年龄门槛 + **有清单读不出来时拒绝删除** | ✅ **已交付**（实测：回收 21 B 后 `verify` 仍 `1 ok`） |
 | B | workflow 的 **YAML 有效性门禁**（CI job `workflow-lint`，判据用真实解析器 js-yaml） | ✅ **已交付** |
-| C | 端到端可用性复核（干净环境 + 真实 git + 真实 esbuild） | ✅ **已交付**——6 步闭环全通，**抓到 5 个问题**（C 组 3 个：1 已知限制 / 2 已修；全量测试 2 个：`WaitDelay` 三处同缺、不 hermetic 的测试） |
+| C | 端到端可用性复核（干净环境 + 真实 git + 真实 esbuild） | ✅ **已交付**——6 步闭环全通，**抓到 6 个问题**（C 组 3 个：1 已知限制 / 2 已修；全量测试 3 个：`WaitDelay` 三处同缺、不 hermetic 的测试、CI 超时把"慢"读成"坏"） |
 
 > **本版最值得记住的两条**：
 > ① **ADR-023 的洞察可迁移**——当一条设计卡在"缺项目注册表"时，先问有没有

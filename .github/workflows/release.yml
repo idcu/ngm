@@ -75,8 +75,12 @@ jobs:
 
       # 发布前先跑测试：产物一旦推出去就是可下载的二进制，绕过验收直接发布
       # 等于把 v0.1 的退出标准交给运气。
+      #
+      # 超时与 ci.yml 保持一致（40m 而非默认 10m）：`cmd/ngm` 有 97 个顶层测试
+      # 函数，在 Windows 上串行会超过默认上限——**让"慢"读成"坏"**，
+      # 而这一版的产物正是最不该被误伤发布的东西。
       - name: test before packaging
-        run: go test -count=1 ./...
+        run: go test -count=1 -timeout 40m ./...
 
       # bash 显式调用而不是 ./script：Windows 上创建的脚本文件没有可执行位，
       # 提交到 git 后 checkout 出来仍是 100644，直接执行会 permission denied。
