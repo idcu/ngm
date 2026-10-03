@@ -56,13 +56,18 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | v0.10 | 检查推到最外圈 | 根 README 的链接与锚点 + "store 不完整"的两条承诺（实现 0 行改动） |
 | **v0.11** | **结项 + 第一次真回收** | **ADR-020~023**（4 项待决策全部结掉）+ **`store prune --orphans`**（层 2 第一次真回收）+ workflow YAML 门禁 + `cmd.WaitDelay` 修复 + 端到端复核 |
 
-**发布状态**（`bash scripts/check-release-status.sh --published`，2026-10-03 复核）：
+**发布状态**（2026-10-03 实测 GitHub API 复核）：
 
 | 版本 | tag | GitHub release | Gitee 附件 |
 |------|-----|----------------|-----------|
 | `v0.1.0` ~ `v0.4.0` | ✅ | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
-| `v0.5.0` ~ `v0.8.0` | ✅ | ❌ **未生成**（**2026-10-03 已取消暂缓**，待补发，见 §3.2） | ❌ 同上 |
-| `v0.9.0` / `v0.10.0` / `v0.11.0` | ✅ | ✅ 前两版各 7 个（tag 推送触发，已复核） | ❌ 待上传（**已取消暂缓**） |
+| `v0.5.0` ~ `v0.8.0` | ✅ | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——**待人工触发** | ❌ 同上 |
+| `v0.9.0` / `v0.10.0` | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ❌ 待上传 |
+| **`v0.11.0`** | ✅ | ✅ **7 个**（tag 推送**这次触发了**，02:17 UTC 已发布） | ❌ 待上传 |
+
+> **v0.11 的 tag 推送触发了发布**——这再次印证 v0.8 复盘那条结论：
+> **镜像转发 tag 不保证触发，但"推送后必须验"是对的**。
+> `check-release-status.sh --published` 现在能自己读出这个状态。
 
 **表面数字**（[metrics](./metrics.md)）：14 个测试包 + 17 个 CI job（三平台，含新增 `workflow-lint`）；
 `verify` 的 spawn 预算 2.00（commit）/ 3.00（tag）每依赖；层 2 磁盘增长 0.6×；
@@ -91,12 +96,21 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 > 三条的结论是**不做**，且都写明了重新考虑的触发条件。这比留四条"待定"更有用：
 > 待定会一直看起来像待办，而"不做 + 何时重启"是一条可执行的结论。
 
-### 3.2 需要**人工动作**（你做一次，我随后可核对）
+### 3.2 需要**人工动作**
 
-| # | 任务 | 状态 |
-|---|------|------|
-| 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release | **2026-10-03 取消暂缓**。恢复时：Actions → Release → Run workflow，填 tag |
-| 2 | `v0.9.0` / `v0.10.0` / `v0.11.0` 的 Gitee 附件 | **2026-10-03 取消暂缓**。恢复时：`scripts/upload-gitee-assets.ps1 -Tag vX.Y.0`（需 `GITEE_TOKEN`） |
+> **2026-10-03：暂缓已取消**（项目所有者决定）。其中 v0.11.0 已由 tag 推送自动发布完成；
+> 下面两项**需要 GitHub/Gitee 的凭据**，本机没有，因此只能由你在网页上点一次。
+
+| # | 任务 | 怎么做的 | 为什么我不能代做 |
+|---|------|---------|----------------|
+| 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
+| 2 | `v0.9.0` / `v0.10.0` / `v0.11.0` 的 Gitee 附件 | `scripts/upload-gitee-assets.ps1 -Tag v0.11.0`（需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`** |
+
+**每次做完用这一条自查**（它自己会拒绝报成功）：
+
+```bash
+bash scripts/check-release-status.sh --published
+```
 
 ### 3.3 等**上游**
 
