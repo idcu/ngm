@@ -89,7 +89,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 
 **表面数字**（[metrics](./metrics.md)）：14 个测试包 + 17 个 CI job（三平台，含新增 `workflow-lint`）；
 `verify` 的 spawn 预算 2.00（commit）/ 3.00（tag）每依赖；层 2 磁盘增长 0.6×；
-10 万 blob 下 `usage` 244 ms。文档检查覆盖**84 个锚点**（含根 README；v0.11 时 72——这个数会随文档增长，
+10 万 blob 下 `usage` 244 ms。文档检查覆盖**87 个锚点**（含根 README；v0.11 时 72——这个数会随文档增长，
 以 `go test -run TestDocsAnchorsResolve -v ./cmd/ngm` 打印的值为准）。
 
 **端到端实测**（v0.11 C 组，真实 git + 真实 esbuild 0.28.2）：

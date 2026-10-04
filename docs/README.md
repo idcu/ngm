@@ -264,7 +264,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.10 | 把检查推到**最外圈**：根 `README.md` 的链接与锚点 + "store 不完整"时的两条承诺 | **已交付**（[计划](./development/v0.10-plan.md) / [复盘](./development/v0.10-retrospective.md)：实现 **0 行**改动，钉的是既有承诺） |
 | v0.11 | 把挂着的四项决策**结掉**（[ADR-020](./adr/adr-020-remote-adapter-shelved.md)~[023](./adr/adr-023-orphan-reclaim.md)）+ 层 2 第一次真回收 + workflow YAML 门禁 | **已交付**（[计划](./development/v0.11-plan.md) / [复盘](./development/v0.11-retrospective.md)：三件决策的结论是"不做"，但都写明了重开条件） |
 | v0.12 | **可信读数**：文档三层纠偏（9 处）+ MIT 许可证 + 子命令帮助真实现 + **六处**"静默失效"缺陷（`outdated --offline` 触网、`--json --hook` 破坏 JSON、`css` 丢位置参数、`typedecl` 吞诊断、脚手架半套落盘、端口被静默丢弃）+ 6 条机械网 | **已交付**（[计划](./development/v0.12-plan.md) / [复盘](./development/v0.12-retrospective.md)：唯一的功能增量是子命令帮助，其余全是把读数修准） |
-| v0.13 | 把 **"缺陷形状"固化成网**：位置参数必须有界（源网，带探针验证）+ `--offline` 零 spawn（行为网，带对照），并记录一张**故意不做**、会漏报的网 | **进行中**（[计划](./development/v0.13-plan.md)：不加能力、不改行为） |
+| v0.13 | 把 **"缺陷形状"固化成网**：位置参数必须有界（源网，带探针验证）+ `--offline` 零 spawn（行为网，带对照），并记录一张**故意不做**、会漏报的网 | **已交付**（[计划](./development/v0.13-plan.md) / [复盘](./development/v0.13-retrospective.md)：产品代码 **0 行改动**，交付是两张网加一轮过期读数扫描） |
 
 ### 发布状态
 
