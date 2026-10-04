@@ -17,13 +17,14 @@ import (
 const treeUsage = `ngm tree — print the dependency tree
 
 USAGE:
-  ngm tree [--dir=<dir>] [--osv] [--offline] [--json]
+  ngm tree [--dir=<dir>] [--osv] [--offline] [--json] [--all]
 
 FLAGS:
   --dir       project directory containing ngm.json (default: .)
   --osv       also mark known vulnerabilities (✗) by querying OSV.dev
   --offline   never touch the network (OSV results come from the 24h cache only)
   --json      write a machine-readable report to stdout (CI should use this)
+  --all       expand every entry, lifting the default budget (see below)
 
 HOW IT WORKS:
   ngm.lock is a flat list and carries no topology, so "who pulled in whom"
@@ -31,9 +32,18 @@ HOW IT WORKS:
   reading each dependency's manifest from the local mirror - with a warm
   mirror this needs no network at all.
 
+  The tree is expanded PER PATH, so the same dependency appears once for every
+  route that reaches it - and the entry count can be EXPONENTIAL in a wide graph
+  (the same measurement as ngm why: 41 nodes produced over a million paths).
+  The graph's shape comes from the upstream manifests. So at most 4096 entries
+  are expanded by default, and the report SAYS SO when it stops ("树不完整" in
+  text, entriesTruncated in --json) - truncation is never silent. --all lifts
+  the budget.
+
 MARKERS:
   ⚠  the ref no longer points at the commit pinned in ngm.lock
   ↺  a cycle was found and is not expanded
+  …  the entry budget ran out here; children are not listed
   ✗  known vulnerabilities (only with --osv; without it nothing is claimed)
 
 EXIT CODES:
@@ -50,10 +60,12 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	osv := fs.Bool("osv", false, "mark known vulnerabilities from OSV.dev")
 	offline := fs.Bool("offline", false, "never touch the network")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
+	allEntries := fs.Bool("all", false, "expand every entry (lifts the default budget)")
 	fs.Usage = func() { fmt.Fprint(stderr, treeUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
-		{Name: "dir"}, {Name: "osv", Bool: true}, {Name: "offline", Bool: true}, {Name: "json", Bool: true},
+		{Name: "dir"}, {Name: "osv", Bool: true}, {Name: "offline", Bool: true},
+		{Name: "json", Bool: true}, {Name: "all", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -84,12 +96,21 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "warning: %s\n", w)
 	}
 
-	entries := observability.BuildTree(g, lf)
+	// 展开默认有预算（见 MaxTreeEntries 与 ADR-024）：树是**按路径展开**的，
+	// 条目数随图"宽"指数增长，而图的形状来自上游清单。`--all` 显式解除；
+	// 达到预算时报告会**说出来**（EntriesTruncated / 条目上的 Truncated）。
+	limit := observability.MaxTreeEntries
+	if *allEntries {
+		limit = 0
+	}
+	entries, truncated := observability.BuildTree(g, lf, limit)
 	rep := &observability.TreeReport{
-		Project:      projectLabel(pf),
-		Entries:      entries,
-		Dependencies: g.Len(),
-		Drifted:      observability.CountDrifted(entries),
+		Project:          projectLabel(pf),
+		Entries:          entries,
+		Dependencies:     g.Len(),
+		Drifted:          observability.CountDrifted(entries),
+		EntriesTruncated: truncated,
+		EntriesLimit:     limit,
 	}
 
 	exit := 0

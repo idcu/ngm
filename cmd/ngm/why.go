@@ -14,7 +14,7 @@ import (
 const whyUsage = `ngm why — why is this dependency here?
 
 USAGE:
-  ngm why <dep> [--dir=<dir>] [--json]
+  ngm why <dep> [--dir=<dir>] [--json] [--all]
 
 ARGS:
   <dep>   dependency slug, e.g. github:org/utils (or github:org/repo#sub for a
@@ -23,10 +23,17 @@ ARGS:
 FLAGS:
   --dir   project directory containing ngm.json (default: .)
   --json  write a machine-readable report to stdout (CI should use this)
+  --all   list every path, lifting the default cap (see below)
 
 OUTPUT:
-  Every path from ngm.json to the dependency. A dependency pulled in by several
+  The paths from ngm.json to the dependency. A dependency pulled in by several
   parents shows several paths - that is the point of the question.
+
+  The path count can be EXPONENTIAL in a wide graph (41 nodes produced over a
+  million paths in a measurement), and the graph's shape comes from the upstream
+  manifests, not from this project. So at most 64 paths are enumerated by
+  default, and the report SAYS SO when it stops ("还有更多未列出" in text,
+  pathsTruncated in --json) - truncation is never silent. --all lifts the cap.
 
 EXIT CODES:
   0  the dependency is in the graph
@@ -38,10 +45,11 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("why", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
+	allPaths := fs.Bool("all", false, "list every path (lifts the default cap)")
 	fs.Usage = func() { fmt.Fprint(stderr, whyUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
-		{Name: "dir"}, {Name: "json", Bool: true},
+		{Name: "dir"}, {Name: "json", Bool: true}, {Name: "all", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -75,15 +83,26 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			terr.Error(), "run `ngm tree` to see what is actually in the graph", terr))
 	}
 
+	// 路径枚举默认有上界（见 MaxWhyPaths 与 ADR-024）：路径数是**指数**的，
+	// 而图的形状来自上游清单。`--all` 是显式解除，不是默认行为；
+	// 达到上限时报告会**说出来**（PathsTruncated），绝不静默截断。
+	limit := observability.MaxWhyPaths
+	if *allPaths {
+		limit = 0
+	}
+	paths, truncated := observability.FindPaths(g, node.Key, limit)
+
 	rep := &observability.WhyReport{
-		Name:         node.Name,
-		Ref:          node.Ref,
-		RefType:      string(node.RefType),
-		Commit:       node.Commit,
-		SubPath:      node.SubPath,
-		RootDeclared: node.RootDeclared,
-		Paths:        observability.FindPaths(g, node.Key),
-		Locked:       observability.LockedFrom(lf, node.Name, node.SubPath),
+		Name:           node.Name,
+		Ref:            node.Ref,
+		RefType:        string(node.RefType),
+		Commit:         node.Commit,
+		SubPath:        node.SubPath,
+		RootDeclared:   node.RootDeclared,
+		Paths:          paths,
+		PathsTruncated: truncated,
+		PathsLimit:     limit,
+		Locked:         observability.LockedFrom(lf, node.Name, node.SubPath),
 	}
 
 	if *jsonOut {

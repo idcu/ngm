@@ -32,6 +32,12 @@ type TreeEntry struct {
 	// Cycle 表示此处存在一个环且已停止展开（不是无限递归）。
 	Cycle bool `json:"cycle,omitempty"`
 
+	// Truncated 表示此处因**达到展开预算**而停止，且至少还有一个子节点没列出。
+	//
+	// 它只在"确有未列出的子节点"时置位——预算恰好用尽在叶子上不算截断，
+	// 否则标记会把"看完了"说成"没看完"。
+	Truncated bool `json:"truncated,omitempty"`
+
 	// Vulns 只有显式查询 OSV 时才会填充（ngm tree --osv）。
 	// 为 nil 表示"未查询"，语义是**未知**，不是"没有漏洞"。
 	Vulns    []supplychain.Vuln `json:"vulnerabilities,omitempty"`
@@ -40,11 +46,53 @@ type TreeEntry struct {
 
 // TreeReport 是 `ngm tree` 的报告。
 type TreeReport struct {
-	Project      string       `json:"project"`
+	Project string `json:"project"`
+	// Dependencies 是图里的**节点总数**——它来自解析结果，不受展开预算影响。
+	//
+	// 注意它与 Entries 的区别：Entries 是展开后的**条目**（同一个节点会被
+	// 多条路径各算一次），可能被截断；Dependencies 永远是完整的。
 	Dependencies int          `json:"dependencies"`
 	Drifted      int          `json:"drifted"`
 	OSVChecked   bool         `json:"osvChecked"`
 	Entries      []*TreeEntry `json:"entries"`
+
+	// EntriesTruncated 为真表示 Entries **不完整**（达到展开预算）。
+	// 与 why 的同名字段一样，它存在的唯一理由是**截断必须可见**。
+	EntriesTruncated bool `json:"entriesTruncated,omitempty"`
+
+	// EntriesLimit 是本次展开的预算；0 表示未设上限（`--all`）。
+	EntriesLimit int `json:"entriesLimit,omitempty"`
+}
+
+// MaxTreeEntries 是 `ngm tree` **默认**展开的条目数上限（`--all` 解除）。
+//
+// 为什么必须有上界：树是**按路径展开**的（同一个节点在多条路径下各出现一次），
+// 因此它的规模随图"宽"指数增长——与 why 的路径数是同一个数（见 MaxWhyPaths 的实测表：
+// 41 个节点 → 一百万条路径）。树还会把每条路径**渲染出来**，代价只会更大。
+//
+// 4096 条目相当于数百 KB 的输出，已远大于本项目见过的任何真实依赖图，
+// 同时把最坏情况钉住。达到预算时必须在输出里说出来（EntriesTruncated /
+// 条目上的 Truncated），绝不静默截断。决定与重开条件见 ADR-024。
+const MaxTreeEntries = 4096
+
+// treeBudget 是展开预算：它**同时约束输出与工作量**——
+// 预算用尽即停止展开，而不是先把整棵树建出来再砍短。
+type treeBudget struct {
+	left      int // <0 表示不限
+	truncated bool
+}
+
+// take 取一个条目额度。返回 false 表示预算已尽（并记下截断）。
+func (b *treeBudget) take() bool {
+	if b.left < 0 {
+		return true
+	}
+	if b.left == 0 {
+		b.truncated = true
+		return false
+	}
+	b.left--
+	return true
 }
 
 // BuildTree 从已解析的依赖图构造树。
@@ -55,9 +103,9 @@ type TreeReport struct {
 //
 // 环的处理：依赖图原则上无环，但上游写坏 manifest 时可能出现。
 // 这里沿路径记录已访问节点并停止展开（标记 Cycle），绝不无限递归。
-func BuildTree(g *resolve.Graph, lf *lock.File) []*TreeEntry {
+func BuildTree(g *resolve.Graph, lf *lock.File, max int) ([]*TreeEntry, bool) {
 	if g == nil {
-		return nil
+		return nil, false
 	}
 	byKey := make(map[string]*resolve.Node, len(g.Nodes))
 	children := make(map[string][]*resolve.Node)
@@ -80,18 +128,25 @@ func BuildTree(g *resolve.Graph, lf *lock.File) []*TreeEntry {
 		sort.SliceStable(children[k], func(i, j int) bool { return children[k][i].Key < children[k][j].Key })
 	}
 
+	budget := &treeBudget{left: max}
+	if max <= 0 {
+		budget.left = -1 // 不限
+	}
 	var out []*TreeEntry
 	for _, n := range g.Nodes {
 		if !n.RootDeclared {
 			continue
 		}
-		out = append(out, buildEntry(n, children, lf, map[string]bool{n.Key: true}, 0))
+		if !budget.take() {
+			break
+		}
+		out = append(out, buildEntry(n, children, lf, map[string]bool{n.Key: true}, 0, budget))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, budget.truncated
 }
 
-func buildEntry(n *resolve.Node, children map[string][]*resolve.Node, lf *lock.File, path map[string]bool, depth int) *TreeEntry {
+func buildEntry(n *resolve.Node, children map[string][]*resolve.Node, lf *lock.File, path map[string]bool, depth int, budget *treeBudget) *TreeEntry {
 	e := &TreeEntry{
 		Name:    n.Name,
 		Ref:     n.Ref,
@@ -107,6 +162,12 @@ func buildEntry(n *resolve.Node, children map[string][]*resolve.Node, lf *lock.F
 		}
 	}
 	for _, c := range children[n.Key] {
+		// 预算在**加子节点之前**取：取不到就把"这里还没展开完"标出来。
+		// 标记因此只在确有子节点没列出时出现（没有子节点时循环根本不会进）。
+		if !budget.take() {
+			e.Truncated = true
+			return e
+		}
 		if path[c.Key] {
 			cycle := &TreeEntry{Name: c.Name, Ref: c.Ref, RefType: string(c.RefType), Commit: c.Commit, Depth: depth + 1, Cycle: true}
 			e.Children = append(e.Children, cycle)
@@ -116,7 +177,7 @@ func buildEntry(n *resolve.Node, children map[string][]*resolve.Node, lf *lock.F
 		for k := range path {
 			next[k] = true
 		}
-		e.Children = append(e.Children, buildEntry(c, children, lf, next, depth+1))
+		e.Children = append(e.Children, buildEntry(c, children, lf, next, depth+1, budget))
 	}
 	return e
 }
@@ -174,6 +235,10 @@ func (r *TreeReport) Render(w io.Writer) {
 	for _, e := range r.Entries {
 		renderEntry(w, e, "")
 	}
+	if r.EntriesTruncated {
+		// 截断必须说出来：否则"树到这儿就是全部"会被读成事实。
+		fmt.Fprintf(w, "\n（展开达到上限 %d，树不完整；用 --all 展开全部）\n", r.EntriesLimit)
+	}
 	if r.Drifted > 0 {
 		fmt.Fprintf(w, "\n%d dependency ref(s) moved away from the locked commit (⚠)\n", r.Drifted)
 	}
@@ -191,6 +256,8 @@ func renderEntry(w io.Writer, e *TreeEntry, prefix string) {
 	switch {
 	case e.Cycle:
 		line += " ↺ cycle (not expanded)"
+	case e.Truncated:
+		line += " … 此处达到展开上限（还有子节点未列出）"
 	case e.Drift:
 		line += fmt.Sprintf(" ⚠ 漂移 (locked %s)", git.ShortSHA(e.LockedCommit))
 	}

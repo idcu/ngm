@@ -21,10 +21,21 @@ type WhyReport struct {
 
 	// RootDeclared 为真表示该依赖由根 ngm.json 直接声明。
 	RootDeclared bool `json:"rootDeclared"`
-	// Paths 是从根到该依赖的**全部**路径（同一依赖常被多个父节点引入）。
+	// Paths 是从根到该依赖的路径（同一依赖常被多个父节点引入）。
 	//
 	// 每条路径以 "ngm.json" 开头、以目标节点结尾，元素格式为 `name@ref`。
+	//
+	// **它可能是被截断的**：见 PathsTruncated。默认最多 MaxWhyPaths 条。
 	Paths [][]string `json:"paths"`
+
+	// PathsTruncated 为真表示 Paths **不是全部**：枚举在达到上限时停止。
+	//
+	// 它存在的唯一理由是：**截断必须可见**。否则"只看到 64 条"会被读成"只有 64 条"——
+	// 那是这个项目最不能接受的一类错误（读数在说谎，而一切看起来都正常）。
+	PathsTruncated bool `json:"pathsTruncated,omitempty"`
+
+	// PathsLimit 是本次枚举的上限；0 表示未设上限（`--all`）。
+	PathsLimit int `json:"pathsLimit,omitempty"`
 
 	Locked *LockedInfo `json:"locked,omitempty"`
 }
@@ -67,13 +78,40 @@ func ResolveTarget(g *resolve.Graph, arg string) (*resolve.Node, error) {
 	}
 }
 
-// FindPaths 找出从根到目标节点的全部路径。
+// MaxWhyPaths 是 `ngm why` **默认**展开的路径条数上限（`--all` 解除）。
+//
+// 为什么必须有上界：路径数是**指数**的，放大它不需要很多节点，只需要图"宽"。
+// 实测（这张网的数固定在 internal/observability 的测试里）：
+//
+//	节点数   路径数      耗时     分配     存活堆
+//	    17      256    0.000s    0.1 MB    0.1 MB
+//	    25    4 096    0.002s    1.7 MB    1.7 MB
+//	    33   65 536    0.073s   63.3 MB   30.1 MB
+//	    41 1 048 576   0.778s  626.1 MB  453.3 MB     ← 再宽一层就是 16 倍
+//
+// 而图的形状来自**上游的 ngm.json**（每个依赖自己的清单），不是本项目的输入：
+// 一个写坏或恶意的上游，就能让 `ngm why` 在 CI 里吃掉几个 GB。
+//
+// 64 远大于"人真正会读的条数"（有用的答案通常 ≤ 5 条），同时把最坏情况钉住。
+// 达到上限时**必须**在输出里说出来（PathsTruncated）——绝不静默截断。
+// 决定与重开条件见 ADR-024。
+const MaxWhyPaths = 64
+
+// FindPaths 找出从根到目标节点的路径，**最多 max 条**（max <= 0 表示不限）。
 //
 // 反向遍历（自顶向下）而不是从 RequiredBy 回溯：RequiredBy 只记录了"父节点"，
-// 回溯时无法保证路径顺序与去重；正向 DFS 天然按根→子展开，且便于做环保护。
-func FindPaths(g *resolve.Graph, target string) [][]string {
-	children := childrenOf(g)
-	var out [][]string
+// 回溯时无法保证路径顺序与去重；正向 DFS 天然按根→子展开，且便于做环保护与提前停止。
+//
+// 返回的 truncated 为真表示**至少还有一条未列出**。它由"多枚举一条"得出，
+// 而不是由"碰到了上限"推断：图里**恰好**只有 max 条路径时，truncated 必须是 false——
+// 否则报告会把"全部列完了"说成"还有更多"，同样是一种说谎。
+func FindPaths(g *resolve.Graph, target string, max int) ([][]string, bool) {
+	limit := 0
+	if max > 0 {
+		limit = max + 1
+	}
+	w := &walker{target: target, children: childrenOf(g), limit: limit}
+
 	var roots []*resolve.Node
 	for _, n := range g.Nodes {
 		if n.RootDeclared {
@@ -83,9 +121,50 @@ func FindPaths(g *resolve.Graph, target string) [][]string {
 	sort.SliceStable(roots, func(i, j int) bool { return roots[i].Key < roots[j].Key })
 
 	for _, r := range roots {
-		walk(r, target, children, nil, map[string]bool{}, &out)
+		if w.stopped {
+			break
+		}
+		w.walk(r, nil, map[string]bool{})
 	}
-	return out
+	if max > 0 && len(w.out) > max {
+		return w.out[:max], true
+	}
+	return w.out, false
+}
+
+// walker 承载一次枚举的状态；stopped 让达到上限后**立刻停止遍历**——
+// 上界必须同时约束"输出"和"工作量"，否则它只是把结果砍短，最坏情况照样要付。
+type walker struct {
+	target   string
+	children map[string][]*resolve.Node
+	limit    int // 0 = 无上限
+	out      [][]string
+	stopped  bool
+}
+
+func (w *walker) walk(n *resolve.Node, path []string, seen map[string]bool) {
+	if w.stopped {
+		return
+	}
+	path = append(path, label(n))
+	if n.Key == w.target {
+		w.out = append(w.out, append([]string{"ngm.json"}, path...))
+		if w.limit > 0 && len(w.out) >= w.limit {
+			w.stopped = true
+		}
+		return
+	}
+	if seen[n.Key] {
+		return
+	}
+	seen[n.Key] = true
+	defer delete(seen, n.Key)
+	for _, c := range w.children[n.Key] {
+		if w.stopped {
+			return
+		}
+		w.walk(c, path, seen)
+	}
 }
 
 func childrenOf(g *resolve.Graph) map[string][]*resolve.Node {
@@ -108,22 +187,6 @@ func childrenOf(g *resolve.Graph) map[string][]*resolve.Node {
 		sort.SliceStable(out[k], func(i, j int) bool { return out[k][i].Key < out[k][j].Key })
 	}
 	return out
-}
-
-func walk(n *resolve.Node, target string, children map[string][]*resolve.Node, path []string, seen map[string]bool, out *[][]string) {
-	path = append(path, label(n))
-	if n.Key == target {
-		*out = append(*out, append([]string{"ngm.json"}, path...))
-		return
-	}
-	if seen[n.Key] {
-		return
-	}
-	seen[n.Key] = true
-	defer delete(seen, n.Key)
-	for _, c := range children[n.Key] {
-		walk(c, target, children, path, seen, out)
-	}
 }
 
 func label(n *resolve.Node) string {
@@ -164,9 +227,18 @@ func (r *WhyReport) Render(w io.Writer) {
 			transitive = append(transitive, p)
 		}
 	}
-	if len(transitive) == 0 {
+	switch {
+	case r.PathsTruncated:
+		// 截断必须说出来。措辞刻意不写"至少 N 条路径"：N 是**列出**的条数，
+		// 而它里面可能还夹着那条两元素的直接路径——说"至少"会多算。
+		fmt.Fprintf(w, "传递依赖：已列出 %d 条（枚举达到上限 %d，还有更多未列出；用 --all 展开全部）\n",
+			len(transitive), r.PathsLimit)
+		for _, p := range transitive {
+			fmt.Fprintf(w, "  %s\n", joinPath(p))
+		}
+	case len(transitive) == 0:
 		fmt.Fprintf(w, "传递依赖：无\n")
-	} else {
+	default:
 		fmt.Fprintf(w, "传递依赖：%d 条路径\n", len(transitive))
 		for _, p := range transitive {
 			fmt.Fprintf(w, "  %s\n", joinPath(p))
