@@ -47,6 +47,7 @@
 > | v0.10 | [计划](./v0.10-plan.md) | [复盘](./v0.10-retrospective.md) | 检查推到最外圈：根 README + store 不完整的两条承诺 |
 > | v0.11 | [计划](./v0.11-plan.md) | [复盘](./v0.11-retrospective.md) | 四项决策结项（ADR-020~023）+ **第一次真回收**（`store prune --orphans`）+ workflow YAML 门禁 + `WaitDelay` 修复 + 端到端复核 |
 > | v0.12 | [计划](./v0.12-plan.md) | [复盘](./v0.12-retrospective.md) | 可信读数：文档三层纠偏（9 处）+ **MIT 许可证** + 子命令帮助真实现（并修掉一个死代码级缺陷）+ **六处**静默失效缺陷 + 6 条机械网 |
+> | v0.13 | [计划](./v0.13-plan.md) | 待写（交付后必须写，否则 `release-status` 会要求 tag） | **把"缺陷形状"固化成网**：位置参数必须有界 + `--offline` 零 spawn（带对照），并记录一张**故意不做**的网 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -336,6 +337,8 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `scripts/check-gitee-release-status.ps1` | **本地读数（v0.12 追加）** | Gitee 侧"到底有没有这个发行版、7 个附件齐不齐"——此前只能靠人去点，**CI 跑不了它**（ubuntu 没有 PowerShell），所以它是发布清单第 6 步 |
   | `TestV12EveryRegisteredFlagIsDocumented` | `cmd/ngm`（**v0.12 新增**） | 扫源码：注册到 flagset 上的 flag 必须在该文件里被写下过（命令行 flag 此前**没有任何机械网**，配置结构体字段有 `field_wiring_test.go`） |
   | `TestV12SubcommandHelpPrintsItsOwnUsage` | `cmd/ngm`（**v0.12 新增**） | 21 个命令的 `--help` **逐字等于**它自己的用法常量，且该常量以自己的名字开头 |
+  | `TestV13PositionalArgsAreBounded` | `cmd/ngm`（**v0.13 新增**） | 扫源码：读 `fs.Arg` 的文件必须校验 `fs.NArg()`——**"多给的输入被静默丢掉"这个形状**（v0.12 D3）。牙齿已用探针验证 |
+  | `TestV02ObservabilityAcceptance` 的 `--offline` 子用例 | `cmd/ngm`（**v0.13 加固为行为网**） | 冷 mirror + `--offline` ⇒ **0 次 git 子进程**，并配**暖 mirror 必须起 git** 的对照（v0.12 D1 的形状）。用 spawn 次数而不是输出文本 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

@@ -70,7 +70,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.ps1` 的读数）：
 
-| 版本 | tag | GitHub release | Gitee 发行版 |
+| 版本 | tag | GitHub release | Gitee 发行版（**补发已暂缓**，原因见 §3.2） |
 |------|-----|----------------|-------------|
 | `v0.1.0` | ✅ | ✅ 7 个 | ❌ **不存在**（2026-10-04 复核：`/releases/tags/v0.1.0` 返回 `null`） |
 | `v0.2.0` ~ `v0.4.0` | ✅ | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
@@ -89,7 +89,8 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 
 **表面数字**（[metrics](./metrics.md)）：14 个测试包 + 17 个 CI job（三平台，含新增 `workflow-lint`）；
 `verify` 的 spawn 预算 2.00（commit）/ 3.00（tag）每依赖；层 2 磁盘增长 0.6×；
-10 万 blob 下 `usage` 244 ms。文档检查覆盖**72 个锚点**（含根 README）。
+10 万 blob 下 `usage` 244 ms。文档检查覆盖**84 个锚点**（含根 README；v0.11 时 72——这个数会随文档增长，
+以 `go test -run TestDocsAnchorsResolve -v ./cmd/ngm` 打印的值为准）。
 
 **端到端实测**（v0.11 C 组，真实 git + 真实 esbuild 0.28.2）：
 `install` 2.32s · `verify` 0.81s · `build` 0.66s · `store usage` 0.42s；

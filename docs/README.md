@@ -264,6 +264,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.10 | 把检查推到**最外圈**：根 `README.md` 的链接与锚点 + "store 不完整"时的两条承诺 | **已交付**（[计划](./development/v0.10-plan.md) / [复盘](./development/v0.10-retrospective.md)：实现 **0 行**改动，钉的是既有承诺） |
 | v0.11 | 把挂着的四项决策**结掉**（[ADR-020](./adr/adr-020-remote-adapter-shelved.md)~[023](./adr/adr-023-orphan-reclaim.md)）+ 层 2 第一次真回收 + workflow YAML 门禁 | **已交付**（[计划](./development/v0.11-plan.md) / [复盘](./development/v0.11-retrospective.md)：三件决策的结论是"不做"，但都写明了重开条件） |
 | v0.12 | **可信读数**：文档三层纠偏（9 处）+ MIT 许可证 + 子命令帮助真实现 + **六处**"静默失效"缺陷（`outdated --offline` 触网、`--json --hook` 破坏 JSON、`css` 丢位置参数、`typedecl` 吞诊断、脚手架半套落盘、端口被静默丢弃）+ 6 条机械网 | **已交付**（[计划](./development/v0.12-plan.md) / [复盘](./development/v0.12-retrospective.md)：唯一的功能增量是子命令帮助，其余全是把读数修准） |
+| v0.13 | 把 **"缺陷形状"固化成网**：位置参数必须有界（源网，带探针验证）+ `--offline` 零 spawn（行为网，带对照），并记录一张**故意不做**、会漏报的网 | **进行中**（[计划](./development/v0.13-plan.md)：不加能力、不改行为） |
 
 ### 发布状态
 
@@ -274,7 +275,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|-----|----------------|-------------|
 | `v0.1.0` | ✅ | ✅ | ✅ 7 个资产 | ❌ **不存在**（复核：`/releases/tags/v0.1.0` 返回 `null`） |
 | `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个附件（2026-10-02 补，另附 2 个源码包） |
-| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在两个源上） | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——2026-10-03 暂缓已取消，恢复时走 **Actions → Release → Run workflow** | ❌ 未上传（`scripts/upload-gitee-assets.ps1 -Tag v0.X.0`，需 `GITEE_TOKEN`） |
+| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在两个源上） | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——补发**已暂缓**（见下） | ❌ 同上（**已暂缓**） |
 | `v0.9.0` / `v0.10.0` / `v0.11.0` | ✅ | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ❌ 未上传（同上） |
 | **`v0.12.0`** | ✅ | ✅ | ✅ 7 个（tag 推送触发，2026-10-04 00:57 UTC 已发布——**这条路径第四次连续成功**） | ❌ 未上传（同上，需 `GITEE_TOKEN`） |
 
