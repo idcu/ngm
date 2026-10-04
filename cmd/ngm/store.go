@@ -77,7 +77,7 @@ func runStore(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 // （源码真实增量的 20×），而 ADR-018 裁定不做按可达性删除。在此之前，
 // 用户对这个目录只有"越用越大"的印象——连"被什么占了"都无从回答。
 func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("store usage")
+	fs := newFlagSet("store usage", stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, storeUsage) }
 	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
 		return 3
@@ -200,7 +200,7 @@ func storeEntryLines(stdout io.Writer, entries []vendor.ContentStoreEntry, show 
 // 用户就得自己猜"它是不是顺手删了别的东西"。把留下来的数量写出来，
 // 就是把安全声明放在它该在的地方。
 func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("store prune")
+	fs := newFlagSet("store prune", stderr)
 	dryRun := fs.Bool("dry-run", false, "print what would be removed without removing anything")
 	orphans := fs.Bool("orphans", false,
 		"also remove blob bytes that NO manifest references (and that are older than --older-than)")

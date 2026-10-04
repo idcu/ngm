@@ -57,7 +57,7 @@ EXIT CODES:
 //	install  尊重既有 lock：不重新解析 ref，只确保内容落地
 //	update   重新解析 ref → 新 commit → 新 digest → 刷新 lock
 func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("install")
+	fs := newFlagSet("install", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	digestFlag := fs.Bool("digest", false, "also print each archiveDigest")
 	frozen := fs.Bool("frozen-lockfile", false, "never resolve a new ref or write ngm.lock")

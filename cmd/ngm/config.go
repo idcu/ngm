@@ -27,7 +27,7 @@ SUBCOMMANDS:
 //
 // 只支持 validate 与 show；其他子命令打印用法并以 exit 3 结束（不假装成功）。
 func runConfig(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("config")
+	fs := newFlagSet("config", stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, configUsage) }
 	if err := fs.Parse(args); err != nil {
 		return 3

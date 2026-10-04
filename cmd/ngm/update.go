@@ -44,7 +44,7 @@ NOTES:
 //  4. 对每个目标执行 refType → commit 解析
 //  5. 输出解析结果（M3 起会同时写入 ngm.lock）
 func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("update")
+	fs := newFlagSet("update", stderr)
 	all := fs.Bool("all", false, "update every dependency")
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")

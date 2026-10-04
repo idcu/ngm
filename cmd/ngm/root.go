@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -242,10 +241,21 @@ func runWithRecovery(fn func() int) (exit int) {
 
 // newFlagSet 是 flag.NewFlagSet 的本地化封装。当前包内容只以它替换直接调用，
 // 保留位置以便未来添加 flag 共享（如全局 --no-color）。
-func newFlagSet(name string) *flag.FlagSet {
-	return flag.NewFlagSet(name, flag.ContinueOnError)
+// newFlagSet 造一个"解析失败不中断"的 flagset，并把它的**输出接到 stderr**。
+//
+// 为什么必须显式 SetOutput：`flag.ContinueOnError` 在解析失败时会做两件事——
+// 把**错误行**写到 `fs.Output()`，再调用 `fs.Usage`（各命令已把它设成打印自己的用法）。
+// 而 `fs.Output()` 默认是**进程的 os.Stderr**，不是调用方传进来的那个 writer。
+// 不设它的后果实测过（v0.15）：冒烟测试里 21 个命令的 `flag provided but not defined: …`
+// **直接打在测试进程的 stderr 上**（测试自己捕获的 buffer 里一个字都没有）。
+// 在终端里它看起来"正常"（终端也是 os.Stderr），所以这类缺陷只在**嵌进来的调用方**
+// （测试、将来的库用法、任何重定向了 writer 的地方）里现形——与 v0.12 的
+// "hook 输出混进 stdout" 同族：**流是接口的一部分**。
+//
+// 顺带删掉了这里原本的 `errSilent` 哨兵：它的注释写着"让 ContinueOnError 静默"，
+// 但它**从未被引用过**——一段描述着不存在的机制的注释，比没有注释更糟。
+func newFlagSet(name string, stderr io.Writer) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	return fs
 }
-
-// errSilent 让 flag.ContinueOnError 静默：不向 stderr 打印其内置 Usage。
-// 我们用自定义 Usage 在 runErr 中打印，避免双重输出。
-var errSilent = errors.New("flag parse error")

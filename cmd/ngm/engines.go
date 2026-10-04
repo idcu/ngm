@@ -61,7 +61,7 @@ type engineRow struct {
 
 // runEngines 处理 `ngm engines <subcommand>`。
 func runEngines(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("engines")
+	fs := newFlagSet("engines", stderr)
 	jsonOut := fs.Bool("json", false, "machine-readable output")
 	dirFlag := fs.String("dir", ".", "project directory")
 	fs.Usage = func() { fmt.Fprint(stderr, enginesUsage) }

@@ -80,7 +80,7 @@ var stdinReader io.Reader = os.Stdin
 // 也就是说，本命令的第一版**自己**制造了一次"声明了、不生效"。
 // 现在那个判断交给 adapter（单一事实源），CLI 只负责预检与推断。
 func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("transform")
+	fs := newFlagSet("transform", stderr)
 	engineFlag := fs.String("engine", "", "engine name")
 	outfile := fs.String("outfile", "", "output file")
 	loaderFlag := fs.String("loader", "", "input syntax (ts / tsx / js / jsx)")

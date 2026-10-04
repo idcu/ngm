@@ -41,7 +41,7 @@ it says what stopped it.
 
 // runOutdated 处理 `ngm outdated`。
 func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("outdated")
+	fs := newFlagSet("outdated", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
 	jsonOut := fs.Bool("json", false, "machine-readable report")

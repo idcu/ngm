@@ -38,7 +38,7 @@ EXIT CODES:
 
 // runIntegrations 处理 `ngm integrations <subcommand>`。
 func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("integrations")
+	fs := newFlagSet("integrations", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	dryRun := fs.Bool("dry-run", false, "show what would be written")
 	jsonOut := fs.Bool("json", false, "machine-readable report")

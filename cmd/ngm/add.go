@@ -39,7 +39,7 @@ EXAMPLES:
 // M1 范围：解析规格、校验 refType 必填、写 ngm.json。
 // ref → commit 的解析与 lock 写入属于 install（M3）；本命令不触网。
 func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("add")
+	fs := newFlagSet("add", stderr)
 	refType := fs.String("ref-type", "", "tag | branch | commit (required)")
 	pathFlag := fs.String("path", "", "monorepo sub-path")
 	dirFlag := fs.String("dir", ".", "project directory")

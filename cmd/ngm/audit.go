@@ -55,7 +55,7 @@ CACHE:
 //	verify  证明"落地的内容与锁定的一致"（完整性）
 //	audit   报告"锁定的 commit 是否有已知漏洞"（已知风险）
 func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("audit")
+	fs := newFlagSet("audit", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
 	noCache := fs.Bool("no-cache", false, "bypass the OSV cache and re-query")

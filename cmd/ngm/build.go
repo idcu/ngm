@@ -39,7 +39,7 @@ EXIT CODES:
 
 // runBuild 处理 `ngm build`。
 func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("build")
+	fs := newFlagSet("build", stderr)
 	engineFlag := fs.String("engine", "", "engine name")
 	outfile := fs.String("outfile", "", "output file")
 	production := fs.Bool("production", false, "production build")

@@ -24,7 +24,7 @@ FLAGS:
 
 // runMappings 处理 `ngm mappings <subcommand>`。
 func runMappings(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("mappings")
+	fs := newFlagSet("mappings", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	fs.Usage = func() { fmt.Fprint(stderr, mappingsUsage) }
 

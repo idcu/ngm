@@ -77,7 +77,7 @@ driftKind in --json: expected | unexpected | critical
 //	update   重新解析 ref：改写 lock
 //	verify   只检查、绝不改写：报告 ref 漂移与 digest 是否可重放
 func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("verify")
+	fs := newFlagSet("verify", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
 	deep := fs.Bool("deep", false, "hash every vendor file against the content store")

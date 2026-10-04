@@ -32,7 +32,7 @@ NOTES:
 // 因为移除一个直接依赖可能连带移除若干传递依赖，那需要重新解析整张图，
 // 而"谁改 lock"只应该有一个入口。
 func runRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("remove")
+	fs := newFlagSet("remove", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	fs.Usage = func() { fmt.Fprint(stderr, removeUsage) }
 

@@ -53,7 +53,7 @@ console.log(hello("ngm"));
 //  4. 生成 src/index.ts（**仅当不存在**，任何情况下都不覆盖用户代码）
 //  5. 在 stdout 报告已生成 / 已保留的文件
 func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("init")
+	fs := newFlagSet("init", stderr)
 	runtime := fs.String("runtime", "node", "project runtime (node|deno)")
 	dir := fs.String("dir", ".", "target directory")
 	force := fs.Bool("force", false, "overwrite existing ngm.json")

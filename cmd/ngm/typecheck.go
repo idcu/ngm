@@ -44,7 +44,7 @@ EXIT CODES:
 
 // runTypecheck 处理 `ngm typecheck`。
 func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("typecheck")
+	fs := newFlagSet("typecheck", stderr)
 	engineFlag := fs.String("engine", "", "engine name")
 	tsconfig := fs.String("tsconfig", "", "tsconfig path")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")
@@ -154,7 +154,7 @@ EXIT CODES:
 
 // runCSS 处理 `ngm css`。
 func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("css")
+	fs := newFlagSet("css", stderr)
 	engineFlag := fs.String("engine", "", "engine name")
 	outfile := fs.String("outfile", "", "output file")
 	minify := fs.Bool("minify", false, "minify the output")

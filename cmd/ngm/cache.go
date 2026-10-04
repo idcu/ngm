@@ -23,7 +23,7 @@ NOTES:
 
 // runCache 处理 `ngm cache <subcommand>`。
 func runCache(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("cache")
+	fs := newFlagSet("cache", stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, cacheUsage) }
 	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
 		return 3

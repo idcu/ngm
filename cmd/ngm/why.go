@@ -35,7 +35,7 @@ EXIT CODES:
 
 // runWhy 处理 `ngm why`。
 func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("why")
+	fs := newFlagSet("why", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	fs.Usage = func() { fmt.Fprint(stderr, whyUsage) }

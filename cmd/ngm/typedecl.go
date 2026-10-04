@@ -43,7 +43,7 @@ EXIT CODES:
 // `engines.typeDecl` 这个配置键对用户没有任何效果（配置接线检查曾为此记了一条豁免，
 // 本命令让那条豁免可以被删掉）。
 func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("typedecl")
+	fs := newFlagSet("typedecl", stderr)
 	outdir := fs.String("outdir", "", "directory for the declarations")
 	engineFlag := fs.String("engine", "", "engine name")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")

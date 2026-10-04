@@ -45,7 +45,7 @@ EXIT CODES:
 
 // runTree 处理 `ngm tree`。
 func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("tree")
+	fs := newFlagSet("tree", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	osv := fs.Bool("osv", false, "mark known vulnerabilities from OSV.dev")
 	offline := fs.Bool("offline", false, "never touch the network")
