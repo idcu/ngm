@@ -24,8 +24,8 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **14 of 18** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | **3 of 18** | **`v0.1.0`**, plus `v0.5.0` … `v0.18.0` |
+| GitHub | **15 of 19** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 19** | **`v0.1.0`**, plus `v0.5.0` … `v0.19.0` |
 
 New versions are released by the tag push itself, and that path has now worked ten times in a row
 (`v0.9.0` … `v0.19.0`).
