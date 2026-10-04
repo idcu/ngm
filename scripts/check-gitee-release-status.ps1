@@ -144,7 +144,10 @@ if ($unchecked.Count -gt 0) {
     exit 3
 }
 if ($missing.Count -gt 0) {
-    Write-Host "有缺：$($missing.Count) 个（就位 $ok 个）" -ForegroundColor Yellow
+    Write-Host "有缺：$($missing.Count) 个（就位 $ok 个，共 $($Tags.Count) 个 tag）" -ForegroundColor Yellow
+    # 指针不是政策：这里只说明"缺"是否已经在别处被拍板过，以免有人把一条已知延后
+    # 当成回归信号去查（而"会误报的门禁会被忽略"）。读数本身照旧只报状态。
+    Write-Host '提示：历史版本补发已决定暂缓（见 docs/development/README.md 的发布清单）——本读数只报状态，不催办。' -ForegroundColor DarkGray
     exit 1
 }
 Good "全部就位：$ok 个 tag 的 7 个附件都在 Gitee 上。"

@@ -5,6 +5,9 @@
 > GitHub 有 12 个里的 8 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
 > Gitee 侧现在有读数可复跑：`scripts/check-gitee-release-status.ps1`。
+> **历史版本补发已决定暂缓**（2026-10-04，项目所有者决定；判据与恢复信号见
+> [发布清单](../development/README.md#发布清单每个版本)开头）——缺口涉及的版本功能都在源码里，
+> 最新的 `v0.12.0` 已在 GitHub 上可取。
 > **`v0.5.0` ~ `v0.8.0`** 的 tag 于 2026-10-02 补打（此前这四版"已交付但取不到"，
 > 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)），但镜像转发 tag **没有触发**
 > `release.yml`，那四版的 GitHub release 至今未生成——补发走手动入口（Actions → Release →
