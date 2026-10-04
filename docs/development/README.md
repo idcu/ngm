@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.17 均已交付**；**`v0.1.0` ~ `v0.17.0` 十七个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.18 均已交付**；**`v0.1.0` ~ `v0.18.0` 十八个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -59,6 +59,7 @@
 > | v0.15 | [计划](./v0.15-plan.md) | [复盘](./v0.15-retrospective.md) | **两条对外契约钉成网**：文档示例命令必须成形（306 条 / 27 份活文档）+ 用法错误的退出码与流向（21 个命令 × 4 条契约）。顺带修掉一个真缺陷：解析错误绕过注入的 writer 直写进程 stderr |
 > | v0.16 | [计划](./v0.16-plan.md) | [复盘](./v0.16-retrospective.md) | **机器可读输出不能说谎**：`--json` 契约网（20 个状态 × 4 条规矩）+ 把机器接口的形状写进 [CLI 参考](../guides/cli.md)。产品代码 **0 行改动**；20 个状态上**没有产品缺陷** |
 > | v0.17 | [计划](./v0.17-plan.md) · [ADR-024](../adr/adr-024-bounded-explanations.md) | [复盘](./v0.17-retrospective.md) | **解释输出必须有界**：`why` 默认 64 条路径、`tree` 默认 4096 条目（可见标记 + `--all` 解除）——实测 41 个节点就能产出 104 万条路径 / 626 MB，而图形状来自上游清单；另修 `observability.md` 两段与渲染器不符的输出示例，并加网钉住 |
+> | v0.18 | [计划](./v0.18-plan.md) | [复盘](./v0.18-retrospective.md) | **第一次真实联网复核**：新增可选复核（`NGM_REAL_UPSTREAM=1`，默认跳过；联网部分只记录、不可达即"未证明"）+ 一次真实运行记录。**产品代码 0 行改动**——一条"网络等待没有上界"的假设被测量否掉（失败由 git 自己的界终止：RST ~20s / TCP ~21s）。**完整首次上手路径未在本环境验证**（网络），如实记为未完成 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -359,6 +360,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV17WhyPathsAreBoundedAndSaySo` · `TestV17TreeExpansionIsBounded` | `internal/observability`（**v0.17 新增**） | 上界本身正确（ADR-024）：输出有界 · **工作量有界**（有界枚举 544 µs vs 不限量 0.778s/626 MB）· 截断可见 · **恰好等于上界时不许说"还有更多"**。格状图夹具（`RequiredBy` 是**父节点**，写反了会得 0 条路径） |
   | `TestV17ExplanationIsBoundedEndToEnd` | `cmd/ngm`（**v0.17 新增**） | 上界的**接线**（15 个真实仓库的格状图，128 条路径）：默认 64 条且两种输出都写明、`--all` 给全部、`tree` 在预算内不被标记。牙齿：摘掉默认上界 ⇒ `paths=128 want 64` |
   | `TestV17DocOutputExamplesMatchTheGoldens` | `cmd/ngm`（**v0.17 新增**） | **输出示例**与快照同形（v0.15 钉的是**命令**示例）：从 `observability.md` 取出两段示例，归一化后与 `testdata/*.golden` 逐行比较；缩进/标签/标记不许漂。牙齿：改回旧的 `├──` 形状 ⇒ 点名 `tree.golden` |
+  | `TestV18RealUpstreamFirstRun` | `cmd/ngm`（**v0.18 新增**，**默认跳过**） | **可选联网复核**：只在本项目能控制的事上断言（真实 ref 解析、无 `ngm.json` 的真仓库、`archiveDigest` 跨独立项目逐字相同、坏仓库必须点名自己）；联网部分**只记录**，远端不可达（exit 4）判为"未证明"并 skip。跑法：`NGM_REAL_UPSTREAM=1 go test -count=1 -timeout 1200s -run TestV18RealUpstreamFirstRun -v ./cmd/ngm` |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

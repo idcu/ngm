@@ -309,6 +309,33 @@ go test -count=1 -run TestV17 -v ./internal/observability ./cmd/ngm
 
 ---
 
+## 真实网络失败（v0.18 实测）
+
+本项目的门禁**全部离线**（夹具预置本地裸仓），因此"真实网络失败时 ngm 怎么做"此前**没有量**。
+v0.18 加了一个可选的联网复核（`NGM_REAL_UPSTREAM=1`，默认跳过），并在本机跑了一次：
+
+| 项 | 实测 |
+|----|------|
+| `ngm add`（真实 slug） | **2–4 ms，零网络**（ref 解析与取物在 `install`，与 `runAdd` 的注释一致） |
+| `ngm install`（真实 clone） | 成功 1 次：`github:octocat/Hello-World@master → 7fd1a60…`，并算出 `archiveDigest` |
+| 同上，失败那次 | **19.5s** 后 exit 4：`git clone --mirror` 被 `Connection reset`，报错点名 URL + 给 hint |
+| 连不上那次 | **21.1s** 后 exit 4：`Could not connect to server` |
+| git 层单测（`git ls-remote`） | **21.0s / exit 128** |
+| 在线 `ngm verify` 遇 reset | exit 4 且报告写 **`check incomplete`**，**没有**谎报通过 |
+
+**结论**：三次失败分别由 **RST（~20s）** 与 **TCP 连接超时（~21s）** 终止——**都是 git 自己的界**。
+因此 v0.18 **没有**给网络操作加上界：一个"看起来该修"的问题，测量显示它不存在。
+被否掉的假设记在 [v0.18 复盘](../development/v0.18-retrospective.md) §3.2。
+
+> **未证明的事也要写在指标里**：本机对 `github.com:443` 的 git-https 三次只成功一次，
+> 因此**完整首次上手路径未在本环境端到端验证**。有正常网络时一条命令即可补上：
+>
+> ```bash
+> NGM_REAL_UPSTREAM=1 go test -count=1 -timeout 1200s -run TestV18RealUpstreamFirstRun -v ./cmd/ngm
+> ```
+
+---
+
 ## 兼容性目标
 
 | 维度 | 目标 |
