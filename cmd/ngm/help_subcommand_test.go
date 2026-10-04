@@ -168,6 +168,63 @@ func firstLine(s string) string {
 	return s
 }
 
+// flagBindingRe 匹配 `name := fs.Bool("flag", ...)` 这类绑定，捕获变量名与 flag 名。
+var flagBindingRe = regexp.MustCompile(`(\w+)\s*:=\s*\w*[fF]s\w*\.(String|Bool|Duration|Int|Int64|Uint)\("([a-z0-9-]+)"`)
+
+// TestV14EveryFlagBindingIsDereferenced 是一张**扫源码**的网，覆盖"接受的输入被静默忽略"
+// 的最后一块：**flag 注册出来的变量必须真的被读过**，而且不许在注册处就被丢掉。
+//
+// 为什么需要它：位置参数（v0.13）与 flag 的文档一致性（v0.12）都已经有网，
+// 但"flag 注册了、变量却没人用"一直没有机械网——v0.12 的专项审计是**手工**逐处核对的，
+// 而这个形状在这个项目里真出过：`ngm update` 曾有一个 `--concurrency`，其值被
+// `_ = maxConc` 原样丢弃（v0.5 移除该 flag 时把这件事写进了注释）。
+//
+// 判据：本包所有 flag 变量都是 `*T`，用它们就得解引用，因此"文件里出现过 `*name`"
+// 与"它被使用过"在当前代码上等价（写这张网时逐个核对：**76 处绑定，零违规**）。
+// **它会漏报**——若某处把指针整体传给别的函数而不解引用，那处就看不见了；
+// 那时应当收紧判据（例如要求它出现在调用实参里），而不是删掉这张网。
+//
+// 两张网合起来的边界：本文管"变量被读过"，`TestV12EveryRegisteredFlagIsDocumented`
+// 管"flag 被写下来过"。它们都不管"读了但读错了"——那只能靠行为测试。
+func TestV14EveryFlagBindingIsDereferenced(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(raw)
+
+		// 规则 1：注册时就被丢掉。
+		for _, m := range regexp.MustCompile(`_\s*=\s*\w*[fF]s\w*\.(?:String|Bool|Duration|Int|Int64|Uint)\("([a-z0-9-]+)"`).
+			FindAllStringSubmatch(src, -1) {
+			t.Errorf("%s discards flag --%s at registration (`_ = fs...`): a flag that is accepted "+
+				"but never read is worse than no flag — the user thinks they changed something", file, m[1])
+		}
+
+		// 规则 2：绑定的变量必须被解引用过（用词边界，避免 `*flagX` 满足 `flag`）。
+		for _, m := range flagBindingRe.FindAllStringSubmatch(src, -1) {
+			ident, flag := m[1], m[3]
+			bindings++
+			if !regexp.MustCompile(`\*` + regexp.QuoteMeta(ident) + `\b`).MatchString(src) {
+				t.Errorf("%s binds --%s to %q but never dereferences it (the flag would be accepted and ignored)",
+					file, flag, ident)
+			}
+		}
+	}
+	if bindings == 0 {
+		t.Fatal("no flag bindings were scanned — a net that matches nothing is not a net")
+	}
+	t.Logf("checked %d flag binding(s)", bindings)
+}
+
 // TestV13PositionalArgsAreBounded 是一张**扫源码**的网：读了位置参数（`fs.Arg`）的
 // 命令文件，必须同时**校验位置参数个数**（`fs.NArg`）。
 //
