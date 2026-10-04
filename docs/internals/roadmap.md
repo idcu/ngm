@@ -1,9 +1,10 @@
 # 路线图
 
 > ngm 的产品路线。**v0.1 ~ v0.11 均已交付**（证据见各版[复盘](../development/)与计划）。
-> **十一个 tag 全部已打**；发布则是另一回事，2026-10-04 直接问过两个源的 API：
-> GitHub 有 11 个里的 7 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
+> **十二个 tag 全部已打**；发布则是另一回事，2026-10-04 直接问过两个源的 API：
+> GitHub 有 12 个里的 8 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
+> Gitee 侧现在有读数可复跑：`scripts/check-gitee-release-status.ps1`。
 > **`v0.5.0` ~ `v0.8.0`** 的 tag 于 2026-10-02 补打（此前这四版"已交付但取不到"，
 > 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)），但镜像转发 tag **没有触发**
 > `release.yml`，那四版的 GitHub release 至今未生成——补发走手动入口（Actions → Release →

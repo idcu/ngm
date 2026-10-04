@@ -24,18 +24,20 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | 7 of 11 | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | 3 of 11 | **`v0.1.0`**, plus `v0.5.0` … `v0.11.0` |
+| GitHub | **8 of 12** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 12** | **`v0.1.0`**, plus `v0.5.0` … `v0.12.0` |
 
-The gap is a credential, not a decision: `POST /actions/workflows/…/dispatches` returns 401 without
-a token, and the Gitee uploader needs a `GITEE_TOKEN`. Both paths are one command once the credential
-exists — Actions → Release → **Run workflow** for the four, and
-`scripts/upload-gitee-assets.ps1 -Tag v0.X.0` for the rest. Until then,
-**`v0.4.0` is the newest version downloadable from both sources, and `v0.11.0` is the newest
-downloadable from GitHub.** Per-version downloadable state lives in
+`v0.12.0` itself was released by the tag push (the fourth consecutive time that path worked, after
+`v0.9.0`/`v0.10.0`/`v0.11.0`). The remaining gap is a credential, not a decision:
+`POST /actions/workflows/…/dispatches` returns 401 without a token, and the Gitee uploader needs a
+`GITEE_TOKEN`. Both paths are one command once the credential exists — Actions → Release →
+**Run workflow** for the four, and `scripts/upload-gitee-assets.ps1 -Tag v0.X.0` for the nine.
+Until then, **`v0.4.0` is the newest version downloadable from both sources, and `v0.12.0` is the
+newest downloadable from GitHub.** Per-version downloadable state lives in
 [`docs/guides/installation.md`](./docs/guides/installation.md); the checklist that keeps
 "delivered" and "released" from drifting apart is in
-[`docs/development/README.md`](./docs/development/README.md#发布清单每个版本).
+[`docs/development/README.md`](./docs/development/README.md#发布清单每个版本), and the Gitee side of
+it now has a reading of its own (`scripts/check-gitee-release-status.ps1`).
 
 > v0.8 changes one user-visible behaviour: the `symlink` link mode degrades to per-entry hardlinks
 > under the v2 layout (same disk savings, reported honestly); see

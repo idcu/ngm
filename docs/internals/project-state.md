@@ -67,7 +67,8 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.11** | **结项 + 第一次真回收** | **ADR-020~023**（4 项待决策全部结掉）+ **`store prune --orphans`**（层 2 第一次真回收）+ workflow YAML 门禁 + `cmd.WaitDelay` 修复 + 端到端复核 |
 | **v0.12** | **可信读数（含文档自己的读数）** | 文档三层纠偏 9 处 + **MIT 许可证** + 子命令帮助（并修掉一个死代码级缺陷）+ **六处静默失效缺陷** + 6 条机械网（命令行 flag 的第一张网） |
 
-**发布状态**（2026-10-03 实测 GitHub API 复核）：
+**发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
+`scripts/check-gitee-release-status.ps1` 的读数）：
 
 | 版本 | tag | GitHub release | Gitee 发行版 |
 |------|-----|----------------|-------------|
@@ -76,6 +77,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | `v0.5.0` ~ `v0.8.0` | ✅ | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——**待人工触发** | ❌ 同上 |
 | `v0.9.0` / `v0.10.0` | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ❌ 待上传 |
 | **`v0.11.0`** | ✅ | ✅ **7 个**（tag 推送**这次触发了**，02:17 UTC 已发布） | ❌ 待上传 |
+| **`v0.12.0`** | ✅ | ✅ **7 个**（tag 推送触发，00:57 UTC 已发布——**第四次连续成功**） | ❌ 待上传 |
 
 > **上一版这一栏把 `v0.1.0` 算进了"Gitee 也可取到"**——它不在那里。本页此前从
 > [补发记录](../development/README.md#补发记录2026-10-02gitee-侧)（只有 v0.2.0/v0.3.0/v0.4.0 三条）
@@ -120,7 +122,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务 | 怎么做的 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.11.0` 的 **Gitee 发行版（8 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.11.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查 |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.12.0` 的 **Gitee 发行版（9 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.12.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.ps1`（只读，不需要 token） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -191,8 +193,8 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 
 ```bash
 # 方式一：预编译二进制（推荐）
-#   最新可取（GitHub）：v0.11.0 —— 六个平台 + SHA256SUMS
-#   Gitee 侧目前只到 v0.4.0（8 个版本缺附件，需 GITEE_TOKEN，见 §3.2）
+#   最新可取（GitHub）：v0.12.0 —— 六个平台 + SHA256SUMS
+#   Gitee 侧目前只到 v0.4.0（9 个版本缺附件，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```
