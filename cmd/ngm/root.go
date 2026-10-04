@@ -19,41 +19,73 @@ import (
 type commandSpec struct {
 	Name string
 	Run  func(ctx context.Context, args []string, stdout, stderr io.Writer) int
+	// Usage 是 `ngm <name> --help` 打印的文本。它**就是**参数错误时打印的那一份常量
+	// （initUsage / verifyUsage / …），而不是另写的"帮助文本"。
+	//
+	// 复用而不是另写，是因为同一件事写在第二个地方就一定会有一处不一致——
+	// 这个项目已经为这条纪律付过几次学费。顺带一句：`--help` 在 v0.11 之前
+	// 打印的是 "help not yet implemented"（占位），而 help.go 的包注释声称
+	// "--help 在所有子命令上下文可用"：注释说的是"能被解析"，用户看到的是另一回事。
+	Usage string
 }
 
-// commands 是 M0 阶段已实现的命令子集；其余以 nil 占位（后续阶段补 Run）。
-// 注意：表项顺序即 help 输出顺序（与 rootUsage 字符串顺序保持一致）。
+// commands 是全部已实现的命令；表项顺序即 help 输出顺序（与 rootUsage 字符串顺序一致）。
+// 每一项目前都有真实 Run——0.1 时代的 nil 占位与 notImplementedYet 已随 v0.3 移除。
 var commands = []*commandSpec{
-	{Name: "init", Run: runInit},
-	{Name: "add", Run: runAdd},
-	{Name: "install", Run: runInstall},
-	{Name: "update", Run: runUpdate},
-	{Name: "remove", Run: runRemove},
-	{Name: "verify", Run: runVerify},
-	{Name: "audit", Run: runAudit},
-	{Name: "why", Run: runWhy},
-	{Name: "tree", Run: runTree},
-	{Name: "outdated", Run: runOutdated},
-	{Name: "typecheck", Run: runTypecheck},
-	{Name: "typedecl", Run: runTypeDecl},
-	{Name: "build", Run: runBuild},
-	{Name: "transform", Run: runTransform},
-	{Name: "css", Run: runCSS},
-	{Name: "mappings", Run: runMappings},
-	{Name: "integrations", Run: runIntegrations},
-	{Name: "cache", Run: runCache},
-	{Name: "store", Run: runStore},
-	{Name: "config", Run: runConfig},
-	{Name: "engines", Run: runEngines},
+	{Name: "init", Run: runInit, Usage: initUsage},
+	{Name: "add", Run: runAdd, Usage: addUsage},
+	{Name: "install", Run: runInstall, Usage: installUsage},
+	{Name: "update", Run: runUpdate, Usage: updateUsage},
+	{Name: "remove", Run: runRemove, Usage: removeUsage},
+	{Name: "verify", Run: runVerify, Usage: verifyUsage},
+	{Name: "audit", Run: runAudit, Usage: auditUsage},
+	{Name: "why", Run: runWhy, Usage: whyUsage},
+	{Name: "tree", Run: runTree, Usage: treeUsage},
+	{Name: "outdated", Run: runOutdated, Usage: outdatedUsage},
+	{Name: "typecheck", Run: runTypecheck, Usage: typecheckUsage},
+	{Name: "typedecl", Run: runTypeDecl, Usage: typedeclUsage},
+	{Name: "build", Run: runBuild, Usage: buildUsage},
+	{Name: "transform", Run: runTransform, Usage: transformUsage},
+	{Name: "css", Run: runCSS, Usage: cssUsage},
+	{Name: "mappings", Run: runMappings, Usage: mappingsUsage},
+	{Name: "integrations", Run: runIntegrations, Usage: integrationsUsage},
+	{Name: "cache", Run: runCache, Usage: cacheUsage},
+	{Name: "store", Run: runStore, Usage: storeUsage},
+	{Name: "config", Run: runConfig, Usage: configUsage},
+	{Name: "engines", Run: runEngines, Usage: enginesUsage},
 }
 
 // 顶层分发：处理 --version / --help 后取首个非 flag 元素作为子命令。
 //
 // 退出码约定：见 errs 包与 architecture/observability.md。
 func dispatch(args []string, stdout, stderr io.Writer) int {
-	// 处理根级 --version / --help（在分发前生效，避免子命令参数污染）。
-	// 我们手工扫描而不是 flag.Parse —— 后续命令各自 flag.Parse 自己的 args。
-	for _, a := range args {
+	// 切分子命令
+	sub := ""
+	rest := args
+	subIdx := -1
+	for i, a := range args {
+		if !looksLikeFlag(a) {
+			sub = a
+			subIdx = i
+			rest = args[i+1:]
+			break
+		}
+	}
+
+	// 根级 --version / --help 只在**子命令之前**生效：
+	//
+	//	ngm --help           → 根帮助
+	//	ngm verify --help    → verify 的帮助
+	//
+	// 此前这个循环扫描**整条** args（"避免子命令参数污染"），于是任何位置出现
+	// `--help` 都返回根帮助 —— 下面那段"子命令自身的 --help"因此**永远走不到**，
+	// 它打印的 "help not yet implemented" 也就没人见过。
+	// 手工扫描而不是 flag.Parse：后续命令各自 flag.Parse 自己的 args。
+	head := args
+	if subIdx >= 0 {
+		head = args[:subIdx]
+	}
+	for _, a := range head {
 		switch a {
 		case "--version":
 			fmt.Fprintln(stdout, versionLine())
@@ -61,17 +93,6 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 		case "-h", "--help":
 			fmt.Fprint(stdout, rootUsage)
 			return 0
-		}
-	}
-
-	// 切分子命令
-	sub := ""
-	rest := args
-	for i, a := range args {
-		if !looksLikeFlag(a) {
-			sub = a
-			rest = args[i+1:]
-			break
 		}
 	}
 	if sub == "" {
@@ -92,7 +113,9 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, versionLine())
 			return 0
 		case "-h", "--help":
-			fmt.Fprintf(stdout, "ngm %s — help not yet implemented\n", sub)
+			// 打印该命令自己的用法常量：它与参数错误时看到的是同一份文本。
+			// 走 stdout 且 exit 0 —— 用户主动要的，不是失败。
+			fmt.Fprint(stdout, spec.Usage)
 			return 0
 		}
 	}
