@@ -233,11 +233,44 @@ func splitURLForm(raw string, colonIdx int) (host, path string, err error) {
 	if strings.Trim(path, "/") == "" {
 		return "", "", invalidURL(raw, "missing repository path after host")
 	}
-	// 去掉端口
+	// 端口：Canonical 只承载 host + path（lock / mirror 路径 / slug 的共同基础），
+	// 因此 ngm 无法把端口带到任何下游。
+	//
+	// **默认端口**与不写端口语义完全相同，可以安全丢弃；
+	// **非默认端口**此前被同一段代码静默剥掉——后果是 ngm 去连默认端口上的另一个服务，
+	// 而报错说"检查网络连通性"（CONNECT 隧道 502），把用户引向错误的方向
+	// （v0.11 C 组 D1 实测）。这里改为**如实拒绝**：一个名字里带端口的地址，
+	// ngm 要么完整地用它、要么明确说不支持，绝不悄悄换一个地址去连。
+	//
+	// 为什么不是"顺手支持"：端口要进 Canonical，就要同时定义它在 lock、mirror 目录
+	// （Windows 文件名不允许 `:`）与 slug 里的形状 —— 那是 schema 级变更，
+	// 按 metrics「已知限制」的口径，先有真实需求再做。
 	if c := strings.LastIndex(hostPart, ":"); c >= 0 {
-		hostPart = hostPart[:c]
+		host, port := hostPart[:c], hostPart[c+1:]
+		if port == "" {
+			return "", "", invalidURL(raw, "missing port number after `:` in "+hostPart)
+		}
+		if def, ok := defaultSchemePorts[scheme]; ok && port == def {
+			hostPart = host
+		} else {
+			return "", "", invalidURL(raw, fmt.Sprintf(
+				"explicit port %q is not supported: ngm identifies a repository by host and path only, "+
+					"so it cannot carry a non-default port into the lock file, the mirror layout or the slug",
+				hostPart))
+		}
 	}
 	return hostPart, path, nil
+}
+
+// defaultSchemePorts 是各受支持 scheme 的默认端口。
+//
+// 只有**与默认值相同**的显式端口可以被丢弃——那与不写端口是同一件事。
+// 其它端口一律由 splitURLForm 明确拒绝。
+var defaultSchemePorts = map[string]string{
+	"https": "443",
+	"http":  "80",
+	"git":   "9418",
+	"ssh":   "22",
 }
 
 // splitSCPLike 处理 `[user@]host:path`（scp 语法，无 `://`）。
