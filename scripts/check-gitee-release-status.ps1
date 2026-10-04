@@ -1,154 +1,74 @@
-﻿<#
-.SYNOPSIS
-Gitee 侧的发布读数：每个 tag 上到底有没有发行版、我们自己传的 7 个附件齐不齐。
+﻿# scripts/check-gitee-release-status.ps1 —— Gitee 发布读数的 Windows 入口。
+#
+# **唯一实现是 scripts/check-gitee-release-status.sh**；本文件只是它的 Windows 入口（转调 bash）。
+#
+# 为什么不让 .ps1 自带一份实现（本文件的第一版就是那样，v0.14 改掉）：
+# 两份实现会漂移，而漂移的代价是**你以为检查过了**。这不是假想——
+# check-docs-links 就为同一个理由改成了转调，并留下了事故记录
+# （.ps1 按 GBK 解码吞掉 ASCII 标点 → 本地一直打印 OK，CI 连红四次）。
+# 本项目对这件事的结论只有一句：**要检查的规则只允许有一种写法。**
+#
+# 转调的另一个好处是平台无关：读数现在在 Windows（Git for Windows 自带 bash）、
+# macOS、Linux、CI 上是同一段代码——而 Gitee 的发布状态正是"谁在哪台机器上都该看到同一个答案"。
+#
+# 用法：powershell -NoProfile -File scripts/check-gitee-release-status.ps1 [-Tags v0.12.0,v0.13.0]
+#   需要 bash（Git for Windows 自带）。找不到 bash 时**明确失败（exit 2）**——
+#   没有"降级成不做事"这种路径：那正是上面那次事故的形状。
+#
+# 判据、退出码（0 全齐 / 1 有缺 / 3 查不动且**不报成功**）与"为什么 Gitee 会自动多两个源码包"
+# 都写在 .sh 的头部——那里是唯一实现，因此也是唯一的说明处。
 
-.DESCRIPTION
-为什么需要它：v0.12 复核抓到一个空白——`scripts/check-release-status.sh --published` 只问 GitHub。
-Gitee 侧"有没有这个发行版"此前只能靠人去点，于是状态页长出了一条错的
-"`v0.1.0` ~ `v0.4.0` 两个源都可取到"（Gitee 上根本没有 `v0.1.0` 的发行版；2026-10-04 正是用
-本脚本用的那个端点证伪的）。**一条读数胜过一句"已发布"。**
-
-它**只读公开 API、不需要 token**，因此随时可跑；而"补发附件"仍然需要 `GITEE_TOKEN`
-（那是 `upload-gitee-assets.ps1` 的事）。
-
-判据与 GitHub 侧有一处不同，必须说清楚：Gitee 会给每个 release **自动附两个源码包**
-（`<tag>.zip` / `<tag>.tar.gz`），所以 API 里看到的是 9 个 asset，而我们自己传的是 7 个。
-本脚本按**我们自己传的那 7 个**判定，并把源码包单独报出来——否则"9 个"会让人以为多了两个。
-
-为什么只有 .ps1（没有 .sh 孪生）：Gitee 侧的人工工序历来是 .ps1（理由同
-`upload-gitee-assets.ps1`），而 CI 跑在 ubuntu 上、没有 PowerShell——所以这是一条**本地读数**。
-两份实现只会带来"改了一边忘了另一边"的漂移，本项目已经吃过这类亏。
-
-用法：
-
-    powershell -File scripts/check-gitee-release-status.ps1                  # 本仓库全部 v* tag
-    powershell -File scripts/check-gitee-release-status.ps1 -Tags v0.12.0    # 只看指定的几个
-    powershell -File scripts/check-gitee-release-status.ps1 -TimeoutSec 5    # 网络抖动时缩短等待
-
-退出码：0 = 全部就位；1 = 有缺（列出缺什么、以及补它的那条命令）；
-3 = **查不动**（网络 / 限额）——查不动**不报成功**，与 GitHub 侧同一条纪律。
-#>
 [CmdletBinding()]
 param(
-    [string]$GiteeOwner = 'idcu',
-    [string]$GiteeRepo = 'ngm',
-    [string[]]$Tags = @(),
-    [int]$TimeoutSec = 20,
-    # API 基址可注入：一是能实测"查不动"那条分支（指向一个死地址，必须 exit 3 而不是报成功），
-    # 二是 Gitee 企业版有别的基址。默认是公开的 gitee.com。
-    [string]$ApiBase = 'https://gitee.com/api/v5'
+    [string[]]$Tags = @()
 )
 
 $ErrorActionPreference = 'Stop'
 
-# 我们自己传的 7 个附件：六个平台二进制 + SHA256SUMS。
-$ExpectedAssets = @(
-    'ngm-darwin-amd64', 'ngm-darwin-arm64',
-    'ngm-linux-amd64', 'ngm-linux-arm64',
-    'ngm-windows-amd64.exe', 'ngm-windows-arm64.exe',
-    'SHA256SUMS'
-)
+function Find-Bash {
+    # **先找 Git for Windows 的 bash，再退到 PATH 上的 bash**：装了 WSL 的机器上，
+    # PATH 里会有 `C:\Windows\System32\bash.exe`（WSL 的入口），而它与 Windows 路径
+    # 不互通——那样 .sh 会走到自己的"取不到 tag"分支。宁可明确失败，也不拿一个
+    # 连不上 Windows 路径的解释器去跑。
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
+        (Join-Path $env:ProgramFiles "Git\usr\bin\bash.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+    )
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    $cmd = Get-Command bash -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
 
-function Note([string]$Msg) { Write-Host "   $Msg" -ForegroundColor DarkGray }
-function Good([string]$Msg) { Write-Host "   $Msg" -ForegroundColor Green }
-function Bad([string]$Msg) { Write-Host "   $Msg" -ForegroundColor Yellow }
+$bash = Find-Bash
+if (-not $bash) {
+    Write-Host "bash not found: this reading has exactly one implementation (scripts/check-gitee-release-status.sh)."
+    Write-Host "Install Git for Windows (it ships bash) or run the .sh yourself. Refusing to"
+    Write-Host "report success without running the real check."
+    exit 2
+}
+
+$sh = Join-Path $PSScriptRoot "check-gitee-release-status.sh"
+if (-not (Test-Path -LiteralPath $sh)) {
+    Write-Host "missing $sh — the reading has no implementation to delegate to."
+    exit 2
+}
 
 # `powershell -File script.ps1 -Tags a,b` 会把整个 `a,b` 作为**一个字符串**传进来
-# （-File 不解析 PowerShell 的数组字面量），因此在这里按逗号拆开。
-#
-# 不拆的后果实测过：`-Tags v0.2.0,v0.5.0` 会被当成一个名叫 `v0.2.0,v0.5.0` 的 tag，
-# 于是脚本报"没有发行版"——一个**看起来合理、实际错误**的读数。
-if ($Tags.Count -gt 0) {
-    $Tags = @($Tags | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-}
-
-# tag 清单默认取本仓库的 v* tag：git 是事实源，新版本自动进来（不必维护第二份列表）。
-if ($Tags.Count -eq 0) {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Host 'ERROR: 取 tag 清单需要 git（也可以用 -Tags 显式指定）。' -ForegroundColor Red
-        exit 3
-    }
-    $Tags = @(& git tag --list 'v*' --sort=version:refname)
-    if ($LASTEXITCODE -ne 0 -or $Tags.Count -eq 0) {
-        Write-Host 'ERROR: 从 git 取不到 v* tag，无法判定；不做"看起来像成功"的空跑。' -ForegroundColor Red
-        exit 3
+# （-File 不解析 PowerShell 的数组字面量）。第一版把这个坑踩在了自己身上：
+# `a,b` 会被当成一个名叫 `a,b` 的 tag，于是报出一个**看起来合理、实际错误**的读数。
+# 这里先按逗号拆开，再原样交给 .sh。
+$flat = @()
+foreach ($t in $Tags) {
+    foreach ($part in ($t -split ',')) {
+        $trimmed = $part.Trim()
+        if ($trimmed -ne '') { $flat += $trimmed }
     }
 }
 
-# 只读公开 API。三种形态都要接住：
-#   - 有 release：对象，且带 id
-#   - 没有 release：Gitee 返回 JSON `null`（HTTP 200），而 PowerShell 5.1 会把它变成**字符串** "null"
-#   - 连不上 / 被限额：抛错
-# 前两种的判据与 upload-gitee-assets.ps1 的 Get-GiteeRelease 一致——那个坑已经踩过一次。
-function Read-GiteeRelease([string]$Tag) {
-    $uri = "$ApiBase/repos/$GiteeOwner/$GiteeRepo/releases/tags/$Tag"
-    try {
-        $r = Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec $TimeoutSec `
-            -Headers @{ 'User-Agent' = 'ngm-release-read' }
-    } catch {
-        return @{ state = 'unreachable'; detail = $_.Exception.Message }
-    }
-    if ($null -eq $r -or $r -is [string]) { return @{ state = 'missing' } }
-    if (-not $r.id) { return @{ state = 'missing' } }
-    return @{ state = 'present'; release = $r }
-}
-
-Write-Host ''
-Write-Host "Gitee 发布读数 — $GiteeOwner/$GiteeRepo（$($Tags.Count) 个 tag，只读公开 API）" -ForegroundColor Cyan
-Write-Host ''
-
-$missing = @()
-$unchecked = @()
-$ok = 0
-
-foreach ($tag in $Tags) {
-    $res = Read-GiteeRelease $tag
-
-    if ($res.state -eq 'unreachable') {
-        $unchecked += $tag
-        Write-Host ("{0,-9} {1}" -f $tag, 'NOT CHECKED') -ForegroundColor Yellow
-        Note "原因：$($res.detail)"
-        continue
-    }
-    if ($res.state -eq 'missing') {
-        $missing += @{ tag = $tag; reason = 'no release'; names = @() }
-        Write-Host ("{0,-9} {1}" -f $tag, 'MISSING (没有发行版)') -ForegroundColor Yellow
-        Note "补它：powershell -File scripts/upload-gitee-assets.ps1 -Tag $tag"
-        continue
-    }
-
-    $rel = $res.release
-    $assets = @($rel.assets)
-    $names = @($assets | ForEach-Object { $_.name })
-
-    # 源码包是 Gitee 自动附的，不算我们传的：照名字排除，而不是按数量相减。
-    $autoSources = @("$tag.zip", "$tag.tar.gz")
-    $ours = @($names | Where-Object { $autoSources -notcontains $_ })
-    $absent = @($ExpectedAssets | Where-Object { $ours -notcontains $_ })
-
-    if ($absent.Count -eq 0) {
-        $ok++
-        Write-Host ("{0,-9} {1}" -f $tag, "OK (7 个附件 + $($autoSources.Count) 个源码包)") -ForegroundColor Green
-    } else {
-        $missing += @{ tag = $tag; reason = 'incomplete'; names = $absent }
-        Write-Host ("{0,-9} {1}" -f $tag, "INCOMPLETE (缺 $($absent.Count) 个)") -ForegroundColor Yellow
-        Note ('缺：' + ($absent -join ', '))
-        Note "补它：powershell -File scripts/upload-gitee-assets.ps1 -Tag $tag"
-    }
-}
-
-Write-Host ''
-if ($unchecked.Count -gt 0) {
-    Write-Host "查不动 $($unchecked.Count) 个：$($unchecked -join ', ')" -ForegroundColor Yellow
-    Write-Host '这不是成功：网络或限额让读数缺失，稍后重跑即可。' -ForegroundColor Yellow
-    exit 3
-}
-if ($missing.Count -gt 0) {
-    Write-Host "有缺：$($missing.Count) 个（就位 $ok 个，共 $($Tags.Count) 个 tag）" -ForegroundColor Yellow
-    # 指针不是政策：这里只说明"缺"是否已经在别处被拍板过，以免有人把一条已知延后
-    # 当成回归信号去查（而"会误报的门禁会被忽略"）。读数本身照旧只报状态。
-    Write-Host '提示：历史版本补发已决定暂缓（见 docs/development/README.md 的发布清单）——本读数只报状态，不催办。' -ForegroundColor DarkGray
-    exit 1
-}
-Good "全部就位：$ok 个 tag 的 7 个附件都在 Gitee 上。"
-exit 0
+& $bash $sh @flat
+exit $LASTEXITCODE
