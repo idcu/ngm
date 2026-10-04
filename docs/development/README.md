@@ -1,9 +1,11 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.13 均已交付**；**`v0.1.0` ~ `v0.13.0` 十三个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.14 均已交付**；**`v0.1.0` ~ `v0.14.0` 十四个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
-> 见[复盘](./v0.13-retrospective.md)。
+> 见[复盘](./v0.13-retrospective.md)；
+> v0.14 换了方向——**把"文档承诺"与实测行为对账**（同样 0 行产品代码改动）：
+> 见[复盘](./v0.14-retrospective.md)。
 > 发布是另一回事，且**2026-10-04 已直接问过两个源的 API**：
 > GitHub 有 13 个里的 **9 个**，Gitee 只有 **3 个**
 > （`v0.2.0`/`v0.3.0`/`v0.4.0`，各 7 个附件）——**`v0.1.0` 在 Gitee 上没有发行版**，
@@ -51,6 +53,7 @@
 > | v0.11 | [计划](./v0.11-plan.md) | [复盘](./v0.11-retrospective.md) | 四项决策结项（ADR-020~023）+ **第一次真回收**（`store prune --orphans`）+ workflow YAML 门禁 + `WaitDelay` 修复 + 端到端复核 |
 > | v0.12 | [计划](./v0.12-plan.md) | [复盘](./v0.12-retrospective.md) | 可信读数：文档三层纠偏（9 处）+ **MIT 许可证** + 子命令帮助真实现（并修掉一个死代码级缺陷）+ **六处**静默失效缺陷 + 6 条机械网 |
 > | v0.13 | [计划](./v0.13-plan.md) | [复盘](./v0.13-retrospective.md) | **把"缺陷形状"固化成网**：位置参数必须有界（探针验证）+ `--offline` 零 spawn（带对照），并记录一张**故意不做**的网；副产品是全仓过期读数扫描（修 6 处 + 2 处 ADR 补录） |
+> | v0.14 | [计划](./v0.14-plan.md) | [复盘](./v0.14-retrospective.md) | **把"文档承诺"与实测行为对账**：修 4 处（"esbuild 能做 css"在三个位置各错一遍）+ **3 张新网**（dry-run 不写盘 / 引擎默认选择 / flag 绑定必须被解引用）。**非测试代码 0 行改动** |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -342,6 +345,9 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV12SubcommandHelpPrintsItsOwnUsage` | `cmd/ngm`（**v0.12 新增**） | 21 个命令的 `--help` **逐字等于**它自己的用法常量，且该常量以自己的名字开头 |
   | `TestV13PositionalArgsAreBounded` | `cmd/ngm`（**v0.13 新增**） | 扫源码：读 `fs.Arg` 的文件必须校验 `fs.NArg()`——**"多给的输入被静默丢掉"这个形状**（v0.12 D3）。牙齿已用探针验证 |
   | `TestV02ObservabilityAcceptance` 的 `--offline` 子用例 | `cmd/ngm`（**v0.13 加固为行为网**） | 冷 mirror + `--offline` ⇒ **0 次 git 子进程**，并配**暖 mirror 必须起 git** 的对照（v0.12 D1 的形状）。用 spawn 次数而不是输出文本 |
+  | `TestV14DryRunAndReadOnlyCommandsWriteNothing` | `cmd/ngm`（**v0.14 新增**） | 8 条 `--dry-run` + 4 条只读命令：项目目录与 ngm home **快照不变**（cache 层除外——按契约它可随时整层删除）。三条陪衬：走到了 dry-run 分支、残骸**先造后清**、对照（真 `add` 必须让快照变） |
+  | `TestV14EngineKindsWithoutBuiltinDefaultNeedDeclaration` | `cmd/ngm`（**v0.14 新增**） | 内置**默认选择**只覆盖 `bundle`/`transform`；`typeCheck`/`typeDecl`/`css` 未声明 = `exit 3`；esbuild 不是 css 引擎；**声明为 typeCheck 条目后**才是 `exit 5`（能力先于可用性）。同时钉住 4 处文档更正 |
+  | `TestV14EveryFlagBindingIsDereferenced` | `cmd/ngm`（**v0.14 新增**） | 扫源码：flag 绑定不许在注册处被丢弃（`_ = fs.String(...)`），且必须被解引用过（覆盖 76 处）。两条规则各用探针验证过会红；**会漏报**的边界写在注释里 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

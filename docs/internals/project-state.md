@@ -18,7 +18,9 @@
 >
 > **本轮暴露的空白**：`check-release-status.sh --published` 只问 GitHub。
 > Gitee 侧"到底有没有这个发行版"至今只能靠人去点——而本页那句错的"两个源都可取到"
-> 正是从这条空白里长出来的。已记入 v0.13 候选。
+> 正是从这条空白里长出来的。**已补**：v0.13 交付了平台无关的读数
+> （`bash scripts/check-gitee-release-status.sh`，Windows 入口 `.ps1` 转调同一个实现），
+> 并决定**故意不进 CI**——理由与触发条件见[发布清单](../development/README.md#发布清单每个版本)第 6 步。
 
 ---
 
@@ -66,6 +68,8 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | v0.10 | 检查推到最外圈 | 根 README 的链接与锚点 + "store 不完整"的两条承诺（实现 0 行改动） |
 | **v0.11** | **结项 + 第一次真回收** | **ADR-020~023**（4 项待决策全部结掉）+ **`store prune --orphans`**（层 2 第一次真回收）+ workflow YAML 门禁 + `cmd.WaitDelay` 修复 + 端到端复核 |
 | **v0.12** | **可信读数（含文档自己的读数）** | 文档三层纠偏 9 处 + **MIT 许可证** + 子命令帮助（并修掉一个死代码级缺陷）+ **六处静默失效缺陷** + 6 条机械网（命令行 flag 的第一张网） |
+| **v0.13** | **把缺陷形状固化成网** | 位置参数必须有界（探针验证）+ `--offline` 零 spawn（带对照）+ 一张**故意不做**的网；过期读数扫描修 6 处 + 2 处 ADR 补录。**产品代码 0 行改动** |
+| **v0.14** | **文档承诺 vs 实测行为对账** | 4 处文档更正（"esbuild 能做 css" 在**三个位置**各错一遍）+ **3 张新网**（dry-run 不写盘 / 引擎默认选择 / flag 绑定必须被解引用，覆盖 76 处绑定）。**非测试代码 0 行改动** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
