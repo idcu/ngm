@@ -131,10 +131,14 @@ project/ngm.vendor/
 - `ngm cache clean` 清空缓存层
 - content store 与 mirror 的 GC：由 [ADR-018](../adr/adr-018-store-reclaim.md) 裁定——
   **不做**按可达性自动删除的 GC（它依赖跨项目引用索引，而 ngm 没有，也不该去扫用户的磁盘）；
-  代之以 `ngm store usage`（只读占用报告）与 `ngm store prune`（**只清**解包残骸），
-  而真正能改变增长曲线的是**层 2 的写入侧去重**——布局改为 blob 池 + 树清单，
+  代之以 `ngm store usage`（只读占用报告）、`ngm store prune`（清解包残骸）
+  与 `ngm store prune --orphans`（**回收无人引用的 blob**，[ADR-023](../adr/adr-023-orphan-reclaim.md)，v0.11 落地）。
+  注意这三者的边界：**"无人引用"由构造可判定**（引用只可能来自 `trees/` 下的清单），
+  因此它不需要那个缺失的注册表；而**"某个 digest 还有没有人要"仍然不可判定**，那件事没有做。
+  真正能改变增长曲线的是**层 2 的写入侧去重**——布局改为 blob 池 + 树清单，
   schema 与迁移方案见 [ADR-019](../adr/adr-019-content-addressed-blobs.md)，**已由 v0.8 落地**。
-  **注意它改的是斜率，不是终点**：blob 同样只增不减，回收仍受 ADR-018 那两个条件约束。
+  **注意它改的是斜率，不是终点**：blob 仍然只会因为孤儿回收而减少，
+  受 ADR-018 那两个条件约束的那条路径没有变。
   纪律不变：[CLI 参考](../guides/cli.md) 不会预告一个不存在的 `ngm store gc`
 
 ---
@@ -160,7 +164,10 @@ project/ngm.vendor/
 2. **全量副本跨项目重复**：每个项目一份 vendor 副本，monorepo 下膨胀明显
 3. **提交 vendor 让 git 膨胀**：大依赖（如带 native 模块的包）不适合提交
 4. **hardlink 有平台限制**：需要同卷文件系统（Windows 需 NTFS），跨卷/网络文件系统自动降级复制
-5. **content store 只增不减**：v0.1 无 store GC，`ngm cache clean` 只能清缓存层
+5. **content store 只增不减**（**只对了一半**）：层 1（mirror）有 `git gc`，层 2 直到 v0.11 才有
+   **第一条**回收路径——`ngm store prune --orphans` 清掉无人引用的 blob（ADR-023）。
+   按可达性删除仍然不做，因此**已废弃但仍有清单引用的字节不会被回收**；
+   `ngm cache clean` 清的是层 4，与层 2 无关
 6. **hardlink 与 content store 共享 inode（就地写入会污染层 2）**：`auto`（默认）落地的是指向 content store 的**硬链接**，因此**就地修改 `ngm.vendor/` 中的文件会同时改写 content store**（同一 inode，不是副本）。更棘手的是后续 `ngm install` **不会察觉**——该 digest 目录已存在，写入被直接跳过，污染被原样保留。需要就地编辑依赖代码的场景请改用 `linkMode: "copy"`（写入副本，不影响层 2）。检测路径是 `ngm verify --deep`：从 mirror 重建规范化清单，并与**实际字节**逐文件比对（清单规则见 [ADR-008](../adr/adr-008-archive-digest.md)）
 
 ---

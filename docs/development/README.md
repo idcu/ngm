@@ -1,19 +1,22 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.8 均已交付**；**`v0.1.0` ~ `v0.8.0` 八个 tag 均已打**。
-> 其中 `v0.1.0` ~ `v0.4.0` 已在两个源上发布（后三版于 2026-10-01 补发，
-> Gitee 侧 2026-10-02 补齐），GitHub 上各有 7 个附件；
-> **`v0.5.0` ~ `v0.8.0` 的 tag 于 2026-10-02 补打**（附注 tag，已在 Gitee 与 GitHub 上）；
-> 但**镜像转发了 tag 却没有触发 `release.yml`**，所以那四版的 GitHub release 尚未生成
-> ——补发走 Actions → Release → **Run workflow**（见[发布清单](#发布清单每个版本)第 2 步）。
-> **2026-10-03：这两个动作（四个 release、Gitee 附件）由项目所有者决定暂缓**——
-> 是**有意延后**，不是遗漏；恢复时各是一条命令的事（见发布清单第 2 / 6 步）。
+> **当前阶段：v0.1 ~ v0.11 均已交付**；**`v0.1.0` ~ `v0.11.0` 十一个 tag 均已打**。
+> 发布是另一回事，且**2026-10-04 已直接问过两个源的 API**：
+> GitHub 有 11 个里的 7 个（缺 `v0.5.0` ~ `v0.8.0`），Gitee 只有 3 个
+> （`v0.2.0`/`v0.3.0`/`v0.4.0`，各 7 个附件）——**`v0.1.0` 在 Gitee 上没有发行版**，
+> 而本文件此前把它算成了"两个源都可取到"。逐版状态见[发布状态](../README.md#发布状态)。
 >
-> **`v0.9.0` / `v0.10.0` 的 tag 推送则都触发了发布**（各 7 个资产已复核）。
-> 同一路径、同一手法，批量推四个不触发、单独推两次都触发——**原因不明**，
-> 因此规则不是"它会不会触发"，而是"**打完必须验**"。
-> 首个提交 `a47b0ad` 已推送 Gitee 主仓并镜像到 GitHub，CI（GitHub Actions）三平台全绿。
-> "已交付 ⇔ 已打 tag"现在由 `scripts/check-release-status.sh`（CI job `release-status`）机械守住。
+> **`v0.5.0` ~ `v0.8.0` 的 release 仍未生成**：镜像转发了 tag 却没触发 `release.yml`。
+> 同一路径、同一手法，批量推四个不触发、单独推 `v0.9.0`/`v0.10.0`/`v0.11.0` 三次都触发
+> ——**原因不明**，因此规则不是"它会不会触发"，而是"**打完必须验**"。
+> 补发走 Actions → Release → **Run workflow**（见[发布清单](#发布清单每个版本)第 2 步）；
+> Gitee 侧走 `scripts/upload-gitee-assets.ps1`（需 `GITEE_TOKEN`）。
+> 2026-10-03 的"暂缓"已取消，这两件现在都只差**凭据**。
+>
+> 首个提交 `a47b0ad` 已推送 Gitee 主仓并镜像到 GitHub，CI（GitHub Actions）三平台全绿
+> （最近 10 次 run 全部 success）。
+> "已交付 ⇔ 已打 tag"由 `scripts/check-release-status.sh`（CI job `release-status`）机械守住；
+> "release 是否真的存在"由它的 `--published` 读取，**查不动时拒绝报成功**。
 >
 > | 版本 | 计划 | 复盘 | 一句话 |
 > |------|------|------|--------|
@@ -24,6 +27,7 @@
 > | v0.9 | [计划](./v0.9-plan.md) | [复盘](./v0.9-retrospective.md) | 让 store 的读数说真话（共享/独占/孤儿）+ 锚点检查 + 10 万级规模实测 |
 > | v0.10 | [计划](./v0.10-plan.md) | [复盘](./v0.10-retrospective.md) | 检查推到最外圈：根 README + store 不完整的两条承诺 |
 > | v0.11 | [计划](./v0.11-plan.md) | [复盘](./v0.11-retrospective.md) | 四项决策结项（ADR-020~023）+ **第一次真回收**（`store prune --orphans`）+ workflow YAML 门禁 + `WaitDelay` 修复 + 端到端复核 |
+> | v0.12 | [计划](./v0.12-plan.md) | 待写（交付后必须写，否则 `release-status` 会要求 tag） | 可信读数：文档三层纠偏 + MIT 许可证 + 子命令帮助真实现 + 五处"静默失效"缺陷 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -310,6 +314,8 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `gofmt -l` + 行尾 | `ci.yml` | 格式与 LF（golden 按字节比对，CRLF 会让它永久失配） |
   | `scripts/check-docs-links.sh` | `ci.yml` job `docs-links` | 文档**相对链接的目标文件是否存在**（**不校验锚点**——中文标题的 GitHub 锚点算法不复刻，见脚本头部） |
   | `scripts/check-release-status.sh` | `ci.yml` job `release-status` | **有复盘 ⇔ 有 tag**（"已交付"与"已发布"不许脱节） |
+  | `TestV12EveryRegisteredFlagIsDocumented` | `cmd/ngm`（**v0.12 新增**） | 扫源码：注册到 flagset 上的 flag 必须在该文件里被写下过（命令行 flag 此前**没有任何机械网**，配置结构体字段有 `field_wiring_test.go`） |
+  | `TestV12SubcommandHelpPrintsItsOwnUsage` | `cmd/ngm`（**v0.12 新增**） | 21 个命令的 `--help` **逐字等于**它自己的用法常量，且该常量以自己的名字开头 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅
@@ -379,8 +385,9 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    同样的路径、同样的手法，结果不一致——**原因不在本仓库可观测的范围内**。
    （这也顺带证明 `release.yml` 在加过 `workflow_dispatch` 之后，**tag 推送那条路仍然工作**。）
 
-   > **2026-10-03：本步对 `v0.5.0` ~ `v0.8.0` 暂缓**（项目所有者决定）——告警里报出的那四个
-   > 不是遗漏，是有意延后。恢复时按下面的两条做。
+   > **2026-10-03 的"暂缓"已于同日取消**（项目所有者决定）；2026-10-04 复核确认那四个仍未补。
+   > 成因是**凭据**（无 token 时 `POST /actions/workflows/…/dispatches` 返回 401），不是遗漏。
+   > 按下面的两条做。
 
    所以规则不是"它会不会触发"，而是"**打完必须验**"：
 

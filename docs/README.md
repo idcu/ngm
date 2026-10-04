@@ -3,17 +3,16 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.8 均已交付**，**`v0.1.0` ~ `v0.8.0` 八个 tag 均已打**；
-其中 `v0.1.0` ~ `v0.4.0` 已在两个源上发布，`v0.5.0` ~ `v0.8.0` 的 tag 于 2026-10-02 补打
-（GitHub release 等镜像转发，**Gitee 附件待上传**——见[发布状态](#发布状态)与
-[发布清单](./development/README.md#发布清单每个版本)）。各版计划与复盘见[开发总览](./development/README.md)；
+**当前状态：v0.1 ~ v0.11 均已交付**，**`v0.1.0` ~ `v0.11.0` 十一个 tag 均已打**。
+**"交付"与"发布"是两件事，这一页把它们分开写**：GitHub 上有 11 个里的 7 个 release，
+Gitee 上只有 3 个，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
+——那张表的数字是 2026-10-04 **直接问两个源的 API** 得到的，不是本页的记忆。
+
+各版计划与复盘见[开发总览](./development/README.md)；
 其中 v0.6 的[复盘](./development/v0.6-retrospective.md)含**跨机器可复现性的实测判定**
 （三平台 + 本机同值 `treeA=124f03b1de58091a`），v0.8 的[复盘](./development/v0.8-retrospective.md)
 记录了层 2 换布局：把"每 commit 复制一整棵树"的 **20.0×** 放大降到 **0.6×**。
-
-`v0.1.0` ~ `v0.4.0` 的附件在 **GitHub 与 Gitee 上各有 7 个**
-（六平台二进制 + `SHA256SUMS`，三平台 CI 全绿，含端到端验收与真实引擎集成）；
-两源的 `SHA256SUMS` 已逐个比对为**逐字节相同**，见[安装指南](./guides/installation.md)
+已发布版本的 `SHA256SUMS` 在两源上逐个比对为**逐字节相同**，见[安装指南](./guides/installation.md)
 与[发布清单](./development/README.md#补发记录2026-10-02gitee-侧)。
 
 本目录每篇文档都用**成熟度**标注可用范围，不会让规划中的能力看起来像已经能用：
@@ -260,18 +259,25 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.8 | 层 2 换布局（blob 池 + 树清单，[ADR-019](./adr/adr-019-content-addressed-blobs.md)）：先让消费方与布局解耦，再换布局 | **已交付**（[计划](./development/v0.8-plan.md) / [复盘](./development/v0.8-retrospective.md)：20.0× → 0.6×；一处用户可见的变化：`symlink` 落地模式退化） |
 | v0.9 | 让 store 的读数**说真话**：blob 池切成共享/独占/孤儿 + 锚点检查 | **已交付**（[计划](./development/v0.9-plan.md) / [复盘](./development/v0.9-retrospective.md)：blob 池切成共享/独占/孤儿 + 锚点检查 + 10 万级规模实测） |
 | v0.10 | 把检查推到**最外圈**：根 `README.md` 的链接与锚点 + "store 不完整"时的两条承诺 | **已交付**（[计划](./development/v0.10-plan.md) / [复盘](./development/v0.10-retrospective.md)：实现 **0 行**改动，钉的是既有承诺） |
+| v0.11 | 把挂着的四项决策**结掉**（[ADR-020](./adr/adr-020-remote-adapter-shelved.md)~[023](./adr/adr-023-orphan-reclaim.md)）+ 层 2 第一次真回收 + workflow YAML 门禁 | **已交付**（[计划](./development/v0.11-plan.md) / [复盘](./development/v0.11-retrospective.md)：三件决策的结论是"不做"，但都写明了重开条件） |
+| v0.12 | **可信读数**：文档三层纠偏 + MIT 许可证 + 子命令帮助真实现 + 五处"静默失效"缺陷（`outdated --offline` 触网、`--json --hook` 破坏 JSON、`css` 丢位置参数、`typedecl` 吞诊断、脚手架半套落盘） | **进行中**（[计划](./development/v0.12-plan.md)） |
 
 ### 发布状态
 
 **"交付"与"发布"是两件事**，这一页把它们分开写——因为本项目已经两次把后者漏掉
 （v0.2~v0.4，然后是 v0.5~v0.8）。
 
-| 版本 | 源码 | tag | GitHub release | Gitee 附件 |
-|------|------|-----|----------------|-----------|
-| `v0.1.0` | ✅ | ✅ | ✅ 7 个 | ✅ 7 个 |
-| `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个（2026-10-02 补） |
-| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在 GitHub 上） | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——**2026-10-03 决定暂缓**：恢复时走 **Actions → Release → Run workflow** | ⏳ 待上传（**暂缓**） |
-| `v0.9.0` / `v0.10.0` | ✅ | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ⏳ 待上传（**暂缓**） |
+| 版本 | 源码 | tag | GitHub release | Gitee 发行版 |
+|------|------|-----|----------------|-------------|
+| `v0.1.0` | ✅ | ✅ | ✅ 7 个资产 | ❌ **不存在**（复核：`/releases/tags/v0.1.0` 返回 `null`） |
+| `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个附件（2026-10-02 补，另附 2 个源码包） |
+| `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在两个源上） | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——2026-10-03 暂缓已取消，恢复时走 **Actions → Release → Run workflow** | ❌ 未上传（`scripts/upload-gitee-assets.ps1 -Tag v0.X.0`，需 `GITEE_TOKEN`） |
+| `v0.9.0` / `v0.10.0` / `v0.11.0` | ✅ | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ❌ 未上传（同上） |
+
+> **`v0.1.0` 这一格是本页此前写错的地方**：它写着 `v0.1.0` ~ `v0.4.0` "两个源都可取到"，
+> 而补发记录里从来只有 `v0.2.0`/`v0.3.0`/`v0.4.0` 三个——两处说法不一致时，**是 API 说了算**。
+> 同一条纪律的另一次体现：`v0.8` 复盘记的"tag 全在、release 一个没有"，
+> 而当时**没有任何检查会红**。
 
 > **"tag" 这一栏不再靠人记**：`scripts/check-release-status.sh`（CI job `release-status`）机械地
 > 要求**有复盘 ⇔ 有 tag**（按 `vX.Y` 配对），缺一边即红。它判据用的是复盘文件而不是计划里的
@@ -293,10 +299,10 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|------|
 | [guides/](./guides/) | 安装 / 快速上手 / 配置 / 依赖管理 / 构建 / CLI 参考 / 术语表 / Node vs Deno / 测试 / 发布 / 迁移 | 使用者 |
 | [architecture/](./architecture/) | 总览 / 运行时模型 / 信任模型 / vendor 4 层 / 引擎 adapter / 供应链 / 依赖解析 / 锁定 / 安全 / 可观测性 | 贡献者 |
-| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 019）与 ADR 流程 | 贡献者 |
+| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ 023）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
-| [development/](./development/) | 开发总览 / v0.1 ~ v0.10 实施计划与复盘 / v0.5 复核 | 维护者 |
+| [development/](./development/) | 开发总览 / v0.1 ~ v0.12 实施计划与复盘 / v0.5 复核 | 维护者 |
 | [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比（**能力矩阵与竞品表的引用方**） | 评估者 |
 
 ### 单一事实源（SSOT）约定
@@ -317,5 +323,8 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 
 ## 许可证
 
-**保留所有权利。** 本仓库未授予任何许可；代码与文档仅供查看与评估，复制、修改、分发或复用
-需事先获得作者书面许可。若将来添加许可证，以仓库根目录的 `LICENSE` 文件为准。
+**MIT** —— 见仓库根目录的 [`LICENSE`](../LICENSE)。
+
+此前这里写的是"保留所有权利、未授予任何许可"。那让**评估之后想用的人也无法合法使用**，
+而本项目的下一步恰恰是"找一个真实使用场景"：一个没人有权运行的工具，
+收集不到它唯一需要的那样东西。改动的记录见 [v0.12 计划](./development/v0.12-plan.md)。

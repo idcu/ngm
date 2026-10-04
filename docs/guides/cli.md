@@ -3,6 +3,13 @@
 > 成熟度列标注该命令自哪个版本可用；v0.1 ~ v0.4 的命令**均已实现**，v0.1 的由
 > [端到端验收](../development/v0.1-plan.md)守护，其后的由各版验收测试守护。
 > 未实现的命令不会静默成功——它们明确返回 `exit 3` 与可读提示。
+>
+> **全局 flag 的作用域（v0.12 修）**：`ngm --help` / `ngm --version` 输出根帮助与版本，
+> **`ngm <command> --help` 输出该命令自己的用法**——而且**就是**它参数错误时打印的那份文本
+> （各命令的 `xxxUsage` 常量），不是另写的第二份帮助。判据是**位置**：`--help` 出现在子命令
+> **之前**才算根级，因此 `ngm verify --help` 给你 verify 的用法，不是根帮助。
+> v0.12 之前这条是坏的：根级扫描跨越**整条**参数，子命令帮助那一分支永远走不到——
+> 它打印的 "help not yet implemented" 没有任何人见过。
 
 ---
 
@@ -20,17 +27,17 @@
 | `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（`typescript` = tsc，未装则 exit 5） | [构建](./build.md) |
 | `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
 | `ngm transform [<file>] [--engine=<name>] [--outfile=<path>] [--loader=<name>] [--target=<es20xx>] [--format=<fmt>] [--minify] [--sourcemap] [--dry-run]` | **单文件**转换（adapter）；输入默认走 **stdin**，产物默认走 stdout。**不解析导入**——那是 `ngm build`。loader 按 `--loader` → 文件扩展名（推断会说出来）→ `engines.transform.options.loader` 的顺序取；都不适用时**不猜**，"必须有 loader" 由引擎自己判（esbuild 会） | **v0.5 已实现** | [构建](./build.md) |
-| `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter） | v0.1（`esbuild`）；v0.2 增 `postcss`（无内建压缩，`--minify` 会被明确告知忽略） | [构建](./build.md) |
+| `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter）；**只接受一个输入文件**，多给的位置参数会**明确报错**（v0.12 之前是静默只编第一个，而 `ngm css dist/*.css` 这种 glob 展开很容易中招） | v0.1（`esbuild`）；v0.2 增 `postcss`（无内建压缩，`--minify` 会被明确告知忽略） | [构建](./build.md) |
 | `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
 | `ngm store usage` | 报告 content store 的占用：**只读**，按布局分组——blob 池（去重后的真实内容，并切成**共享 / 独占 / 孤儿**）、v2 树清单、v1 遗留树，各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现**；v0.8 输出按布局分组；**v0.9 加共享/独占/孤儿**（见下） | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) |
 | `ngm store prune [--dry-run] [--orphans] [--older-than=<dur>]` | 清掉**中断留下的解包残骸**（`.unpack-*`）。**不碰任何内容树**，并报告"留下了 N 份没动"。加 `--orphans` 时**额外**删掉"没有任何清单引用、且比门槛（默认 24h）更旧"的 blob | **v0.7 已实现**；`--orphans` **v0.11 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-023](../adr/adr-023-orphan-reclaim.md) |
 | `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
-| `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook=<script.js>]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存）；`--hook` 在沙箱里跑团队自己的策略（报告从 stdin 进入，否决 → exit 1） | **v0.2 已实现**；`--hook` **v0.3** | [供应链防护](../architecture/supply-chain.md) · [ADR-012](../adr/adr-012-sandbox.md) |
+| `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook=<script.js>]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存）；`--hook` 在沙箱里跑团队自己的策略（报告从 stdin 进入，否决 → exit 1）。`--json --hook` 时 hook 的横幅与它自己的 stdout **走 stderr**，stdout 保持是单个 JSON 文档（v0.12 修） | **v0.2 已实现**；`--hook` **v0.3** | [供应链防护](../architecture/supply-chain.md) · [ADR-012](../adr/adr-012-sandbox.md) |
 | `ngm why <dep> [--json]` | 该依赖的来源路径（有多个父节点时列出全部） | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm tree [--osv] [--offline] [--json]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv` | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
-| `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新" | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
+| `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新"，**并在行下打印原因**（v0.12：原因此前只存在于 `--json` 的 `note` 字段）；`--offline` **不触网**——冷 mirror 时报"没有本地镜像"而不是去 clone（v0.12 修） | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
 | `ngm integrations add <tool> [--dry-run] [--json]` | 生成 `vite` / `esbuild` / `deno` / `webpack` 集成配置（**不覆盖已有文件**，冲突 exit 3） | **v0.3 已实现** | [P5 — 外部工具集成](../modules/p5-integrations.md) |
 **content store 的回收**（[ADR-018](../adr/adr-018-store-reclaim.md) / [ADR-023](../adr/adr-023-orphan-reclaim.md)）：
@@ -61,7 +68,7 @@
 |----|-----------|------|
 | **共享**（shared by 2+ trees） | 去重省了多少 | 被 2 棵及以上内容树引用的 blob 字节和（若不去重，这一块要乘以引用数） |
 | **独占**（exclusive） | 丢掉某一棵树能回收多少 | 只被**那棵**树引用的 blob；每棵树一行，**只算 blob**——所以 `exclusive <= logical`，且各树独占之和**恰好**等于池里那一块 |
-| **孤儿**（orphaned） | 有多少空间没有任何人需要 | 没有任何清单引用的 blob。**不是"垃圾"的同义词**（也可能来自被删掉的项目），而且 `prune` **不会**清它 |
+| **孤儿**（orphaned） | 有多少空间没有任何人需要 | 没有任何清单引用的 blob。**不是"垃圾"的同义词**（也可能来自被删掉的项目）。`prune` 不带 `--orphans` 时**不会**动它；带上才清，且只清比年龄门槛更旧的 |
 
 > 每行那两列也要分开读：`logical` 是**逻辑体积**（共享 blob 会被重复计算，把所有行加起来
 > 会比 store 还大），`exclusive` 才是"丢掉它能回收多少"。

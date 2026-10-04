@@ -87,6 +87,11 @@ my-app
 > **done (v0.2)**。一条硬纪律：**查不到就报 `unknown`，绝不写"已是最新"**。
 > 因此 `--offline` 下的 branch 依赖是 `unknown` 而不是 `no`——"不知道"
 > 与"查过，确实没有"是两种结论，报告刻意把它们分开。
+>
+> **v0.12 起**，`unknown` 的行下会打印**原因**（此前原因只存在于 `--json` 的 `note` 字段里，
+> 于是默认输出只告诉用户"我不知道"、不告诉他该去修什么）；同时 `--offline` **不再触网**：
+> 冷 mirror 时报"没有本地镜像"，而不是退化成一次 clone（那样既违反 `--offline` 的契约，
+> 又会把报错引向"mirror 不可用"这个错误的方向）。
 
 ### 用途
 
@@ -110,6 +115,8 @@ github:org/A          v2.0.0     v2.1.0     tag    yes
 github:org/utils      v1.2.3     v1.3.0     tag    yes
 github:org/logger     main       main       branch yes (3 commits)
 github:org/legacy     abc123d    -          commit no
+github:org/offline    v1.0.0     -          tag    unknown
+  → --offline: no local mirror for github.com/org/offline
 ```
 
 ---

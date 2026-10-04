@@ -33,20 +33,22 @@
 > Gitee 的附件在每次发布后**手动**上传，因此只有**版本固定**地址（Gitee 没有 `latest/download` 形态）；
 > 若该地址 404，说明这一版的附件还没上传——改用 GitHub 或「方式二」。
 >
-> ✅ **当前可取性（2026-10-03）**：
+> ✅ **当前可取性（2026-10-04 直接问两个源的 API 得到）**：
 >
 > | 发行源 | 有附件的版本 |
 > |--------|------------|
-> | **GitHub** | `v0.1.0` ~ `v0.4.0`、**`v0.9.0`**、**`v0.10.0`**（各 7 个附件） |
-> | **Gitee** | `v0.1.0` ~ `v0.4.0`（各 7 个；`SHA256SUMS` 已与 GitHub 逐字节比对） |
+> | **GitHub** | `v0.1.0` ~ `v0.4.0`、**`v0.9.0`**、**`v0.10.0`**、**`v0.11.0`**（各 7 个附件） |
+> | **Gitee** | `v0.2.0` ~ `v0.4.0`（各 7 个附件 + 2 个源码包；`SHA256SUMS` 已与 GitHub 逐字节比对） |
 >
-> ⚠️ **两处已知的空缺，都是有意暂缓（2026-10-03，项目所有者决定）**：
+> ⚠️ **空缺有八处，成因是凭据而不是决定**：
 > ①`v0.5.0` ~ `v0.8.0` 的 GitHub release 未生成（镜像转发 tag 未触发发布工作流，
 > 补发见[发布清单](../development/README.md#发布清单每个版本)第 2 步）；
-> ②`v0.9.0` / `v0.10.0` 的 Gitee 附件待上传。
-> **换句话说：想要最新的产物请从 GitHub 取**（`v0.10.0`）；只在 Gitee 上取的话，
-> 最新是 `v0.4.0`——而 `v0.5` ~ `v0.10` 的功能（含 `store usage`、层 2 换布局）**都在源码里已交付**，
-> 用「方式二」编译即可拿到。
+> ② Gitee 侧缺 **`v0.1.0` 及 `v0.5.0` ~ `v0.11.0` 共八个版本**（需 `GITEE_TOKEN`）。
+> 两条路径都只差一个 token，而它们在网页上各是一条命令。
+>
+> **换句话说：想要最新的产物请从 GitHub 取**（`v0.11.0`）；只在 Gitee 上取的话，
+> 最新是 `v0.4.0`——而 `v0.5` ~ `v0.11` 的功能（含 `store usage`、`store prune --orphans`、
+> 层 2 换布局）**都在源码里已交付**，用「方式二」编译即可拿到。
 
 产物命名统一为 **`ngm-<os>-<arch>[.exe]`**，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
 
@@ -66,9 +68,9 @@
 ```bash
 # 先把 BASE 换成你选的下载源前缀：
 #   Gitee（国内推荐）: BASE=https://gitee.com/idcu/ngm/releases/download/v0.4.0
-#                      （Gitee 侧最新有附件的版本就是 v0.4.0，见上面的暂缓说明）
+#                      （Gitee 侧最新有附件的版本就是 v0.4.0，原因见上面的空缺说明）
 #   GitHub（上游）   : BASE=https://github.com/idcu/ngm/releases/latest/download
-#                      （想钉版本就用 .../releases/download/v0.10.0）
+#                      （想钉版本就用 .../releases/download/v0.11.0）
 
 # macOS (Apple silicon)
 curl -L "$BASE/ngm-darwin-arm64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm

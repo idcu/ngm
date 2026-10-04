@@ -4,31 +4,38 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.8 delivered in source** (`v0.1.0` … `v0.4.0` tagged and published, each with six
-platform binaries plus `SHA256SUMS`). `v0.5` was the convergence and delivery pass; `v0.6` made the
-remaining conclusions *decidable* (a git spawn budget as a CI gate, real-world reproducibility forms,
-measured content-store growth); `v0.7` made the content store's footprint **visible**
-(`ngm store usage`) and its residues reclaimable (`ngm store prune`); and `v0.8` replaced the layer-2
-layout with a **blob pool + tree manifests**, cutting the measured cost of 12 commits from
-**20.0× the real source delta to 0.6×** (`1.88 MiB → 59.9 KiB`).
+Status: **v0.1 … v0.11 delivered in source**, and all eleven tags `v0.1.0` … `v0.11.0` exist.
+`v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
+(a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
+growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
+residues reclaimable (`ngm store prune`); `v0.8` replaced the layer-2 layout with a
+**blob pool + tree manifests**, cutting the measured cost of 12 commits from
+**20.0× the real source delta to 0.6×** (`1.88 MiB → 59.9 KiB`); `v0.9` split that pool into
+*shared / exclusive / orphaned* so the numbers say what they mean; `v0.10` pushed the checks to
+the outermost ring (the root README's own links and anchors, and "the store is incomplete");
+`v0.11` closed the four open decisions (ADR-020…023, three of them "do not do this") and did the
+layer's **first real reclaim** — `ngm store prune --orphans`.
 Per-version plans and retrospectives live in [`docs/development/`](./docs/development/README.md);
 for a single-page assessment of **what works today, what is blocked and why** — plus how it compares
 to pnpm / npm / Yarn / Bun / Deno — see
 [`docs/internals/project-state.md`](./docs/internals/project-state.md).
 
-All eight tags `v0.1.0` … `v0.8.0` now exist (the last four were caught-up on 2026-10-02 after
-being delivered-but-untagged — the same mistake the release checklist's step 0 was written to
-prevent, made once for `v0.2`~`v0.4` and then again for four more versions). That pairing is no
-longer left to memory: `scripts/check-release-status.sh` (CI job `release-status`) requires
-**a retrospective ⇔ a tag**. See [`docs/README.md` §发布状态](./docs/README.md#发布状态) and
-[`docs/development/v0.8-retrospective.md`](./docs/development/v0.8-retrospective.md).
-The tags are on GitHub, but the mirror forwarding them did **not** trigger `release.yml`, so those
-four GitHub releases still have to be produced via Actions → Release → **Run workflow** (a
-`workflow_dispatch` entry added for exactly this); their Gitee attachments need the manual step too.
-Prebuilt binaries for `v0.1.0` … `v0.4.0` are available from **both** sources with identical
-`SHA256SUMS` (verified byte-for-byte); see
-[`docs/development/README.md`](./docs/development/README.md) for the release checklist and
-[`docs/guides/installation.md`](./docs/guides/installation.md) for which version is downloadable where.
+**Release state, read from the APIs on 2026-10-04** (not from this file's memory):
+
+| source | releases | what is missing |
+|--------|----------|-----------------|
+| GitHub | 7 of 11 | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | 3 of 11 | **`v0.1.0`**, plus `v0.5.0` … `v0.11.0` |
+
+The gap is a credential, not a decision: `POST /actions/workflows/…/dispatches` returns 401 without
+a token, and the Gitee uploader needs a `GITEE_TOKEN`. Both paths are one command once the credential
+exists — Actions → Release → **Run workflow** for the four, and
+`scripts/upload-gitee-assets.ps1 -Tag v0.X.0` for the rest. Until then,
+**`v0.4.0` is the newest version downloadable from both sources, and `v0.11.0` is the newest
+downloadable from GitHub.** Per-version downloadable state lives in
+[`docs/guides/installation.md`](./docs/guides/installation.md); the checklist that keeps
+"delivered" and "released" from drifting apart is in
+[`docs/development/README.md`](./docs/development/README.md#发布清单每个版本).
 
 > v0.8 changes one user-visible behaviour: the `symlink` link mode degrades to per-entry hardlinks
 > under the v2 layout (same disk savings, reported honestly); see
@@ -196,9 +203,16 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | M5 | `ngm verify` — three-level checks, drift classification, exit codes | done |
 | M6 | esbuild adapter, `ngm build` / `transform` / `typecheck` / `css` / `engines` | done |
 | M7 | End-to-end acceptance, cross-platform binaries, release pipeline | done |
-| v0.2 | OSV/`audit`, policy engine (minimumReleaseAge / allowlist / postInstallPolicy), `why` / `tree` / `outdated`, tsc·deno·postcss adapters, `install --frozen-lockfile` / `--offline` | delivered, untagged |
-| v0.3 | wasm adapter, Deno sandbox, enforced `permissions`, Vite / esbuild / Deno / Webpack scaffolds, mappings sub-paths | delivered, untagged |
-| v0.4 | `ngm typedecl`, `verify --signatures` / `--require-signed`, mechanical "declared but not wired" config check | delivered, untagged |
+| v0.2 | OSV/`audit`, policy engine (minimumReleaseAge / allowlist / postInstallPolicy), `why` / `tree` / `outdated`, tsc·deno·postcss adapters, `install --frozen-lockfile` / `--offline` | delivered · released |
+| v0.3 | wasm adapter, Deno sandbox, enforced `permissions`, Vite / esbuild / Deno / Webpack scaffolds, mappings sub-paths | delivered · released |
+| v0.4 | `ngm typedecl`, `verify --signatures` / `--require-signed`, mechanical "declared but not wired" config check | delivered · released |
+| v0.5 | online-verify cost & variance (ADR-015/016), ADR-013 re-open conditions judged, permission enforcement points audited, **v0.2~v0.4 catch-up releases** | delivered · tag only |
+| v0.6 | the spawn budget as a CI gate, cross-machine reproducibility evidence, measured store growth (20.0×) | delivered · tag only |
+| v0.7 | `ngm store usage` (read-only) and `ngm store prune` (residues only) | delivered · tag only |
+| v0.8 | layer 2 re-laid out as blob pool + tree manifests (ADR-019): 20.0× → 0.6× | delivered · tag only |
+| v0.9 | the store's readings say what they mean (shared / exclusive / orphaned) + anchor checks + 100k-blob scale | delivered · released |
+| v0.10 | checks pushed to the outermost ring: the root README itself, and "the store is incomplete" | delivered · released |
+| v0.11 | ADR-020…023 (four decisions closed), **first real reclaim** (`store prune --orphans`), workflow YAML gate, three `WaitDelay` fixes | delivered · released |
 
 ---
 
@@ -335,7 +349,10 @@ scripts/                 docs-link checkers, release builder (sh + ps1)
 
 ## License
 
-**All rights reserved.** No license is granted. This repository is published for viewing and
-evaluation; copying, modifying, redistributing or reusing it — in whole or in part — requires
-prior written permission from the author. A license may be added later; until then the above
-applies.
+**MIT** — see [`LICENSE`](./LICENSE).
+
+Earlier revisions of this file said "all rights reserved, no license granted". That made
+viewing the only thing anyone was permitted to do with it, which contradicts the one step
+this project still needs: a real user. The change is recorded in
+[`docs/development/v0.12-plan.md`](./docs/development/v0.12-plan.md), together with the other
+findings from the same review pass.

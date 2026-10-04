@@ -1,12 +1,13 @@
 # 路线图
 
 > ngm 的产品路线。**v0.1 ~ v0.11 均已交付**（证据见各版[复盘](../development/)与计划）。
-> `v0.1.0` ~ `v0.4.0` 均已打 tag 并发布，**GitHub 与 Gitee 两个源都可取到**
-> （2026-10-01 补齐后三版，2026-10-02 补齐 Gitee 侧附件，两源已比对）。
-> **`v0.5.0` ~ `v0.8.0` 的 tag 已于 2026-10-02 补打**（此前这四版"已交付但取不到"，
-> 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)）；但镜像转发 tag **没有触发**
-> `release.yml`，那四版的 GitHub release 尚未生成——补发走手动入口（Actions → Release →
-> Run workflow），Gitee 侧附件随后待上传。
+> **十一个 tag 全部已打**；发布则是另一回事，2026-10-04 直接问过两个源的 API：
+> GitHub 有 11 个里的 7 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
+> ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
+> **`v0.5.0` ~ `v0.8.0`** 的 tag 于 2026-10-02 补打（此前这四版"已交付但取不到"，
+> 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)），但镜像转发 tag **没有触发**
+> `release.yml`，那四版的 GitHub release 至今未生成——补发走手动入口（Actions → Release →
+> Run workflow）。两处空缺都只差**凭据**，不是技术问题。
 > **"已交付 ⇔ 已打 tag"现在有机械检查**（`scripts/check-release-status.sh`）——
 > 但"release 是否真的出来了"还没有，见[发布清单](../development/README.md#发布清单每个版本)。
 > **v0.11 把上一版挂着的四项决策全部结掉**（ADR-020~023），其中三件的结论是"不做"；
