@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.15 均已交付**；**`v0.1.0` ~ `v0.15.0` 十五个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.16 均已交付**；**`v0.1.0` ~ `v0.16.0` 十六个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -57,6 +57,7 @@
 > | v0.13 | [计划](./v0.13-plan.md) | [复盘](./v0.13-retrospective.md) | **把"缺陷形状"固化成网**：位置参数必须有界（探针验证）+ `--offline` 零 spawn（带对照），并记录一张**故意不做**的网；副产品是全仓过期读数扫描（修 6 处 + 2 处 ADR 补录） |
 > | v0.14 | [计划](./v0.14-plan.md) | [复盘](./v0.14-retrospective.md) | **把"文档承诺"与实测行为对账**：修 4 处（"esbuild 能做 css"在三个位置各错一遍）+ **3 张新网**（dry-run 不写盘 / 引擎默认选择 / flag 绑定必须被解引用）。**非测试代码 0 行改动** |
 > | v0.15 | [计划](./v0.15-plan.md) | [复盘](./v0.15-retrospective.md) | **两条对外契约钉成网**：文档示例命令必须成形（306 条 / 27 份活文档）+ 用法错误的退出码与流向（21 个命令 × 4 条契约）。顺带修掉一个真缺陷：解析错误绕过注入的 writer 直写进程 stderr |
+> | v0.16 | [计划](./v0.16-plan.md) | [复盘](./v0.16-retrospective.md) | **机器可读输出不能说谎**：`--json` 契约网（20 个状态 × 4 条规矩）+ 把机器接口的形状写进 [CLI 参考](../guides/cli.md)。产品代码 **0 行改动**；20 个状态上**没有产品缺陷** |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -353,6 +354,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV14EveryFlagBindingIsDereferenced` | `cmd/ngm`（**v0.14 新增**） | 扫源码：flag 绑定不许在注册处被丢弃（`_ = fs.String(...)`），且必须被解引用过（覆盖 76 处）。两条规则各用探针验证过会红；**会漏报**的边界写在注释里 |
   | `TestV15DocExamplesAreRealInvocations` | `cmd/ngm`（**v0.15 新增**） | **活文档**里的示例命令必须成形：子命令在运行时命令表里、flag 属于该命令（判据取自各命令的 usage 文本）。只扫代码块与行内跨度（整行扫描会误报）；`docs/development`、`docs/adr` 是快照，不扫；负例用**会自己过期**的名单登记 |
   | `TestV15UsageErrorsPrintOwnUsage` | `cmd/ngm`（**v0.15 新增**） | CLI 的用法错误契约（21 个命令）：`exit 3`、自己的用法进 **stderr**、**stdout 为空**、**没有任何字节绕过注入的 writer**（把进程 `os.Stderr` 收进管道断言为空）。对照：`--help` ⇒ exit 0 + 用法进 stdout。牙齿：摘掉 `SetOutput` ⇒ 报 800 字节泄漏 |
+  | `TestV16JSONReportsTellTheTruth` | `cmd/ngm`（**v0.16 新增**） | `--json` 契约（**20 个状态**、9 种命令形态）：stdout 是空或**恰好一份**合法 JSON、**`--json` 不改变退出码**、报告里的 `exitCode` 等于进程退出码、输入错误时 stdout 为空（失败态**不是**输入错误）。`audit` 用本地 OSV 替身保持离线。牙齿：把报告里的 `exitCode` 改成常量 ⇒ 三条状态断言红 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

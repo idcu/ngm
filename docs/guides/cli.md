@@ -108,6 +108,42 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。
 - **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
+  支持它的有 **7 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` / `integrations`。
+  各命令的**顶层形状**见下一节。
+
+---
+
+## `--json` 的形状（机器接口）
+
+这些形状**是接口**，不是实现细节。下表是**实测**的顶层形状（在 v0.16 之前，
+它们只存在于代码里——用户侧一个字都没有，写脚本的人只能靠试）：
+
+| 命令 | 顶层形状 | 带退出码字段 |
+|------|---------|------------|
+| `ngm verify --json` | 对象：`version` · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` | ✅ `summary.exitCode` |
+| `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
+| `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
+| `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked` | ✗ |
+| `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `locked` · `paths` · `rootDeclared` | ✗ |
+| `ngm outdated --json` | 对象：`offline` · `entries` · `dependencies` · `updates` · `stale` | ✗ |
+| `ngm engines list --json` | **数组**（每个元素是一行引擎） | ✗ |
+| `ngm engines info <name> --json` | **数组**（同名不同 kind 会各占一行：`esbuild` 同时是 bundler 与 transformer） | ✗ |
+| `ngm engines validate --json` | 对象：`version` · `ok` · `issues` | ✗ |
+
+> 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。
+> 其余命令返回的是"一份报告"，所以是对象。本页只如实记录两者的差异——
+> **统一形状是破坏性变更**，要另立决定，不在文档里顺手改。
+
+四条**每次调用都成立**的规矩（由 `TestV16JSONReportsTellTheTruth` 在 **20 个状态**上机械守住：
+17 次"带 `--json` 与不带"的对照 + 3 条输入错误路径）：
+
+1. stdout 要么为空、要么是**恰好一份**合法 JSON 文档——**不会出现半份**；
+2. **`--json` 不改变退出码**：同一状态、同一夹具下，带与不带它退同一个码；
+3. 报告里若带 `exitCode` / `summary.exitCode`，它**等于进程退出码**——机器可读输出不许说谎；
+4. **输入错误时 stdout 为空**（依赖不在图里、引擎不在目录里、工具名不合法）：
+   "我没有报告可给"不能用半份 JSON 表达。
+   注意反过来**不**成立：退出码非零**不**意味着 stdout 为空——`verify` 的失败态
+   **就是**一份完整报告（exit 1/2 时 stdout 里有整份 JSON），那正是脚本要读的东西。
 
 ---
 
