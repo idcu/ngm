@@ -389,18 +389,41 @@ func TestV02ObservabilityAcceptance(t *testing.T) {
 		}
 
 		// 退出码仍是 0：outdated 是**报告**，不设门禁（见它的 EXIT CODES）。
-		// 要固定的是两件事：不触网、且说得出为什么是 unknown。
+		// 要固定的是三件事：**不起 git**、说得出为什么是 unknown、且原因指向真正的原因。
+		//
+		// 第一件是**行为级**判据，也是这一组里最有牙齿的一条：clone / fetch / ls-remote
+		// 都要起 git 子进程，因此"零次 spawn"拦的是**行为**，而不是措辞——
+		// 换回在线版 EnsureMirror 时它必然非零（冷 mirror 会走一次 clone）。
+		git.ResetSpawnCount()
 		code, out := runCaptureCode(t, "outdated", "--offline", "--dir="+proj)
+		spawns := git.SpawnCount()
 		if code != 0 {
 			t.Fatalf("outdated reports; it does not gate. exit=%d\n%s", code, out)
+		}
+		if spawns != 0 {
+			t.Errorf("--offline must not reach for git at all (a cold mirror is either read locally or not read); spawned %d", spawns)
 		}
 		if !strings.Contains(out, "unknown") {
 			t.Errorf("a cold mirror under --offline is unknown, never 'no update':\n%s", out)
 		}
-		// 这一条是有牙齿的那一条：只有 offlineEnsureMirror 会产出 "no local mirror"。
-		// 换回在线版 EnsureMirror 时，note 会变成一次 clone 的失败原因（而且真的会去连网）。
+		// 只有 offlineEnsureMirror 会产出 "no local mirror"：换回在线版时，
+		// note 会变成一次 clone 的失败原因（而且真的会去连网）。
 		if !strings.Contains(out, "no local mirror") {
 			t.Errorf("the report must name the real cause (a missing local mirror) instead of fetching:\n%s", out)
+		}
+
+		// **对照**：把 mirror 重新种上，同一个命令、同一个 `--offline`，这次**必须**起 git
+		// （列出 tag 要读本地 mirror）。没有这一条，"零次 spawn"也可能只是因为计数器坏了
+		// ——一个恒为零的仪器能让上面那条永远变绿，正反两条合起来才说明它测的是行为。
+		// 注意 Reset 必须在 seedMirror **之后**：种镜像本身就要起 git。
+		seedMirror(t, "github:obs/cold", r.Dir)
+		git.ResetSpawnCount()
+		code, out = runCaptureCode(t, "outdated", "--offline", "--dir="+proj)
+		if code != 0 {
+			t.Fatalf("outdated with a warm mirror: exit=%d\n%s", code, out)
+		}
+		if n := git.SpawnCount(); n == 0 {
+			t.Error("reading a warm mirror's tags goes through git; a zero here means the counter is stuck, not that nothing was read")
 		}
 	})
 

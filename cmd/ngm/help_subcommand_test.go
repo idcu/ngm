@@ -168,6 +168,47 @@ func firstLine(s string) string {
 	return s
 }
 
+// TestV13PositionalArgsAreBounded 是一张**扫源码**的网：读了位置参数（`fs.Arg`）的
+// 命令文件，必须同时**校验位置参数个数**（`fs.NArg`）。
+//
+// 为什么需要它：`ngm css a.css b.css` 曾经只编译第一个、exit 0、一句话不说（v0.12 D3，
+// shell glob 展开是最常见的触发方式）。那次修的是**一个**文件，这张网管的是**这个形状**：
+// "多给的输入被丢掉"在 CLI 上不会自己暴露——用户没有理由怀疑自己丢了一半输入。
+//
+// 判据是**文件级**的：本目录每个命令都在自己的文件里解析自己的 flagset，
+// 因此"同文件里既有 `fs.Arg` 又有 `fs.NArg()`"与"每个命令都校验了"在当前代码上等价
+// （写这张网时逐个核对过）。**它可能漏报**：若将来某命令把解析搬到别的文件，
+// 文件级判据就看不见了——写在这里，因为漏报比误报更需要被知道。
+func TestV13PositionalArgsAreBounded(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readers := 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(raw)
+		if !strings.Contains(src, "fs.Arg(") {
+			continue
+		}
+		readers++
+		if !strings.Contains(src, "fs.NArg()") {
+			t.Errorf("%s reads a positional argument but never bounds how many it accepts "+
+				"(extra arguments would be silently dropped)", file)
+		}
+	}
+	if readers == 0 {
+		t.Fatal("no file reads a positional argument — a net that matches nothing is not a net")
+	}
+	t.Logf("checked %d file(s) that read positional arguments", readers)
+}
+
 // TestV12ExtraPositionalArgsAreRefused 固定"多给的输入不会被丢掉"。
 //
 // `ngm css` 是本目录里唯一**没有**位置参数计数校验的命令：`ngm css a.css b.css`
