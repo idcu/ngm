@@ -46,8 +46,12 @@ CI MODES (v0.2 F):
 
 EXIT CODES:
   0  installed
-  3  --frozen-lockfile and the lock is missing or out of sync with ngm.json
-  4  --offline and a required resource is not available locally
+  1  verifyOnLock is on and the post-install re-check found drift or a policy failure
+  2  integrity: a postinstall hook failed or timed out, or the vendored bytes did not verify
+  3  configuration, policy or lock error (a definition that does not parse,
+     --frozen-lockfile with a missing or out-of-sync lock, a policy that rejects the graph)
+  4  Git or network failure (including --offline with a missing local mirror)
+  5  a dependency declares a postinstall hook and Deno is missing or unusable
 `
 
 // runInstall 处理 `ngm install`。

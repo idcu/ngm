@@ -32,7 +32,7 @@
 | `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
 | `ngm store usage` | 报告 content store 的占用：**只读**，按布局分组——blob 池（去重后的真实内容，并切成**共享 / 独占 / 孤儿**）、v2 树清单、v1 遗留树，各自来自哪个 `repo@commit`，以及解包残骸 | **v0.7 已实现**；v0.8 输出按布局分组；**v0.9 加共享/独占/孤儿**（见下） | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) |
 | `ngm store prune [--dry-run] [--orphans] [--older-than=<dur>]` | 清掉**中断留下的解包残骸**（`.unpack-*`）。**不碰任何内容树**，并报告"留下了 N 份没动"。加 `--orphans` 时**额外**删掉"没有任何清单引用、且比门槛（默认 24h）更旧"的 blob | **v0.7 已实现**；`--orphans` **v0.11 已实现** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-023](../adr/adr-023-orphan-reclaim.md) |
-| `ngm config validate\|show` | 配置校验与查看 | v0.1 | [配置详解](./configuration.md) |
+| `ngm config validate\|show [--dir=<dir>]` | 配置校验与查看。**`validate` 校验 `--dir` 指向的项目**（v0.19 修：此前只认进程 CWD，且**没有 ngm.json 时照样打印 `ngm.json OK`**——CI 在错的目录里会拿到绿色假通过）；`show` 是查看，不设门禁 | v0.1（v0.19 修三处） | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
 | `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook=<script.js>]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存）；`--hook` 在沙箱里跑团队自己的策略（报告从 stdin 进入，否决 → exit 1）。`--json --hook` 时 hook 的横幅与它自己的 stdout **走 stderr**，stdout 保持是单个 JSON 文档（v0.12 修） | **v0.2 已实现**；`--hook` **v0.3** | [供应链防护](../architecture/supply-chain.md) · [ADR-012](../adr/adr-012-sandbox.md) |
 | `ngm why <dep> [--json] [--all]` | 该依赖的来源路径（有多个父节点时列出多条）。**默认最多枚举 64 条**并写明"还有更多"；`--all` 解除（[ADR-024](../adr/adr-024-bounded-explanations.md)：路径数是指数的，而图形状来自上游清单） | **v0.2 已实现**（上界 **v0.17**） | [可观测性](../architecture/observability.md) |

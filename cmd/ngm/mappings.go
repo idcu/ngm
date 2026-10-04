@@ -20,6 +20,11 @@ SUBCOMMANDS:
 
 FLAGS:
   --dir      project directory (default: .)
+
+EXIT CODES:
+  0  every mapping is consistent
+  3  configuration error: unknown subcommand, ngm.mappings.json missing or malformed,
+     or a mapping does not match the lock / the vendor tree
 `
 
 // runMappings 处理 `ngm mappings <subcommand>`。

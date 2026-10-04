@@ -335,6 +335,9 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 # 校验配置是否符合 schema
 ngm config validate
 
+# 校验另一个目录里的项目（v0.19 起支持；此前只能先 cd 过去）
+ngm config validate --dir=../other-project
+
 # 查看当前生效的配置（合并内置/全局/项目三级）
 ngm config show
 

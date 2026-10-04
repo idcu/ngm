@@ -31,6 +31,8 @@
 | [ADR-021](./adr-021-symlink-link-mode.md) | `symlink` 落地模式**保留降级** | 已定（2026-10-03）：不实现"按需物化一棵 hardlink 树"；触发条件是"具体的工具/流程要求 + 实测数字" |
 | [ADR-022](./adr-022-verify-performance-target.md) | verify 的性能目标改为**次数门禁 + 秒数观测** | 已定（2026-10-03）：3s 不再是验收目标（v0.5 实测它在噪声里不可判别）；门禁是 spawn 预算 |
 | [ADR-023](./adr-023-orphan-reclaim.md) | 回收**无人引用的 blob**（`store prune --orphans`） | 已定**并已实施**（2026-10-03）：只删"没有任何清单引用 + 比门槛更旧"的字节；**有清单读不出来时拒绝删除**；仍不做按可达性删除 |
+| [ADR-024](./adr-024-bounded-explanations.md) | 解释输出**必须有界** | 已定**并已实施**（2026-10-04）：`why` 默认最多 64 条路径、`tree` 默认最多 4096 个条目；达到上界**必须说出来**，`--all` 解除 |
+| [ADR-025](./adr-025-no-builtin-engine-defaults.md) | 引擎选择**不设内置默认** | 已定（2026-10-04）：`typeCheck` / `typeDecl` / `css` 三个 kind **刻意不预置**；缺声明 → `exit 3`，声明了但未装 → `exit 5；报错必须点名 kind 并指向 ` |
 | [ADR-024](./adr-024-bounded-explanations.md) | 解释输出**必须有界**（`why` 的路径枚举 / `tree` 的展开） | 已定**并已实施**（2026-10-04）：`why` 默认最多 **64** 条路径、`tree` 默认最多 **4096** 个条目；达到上界**必须说出来**（`pathsTruncated` / `entriesTruncated` + 文字里那句），`--all` 显式解除，退出码不变。实测：**41 个节点 → 1 048 576 条路径 / 626 MB**，而图的形状来自上游清单 |
 
 ---

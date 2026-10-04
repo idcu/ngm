@@ -42,7 +42,12 @@ NOTES:
   references at all. That is decidable by construction (no registry needed), and it is
   age-guarded because "ngm install" writes bytes before it publishes the manifest they
   belong to. See docs/adr/adr-023-orphan-reclaim.md.
-`
+
+  EXIT CODES:
+  0  reported (usage) or finished (prune) — "nothing to do" is still 0
+  3  configuration error: unknown subcommand, or a manifest could not be read
+  (prune refuses to delete anything in that case)
+  `
 
 // runStore 处理 `ngm store <subcommand>`。
 //

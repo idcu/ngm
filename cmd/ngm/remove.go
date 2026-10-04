@@ -24,6 +24,11 @@ NOTES:
   This command edits the *declaration* only. ngm.lock records what was resolved,
   so it is refreshed by "ngm install" — that keeps a single writer for the lock
   and avoids a half-updated state when the graph cannot be re-resolved.
+
+EXIT CODES:
+  0  the declaration was removed
+  3  configuration error: the slug is not declared in ngm.json, or the manifest
+     could not be read or written
 `
 
 // runRemove 处理 `ngm remove <dep>`。

@@ -32,6 +32,11 @@ EXAMPLES:
   ngm add github:my-org/utils@v1.2.3 --ref-type tag
   ngm add github:my-org/logger@main   --ref-type branch
   ngm add github:my-org/monorepo#path=packages/core@v2.0.0 --ref-type tag
+
+EXIT CODES:
+  0  the declaration was written (or printed, with --dry-run)
+  3  configuration error: --ref-type missing, the git address could not be parsed,
+     or ngm.json could not be read or written
 `
 
 // runAdd 处理 `ngm add <git-url>[@<ref>] --ref-type <type>`。
@@ -134,7 +139,7 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "%s %s@%s (%s) in %s\n", verb, dep.Name, dep.Ref, dep.RefType, cfgPath)
 	if added {
-		fmt.Fprintln(stdout, "next: run `ngm install` to resolve and lock (M3)")
+		fmt.Fprintln(stdout, "next: run `ngm install` to resolve and lock")
 	}
 	return 0
 }

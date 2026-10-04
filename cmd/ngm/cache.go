@@ -19,6 +19,10 @@ SUBCOMMANDS:
 NOTES:
   The cache layer never holds the only copy of anything: provability is
   guaranteed by mirror + content store + lock. Deleting it only costs speed.
+
+EXIT CODES:
+  0  the cache was emptied (also when it was already empty)
+  3  configuration error: unknown subcommand
 `
 
 // runCache 处理 `ngm cache <subcommand>`。

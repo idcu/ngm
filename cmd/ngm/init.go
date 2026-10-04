@@ -30,6 +30,11 @@ WRITES:
   The generated ngm.json points "main" at that entry, so the quickstart flow
   (init -> add -> install -> verify -> build) works without extra arguments.
   An existing src/index.ts is never overwritten, not even with --force.
+
+EXIT CODES:
+  0  the project files were created
+  3  configuration error: --runtime is not node|deno, the target already holds an
+     ngm.json, or a file could not be written
 `
 
 // initEntryRel 是 `ngm init` 生成的入口文件（相对项目根）。

@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.18 均已交付**；**`v0.1.0` ~ `v0.18.0` 十八个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.19 均已交付**；**`v0.1.0` ~ `v0.19.0` 十九个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -361,6 +361,9 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV17ExplanationIsBoundedEndToEnd` | `cmd/ngm`（**v0.17 新增**） | 上界的**接线**（15 个真实仓库的格状图，128 条路径）：默认 64 条且两种输出都写明、`--all` 给全部、`tree` 在预算内不被标记。牙齿：摘掉默认上界 ⇒ `paths=128 want 64` |
   | `TestV17DocOutputExamplesMatchTheGoldens` | `cmd/ngm`（**v0.17 新增**） | **输出示例**与快照同形（v0.15 钉的是**命令**示例）：从 `observability.md` 取出两段示例，归一化后与 `testdata/*.golden` 逐行比较；缩进/标签/标记不许漂。牙齿：改回旧的 `├──` 形状 ⇒ 点名 `tree.golden` |
   | `TestV18RealUpstreamFirstRun` | `cmd/ngm`（**v0.18 新增**，**默认跳过**） | **可选联网复核**：只在本项目能控制的事上断言（真实 ref 解析、无 `ngm.json` 的真仓库、`archiveDigest` 跨独立项目逐字相同、坏仓库必须点名自己）；联网部分**只记录**，远端不可达（exit 4）判为"未证明"并 skip。跑法：`NGM_REAL_UPSTREAM=1 go test -count=1 -timeout 1200s -run TestV18RealUpstreamFirstRun -v ./cmd/ngm` |
+  | `TestV19EveryCommandDocumentsItsExitCodes` | `cmd/ngm`（**v0.19 新增**） | 每个命令的用法文本必须有 `EXIT CODES` 段，且段内至少一行 `<0-5> <说明>`。补上 8 个命令缺失的段，并修正 `install` 漏掉的 2 / 5（它有代码路径与既有测试支撑）。**它不证明"列全了"**（那需要数据流分析） |
+  | `TestV19NoInternalStageLabelsInUserFacingText` | `cmd/ngm` + `internal/**`（**v0.19 新增**，用 `go/scanner`） | 用户可见的**字符串字面量**里不许出现内部阶段标签 `M\d`（`M0…M7` 是内部里程碑编号）。**注释里可以出现**（那是设计记录），**字符串里不行**（那会打印给人看）。大小写敏感——否则 `sha256.Sum256` 里的 `m2` 会被误判 |
+  | `TestV19ConfigValidatesTheDirectoryItIsToldTo` | `cmd/ngm`（**v0.19 新增**） | `config validate` 的三条契约：① 校验 **`--dir` 指向的项目**（此前只认进程 CWD，多余的 `--dir=x` 被当成位置参数静默丢掉）② 目标目录没有 `ngm.json` → **exit 3**（此前打印 `ngm.json OK`）③ 多余位置参数 → **exit 3 + 用法**。对照：`config show` 是查看，不设门禁（exit 0，但写明项目层缺席） |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

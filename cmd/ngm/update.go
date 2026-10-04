@@ -31,8 +31,19 @@ FLAGS:
   --store     populate the content store with the resolved content (implies --digest)
 
 NOTES:
-  M1 阶段本命令完成"refType → commit"的重新解析并输出结果；
-  ngm.lock 的写入与 root-wins 冲突裁决属于 M3。
+  This is the *re-resolving* writer: it rewrites ngm.lock and materializes the
+  vendor tree (install follows the lock and never re-resolves). A root declaration
+  wins over a transitive one; the settlement is printed. Dependencies declare
+  postinstall hooks that run in a Deno sandbox (see ngm install).
+
+EXIT CODES:
+  0  updated: the lock was rewritten and the vendor tree is in place
+  1  verifyOnLock is on and the post-update re-check found drift or a policy failure
+  2  integrity: a postinstall hook failed or timed out, or the vendored bytes did not verify
+  3  configuration, policy or lock error (nothing selected, a definition that does not
+     parse, or a policy that rejects the graph)
+  4  Git or network failure (including --offline with a cold mirror)
+  5  a dependency declares a postinstall hook and Deno is missing or unusable
 `
 
 // runUpdate 处理 `ngm update [<dep>|--all]`。
