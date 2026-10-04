@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.11 delivered in source**, and all eleven tags `v0.1.0` … `v0.11.0` exist.
+Status: **v0.1 … v0.15 delivered in source**, and all fifteen tags `v0.1.0` … `v0.15.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -221,6 +221,10 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.9 | the store's readings say what they mean (shared / exclusive / orphaned) + anchor checks + 100k-blob scale | delivered · released |
 | v0.10 | checks pushed to the outermost ring: the root README itself, and "the store is incomplete" | delivered · released |
 | v0.11 | ADR-020…023 (four decisions closed), **first real reclaim** (`store prune --orphans`), workflow YAML gate, three `WaitDelay` fixes | delivered · released |
+| v0.12 | made the project's own readings honest: three-tier documentation corrections (9), **MIT license**, real `ngm <cmd> --help`, six "silent failure" defects, and the first net over command-line flags | delivered · released |
+| v0.13 | turned defect *shapes* into nets (positional arguments must be bounded; `--offline` must spawn no git at all) — and recorded one net that was **deliberately not built**, because it would miss the case it targets | delivered · released |
+| v0.14 | reconciled the documentation with measured behaviour: four corrections (one fact wrong in three separate places) + three nets (dry-run writes nothing; which engine kinds get a built-in default; every flag binding must be dereferenced) | delivered · released |
+| v0.15 | pinned two external contracts: documented example commands must be real invocations (306 examples / 27 living docs), and usage errors must be distinguishable (exit 3, own usage on **stderr**, empty stdout, nothing leaking past the injected writer) | delivered · released |
 
 ---
 

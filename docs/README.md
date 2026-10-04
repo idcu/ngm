@@ -3,7 +3,7 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.14 均已交付**，**`v0.1.0` ~ `v0.14.0` 十四个 tag 均已打**。
+**当前状态：v0.1 ~ v0.15 均已交付**，**`v0.1.0` ~ `v0.15.0` 十五个 tag 均已打**。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
 **"交付"与"发布"是两件事，这一页把它们分开写**：14 个 tag 里，GitHub 上有 **10 个** release，
@@ -274,6 +274,8 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.11 | 把挂着的四项决策**结掉**（[ADR-020](./adr/adr-020-remote-adapter-shelved.md)~[023](./adr/adr-023-orphan-reclaim.md)）+ 层 2 第一次真回收 + workflow YAML 门禁 | **已交付**（[计划](./development/v0.11-plan.md) / [复盘](./development/v0.11-retrospective.md)：三件决策的结论是"不做"，但都写明了重开条件） |
 | v0.12 | **可信读数**：文档三层纠偏（9 处）+ MIT 许可证 + 子命令帮助真实现 + **六处**"静默失效"缺陷（`outdated --offline` 触网、`--json --hook` 破坏 JSON、`css` 丢位置参数、`typedecl` 吞诊断、脚手架半套落盘、端口被静默丢弃）+ 6 条机械网 | **已交付**（[计划](./development/v0.12-plan.md) / [复盘](./development/v0.12-retrospective.md)：唯一的功能增量是子命令帮助，其余全是把读数修准） |
 | v0.13 | 把 **"缺陷形状"固化成网**：位置参数必须有界（源网，带探针验证）+ `--offline` 零 spawn（行为网，带对照），并记录一张**故意不做**、会漏报的网 | **已交付**（[计划](./development/v0.13-plan.md) / [复盘](./development/v0.13-retrospective.md)：产品代码 **0 行改动**，交付是两张网加一轮过期读数扫描） |
+| v0.14 | **文档承诺 vs 实测行为**：4 处更正（"esbuild 能做 css" 在**三个位置**各错一遍）+ 3 张网（dry-run 不写盘 / 引擎默认选择 / flag 绑定必须被解引用，覆盖 76 处） | **已交付**（[计划](./development/v0.14-plan.md) / [复盘](./development/v0.14-retrospective.md)：**非测试代码 0 行改动**） |
+| v0.15 | **两条对外契约钉成网**：文档示例命令必须成形（306 条 / 27 份活文档）+ 用法错误的退出码与流向（21 个命令 × 4 条契约，含"没有字节绕过注入的 writer"） | **已交付**（[计划](./development/v0.15-plan.md) / [复盘](./development/v0.15-retrospective.md)：顺带修掉"解析错误绕过注入 writer 直写进程 stderr"的真缺陷） |
 
 ### 发布状态
 
