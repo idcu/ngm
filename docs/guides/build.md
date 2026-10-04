@@ -93,14 +93,31 @@ ngm build --engine=deno
 ### esbuild 不做类型检查
 
 这是一个容易踩的坑：`ngm build` 通过（甚至很顺利）**不代表类型是干净的**——
-esbuild 只删类型标注。把 esbuild 声明为 `typeCheck` 引擎会被明确拒绝（`exit 5`）而不是"当作通过"：
+esbuild 只删类型标注。把 esbuild 当作 `typeCheck` 引擎会被明确拒绝（`exit 5`）而不是"当作通过"。
+
+**但要注意这一步的前提**（v0.14 实测补上）：`--engine=<name>` 的名字是**按 kind 查**的，
+而内置清单里 `esbuild` 只覆盖 `bundle` / `transform`——所以**没声明**时它连能力检查都走不到，
+直接是配置错误（`exit 3`）：
 
 ```bash
-$ ngm typecheck --engine=esbuild
-EngineNotFound: typeCheck: esbuild: esbuild does not type-check: it only strips type annotations
-  hint:  use the built-in `typescript` engine instead: pass --engine=typescript,
-         or set "typeCheck": "typescript" in ngm.json
+$ ngm typecheck --engine=esbuild          # 未声明 esbuild 为 typeCheck 引擎
+ConfigInvalid: no `typeCheck` engine named "esbuild" in the catalog
+  hint:  pick one of the known engines, or declare yours in ngm.engines.json
+         (available: self, typescript)
 ```
+
+**声明之后**才走到能力检查（`exit 5`，正是这一节要说明的那个拒绝）：
+
+```bash
+# 先在 ngm.engines.json 里加一条 {"name":"esbuild","kind":"typeCheck",...}
+$ ngm typecheck --engine=esbuild
+EngineNotFound: esbuild does not type-check: it only strips type annotations
+  hint:  use the built-in `typescript` engine instead: pass --engine=typescript,
+         or set "typeCheck": "typescript" in ngm.json (see modules/p4-ecosystem.md)
+```
+
+**两个退出码的差别不是措辞问题**：`3` 说的是"你的清单里没有这个名字"，
+`5` 说的是"这个名字存在，但它干不了这件事"——修法不同（改名字 vs 换个引擎）。
 
 ### 先看清 ngm 会怎么调引擎
 

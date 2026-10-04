@@ -28,9 +28,9 @@
 | Transform | subprocess | esbuild | done (v0.1)；**命令入口 v0.5** | `ngm transform`：单文件、走 stdin/stdout、**不解析导入**（那是一 bundle 的事） |
 | Bundle | subprocess | esbuild | done (v0.1) | `ngm build` |
 | Tree-Shaking | 不内置 | esbuild 原生 | n/a | 依赖引擎 |
-| Type Check | subprocess | tsc / deno | done (v0.2) | tsc 内置（`optional`，未装不算 issue）；deno 需自行声明 |
+| Type Check | subprocess | tsc / deno | done (v0.2) | `tsc` 在**内置清单**里（`optional`，未装不算 catalog 问题），但**需要声明** `engines.typeCheck` 或 `--engine`：内置的**默认选择**只覆盖 bundle / transform（v0.14 实测并改正，此前写成"内置、装了就能用"）；deno 需自行声明 |
 | .d.ts 生成 | subprocess | tsc | done (v0.2) | 同上 |
-| CSS/SCSS | subprocess | postcss / esbuild | done (v0.2) | postcss 无内建压缩，`--minify` 会**明确告知**被忽略 |
+| CSS/SCSS | subprocess | postcss | done (v0.2) | **此处此前写 `postcss / esbuild` 是错的**：实测 `ngm css --engine=esbuild` 报"no css engine named esbuild"，可用的是 `postcss`、`self`。postcss 无内建压缩，`--minify` 会**明确告知**被忽略 |
 
 ---
 
