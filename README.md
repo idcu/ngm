@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.16 delivered in source**, and all sixteen tags `v0.1.0` … `v0.16.0` exist.
+Status: **v0.1 … v0.17 delivered in source**, and all seventeen tags `v0.1.0` … `v0.17.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -226,6 +226,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.14 | reconciled the documentation with measured behaviour: four corrections (one fact wrong in three separate places) + three nets (dry-run writes nothing; which engine kinds get a built-in default; every flag binding must be dereferenced) | delivered · released |
 | v0.15 | pinned two external contracts: documented example commands must be real invocations (306 examples / 27 living docs), and usage errors must be distinguishable (exit 3, own usage on **stderr**, empty stdout, nothing leaking past the injected writer) | delivered · released |
 | v0.16 | pinned the machine-readable surface: a `--json` contract over 20 states (exactly one JSON document; the flag never changes the exit code; `exitCode` inside a report equals the process code; input errors leave stdout empty) — and wrote the shapes down where users can read them | delivered · released |
+| v0.17 | bounded the explanations: `why` enumerates at most 64 paths and `tree` expands at most 4096 entries by default — the count is exponential in graph width (41 nodes produced over a million paths / 626 MB) and the graph's shape comes from upstream manifests, so both say so when they stop, and `--all` lifts the bound (ADR-024) | delivered · released |
 
 ---
 

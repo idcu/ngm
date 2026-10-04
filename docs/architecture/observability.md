@@ -45,17 +45,31 @@
 ### 输出
 
 ```
-$ ngm why github:org/utils
+github:snap/leaf@v1 (tag) → <sha>
 
-github:org/utils@v1.2.3 (tag)
-├── 直接依赖：ngm.json
-└── 传递依赖：
-    └── github:org/A@v2.0.0 → ngm.json
-        └── github:org/utils@v1.2.3 (tag)
+直接依赖：否
+传递依赖：1 条路径
+  ngm.json → github:snap/parent@v1 → github:snap/leaf@v1
 
-锁定：abc123def (2026-09-20)
-archiveDigest: sha256:9f86d081...
+锁定：<sha> (<time>)
+archiveDigest: sha256:<digest>
 ```
+
+> **这一段就是快照**（`cmd/ngm/testdata/why.golden`）：它由 `TestV02ObservabilityGolden`
+> 生成，并由 `TestV17DocOutputExamplesMatchTheGoldens` 与本页**逐行对照**。
+> 改输出就要同时改这两处。本页此前画的是**渲染器从不产生的形状**（树形方块 + `├──`），
+> 而本页开头又声明"输出即当前真实行为"——两张网里，是快照说了算。
+
+**上界（v0.17，[ADR-024](../adr/adr-024-bounded-explanations.md)）**：
+默认最多枚举 **64** 条路径。达到上界时那一行变成
+
+```
+传递依赖：已列出 64 条（枚举达到上限 64，还有更多未列出；用 --all 展开全部）
+```
+
+`--json` 里对应 `pathsTruncated: true` 与 `pathsLimit: 64`；`--all` 解除上界。
+**为什么**：路径数在图"宽"时是指数的（实测 41 个节点 → 1 048 576 条路径 / 626 MB），
+而图的形状来自**上游的 `ngm.json`**——不是本项目的输入。
 
 ---
 
@@ -70,15 +84,31 @@ archiveDigest: sha256:9f86d081...
 ### 输出
 
 ```
-my-app
-├── github:org/A@v2.0.0 (tag) → fedcba987
-│   ├── github:org/B@v1.5.0 (tag) → 123456789
-│   └── github:org/C@v3.1.0 (branch) → abcdef012
-├── github:org/utils@v1.2.3 (tag) → abc123def
-└── github:org/logger@main (branch) → def456abc ⚠ 漂移
+github.com:my-org/app
+github:snap/parent@v1 (tag) → <sha>
+│   github:snap/leaf@v1 (tag) → <sha>
+vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)
 ```
 
-`⚠` 标记有漂移的 ref。
+> 与 why 一样，**这一段就是快照**（`cmd/ngm/testdata/tree.golden`），
+> 由 `TestV17DocOutputExamplesMatchTheGoldens` 逐行对照。
+> 层级由**缩进**体现（子节点前缀 `│   `）——本页此前画的是 `├──`/`└──` 方框，
+> 那是渲染器从不产生的形状。
+
+`⚠` 标记有漂移的 ref；`↺` 标记环（`cycle, not expanded`）；
+`…` 标记展开预算在此用尽（见下）。
+
+**上界（v0.17，[ADR-024](../adr/adr-024-bounded-explanations.md)）**：
+默认最多展开 **4096** 个条目。达到时报告末尾写明
+
+```
+（展开达到上限 4096，树不完整；用 --all 展开全部）
+```
+
+停止处的条目带 `… 此处达到展开上限（还有子节点未列出）`；`--json` 里对应
+`entriesTruncated` / `entriesLimit`（以及该条目上的 `truncated`）。`--all` 解除上界。
+**为什么**：树是**按路径展开**的，条目数与 why 的路径数是同一个量级（同一实测），
+而它还要把每条路径渲染出来。
 
 ---
 
