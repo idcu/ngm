@@ -3,7 +3,9 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.11 均已交付**，**`v0.1.0` ~ `v0.11.0` 十一个 tag 均已打**。
+**当前状态：v0.1 ~ v0.12 均已交付**，**`v0.1.0` ~ `v0.12.0` 十二个 tag 均已打**。
+v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
+许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
 **"交付"与"发布"是两件事，这一页把它们分开写**：GitHub 上有 11 个里的 7 个 release，
 Gitee 上只有 3 个，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-04 **直接问两个源的 API** 得到的，不是本页的记忆。
@@ -260,7 +262,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.9 | 让 store 的读数**说真话**：blob 池切成共享/独占/孤儿 + 锚点检查 | **已交付**（[计划](./development/v0.9-plan.md) / [复盘](./development/v0.9-retrospective.md)：blob 池切成共享/独占/孤儿 + 锚点检查 + 10 万级规模实测） |
 | v0.10 | 把检查推到**最外圈**：根 `README.md` 的链接与锚点 + "store 不完整"时的两条承诺 | **已交付**（[计划](./development/v0.10-plan.md) / [复盘](./development/v0.10-retrospective.md)：实现 **0 行**改动，钉的是既有承诺） |
 | v0.11 | 把挂着的四项决策**结掉**（[ADR-020](./adr/adr-020-remote-adapter-shelved.md)~[023](./adr/adr-023-orphan-reclaim.md)）+ 层 2 第一次真回收 + workflow YAML 门禁 | **已交付**（[计划](./development/v0.11-plan.md) / [复盘](./development/v0.11-retrospective.md)：三件决策的结论是"不做"，但都写明了重开条件） |
-| v0.12 | **可信读数**：文档三层纠偏 + MIT 许可证 + 子命令帮助真实现 + 五处"静默失效"缺陷（`outdated --offline` 触网、`--json --hook` 破坏 JSON、`css` 丢位置参数、`typedecl` 吞诊断、脚手架半套落盘） | **进行中**（[计划](./development/v0.12-plan.md)） |
+| v0.12 | **可信读数**：文档三层纠偏（9 处）+ MIT 许可证 + 子命令帮助真实现 + **六处**"静默失效"缺陷（`outdated --offline` 触网、`--json --hook` 破坏 JSON、`css` 丢位置参数、`typedecl` 吞诊断、脚手架半套落盘、端口被静默丢弃）+ 6 条机械网 | **已交付**（[计划](./development/v0.12-plan.md) / [复盘](./development/v0.12-retrospective.md)：唯一的功能增量是子命令帮助，其余全是把读数修准） |
 
 ### 发布状态
 
@@ -273,6 +275,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | `v0.2.0` / `v0.3.0` / `v0.4.0` | ✅ | ✅（2026-10-01 补） | ✅ 各 7 个 | ✅ 各 7 个附件（2026-10-02 补，另附 2 个源码包） |
 | `v0.5.0` ~ `v0.8.0` | ✅ | ✅（2026-10-02 补打，附注 tag，已在两个源上） | ❌ **未生成**（镜像转发 tag 未触发 `release.yml`）——2026-10-03 暂缓已取消，恢复时走 **Actions → Release → Run workflow** | ❌ 未上传（`scripts/upload-gitee-assets.ps1 -Tag v0.X.0`，需 `GITEE_TOKEN`） |
 | `v0.9.0` / `v0.10.0` / `v0.11.0` | ✅ | ✅ | ✅ 各 7 个（tag 推送触发，已复核） | ❌ 未上传（同上） |
+| **`v0.12.0`** | ✅ | ✅ | ⏳ 由 tag 推送触发（与 `v0.9.0`~`v0.11.0` 同一路径）；以 `check-release-status.sh --published` 的读数为准 | ❌ 未上传（同上，需 `GITEE_TOKEN`） |
 
 > **`v0.1.0` 这一格是本页此前写错的地方**：它写着 `v0.1.0` ~ `v0.4.0` "两个源都可取到"，
 > 而补发记录里从来只有 `v0.2.0`/`v0.3.0`/`v0.4.0` 三个——两处说法不一致时，**是 API 说了算**。
@@ -288,6 +291,11 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 > **"GitHub release" 这一栏有它自己的读数**：`bash scripts/check-release-status.sh --published`
 > ——它问 GitHub 每个 tag 有没有 release、资产齐不齐（CI 里作为 `release status` 的第二个步骤
 > 跑，**告警不阻塞**）。这次正是"tag 全在、release 一个没有"，而当时没有任何检查会红。
+>
+> **"Gitee 发行版"这一栏从 v0.12 起也有读数**：`powershell -File scripts/check-gitee-release-status.ps1`
+> ——它对每个 `v*` tag 报"有没有发行版、7 个附件齐不齐"，**只读公开 API、不需要 token**，
+> 查不动时 exit 3 而**不报成功**。它是**本地读数**（CI 是 ubuntu，跑不了 PowerShell），
+> 用途就是让上面那句错话无法再出现：写"已发布"之前先让它签个字。
 
 **v0.1 起就必须保留引擎接口、lock schema 与可复现性**：若先实现功能、再补策略与接口，后续很可能被迫破坏早期设计。
 

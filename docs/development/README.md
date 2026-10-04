@@ -1,6 +1,7 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.11 均已交付**；**`v0.1.0` ~ `v0.11.0` 十一个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.12 均已交付**；**`v0.1.0` ~ `v0.12.0` 十二个 tag 均已打**。
+> v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)。
 > 发布是另一回事，且**2026-10-04 已直接问过两个源的 API**：
 > GitHub 有 11 个里的 7 个（缺 `v0.5.0` ~ `v0.8.0`），Gitee 只有 3 个
 > （`v0.2.0`/`v0.3.0`/`v0.4.0`，各 7 个附件）——**`v0.1.0` 在 Gitee 上没有发行版**，
@@ -27,7 +28,7 @@
 > | v0.9 | [计划](./v0.9-plan.md) | [复盘](./v0.9-retrospective.md) | 让 store 的读数说真话（共享/独占/孤儿）+ 锚点检查 + 10 万级规模实测 |
 > | v0.10 | [计划](./v0.10-plan.md) | [复盘](./v0.10-retrospective.md) | 检查推到最外圈：根 README + store 不完整的两条承诺 |
 > | v0.11 | [计划](./v0.11-plan.md) | [复盘](./v0.11-retrospective.md) | 四项决策结项（ADR-020~023）+ **第一次真回收**（`store prune --orphans`）+ workflow YAML 门禁 + `WaitDelay` 修复 + 端到端复核 |
-> | v0.12 | [计划](./v0.12-plan.md) | 待写（交付后必须写，否则 `release-status` 会要求 tag） | 可信读数：文档三层纠偏 + MIT 许可证 + 子命令帮助真实现 + 五处"静默失效"缺陷 |
+> | v0.12 | [计划](./v0.12-plan.md) | [复盘](./v0.12-retrospective.md) | 可信读数：文档三层纠偏（9 处）+ **MIT 许可证** + 子命令帮助真实现（并修掉一个死代码级缺陷）+ **六处**静默失效缺陷 + 6 条机械网 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -314,6 +315,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `gofmt -l` + 行尾 | `ci.yml` | 格式与 LF（golden 按字节比对，CRLF 会让它永久失配） |
   | `scripts/check-docs-links.sh` | `ci.yml` job `docs-links` | 文档**相对链接的目标文件是否存在**（**不校验锚点**——中文标题的 GitHub 锚点算法不复刻，见脚本头部） |
   | `scripts/check-release-status.sh` | `ci.yml` job `release-status` | **有复盘 ⇔ 有 tag**（"已交付"与"已发布"不许脱节） |
+  | `scripts/check-gitee-release-status.ps1` | **本地读数（v0.12 追加）** | Gitee 侧"到底有没有这个发行版、7 个附件齐不齐"——此前只能靠人去点，**CI 跑不了它**（ubuntu 没有 PowerShell），所以它是发布清单第 6 步 |
   | `TestV12EveryRegisteredFlagIsDocumented` | `cmd/ngm`（**v0.12 新增**） | 扫源码：注册到 flagset 上的 flag 必须在该文件里被写下过（命令行 flag 此前**没有任何机械网**，配置结构体字段有 `field_wiring_test.go`） |
   | `TestV12SubcommandHelpPrintsItsOwnUsage` | `cmd/ngm`（**v0.12 新增**） | 21 个命令的 `--help` **逐字等于**它自己的用法常量，且该常量以自己的名字开头 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
@@ -427,6 +429,17 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 4. **把这 7 个文件从 GitHub release 上传到 Gitee 发行版**（在 Gitee 无 API token 时，这是最短且最稳的路径）。
    上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
 5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）
+6. **读一次 Gitee 侧的状态**（**v0.12 追加**）——它此前**没有读数**，而"两个源都可取到"
+   那句错话正是从这条空白里长出来的：
+
+   ```powershell
+   powershell -File scripts/check-gitee-release-status.ps1
+   ```
+
+   它对每个 `v*` tag 报"有没有发行版、我们自己传的 **7 个**附件齐不齐"，并对缺的那几个
+   打印可直接照做的补发命令。判据与 GitHub 侧对齐：**查不动不报成功**（exit 3），
+   有缺 exit 1、全齐 exit 0。它**只读公开 API、不需要 token**，因此随时可跑。
+   Gitee 自动附的 `<tag>.zip` / `<tag>.tar.gz` **单独计数**（按名字排除，不按数量相减）。
 
 > **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/upload-gitee-assets.ps1`）：
 >

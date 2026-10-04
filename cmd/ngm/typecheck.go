@@ -132,7 +132,11 @@ USAGE:
   ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run] [--dir=<dir>]
 
 ARGS:
-  <input.css>       input file (required)
+  <input.css>       input file (required) - **exactly one per invocation**
+                    A shell glob (ngm css dist/*.css) expands to several arguments; ngm
+                    refuses them instead of silently compiling only the first, because you
+                    would have no way to notice you lost half your input. Run it once per
+                    file, or let a bundler drive the several-file case.
 
 FLAGS:
   --engine=<name>   engine to use
@@ -144,7 +148,7 @@ FLAGS:
 EXIT CODES:
   0  compiled (also for --dry-run)
   1  the engine ran and failed
-  3  configuration error (missing input, unknown engine name)
+  3  configuration error (missing input, unknown engine name, more than one input)
   5  no usable engine
 `
 
