@@ -352,6 +352,58 @@ func TestV02ObservabilityAcceptance(t *testing.T) {
 		}
 	})
 
+	// --offline 的另一半：**不许触网**。上面那条只证明"查不到时报 unknown"，
+	// 而当时的实现仍然会把在线版 EnsureMirror 交给检查器——mirror 在就 fetch、
+	// 不在就 clone，也就是说 `--offline` 被绕过了，而检查器那一侧看不到它
+	// （CheckOutdated 只在 branch 分支才读 Offline）。失败时用户看到的是
+	// `mirror unavailable: <net 权限错误>`，指向 mirror 可用性——一个错误的方向。
+	t.Run("outdated --offline refuses to reach for a cold mirror", func(t *testing.T) {
+		isolateUserEnv(t)
+		testutils.MustHaveGit(t)
+
+		r := testutils.NewGitRepo(t)
+		r.WriteFile("index.ts", "export const cold = 1\n")
+		r.Commit("feat: cold")
+		r.Tag("v1.0.0", false)
+		seedMirror(t, "github:obs/cold", r.Dir)
+
+		proj := newProject(t)
+		// 用 **tag** 而不是 branch：branch 在 --offline 下会短路（直接报 unknown，
+		// 这正是上一条用例固定的行为），因此碰不到 EnsureMirror；
+		// tag 必须读 mirror 才能列出标签——那才是此前会偷偷 fetch 的路径。
+		if code, out := runCaptureCode(t, "add", "github:obs/cold@v1.0.0", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+			t.Fatalf("install: %s", out)
+		}
+
+		// 把 mirror 删掉：本机不再有这个仓库的任何本地副本。
+		layout, lerr := vendor.DefaultLayout()
+		if lerr != nil {
+			t.Fatal(lerr)
+		}
+		mirror := vendor.NewMirror(layout.MirrorRoot(), git.Options{})
+		if rerr := os.RemoveAll(mirror.PathFor(resolve.MustNormalize("github:obs/cold"))); rerr != nil {
+			t.Fatal(rerr)
+		}
+
+		// 退出码仍是 0：outdated 是**报告**，不设门禁（见它的 EXIT CODES）。
+		// 要固定的是两件事：不触网、且说得出为什么是 unknown。
+		code, out := runCaptureCode(t, "outdated", "--offline", "--dir="+proj)
+		if code != 0 {
+			t.Fatalf("outdated reports; it does not gate. exit=%d\n%s", code, out)
+		}
+		if !strings.Contains(out, "unknown") {
+			t.Errorf("a cold mirror under --offline is unknown, never 'no update':\n%s", out)
+		}
+		// 这一条是有牙齿的那一条：只有 offlineEnsureMirror 会产出 "no local mirror"。
+		// 换回在线版 EnsureMirror 时，note 会变成一次 clone 的失败原因（而且真的会去连网）。
+		if !strings.Contains(out, "no local mirror") {
+			t.Errorf("the report must name the real cause (a missing local mirror) instead of fetching:\n%s", out)
+		}
+	})
+
 	t.Run("outdated --json is machine readable", func(t *testing.T) {
 		isolateUserEnv(t)
 

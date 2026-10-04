@@ -202,6 +202,13 @@ type TypeDeclOptions struct {
 type TypeDeclResult struct {
 	// Files 是生成的声明文件路径。
 	Files []string
+	// Warnings 是引擎在**退出 0** 时写下的诊断（原始文本，不转述）。
+	//
+	// 它不能省：tsc 即使成功也可能往 stdout 写提示（被跳过的文件、不可导出的类型），
+	// 而这条路径的产物是"目录里出现了哪些文件"，与诊断没有交集——
+	// 此前那个字段根本不存在，于是引擎说的话被整个丢掉，
+	// 与 CSS 那条路径修掉的是同一类问题（"诊断被吞掉"）。
+	Warnings []string
 }
 
 // CSSOptions 是 CSS 编译的输入选项。

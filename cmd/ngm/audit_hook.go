@@ -33,10 +33,20 @@ func runAuditHook(
 	rep *supplychain.AuditReport,
 	hook string,
 	baseCode int,
+	jsonMode bool,
 	stdout, stderr io.Writer,
 ) int {
 	if strings.TrimSpace(hook) == "" {
 		return baseCode
+	}
+
+	// 与 finishVerify 的 `--json --sandbox` 同一条规矩：stdout 必须是**纯 JSON**。
+	// 此前 `--json --hook` 把横幅与 hook 自己的 stdout 追加进同一个 stdout，
+	// 于是 CI 解析那份"机器可读报告"时拿到的不是一个 JSON 文档——
+	// verify 修过同一形态，audit 的这一处当时没跟上。
+	out := io.Writer(stdout)
+	if jsonMode {
+		out = stderr
 	}
 
 	script := hook
@@ -73,7 +83,7 @@ func runAuditHook(
 		return runErr(ctx, stdout, stderr, merr)
 	}
 
-	fmt.Fprintf(stdout, "\naudit hook: %s (Deno sandbox; the report arrives on stdin)\n", hook)
+	fmt.Fprintf(out, "\naudit hook: %s (Deno sandbox; the report arrives on stdin)\n", hook)
 	res, rerr := deno.RunScript(ctx, security.ScriptRequest{
 		Script: script,
 		Dir:    env.ProjectDir,
@@ -84,7 +94,7 @@ func runAuditHook(
 		return runErr(ctx, stdout, stderr, rerr)
 	}
 	if len(res.Stdout) > 0 {
-		fmt.Fprintf(stdout, "  %s", indent(string(res.Stdout), "  "))
+		fmt.Fprintf(out, "  %s", indent(string(res.Stdout), "  "))
 	}
 	if len(res.Stderr) > 0 {
 		fmt.Fprintf(stderr, "  %s", indent(string(res.Stderr), "  "))
@@ -101,6 +111,6 @@ func runAuditHook(
 			"your own policy objected; the report above is what it was given"))
 	}
 
-	fmt.Fprintln(stdout, "  ✓ audit hook passed")
+	fmt.Fprintln(out, "  ✓ audit hook passed")
 	return baseCode
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -152,6 +154,31 @@ Deno.exit(blocked ? 0 : 1);
 		}
 		if !strings.Contains(out, "write: blocked") {
 			t.Errorf("the hook wrote to disk:\n%s", out)
+		}
+	})
+
+	// `--json` 的契约是"stdout 是一份机器可读的报告"（usage 里写着 CI should use this）。
+	// hook 的横幅与它自己的 stdout 只能走 stderr。verify 修过同一形态
+	// （`--json --sandbox` 曾把沙箱段落混进 JSON），audit 这一处当时没跟上，
+	// 而它的 JSON 同样标着"给 CI 用"。
+	t.Run("--json keeps stdout free of hook output", func(t *testing.T) {
+		proj := v3AuditProject(t, `{}`)
+		testutils.WriteFile(t, proj, "policy.js", `await new Response(Deno.stdin.readable).text();
+console.log("hook said something");
+Deno.exit(0);
+`)
+
+		stdout := &bytes.Buffer{}
+		stderr := &bytes.Buffer{}
+		code := dispatch([]string{"audit", "--json", "--hook=policy.js", "--dir=" + proj}, stdout, stderr)
+		if code != 0 {
+			t.Fatalf("audit exit=%d\n--- stdout ---\n%s\n--- stderr ---\n%s", code, stdout.String(), stderr.String())
+		}
+		if !json.Valid(stdout.Bytes()) {
+			t.Errorf("stdout must be a single JSON document; the hook's output leaked into it:\n%s", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "hook said something") {
+			t.Errorf("the hook's own output belongs on stderr:\n%s", stderr.String())
 		}
 	})
 }

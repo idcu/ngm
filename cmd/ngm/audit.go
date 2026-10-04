@@ -133,9 +133,11 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
 			return 1
 		}
-		return runAuditHook(ctx, env, rep, *hook, rep.ExitCode, stdout, stderr)
+		// jsonMode 一并传下去：hook 的横幅与它自己的 stdout 只能走 stderr，
+		// 否则 stdout 不再是单个 JSON 文档（下面那份标着 "CI should use this"）。
+		return runAuditHook(ctx, env, rep, *hook, rep.ExitCode, *jsonOut, stdout, stderr)
 	}
 
 	rep.Render(stdout)
-	return runAuditHook(ctx, env, rep, *hook, rep.ExitCode, stdout, stderr)
+	return runAuditHook(ctx, env, rep, *hook, rep.ExitCode, *jsonOut, stdout, stderr)
 }

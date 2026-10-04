@@ -203,6 +203,12 @@ func Plan(tool Tool, f *mappings.File) ([]Artifact, []string, error) {
 //
 // 先全部判定，再全部写入：只要有一个冲突，就**一个字节都不写**。
 // 半套脚手架（写了 A、没写 B）会让项目处于既不能构建、又看不出缺什么的中间态。
+//
+// 写入阶段也遵守同一条不变量，分两步：先把每个产物写成**同目录的临时文件**，
+// 全部成功后再逐个改名就位。此前是逐个直接 os.WriteFile——写到第 k 个失败时
+// 前 k-1 个已经落盘，于是"全有或全无"那道门只挡冲突、不挡 I/O 失败，
+// 而它挡不住的那一种恰恰是同一个中间态。（改名阶段仍可能失败：此时错误里
+// **列出已经就位的文件**，而不是只报失败的那一个。）
 func Apply(projectDir string, arts []Artifact, dryRun bool) ([]Outcome, error) {
 	outcomes := make([]Outcome, 0, len(arts))
 
@@ -233,16 +239,53 @@ func Apply(projectDir string, arts []Artifact, dryRun bool) ([]Outcome, error) {
 		return outcomes, nil
 	}
 
+	type staged struct {
+		label string // 报告里用的路径
+		dst   string
+		tmp   string
+	}
+	stagedFiles := make([]staged, 0, len(arts))
+	discard := func() {
+		for _, s := range stagedFiles {
+			_ = os.Remove(s.tmp)
+		}
+	}
+
+	// 第一步：全部写到临时文件。任何一处失败 → 清掉临时文件，磁盘上不留半套。
 	for i, a := range arts {
 		if outcomes[i].Status == StatusUpToDate || outcomes[i].Status == StatusSkipped {
 			continue
 		}
 		abs := filepath.Join(projectDir, filepath.FromSlash(a.Path))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			discard()
 			return nil, errs.Wrap(errs.CodeConfigInvalid, "create directory for "+a.Path, "", err)
 		}
-		if err := os.WriteFile(abs, a.Content, 0o644); err != nil {
+		tmp := abs + ".ngm-tmp"
+		if err := os.WriteFile(tmp, a.Content, 0o644); err != nil {
+			discard()
 			return nil, errs.Wrap(errs.CodeConfigInvalid, "write "+a.Path, "", err)
+		}
+		stagedFiles = append(stagedFiles, staged{label: a.Path, dst: abs, tmp: tmp})
+	}
+
+	// 第二步：改名就位。这一步已经写不了盘（内容与目录都已就绪），
+	// 但若仍然失败，必须让用户知道**哪些已经就位**——否则他面对的是一个
+	// 自己推导不出来的中间态。
+	for k, s := range stagedFiles {
+		if err := os.Rename(s.tmp, s.dst); err != nil {
+			for _, rest := range stagedFiles[k:] {
+				_ = os.Remove(rest.tmp)
+			}
+			hint := "no other file was written"
+			if k > 0 {
+				done := make([]string, 0, k)
+				for _, prev := range stagedFiles[:k] {
+					done = append(done, prev.label)
+				}
+				hint = "already written (this run): " + strings.Join(done, ", ")
+			}
+			return nil, errs.Wrap(errs.CodeConfigInvalid, "write "+s.label, hint, err)
 		}
 	}
 	return outcomes, nil

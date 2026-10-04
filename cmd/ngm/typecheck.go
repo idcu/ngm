@@ -167,6 +167,14 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	})); err != nil {
 		return 3
 	}
+	// 这是本目录里唯一一处此前**没有**位置参数计数校验的命令：多余参数被整份丢弃，
+	// 于是 `ngm css a.css b.css`（或 shell 展开的 `ngm css dist/*.css`）只编译第一个
+	// 文件、exit 0、一句话都不说——而 glob 展开是它最常见的用法，
+	// 用户没有理由怀疑自己丢了一半输入。与 typecheck/typedecl 同一处置：报用法并 exit 3。
+	if fs.NArg() > 1 {
+		fmt.Fprint(stderr, cssUsage)
+		return 3
+	}
 
 	input := fs.Arg(0)
 	if strings.TrimSpace(input) == "" {

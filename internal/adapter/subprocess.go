@@ -186,8 +186,12 @@ func (e *subprocessEngine) GenerateTypeDecl(ctx context.Context, entry string, o
 			return nil, err
 		}
 	}
-	_ = res
-	return &TypeDeclResult{Files: files}, nil
+	// 引擎退出 0 也会说话（tsc 的提示写到 stdout，deno 的写到 stderr），
+	// 两条通道都转——与 Check 同一条规矩。此前这里是 `_ = res`：
+	// 诊断被算出来又丢掉，而丢掉它的那个文件刚刚因为"吞掉引擎 stderr"被修过。
+	warnings := stderrLines(res.Stderr)
+	warnings = append(warnings, stderrLines(res.Stdout)...)
+	return &TypeDeclResult{Files: files, Warnings: warnings}, nil
 }
 
 // Compile 实现 CSSEngine。

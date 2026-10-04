@@ -248,6 +248,12 @@ func (r *OutdatedReport) Render(w io.Writer) {
 			drift = "yes"
 		}
 		fmt.Fprintf(w, "%-24s %-12s %-12s %-8s %s\n", e.Name, e.Ref, latest, e.RefType, drift)
+		// `unknown` 必须带上**为什么**：原因此前只存在于 --json 的 Note 字段里，
+		// 于是默认输出只告诉用户"我不知道"，不告诉他该去修什么
+		// （一条指向正确位置的错误，价值取决于它指的位置对不对）。
+		if e.Stale && e.Note != "" {
+			fmt.Fprintf(w, "  → %s\n", e.Note)
+		}
 	}
 	fmt.Fprintf(w, "\n%d dependency(s) checked", r.Dependencies)
 	if r.Updates > 0 {

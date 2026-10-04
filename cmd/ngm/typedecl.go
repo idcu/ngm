@@ -108,6 +108,11 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	if cerr != nil {
 		return runErr(ctx, stdout, stderr, cerr)
 	}
+	// 引擎退出 0 也可能说话（tsc 把提示写到 stdout）。转出去，而不是替它决定
+	// "不必知道"——与 `ngm css` 转 `Warnings` 是同一条规矩。
+	for _, w := range res.Warnings {
+		fmt.Fprintln(stderr, w)
+	}
 
 	// 报告**实际出现的文件**，而不是引擎声称会产出的：命名规则是引擎自己的事。
 	if len(res.Files) == 0 {

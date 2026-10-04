@@ -34,7 +34,9 @@ EXIT CODES:
 
 A dependency that could not be checked is reported as ` + "`unknown`" + `.
 That is a different conclusion from "no update found", and the report keeps
-them apart on purpose.
+them apart on purpose. The reason is printed under the row (and carried in the
+JSON report's note field), because "I could not tell" is only actionable when
+it says what stopped it.
 `
 
 // runOutdated 处理 `ngm outdated`。
@@ -70,16 +72,36 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			"run `ngm install` to resolve dependencies and create the lock"))
 	}
 
-	rep, err := observability.CheckOutdated(ctx, lf, observability.OutdatedOptions{
-		GitOpts: env.GitOpts,
-		Offline: *offline,
-		EnsureMirror: func(ctx context.Context, slug string) (string, error) {
+	// --offline 的契约是"禁止一切网络访问"。此前这里**没有**换成 offlineEnsureMirror：
+	// 在线版 EnsureMirror 在 mirror 不存在时会 clone、存在时会 `git fetch --prune`，
+	// 于是 `ngm outdated --offline` 照样触网，而它在检查器那一侧看不到 Offline
+	// （CheckOutdated 只在 branch 分支才读它），因此没有任何东西会拦下这次访问。
+	//
+	// 更糟的是报错：net 未授权或 fetch 失败时，用户看到的是
+	// `mirror unavailable: <net 权限错误>`——指向"mirror 可用性"，
+	// 而真实原因是 `--offline` 被绕过了（与 v0.11 D1"报错指向网络"同族）。
+	ensureMirror := func(ctx context.Context, slug string) (string, error) {
+		repo, perr := resolve.ParseSlug(slug)
+		if perr != nil {
+			return "", perr
+		}
+		return env.EnsureMirror(ctx, repo)
+	}
+	if *offline {
+		local := offlineEnsureMirror(env)
+		ensureMirror = func(ctx context.Context, slug string) (string, error) {
 			repo, perr := resolve.ParseSlug(slug)
 			if perr != nil {
 				return "", perr
 			}
-			return env.EnsureMirror(ctx, repo)
-		},
+			return local(ctx, repo)
+		}
+	}
+
+	rep, err := observability.CheckOutdated(ctx, lf, observability.OutdatedOptions{
+		GitOpts:      env.GitOpts,
+		Offline:      *offline,
+		EnsureMirror: ensureMirror,
 	})
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
