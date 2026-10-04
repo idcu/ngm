@@ -88,7 +88,17 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	// 重建依赖图：tree 要的是"谁引入了谁"，lock 里没有这个信息
-	g, err := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), env.GraphOptions())
+	//
+	// `--offline` 必须**穿进图解析**：解析要读上游 manifest，而离线时它只能来自
+	// 本地 mirror。不穿它的后果实测过（v0.21）：解析仍会发起取数意图，权限层于是
+	// 把它判成"权限被拒"（exit 3）——而 tree 自己的 EXIT CODES 承诺的是 4
+	// （"Git or network failure，含 --offline 且冷 mirror"）。
+	// 于是 `ngm tree --offline` 在最该用它的场景（CI 里禁网）反而退了错的码。
+	opts := env.GraphOptions()
+	if *offline {
+		opts.EnsureMirror = offlineEnsureMirror(env)
+	}
+	g, err := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
