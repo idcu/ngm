@@ -4,7 +4,8 @@
 > **十三个 tag 全部已打**；发布则是另一回事，2026-10-04 直接问过两个源的 API：
 > GitHub 有 13 个里的 9 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
-> Gitee 侧现在有读数可复跑：`scripts/check-gitee-release-status.ps1`。
+> Gitee 侧现在有读数可复跑：`bash scripts/check-gitee-release-status.sh`
+> （Windows 入口 `.ps1` 转调同一个实现；**故意不进 CI**，理由见发布清单第 6 步）。
 > **历史版本补发已决定暂缓**（2026-10-04，项目所有者决定；判据与恢复信号见
 > [发布清单](../development/README.md#发布清单每个版本)开头）——缺口涉及的版本功能都在源码里，
 > 最新的 `v0.12.0` 已在 GitHub 上可取。

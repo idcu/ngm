@@ -34,7 +34,7 @@
 > 若该地址 404，说明这一版的附件还没上传——改用 GitHub 或「方式二」。
 >
 > ✅ **当前可取性（2026-10-04 直接问两个源的 API 得到；Gitee 侧可用
-> `powershell -File scripts/check-gitee-release-status.ps1` 随时复跑）**：
+> `bash scripts/check-gitee-release-status.sh` 随时复跑；Windows 用同名 `.ps1`，它转调同一个实现）**：
 >
 > | 发行源 | 有附件的版本 |
 > |--------|------------|

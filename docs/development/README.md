@@ -8,7 +8,8 @@
 > GitHub 有 13 个里的 **9 个**，Gitee 只有 **3 个**
 > （`v0.2.0`/`v0.3.0`/`v0.4.0`，各 7 个附件）——**`v0.1.0` 在 Gitee 上没有发行版**，
 > 而本文件此前把它算成了"两个源都可取到"。逐版状态见[发布状态](../README.md#发布状态)；
-> Gitee 侧随时可用 `scripts/check-gitee-release-status.ps1` 复读（发布清单第 6 步）。
+> Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读（发布清单第 6 步；
+> Windows 用 `scripts/check-gitee-release-status.ps1`，它转调同一个实现）。
 >
 > **历史版本补发：暂缓**（2026-10-04，项目所有者决定）
 >
@@ -336,7 +337,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `gofmt -l` + 行尾 | `ci.yml` | 格式与 LF（golden 按字节比对，CRLF 会让它永久失配） |
   | `scripts/check-docs-links.sh` | `ci.yml` job `docs-links` | 文档**相对链接的目标文件是否存在**（**不校验锚点**——中文标题的 GitHub 锚点算法不复刻，见脚本头部） |
   | `scripts/check-release-status.sh` | `ci.yml` job `release-status` | **有复盘 ⇔ 有 tag**（"已交付"与"已发布"不许脱节） |
-  | `scripts/check-gitee-release-status.ps1` | **本地读数（v0.12 追加）** | Gitee 侧"到底有没有这个发行版、7 个附件齐不齐"——此前只能靠人去点，**CI 跑不了它**（ubuntu 没有 PowerShell），所以它是发布清单第 6 步 |
+  | `scripts/check-gitee-release-status.sh`（`.ps1` 转调它） | **读数（v0.12 追加，v0.13 后改为平台无关的单实现）** | Gitee 侧"到底有没有这个发行版、7 个附件齐不齐"——此前只能靠人去点。**故意不进 CI**（长期黄的步骤 + 匿名限额噪音，触发条件见发布清单第 6 步），因此它是发布清单第 6 步；**判据本身用本地替身验证过**（全就位 / 有缺 / 查不动三分支 + 计数只算我们传的 7 个） |
   | `TestV12EveryRegisteredFlagIsDocumented` | `cmd/ngm`（**v0.12 新增**） | 扫源码：注册到 flagset 上的 flag 必须在该文件里被写下过（命令行 flag 此前**没有任何机械网**，配置结构体字段有 `field_wiring_test.go`） |
   | `TestV12SubcommandHelpPrintsItsOwnUsage` | `cmd/ngm`（**v0.12 新增**） | 21 个命令的 `--help` **逐字等于**它自己的用法常量，且该常量以自己的名字开头 |
   | `TestV13PositionalArgsAreBounded` | `cmd/ngm`（**v0.13 新增**） | 扫源码：读 `fs.Arg` 的文件必须校验 `fs.NArg()`——**"多给的输入被静默丢掉"这个形状**（v0.12 D3）。牙齿已用探针验证 |
@@ -461,14 +462,25 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
 6. **读一次 Gitee 侧的状态**（**v0.12 追加**）——它此前**没有读数**，而"两个源都可取到"
    那句错话正是从这条空白里长出来的：
 
-   ```powershell
-   powershell -File scripts/check-gitee-release-status.ps1
+   ```bash
+   bash scripts/check-gitee-release-status.sh          # 唯一实现（任何有 bash 的环境）
+   powershell -File scripts/check-gitee-release-status.ps1   # Windows 入口，转调上面那个
    ```
 
    它对每个 `v*` tag 报"有没有发行版、我们自己传的 **7 个**附件齐不齐"，并对缺的那几个
    打印可直接照做的补发命令。判据与 GitHub 侧对齐：**查不动不报成功**（exit 3），
    有缺 exit 1、全齐 exit 0。它**只读公开 API、不需要 token**，因此随时可跑。
    Gitee 自动附的 `<tag>.zip` / `<tag>.tar.gz` **单独计数**（按名字排除，不按数量相减）。
+
+   > **它是单实现**：`.sh` 是唯一实现，`.ps1` 只转调（与 `check-docs-links` 同一形状——
+   > 要检查的规则只允许有一种写法；那份脚本曾因两份实现漂移而让本地一直报 OK、CI 连红四次）。
+   > 因此这条读数在 Windows / macOS / Linux 上是**同一段代码**。
+
+   > **它故意不进 CI**（v0.13 的候选 #1 因此结项为"不做"）：暂缓期间它会是一条**长期黄**的
+   > 步骤，而项目自己的纪律是"一条推送清不掉的红/黄 job 会训练人忽略颜色"；
+   > 另外 Gitee 的匿名 API **有限额**（实测连跑多次会被限流 → 全部 `NOT CHECKED` + exit 3），
+   > 那会让 CI 多出一类与代码无关的噪音。**触发条件**：补发恢复后，
+   > 或它在 CI 上被证明稳定（例如接一个只读的 Gitee token）。
 
    > ⚠️ **暂缓期间它报"缺 10 个"是预期的**（见本文开头）：这个读数的用途不是催办，
    > 而是让"两个源到底有什么"永远有一个不需要信任谁的答案。

@@ -42,7 +42,8 @@ are recorded in
 Until then, **`v0.4.0` is the newest version downloadable from both sources, and `v0.13.0` is the
 newest downloadable from GitHub.** Both readings are mechanical, not remembered: the checklist that
 keeps "delivered" and "released" from drifting apart is in `docs/development/README.md`, and the
-Gitee side of it has a reading of its own (`scripts/check-gitee-release-status.ps1`).
+Gitee side of it has a reading of its own (`scripts/check-gitee-release-status.sh`, with a Windows
+entry point that delegates to that one implementation).
 
 > v0.8 changes one user-visible behaviour: the `symlink` link mode degrades to per-entry hardlinks
 > under the v2 layout (same disk savings, reported honestly); see

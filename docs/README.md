@@ -9,7 +9,7 @@ v0.12 的主题是**把读数修准**——包括本页自己的读数：它此�
 **"交付"与"发布"是两件事，这一页把它们分开写**：13 个 tag 里，GitHub 上有 **9 个** release，
 Gitee 上只有 **3 个**，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-04 **直接问两个源的 API** 得到的，不是本页的记忆
-（Gitee 侧随时可用 `scripts/check-gitee-release-status.ps1` 复读）。
+（Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读）。
 
 各版计划与复盘见[开发总览](./development/README.md)；
 其中 v0.6 的[复盘](./development/v0.6-retrospective.md)含**跨机器可复现性的实测判定**
@@ -295,10 +295,11 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 > ——它问 GitHub 每个 tag 有没有 release、资产齐不齐（CI 里作为 `release status` 的第二个步骤
 > 跑，**告警不阻塞**）。这次正是"tag 全在、release 一个没有"，而当时没有任何检查会红。
 >
-> **"Gitee 发行版"这一栏从 v0.12 起也有读数**：`powershell -File scripts/check-gitee-release-status.ps1`
-> ——它对每个 `v*` tag 报"有没有发行版、7 个附件齐不齐"，**只读公开 API、不需要 token**，
-> 查不动时 exit 3 而**不报成功**。它是**本地读数**（CI 是 ubuntu，跑不了 PowerShell），
-> 用途就是让上面那句错话无法再出现：写"已发布"之前先让它签个字。
+> **"Gitee 发行版"这一栏从 v0.12 起也有读数**：`bash scripts/check-gitee-release-status.sh`
+> （Windows 入口 `scripts/check-gitee-release-status.ps1` **转调**它——唯一实现）——
+> 它对每个 `v*` tag 报"有没有发行版、7 个附件齐不齐"，**只读公开 API、不需要 token**，
+> 查不动时 exit 3 而**不报成功**。它的用途就是让上面那句错话无法再出现：
+> 写"已发布"之前先让它签个字。**故意不进 CI** 的理由见[发布清单第 6 步](./development/README.md#发布清单每个版本)。
 >
 > **历史版本补发：暂缓**（2026-10-04，项目所有者决定）——上表里那些 ❌ 是**有意延后**，
 > 不是遗漏。判据与恢复信号写在[发布清单](./development/README.md#发布清单每个版本)开头。
