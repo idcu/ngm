@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.22 均已交付**；**`v0.1.0` ~ `v0.22.0` 二十二个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.23 均已交付**；**`v0.1.0` ~ `v0.23.0` 二十三个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -64,6 +64,7 @@
 > | v0.20 | [计划](./v0.20-plan.md) | [复盘](./v0.20-retrospective.md) | **先测量，结果把两个候选都证伪了**：① 缺引擎时报错**已经列了候选**；② 三类配置错误下 **21 个命令已经一致**（exit 3 且点名路径）。**产品代码 0 行改动** |
 > | v0.21 | [计划](./v0.21-plan.md) | [复盘](./v0.21-retrospective.md) | **声明 ↔ 实测 对账**：70 对声明，44 条离线实测、26 条登记为已知缺口；缺口名单自带过期绊线。顺带修掉一张网当场抓出的产品缺陷：`ngm tree --offline` 不穿 `--offline`（退 3 而非承诺的 4） |
 > | v0.22 | [计划](./v0.22-plan.md) | [复盘](./v0.22-retrospective.md) | **把缺口压下去**：缺口 26 → **3**（实测 44 → **67 / 70**）。用假引擎覆盖五个 kind 的成功与失败，用漂移/篡改/冷 mirror/缺 Deno 夹具覆盖 1/2/4/5。剩下的 3 条 `update` 缺口**每条都带实测记录**说明为什么测不到 |
+> | v0.23 | [计划](./v0.23-plan.md) | [复盘](./v0.23-retrospective.md) | **名字必须说发生了什么**：把"显示名"从"数值"里拆出来（`NgmError.Label`）——退出码 1 是**四种含义共用一个数字**，`ngm typecheck` 失败时不再说 `RefDrift:` 而说 `EngineFailed:`。数值、`--json`、`errors.Is/As` 一字未动；顺带在**规范**里抓到一处同类漏写 |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -371,6 +372,8 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV21UsageExitCodeSectionsAreWellFormed` | `cmd/ngm`（**v0.21 新增**） | 21 个命令的用法文本都**写了** `EXIT CODES` 段，且格式正确（至少一个码 / 码 ∈ 0..5 / 不重复 / 每条带说明）。**第一版解析器曾把段里的续行误判成段结束**（21 个只解出 6 个）——判据自己错是最危险的失败 |
   | `TestV22DeclaredCodesAreMeasuredOrKnownGaps` | `cmd/ngm`（**v0.21 新增为 `TestV21…`，v0.22 扩到 67/70**） | **声明 ↔ 实测 对账**：每个命令声明的每个码，要么有一条**能在本地复现**它的实测、要么由专属测试测量（`exitCodeElsewhere`）、要么在 `exitCodeGaps` 里登记。**缺口名单自带过期绊线**（条目必须仍对应真实声明）。当前 70 对 → **64 条主网实测 + 3 条专属测试 + 3 条已知缺口**。夹具覆盖：假引擎（`FAKE_EXIT` 控制成功/失败）· 漂移 · lock 篡改 · 冷 mirror · OSV 本地替身 · 缺 Deno。牙齿：改一条期望码 ⇒ 红，并点名"现在没人盯着"的那一格 |
   | `TestV22DenoIsMissing` | `cmd/ngm`（**v0.22 新增**） | **"缺 Deno"那 3 条**（`verify:5` / `install:5` / `audit:5`）必须单独成测：清空 `PATH` 是全局且不可逆的，而夹具要用 git 建——所以每个子测试先建夹具、再清 PATH。它同时是**"不降级"这条安全边界的可执行证据**：宁可退 5，也不在沙箱外执行依赖作者的代码 |
+  | `TestLabeledOnlyChangesTheDisplayName` | `internal/errs`（**v0.23 新增**） | `Labeled` **只**改显示名：码、退出码、`errors.Is/As`（返回的是浅副本）、原错误都不受影响；空标签退回码的默认名。它守的是 v0.16 那条机器契约——**机器读到的东西只有数字** |
+  | `TestV23EngineFailureNamesItself` | `cmd/ngm`（**v0.23 新增**） | **端到端**：`ngm typecheck` 因引擎失败退出时，stderr 必须**含 `EngineFailed`、不含 `RefDrift`**，且**仍然退 1**（数值契约不许跟着名字变）。对照：新标签**不许泄漏**到 `verify` 的报告里。牙齿：摘掉 `runner.go` 的 `Labeled` ⇒ 红，并打印出旧消息 `RefDrift: typeCheck: … failed` |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

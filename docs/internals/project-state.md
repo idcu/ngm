@@ -78,6 +78,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.20** | **先测量，两个候选都被证伪** | ① 缺引擎时报错**已经列了候选**（`(available: self, typescript)`）；② 三类配置错误下 **21 个命令已经一致**（exit 3 且点名路径）。产品代码 **0 行改动**；"待决清单会自己变脏"写进复盘 |
 | **v0.21** | **声明必须可核对** | 70 对（命令, 退出码）声明 → **44 条离线实测 + 26 条已知缺口**（`exitCodeGaps` 自带过期绊线：条目必须仍对应真实声明）。修掉一张网当场抓出的**产品缺陷**：`ngm tree --offline` 不把 `--offline` 穿进图解析（`env.GraphOptions()` 不带它）⇒ 退 **3** 而非承诺的 **4**，与 `install` / `update` 不一致 |
 | **v0.22** | **把缺口压下去** | 已知缺口 **26 → 3**，已实测 **44 → 67 / 70**。假引擎（`FAKE_EXIT`）覆盖五个 kind 的成功与失败；漂移 / lock 篡改 / 冷 mirror / 缺 Deno / OSV 替身五类夹具覆盖 1 / 2 / 4 / 5。"缺 Deno"那 3 条**各自成测**（清空 `PATH` 全局不可逆）。剩下 3 条 `update` 缺口**每条带实测记录**：漂移 + `verifyOnLock` 下 `update --all` 退 0（它**修好**漂移），篡改 lock 或 vendor 后 `update` 也退 0（它**重建**而非校验）。产品代码 **0 行改动**；顺带修正 `CodeRefDrift` 一处与事实不符的注释（它漏了"引擎运行失败"这个来源，而那有 5 个命令在用） |
+| **v0.23** | **名字必须说发生了什么** | 退出码 1 是**一个数字四种含义**（verify 漂移 · 引擎运行失败 · audit 超阈值 · audit 钩子否决），而它只有一个默认名 `RefDrift`。把**显示名**从**数值**里拆出来：`NgmError.Label` + `Labeled()`（浅副本，保住 `errors.Is/As`），四处误标点改为 `EngineFailed` / `AuditHook`。**数值、`--json`、退出码一字未动**。顺带修掉**规范**（`modules/p0-core.md`）里一处与 `observability.md` 不一致的漏写——错的那份是规范 |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -100,6 +101,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **`v0.20.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-05 00:28 UTC 已发布） | ❌ 待上传 |
 | **`v0.21.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-05 00:29 UTC 已发布——**第十二、十三次连续成功**） | ❌ 待上传 |
 | **`v0.22.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-05 01:24 UTC 已发布——**第十四次连续成功**） | ❌ 待上传 |
+| **`v0.23.0`** | ⏳ **随本次推送** | ⏳ 随本次推送 | ❌ 待上传 |
 
 > **上一版这一栏把 `v0.1.0` 算进了"Gitee 也可取到"**——它不在那里。本页此前从
 > [补发记录](../development/README.md#补发记录2026-10-02gitee-侧)（只有 v0.2.0/v0.3.0/v0.4.0 三条）

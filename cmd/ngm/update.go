@@ -40,6 +40,11 @@ EXIT CODES:
   0  updated: the lock was rewritten and the vendor tree is in place
   1  verifyOnLock is on and the post-update re-check found drift or a policy failure
   2  integrity: a postinstall hook failed or timed out, or the vendored bytes did not verify
+     (unlike install, update **rebuilds** the lock and the vendor tree rather than
+     checking what is already there -- so tampering with either one is simply
+     overwritten. Reaching this code without a hook failure needs verifyOnLock,
+     whose post-update re-check is what can still fail. Measured in v0.23:
+     a tampered archiveDigest and a tampered vendored file each exited 0.)
   3  configuration, policy or lock error (nothing selected, a definition that does not
      parse, or a policy that rejects the graph)
   4  Git or network failure (including --offline with a cold mirror)

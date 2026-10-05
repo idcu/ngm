@@ -91,13 +91,18 @@ type NgmError struct {
     Message string
     Cause   error
     Hint    string  // 给用户的可操作建议
+    Label   string  // 可选的**显示名**覆盖；空则用 ErrorCode 的默认名（v0.23 新增）
 }
 
 type ErrorCode int
 
 // 1-5 与全局退出码约定对齐（见 architecture/observability.md）
 const (
-    ErrRefDrift ErrorCode = iota + 1 // 1 非预期漂移
+    // 1 策略失败：**四种来源**——verify 非预期漂移 · adapter 引擎运行失败 ·
+    // audit 超阈值漏洞 · audit 钩子否决。一个数字只有一个默认名，因此后三种
+    // 用 NgmError.Label 显式给出贴切的显示名（EngineFailed / AuditHook），
+    // 数值契约不变（v0.23）。
+    ErrRefDrift ErrorCode = iota + 1
     ErrDigestMismatch                // 2 完整性失败（digest 重放不匹配）
     ErrConfigInvalid                 // 3 配置/策略/lock 错误
     ErrGitFetch                      // 4 Git/网络失败

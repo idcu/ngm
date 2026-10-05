@@ -192,13 +192,23 @@ var exitCodeElsewhere = []exitCase{
 // 就会变红，逼着人把它一起删掉。
 var exitCodeGaps = map[string][]int{
 	// update 的三个码目前测不到，且**每一条都带着实测记录**：
-	//   1 —— 声明说"verifyOnLock 开启且更新后的复检发现漂移"。实测：漂移 + verifyOnLock
-	//        下 `update --all` 退 **0**——因为 update 本来就把漂移**修好**（重新解析并锁定），
-	//        更新之后不再有漂移。要触发这条得让"更新后复检仍失败"（例如策略拒绝图）。
-	//   2 —— "postinstall 钩子失败"需要 Deno **在**；"vendored bytes did not verify"
-	//        实测走不到：篡改 lock 或篡改 vendor 字节后 update 都退 0（它**重建**
-	//        lock 与 vendor，而不是校验既有的）。
-	//   5 —— 需要 Deno 缺失，而 update 运行时要 git，清空 PATH 会先把它打到 4。
+	//
+	//   1 —— 声明说"verifyOnLock 开启且**更新后的复检**发现漂移或策略失败"。
+	//        实测：漂移 + verifyOnLock 下 `update --all` 退 **0**——因为 update 本来就把
+	//        漂移**修好**（重新解析、重新锁定），更新之后不再有漂移。
+	//        要走到 1，得让"更新已经写完、复检却仍看到漂移"，也就是**上游在两步之间
+	//        又动了一次**（竞态），或者复检所用的 ref 来源与 update 不同（远端 vs mirror）。
+	//        两者都要在测试里制造"两个源不一致"的时刻，不是离线夹具能固定下来的。
+	//
+	//   2 —— 两个子句分开看："postinstall 钩子失败"需要 Deno **在**（本环境没有）；
+	//        "vendored bytes did not verify" 实测两次都走不到——篡改 lock 的 archiveDigest
+	//        退 0，篡改 vendor 里的文件也退 0。原因是 update **重建** lock 与 vendor，
+	//        而不是校验既有的：它把被篡改的东西**覆盖掉**，于是复检看到的是新写的、
+	//        一致的副本。这一句更像是从 `install` 抄来的（install 才会就地校验）。
+	//        **它能不能被走到仍未被证明**——这里只记录"两种构造都得到 0"。
+	//
+	//   5 —— 需要 Deno 缺失，而 update 运行时要 git；清空 PATH 会先把 git 拿掉，
+	//        于是先退 4（离线取数失败），到不了钩子那一步。
 	"update": {1, 2, 5},
 }
 
