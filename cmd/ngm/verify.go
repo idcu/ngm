@@ -277,8 +277,21 @@ func renderVerifyDep(w io.Writer, d *verify.DepResult) {
 	if d.Err != "" {
 		fmt.Fprintf(w, "    error: %s\n", d.Err)
 	}
-	if d.DriftKind != verify.DriftNone && d.Remediation != "" {
-		fmt.Fprintf(w, "  → driftKind: %s; %s\n", d.DriftKind, d.Remediation)
+	// 有建议就**一定要送到用户眼前**（v0.34）。
+	//
+	// 原来的门是 `d.DriftKind != DriftNone && d.Remediation != ""`，
+	// 于是"检查未能完成"（mirror 不在、权限被拒）这一类被整块吞掉：
+	// `remediationFor` 明明为它算好了建议，而它的 DriftKind 是 `None`——
+	// **算出来，又丢掉**。用户看到 `✗ … — check incomplete`（exit 4），
+	// 却看不到任何下一步。这与 v0.28 修的那类缺陷是同一形状，
+	// 只是丢的地方从"包错的链"换成了"渲染的门"。
+	if d.Remediation != "" {
+		if d.DriftKind != verify.DriftNone {
+			fmt.Fprintf(w, "  → driftKind: %s; %s\n", d.DriftKind, d.Remediation)
+		} else {
+			// 没有可分类的漂移，但仍然有话要说——那就不摆 driftKind，只给建议。
+			fmt.Fprintf(w, "  → %s\n", d.Remediation)
+		}
 	}
 }
 

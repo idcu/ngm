@@ -659,7 +659,14 @@ func aggregateDrift(checks []CheckResult) DriftKind {
 func remediationFor(res *DepResult) string {
 	switch {
 	case res.Err != "":
-		return "the check could not complete; re-run without --offline to refresh the local mirror"
+		// **点名命令**（v0.34）：原来写的是 "re-run without --offline"——
+		// 说了要做什么，却没说**用什么做**。实测（v0.34）两条触发路径：
+		//   · mirror 不在（--offline 冷启动）⇒ `ngm install` 会把它取下来；
+		//   · 网络被策略拒（permission denied: net:github.com）⇒ 去掉 --offline 重跑仍会被拒，
+		//     但那时用户看到的是**权限层**的报错与它自己的建议，比这句话准。
+		// 两条命令都真实存在，连起来能覆盖实测到的两种成因。
+		return "the check could not complete; run `ngm install` to refresh the local mirror, " +
+			"or re-run `ngm verify` without --offline"
 	case res.DriftKind == DriftExpected:
 		return fmt.Sprintf("expected update, not blocking; run `ngm update %s` to accept it", res.Name)
 	case res.DriftKind == DriftUnexpected:
