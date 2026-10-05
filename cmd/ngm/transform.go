@@ -205,7 +205,8 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		dest = filepath.Join(ec.env.ProjectDir, dest)
 	}
 	if derr := os.MkdirAll(filepath.Dir(dest), 0o755); derr != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "create output directory", "", derr))
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "create output directory",
+			"check that the path is writable, or point --outdir at a directory that exists", derr))
 	}
 	if werr := os.WriteFile(dest, res.Code, 0o644); werr != nil {
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "write "+*outfile,

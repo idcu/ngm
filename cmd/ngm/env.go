@@ -49,7 +49,8 @@ type projectEnv struct {
 func newProjectEnv(dirFlag string) (*projectEnv, error) {
 	projectDir, err := filepath.Abs(dirFlag)
 	if err != nil {
-		return nil, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir", "", err)
+		return nil, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
+			"pass an absolute --dir, or run ngm from the directory you mean", err)
 	}
 
 	layout, err := vendor.DefaultLayout()

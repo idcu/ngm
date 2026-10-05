@@ -80,7 +80,8 @@ func runConfig(ctx context.Context, args []string, stdout, stderr io.Writer) int
 func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string) int {
 	abs, aerr := filepath.Abs(dir)
 	if aerr != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir", "", aerr))
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
+			"pass an absolute --dir, or run ngm from the directory you mean", aerr))
 	}
 	if _, serr := os.Stat(filepath.Join(abs, "ngm.json")); serr != nil {
 		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
@@ -127,7 +128,8 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 func runConfigShow(ctx context.Context, stdout, stderr io.Writer, dir string) int {
 	abs, aerr := filepath.Abs(dir)
 	if aerr != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir", "", aerr))
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
+			"pass an absolute --dir, or run ngm from the directory you mean", aerr))
 	}
 	home, _ := os.UserHomeDir()
 	r, err := config.Load(abs, home)

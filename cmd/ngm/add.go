@@ -96,7 +96,8 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// 4) 读取并更新 ngm.json
 	projectDir, err := filepath.Abs(*dirFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir", "", err))
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
+			"pass an absolute --dir, or run ngm from the directory you mean", err))
 	}
 	cfgPath := filepath.Join(projectDir, "ngm.json")
 
@@ -112,7 +113,9 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Path:    spec.Path,
 	}
 	if err := dep.Validate(); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "invalid dependency", "", err))
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "invalid dependency",
+			"the accepted shape is `<host>:<org>/<repo>[@<ref>]` with --ref-type=tag|branch|commit; "+
+				"see `ngm add --help`", err))
 	}
 
 	added, err := pf.UpsertDependency(dep)
