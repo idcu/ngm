@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.25 均已交付**；**`v0.1.0` ~ `v0.25.0` 二十五个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.26 均已交付**；**`v0.1.0` ~ `v0.26.0` 二十六个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -67,6 +67,7 @@
 > | v0.23 | [计划](./v0.23-plan.md) | [复盘](./v0.23-retrospective.md) | **名字必须说发生了什么**：把"显示名"从"数值"里拆出来（`NgmError.Label`）——退出码 1 是**四种含义共用一个数字**，`ngm typecheck` 失败时不再说 `RefDrift:` 而说 `EngineFailed:`。数值、`--json`、`errors.Is/As` 一字未动；顺带在**规范**里抓到一处同类漏写 |
 > | v0.24 | [计划](./v0.24-plan.md) | [复盘](./v0.24-retrospective.md) | **退出码的四方事实源必须对得上**：实现 / 规范表 / 规格常量块 / 用户侧汇总，首次被一条判据串起来（**`iota` 顺序错了会让所有码静默平移**）。开工第一次跑就抓到 `observability.md` 另一处漏写（码 1 没提 audit 钩子）；顺带补上 v0.23 遗留的"改了但没有网看着" |
 > | v0.25 | [计划](./v0.25-plan.md) | [复盘](./v0.25-retrospective.md) | **文档里手工写下的字段清单不许与实现脱节**：`--json` 形状表（9 命令 / 48 键）+ `configuration.md` 三张字段表（19 键）首次对账。**产品代码 0 行改动**；最贵的一课是判据先量再写（朴素版误报 27/62） |
+> | v0.26 | [计划](./v0.26-plan.md) | [复盘](./v0.26-retrospective.md) | **反向判据**（补上 v0.25 记下的限制）：报告的每个顶层字段都必须被文档点名（**67 个字段**）；正向网跟着增到 **71 键**。顺带发现反向判据有一个**前提**——两处形状是匿名结构体，**没有名字就无法对账**，提成具名类型 + 第三张网钉住"每行都要有映射"。另修两处文档缺口（数组元素形状 11 键 / `WhyReport.subPath`） |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -380,6 +381,8 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV24AuditHookVerdictNamesItself` | `cmd/ngm`（**v0.24 新增**） | 补 v0.23 明确记下的欠账（"改了但没有网看着"）：把钩子判断抽成纯函数 `auditHookVerdict(*security.Result)` 后用合成结果测——**是谁否决的**（`AuditHook` 而非 `RefDrift`）· **数值仍是 1** · **两种失败说的话必须不同**（"它说自己不过关" ≠ "它没能给出结论"） |
   | `TestV25JSONShapeTableMatchesTheImplementation` | `cmd/ngm`（**v0.25 新增**） | `cli.md`《`--json` 的形状》表里点名的每个键（**9 个命令 / 48 个键**），必须在**该命令的报告实现**里作为 json tag 存在（映射按命令给，其中 `integrations`/`engines` 指向 **CLI 层自己**）。豁免名单自带过期绊线。**它只证明"表里写了的都真的存在"，不证明"该写的都写了"**。牙齿：把 `allowDrift` 改成 `allowDrifting` ⇒ 红并点名 |
   | `TestV25ConfigFieldTablesMatchTheSchema` | `cmd/ngm`（**v0.25 新增**） | `configuration.md` 三张「字段」表（`ngm.json` / `dependencies` / `supplyChain`，共 **19 个键**）必须在 schema 的 json tag 里存在。注意 `supplyChain` 指向 `internal/config`（`SupplyChainConfig` 的 tag），而 `internal/supplychain` 是**策略解析**（方法形态）——**这类网唯一会骗人的地方就是映射**。牙齿：把 `verifyOnLock` 改成 `verifyOnLocked` ⇒ 红 |
+  | `TestV26EveryDocumentedShapeIsANamedType` | `cmd/ngm`（**v0.26 新增**） | **形状表里的每一行都必须映射到一个具名类型**（反向也钉：映射不许有孤儿）。它挡的是"反向判据静默少看几行"——而**"少看几行"与"全都对得上"在测试输出里长得一模一样**。前提是产品代码那两处匿名结构体已提成具名类型 |
+  | `TestV26EveryFieldOfTheReportIsDocumented` | `cmd/ngm`（**v0.26 新增**） | 反向判据：每个报告**顶层** json 字段都必须在形状表里被点名（**67 个字段**）。正向那张挡"写了一个不存在的键"，这张挡"有了字段而文档没说"——**用户看得见、文档没有名字的字段是被藏起来一半的契约**。牙齿：从 why 那行删掉 `rootDeclared` ⇒ 红并点名 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅

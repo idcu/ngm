@@ -81,6 +81,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.23** | **名字必须说发生了什么** | 退出码 1 是**一个数字四种含义**（verify 漂移 · 引擎运行失败 · audit 超阈值 · audit 钩子否决），而它只有一个默认名 `RefDrift`。把**显示名**从**数值**里拆出来：`NgmError.Label` + `Labeled()`（浅副本，保住 `errors.Is/As`），四处误标点改为 `EngineFailed` / `AuditHook`。**数值、`--json`、退出码一字未动**。顺带修掉**规范**（`modules/p0-core.md`）里一处与 `observability.md` 不一致的漏写——错的那份是规范 |
 | **v0.24** | **退出码的四方事实源必须对得上** | 实现（`internal/errs`）· 规范表（`observability.md`）· 规格常量块（`p0-core.md`）· 用户侧汇总（`cli.md`）首次被一条判据串起来。**重点是规格的 `iota + 1` 顺序**：重排一行所有码静默平移，而规格是给人抄的（牙齿：换位两个常量 ⇒ 红并点名数值错位）。另有**会自己过期**的关键词表守着"码 1 的四种来源都写全了"。开工第一次跑就抓到 `observability.md` **另一处**漏写（码 1 没提 audit 钩子，而那是码 1 的来源之一）——上一版那处是人眼抓的，这处是网抓的。顺带补上 v0.23 遗留的"改了但没有网看着"：把钩子判断抽成纯函数 `auditHookVerdict`，用合成结果测 |
 | **v0.25** | **文档里手工写下的字段清单不许与实现脱节** | 把 v0.24 那条线继续普查，找到**另外两份手工清单**并钉住：`cli.md` 的《`--json` 的形状》表（**9 个命令 / 48 个键**，映射按命令给，其中 `integrations`/`engines` 指向 **CLI 层自己**）+ `configuration.md` 三张「字段」表（`ngm.json` / `dependencies` / `supplyChain`，**19 个键**，`supplyChain` 指向 `internal/config` 的 `SupplyChainConfig` 而非 `internal/supplychain`）。**产品代码 0 行改动**。最贵的一课：**判据先量再写**——朴素版（"活文档里所有反驼峰标识符都必须是 json 字段"）误报 **27/62**，而误报的代价是人会去放宽判据直到它什么都抓不到。已知限制写在网里：只证明"写了的都真的存在"，不证明"该写的都写了" |
+| **v0.26** | **能被核对的形状，必须有一个名字** | 补上 v0.25 记下的那条限制：**反向判据**——报告的每个顶层 json 字段都必须被形状表点名（**67 个字段**）；正向网跟着从 48 增到 **71 键**。补的过程暴露一个**前提**：`integrations` 与 `engines validate` 的 payload 是**匿名结构体字面量**，而**匿名的东西没有任何机械判据能引用它**——两处提成具名类型（`integrationsReport` / `integrationArtifact` / `enginesValidateReport`，行为不变），并加第三张网钉住"形状表每行都要有映射"（否则反向判据会静默少看几行，而"跳过"与"对得上"在输出里长得一样）。另修两处文档缺口：数组元素形状（**11 个键**）与 `WhyReport.subPath` 从未被点名 |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -106,6 +107,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **`v0.23.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-05 02:06 UTC 已发布——**第十五次连续成功**） | ❌ 待上传 |
 | **`v0.24.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-05 02:45 UTC 已发布——**第十六次连续成功**） | ❌ 待上传 |
 | **`v0.25.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-05 03:34 UTC 已发布——**第十七次连续成功**） | ❌ 待上传 |
+| **`v0.26.0`** | ⏳ **随本次推送** | ⏳ 随本次推送 | ❌ 待上传 |
 
 > **上一版这一栏把 `v0.1.0` 算进了"Gitee 也可取到"**——它不在那里。本页此前从
 > [补发记录](../development/README.md#补发记录2026-10-02gitee-侧)（只有 v0.2.0/v0.3.0/v0.4.0 三条）
