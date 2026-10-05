@@ -156,6 +156,16 @@ var reportCases = []reportCase{
 		remedies: []string{"`ngm audit`"},
 	},
 	{
+		// v0.36 新增：**扫描型判据**抓到的又一处——`engines validate` 报 7 个问题、退 5，
+		// 却一行下一步都没有。它不是我想起来要看的，是对**全部非零用例**扫 `✗` 扫出来的。
+		name: "engines/目录里的声明与实装不符",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupGhost)
+		},
+		args:     []string{"engines", "validate"},
+		remedies: []string{"ngm.engines.json"},
+	},
+	{
 		name: "install/verifyOnLock 且上游漂移",
 		setup: func(t *testing.T, home string) string {
 			return buildFixture(t, home, setupDrifted)
