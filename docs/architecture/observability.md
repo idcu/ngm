@@ -235,6 +235,11 @@ verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 细节：
 
 - 符号语义：`✓` 通过、`⚠` 预期更新、`✗` 非预期漂移或完整性失败
+- **每一类失败都要有 `→` 行**（v0.32 起，v0.34 补齐最后一支）：可分类的漂移写
+  `→ driftKind: <kind>; <建议>`；**检查未能完成**（mirror 不在 / 网络被权限拒）时没有可分类的漂移，
+  就只写 `→ <建议>`——这一支曾经被渲染的门整块吞掉（建议算好了却没送到用户眼前）
+- **建议要承认失败的形状**（v0.34）：因漂移失败指向 `ngm update`、因字节被改失败指向
+  `ngm install`、因漏洞失败指向 `ngm audit`——**而不是随便一个真实存在的命令**
 - 通过的检查不展开；只有**未通过**的检查才输出其 `check: detail` 行（信息密度留给行动依据）
 - `--offline` 时依赖行带 `[stale]`，并在末尾注明"refs were compared against the local mirror snapshot"
 - `--json` 输出同一份判定的机器可读形式（`dependencies[].checks[]` + `summary.exitCode`），

@@ -58,51 +58,99 @@ type reportCase struct {
 	name  string
 	setup func(t *testing.T, home string) string
 	args  []string
+	// remedies 是"**这一种失败**的解法"：报告里的行动行至少要命中其中一个。
+	//
+	// 为什么要有它（v0.34）：v0.33 只要求"点名一个真能执行的东西"，
+	// 于是一行与失败**毫不相干**的 `ngm install` 也能过。这一列把**失败的性质**
+	// 写进判据：因漂移失败就该指向 `ngm update`，因字节被改失败就该指向 `ngm install`。
+	//
+	// 这不是我的口味——`driftKind: expected ⇒ run \`ngm update\`` 是
+	// observability.md 的输出示例里**产品自己写下的**对应关系。
+	remedies []string
 }
 
 var reportCases = []reportCase{
-	{"verify/依赖的树被删", func(t *testing.T, home string) string {
-		p := newProject(t)
-		seedDep(t, p)
-		if err := os.RemoveAll(filepath.Join(p, "ngm.vendor")); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}, []string{"verify"}},
-
-	{"verify/依赖的字节被改", func(t *testing.T, home string) string {
-		p := newProject(t)
-		seedDep(t, p)
-		writeSurfaceFile(t, p, filepath.Join("ngm.vendor", "github.com", "x", "dep", "index.ts"),
-			"export const tampered = 1\n")
-		return p
-	}, []string{"verify"}},
-
-	{"verify/tag 被挪走", func(t *testing.T, home string) string {
-		return buildFixture(t, home, setupDrift)
-	}, []string{"verify"}},
-
-	{"audit/公告没有修复版本", func(t *testing.T, home string) string {
-		return buildFixture(t, home, setupOsvVuln)
-	}, []string{"audit", "--no-cache"}},
-
-	{"audit/公告带修复版本", func(t *testing.T, home string) string {
-		p := newProject(t)
-		seedDep(t, p)
-		srv := osvStub(t, `{"vulns":[{"id":"GHSA-withfix","summary":"Prototype pollution",`+
-			`"severity":"HIGH","affected":[{"ranges":[{"events":[{"fixed":"1.2.4"}]}]}]}]}`)
-		t.Setenv("NGM_OSV_URL", srv.URL)
-		grantNetFor(t, home, srv)
-		return p
-	}, []string{"audit", "--no-cache"}},
-
-	{"tree/--osv 撞上漏洞", func(t *testing.T, home string) string {
-		return buildFixture(t, home, setupOsvVuln)
-	}, []string{"tree", "--osv"}},
-
-	{"install/verifyOnLock 且上游漂移", func(t *testing.T, home string) string {
-		return buildFixture(t, home, setupDrifted)
-	}, []string{"install"}},
+	{
+		name: "verify/依赖的树被删",
+		setup: func(t *testing.T, home string) string {
+			p := newProject(t)
+			seedDep(t, p)
+			if err := os.RemoveAll(filepath.Join(p, "ngm.vendor")); err != nil {
+				t.Fatal(err)
+			}
+			return p
+		},
+		args:     []string{"verify"},
+		remedies: []string{"`ngm install`"},
+	},
+	{
+		name: "verify/依赖的字节被改",
+		setup: func(t *testing.T, home string) string {
+			p := newProject(t)
+			seedDep(t, p)
+			writeSurfaceFile(t, p, filepath.Join("ngm.vendor", "github.com", "x", "dep", "index.ts"),
+				"export const tampered = 1\n")
+			return p
+		},
+		args:     []string{"verify"},
+		remedies: []string{"`ngm install`"},
+	},
+	{
+		name: "verify/tag 被挪走",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupDrift)
+		},
+		args:     []string{"verify"},
+		remedies: []string{"`ngm update"},
+	},
+	{
+		// v0.34 新增：**检查未能完成**这一支（`res.Err != ""`）。
+		// 它此前被渲染的门整块吞掉——产品算好了建议却没送到用户眼前。
+		name: "verify/检查未能完成（mirror 不在）",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupNoMirror)
+		},
+		args:     []string{"verify", "--offline"},
+		remedies: []string{"`ngm install`", "`ngm verify`"},
+	},
+	{
+		name: "audit/公告没有修复版本",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupOsvVuln)
+		},
+		args:     []string{"audit", "--no-cache"},
+		remedies: []string{"supplyChain.osvIgnoreSeverities"},
+	},
+	{
+		name: "audit/公告带修复版本",
+		setup: func(t *testing.T, home string) string {
+			p := newProject(t)
+			seedDep(t, p)
+			srv := osvStub(t, `{"vulns":[{"id":"GHSA-withfix","summary":"Prototype pollution",`+
+				`"severity":"HIGH","affected":[{"ranges":[{"events":[{"fixed":"1.2.4"}]}]}]}]}`)
+			t.Setenv("NGM_OSV_URL", srv.URL)
+			grantNetFor(t, home, srv)
+			return p
+		},
+		args:     []string{"audit", "--no-cache"},
+		remedies: []string{"Fixed in:"},
+	},
+	{
+		name: "tree/--osv 撞上漏洞",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupOsvVuln)
+		},
+		args:     []string{"tree", "--osv"},
+		remedies: []string{"`ngm audit`"},
+	},
+	{
+		name: "install/verifyOnLock 且上游漂移",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupDrifted)
+		},
+		args:     []string{"install"},
+		remedies: []string{"`ngm update"},
+	},
 }
 
 // TestV32EveryFailureReportSaysWhatToDoNext 断言"报告式失败"给出了下一步。
