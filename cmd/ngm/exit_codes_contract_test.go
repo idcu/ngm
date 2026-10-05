@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -24,9 +25,9 @@ func indentOf(s string) int { return len(s) - len(strings.TrimLeft(s, " \t")) }
 // 段的边界：遇到**顶格**且不是 `<数字> 说明` 的行就结束。这样段里既能带
 // IMPORTANT / CACHE / POLICY 这类补充块，也能容纳跨行的说明。
 //
-// 第一版把"续行"误判成段结束（用了固定阈值 6），21 个命令里只有 6 个被
-// 解析出来——`verify` 只解出 `0 1 2`，于是网对着一份**残缺**的声明对账。
-// 这类"判据本身先错了"的失败，比网没抓到东西更危险：它假装已经对过账。
+// 第一版把"续行"误判成段结束（用了固定阈值），21 个命令里只有 6 个被解析出来——
+// `verify` 只解出 `0 1 2`，于是网对着一份**残缺**的声明对账。
+// 这类"判据自己先错"的失败比"没抓到"更危险：它假装已经对过账。
 func declaredExitCodes(usage string) []int {
 	lines := strings.Split(usage, "\n")
 	in := false
@@ -59,9 +60,11 @@ type exitCase struct {
 	args []string
 	// setup 决定用例跑在什么样的项目目录上。
 	setup string
+	// env 是该用例要设置的环境变量（假引擎用 FAKE_EXIT 控制成功/失败）。
+	env map[string]string
 	// noDir：cache / store 操作的是全局层，不接受 --dir。
 	noDir bool
-	// why：仅缺口条目需要——为什么这一段还没有人盯着。
+	// why：缺口条目与"在别处测量"的条目都要写清原因。
 	why string
 }
 
@@ -72,15 +75,23 @@ const (
 	setupProject  = "project"  // 有 ngm.json、无依赖
 	setupDep      = "dep"      // 有依赖 + lock + vendor
 	setupCold     = "cold"     // 有依赖声明、但没有本地 mirror、也没有 lock
-	setupOsvClean = "osvclean" // 有依赖 + lock + vendor，且 OSV 走本地替身（无发现）
+	setupNoMirror = "nomirror" // 有 lock + vendor，但本地 mirror 被删掉
+	setupDrift    = "drift"    // 上游把 tag 挪到新提交（非预期漂移）
+	setupDrifted  = "drifted"  // 漂移 + verifyOnLock（install/update 的策略路径）
+	setupTampered = "tampered" // lock 里的 archiveDigest 被改成全零
+	setupOsvClean = "osvclean" // OSV 走本地替身（无发现）
+	setupOsvVuln  = "osvvuln"  // OSV 走本地替身（一个 HIGH 发现）
 	setupGhost    = "ghost"    // 引擎目录里声明了一个"没装"的引擎
+	setupEngine   = "engine"   // 真实可跑的假引擎（FAKE_EXIT 控制成功/失败）
 )
+
+// fakeEngine 是假引擎二进制的路径，由测试启动时构建一次。
+var fakeEngine string
 
 // exitCodeMeasured 是**已经对上账**的那部分声明。
 //
-// 触发命令一律**离线**：要么只看本地 mirror / vendor / lock，要么故意给一个
-// "声明了但没装"的引擎名。凡需要真实网络或真实引擎的码，不进这张表——
-// 进了就是一张会自己变红的网。
+// 触发命令一律**离线或本地替身**：只看本地 mirror / vendor / lock，用假引擎，
+// 用本地 OSV 替身。凡需要真实网络或真实引擎安装的码，不进这张表。
 var exitCodeMeasured = []exitCase{
 	// ---- 0：成功态 ----
 	{cmd: "init", code: 0, args: []string{"github.com:x/app", "--runtime=node"}, setup: setupEmpty},
@@ -97,6 +108,29 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "store", code: 0, args: []string{"usage"}, noDir: true},
 	{cmd: "config", code: 0, args: []string{"validate"}, setup: setupDep},
 	{cmd: "engines", code: 0, args: []string{"list"}, setup: setupProject},
+	{cmd: "typecheck", code: 0, args: []string{"--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
+	{cmd: "typedecl", code: 0, args: []string{"--outdir=types", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
+	{cmd: "build", code: 0, args: []string{"entry.ts", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
+	{cmd: "transform", code: 0, args: []string{"src.ts", "--loader=ts", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
+	{cmd: "css", code: 0, args: []string{"a.css", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
+	// mappings / integrations 要 `install` 先把 ngm.mappings.json 写出来。
+	{cmd: "mappings", code: 0, args: []string{"validate"}, setup: setupDep},
+	{cmd: "integrations", code: 0, args: []string{"add", "vite"}, setup: setupDep},
+
+	// ---- 1：策略失败（非预期漂移 / 引擎运行失败 / 超阈值漏洞）----
+	{cmd: "verify", code: 1, args: nil, setup: setupDrift},
+	{cmd: "install", code: 1, args: nil, setup: setupDrifted},
+	{cmd: "audit", code: 1, args: []string{"--no-cache"}, setup: setupOsvVuln},
+	{cmd: "tree", code: 1, args: []string{"--osv"}, setup: setupOsvVuln},
+	{cmd: "typecheck", code: 1, args: []string{"--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "1"}},
+	{cmd: "typedecl", code: 1, args: []string{"--outdir=types", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "1"}},
+	{cmd: "build", code: 1, args: []string{"entry.ts", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "1"}},
+	{cmd: "transform", code: 1, args: []string{"src.ts", "--loader=ts", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "1"}},
+	{cmd: "css", code: 1, args: []string{"a.css", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "1"}},
+
+	// ---- 2：完整性失败 ----
+	{cmd: "verify", code: 2, args: nil, setup: setupTampered},
+	{cmd: "install", code: 2, args: nil, setup: setupTampered},
 
 	// ---- 3：配置 / 策略 / lock 错误（含用法错误）----
 	// 每个命令都给它一个不认识的 flag，并指向一个不存在的目录。
@@ -123,12 +157,13 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "engines", code: 3, args: []string{"list", "--zz-nope"}, setup: setupMissing},
 
 	// ---- 4：Git 或网络失败（含 --offline 且资源不在本地）----
-	// 依赖已声明但从未 install ⇒ 没有 lock ⇒ --offline 报"资源不在本地" ⇒ 4。
 	{cmd: "install", code: 4, args: []string{"--offline"}, setup: setupCold},
 	{cmd: "update", code: 4, args: []string{"--offline", "--all"}, setup: setupCold},
+	{cmd: "verify", code: 4, args: []string{"--offline"}, setup: setupNoMirror},
+	{cmd: "tree", code: 4, args: []string{"--offline"}, setup: setupNoMirror},
 	{cmd: "audit", code: 4, args: []string{"--offline"}, setup: setupDep},
 
-	// ---- 5：引擎不可用（引擎目录里声明了，但命令不存在）----
+	// ---- 5：引擎不可用 ----
 	// 注意区分两个码：名字**不在目录里** ⇒ 3（配置错误）；
 	// 名字在目录里但**命令没装** ⇒ 5（引擎不可用）。
 	{cmd: "typecheck", code: 5, args: []string{"--engine=ghost"}, setup: setupGhost},
@@ -139,28 +174,32 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "engines", code: 5, args: []string{"validate"}, setup: setupGhost},
 }
 
-// exitCodeGaps 是**已知还没被测量**的声明（本网故意不覆盖的那部分）。
+// exitCodeElsewhere 是**由专属测试测量**的声明。
+//
+// 它们进不了主表：触发它们要先**清空 PATH**（让 ngm 找不到 deno），
+// 而清空 PATH 会让 git 一起消失——所以每个都得单独成测，
+// 在自己的 isolateUserEnv 里先建好夹具、再清 PATH。
+var exitCodeElsewhere = []exitCase{
+	{cmd: "verify", code: 5, why: "TestV22DenoIsMissing/verify"},
+	{cmd: "install", code: 5, why: "TestV22DenoIsMissing/install"},
+	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},
+}
+
+// exitCodeGaps 是**已知还没被测量**的声明。
 //
 // 与 v0.15 的负例名单同一个套路：**名单自己会过期**。
 // 每条都断言"该命令确实还声明着这个码"——哪天那段声明被删改，这一条 gap
 // 就会变红，逼着人把它一起删掉。
-//
-// 这些码之所以没被测量，是因为它们的触发条件**需要真实引擎或真实网络**
-// （引擎返回诊断、上游 tag 被移动、vendor 字节被篡改、postinstall 钩子失败、
-// 超阈值漏洞）。把它们做成网会违反"网必须确定性、离线"这条纪律。
 var exitCodeGaps = map[string][]int{
-	"install":      {1, 2, 5},
-	"update":       {1, 2, 5},
-	"verify":       {1, 2, 4, 5},
-	"audit":        {1, 5},
-	"tree":         {1, 4},
-	"typecheck":    {0, 1},
-	"typedecl":     {0, 1},
-	"build":        {0, 1},
-	"transform":    {0, 1},
-	"css":          {0, 1},
-	"mappings":     {0},
-	"integrations": {0},
+	// update 的三个码目前测不到，且**每一条都带着实测记录**：
+	//   1 —— 声明说"verifyOnLock 开启且更新后的复检发现漂移"。实测：漂移 + verifyOnLock
+	//        下 `update --all` 退 **0**——因为 update 本来就把漂移**修好**（重新解析并锁定），
+	//        更新之后不再有漂移。要触发这条得让"更新后复检仍失败"（例如策略拒绝图）。
+	//   2 —— "postinstall 钩子失败"需要 Deno **在**；"vendored bytes did not verify"
+	//        实测走不到：篡改 lock 或篡改 vendor 字节后 update 都退 0（它**重建**
+	//        lock 与 vendor，而不是校验既有的）。
+	//   5 —— 需要 Deno 缺失，而 update 运行时要 git，清空 PATH 会先把它打到 4。
+	"update": {1, 2, 5},
 }
 
 // TestV21UsageExitCodeSectionsAreWellFormed 固定：**每个命令都写下了自己的退出码**，
@@ -194,40 +233,45 @@ func TestV21UsageExitCodeSectionsAreWellFormed(t *testing.T) {
 	}
 }
 
-// TestV21DeclaredCodesAreMeasuredOrKnownGaps 是本网的牙齿。
+// TestV22DeclaredCodesAreMeasuredOrKnownGaps 是本网的牙齿。
 //
 // 它要求：**每个命令声明的每个码，要么有一条能离线触发它的实测，
-// 要么在缺口名单里。** 于是以后任何人新声明一个码，都必须同时回答——
-// 怎么证明它真的会退这个码。否则测试红。
-func TestV21DeclaredCodesAreMeasuredOrKnownGaps(t *testing.T) {
+// 要么由专属测试测量，要么在缺口名单里。** 于是以后任何人新声明一个码，
+// 都必须同时回答——怎么证明它真的会退这个码。否则测试红。
+func TestV22DeclaredCodesAreMeasuredOrKnownGaps(t *testing.T) {
+	testutils.AllowEngines(t, "fake-engine")
+	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
+
 	measured := 0
+	everywhere := 0
 	gapped := 0
 
 	for _, spec := range commands {
 		for _, code := range declaredExitCodes(spec.Usage) {
 			trig, ok := lookupMeasured(spec.Name, code)
 			if !ok {
-				if lookupGap(spec.Name, code) {
+				switch {
+				case lookupElsewhere(spec.Name, code):
+					everywhere++
+				case lookupGap(spec.Name, code):
 					gapped++
-				} else {
-					t.Errorf("`ngm %s` declares exit code %d: neither measured nor a known gap — "+
-						"add the trigger or record the gap", spec.Name, code)
+				default:
+					t.Errorf("`ngm %s` declares exit code %d: not measured, not measured elsewhere, "+
+						"and not a known gap — add the trigger or record the gap", spec.Name, code)
 				}
 				continue
 			}
 
 			// 每个用例都**重新隔离一次环境**并造自己的项目目录：
 			// 共用一个会让前一个命令的副作用（写出的 lock、OSV 缓存、
-			// 甚至 t.Setenv 残留的端点）改变后一个的读数。探针连踩两次这类坑。
+			// 甚至 t.Setenv 残留的端点）改变后一个的读数。探针连踩三次这类坑。
 			home := isolateUserEnv(t)
 			args := append([]string{spec.Name}, trig.args...)
 			if !trig.noDir {
-				args = append(args, "--dir="+buildFixture(t, trig.setup))
+				args = append(args, "--dir="+buildFixture(t, home, trig.setup))
 			}
-			if trig.setup == setupOsvClean {
-				srv := osvStub(t, `{}`)
-				t.Setenv("NGM_OSV_URL", srv.URL)
-				grantNetFor(t, home, srv)
+			for k, v := range trig.env {
+				t.Setenv(k, v)
 			}
 
 			var out, errb bytes.Buffer
@@ -259,26 +303,66 @@ func TestV21DeclaredCodesAreMeasuredOrKnownGaps(t *testing.T) {
 	if measured == 0 {
 		t.Fatal("no declared exit code was measured — a net that checks nothing is not a net")
 	}
-	t.Logf("declared exit codes: %d measured, %d recorded as known gaps", measured, gapped)
+	t.Logf("declared exit codes: %d measured here, %d measured elsewhere, %d known gaps",
+		measured, everywhere, gapped)
 }
 
-// declares 报告 cmd 的用法文本是否声明了 code。
-func declares(cmd string, code int) bool {
-	for _, spec := range commands {
-		if spec.Name != cmd {
-			continue
+// TestV22DenoIsMissing 测量那几个**只能在"缺 Deno"状态下**触发的码。
+//
+// 为什么必须单独成测：清空 PATH 是全局且不可逆的（t.Setenv 到本测试结束才还原），
+// 而夹具要用 git 建。所以每个子测试自己先建夹具、再清 PATH。
+//
+// 它也是"不降级"这条安全边界的可执行证据：**宁可退 5，也不在沙箱外执行依赖作者的代码。**
+func TestV22DenoIsMissing(t *testing.T) {
+	t.Run("verify", func(t *testing.T) {
+		proj := v3SandboxProject(t, map[string]string{"verify.js": "Deno.exit(0);\n"})
+		t.Setenv("PATH", t.TempDir())
+		var out, errb bytes.Buffer
+		if got := dispatch([]string{"verify", "--sandbox", "--dir=" + proj}, &out, &errb); got != 5 {
+			t.Errorf("`ngm verify` declares exit code 5 for a missing sandbox, measured %d: %s",
+				got, firstLine(errb.String()))
 		}
-		for _, c := range declaredExitCodes(spec.Usage) {
-			if c == code {
-				return true
-			}
+	})
+
+	t.Run("install", func(t *testing.T) {
+		proj := v3PostInstallProject(t, map[string]string{"postinstall.js": "Deno.exit(0);\n"},
+			`{"postInstallPolicy": "allow"}`)
+		t.Setenv("PATH", t.TempDir())
+		var out, errb bytes.Buffer
+		if got := dispatch([]string{"install", "--dir=" + proj}, &out, &errb); got != 5 {
+			t.Errorf("`ngm install` declares exit code 5 for a missing sandbox, measured %d: %s",
+				got, firstLine(errb.String()))
 		}
-	}
-	return false
+	})
+
+	t.Run("audit", func(t *testing.T) {
+		home := isolateUserEnv(t)
+		scUpstream(t, "github:z/hook", "export const a = 1\n", "")
+		proj := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:z/hook@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add: %s", out)
+		}
+		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+			t.Fatalf("install: %s", out)
+		}
+		testutils.WriteFile(t, proj, "hook.js", "Deno.exit(0);\n")
+
+		srv := osvStub(t, `{}`)
+		t.Setenv("NGM_OSV_URL", srv.URL)
+		grantNetFor(t, home, srv)
+
+		t.Setenv("PATH", t.TempDir())
+		var out, errb bytes.Buffer
+		args := []string{"audit", "--no-cache", "--hook=" + filepath.Join(proj, "hook.js"), "--dir=" + proj}
+		if got := dispatch(args, &out, &errb); got != 5 {
+			t.Errorf("`ngm audit` declares exit code 5 for a missing sandbox, measured %d: %s",
+				got, firstLine(errb.String()))
+		}
+	})
 }
 
 // buildFixture 按 setup 造一个**独立**的项目目录。
-func buildFixture(t *testing.T, setup string) string {
+func buildFixture(t *testing.T, home, setup string) string {
 	t.Helper()
 	switch setup {
 	case setupMissing:
@@ -297,9 +381,61 @@ func buildFixture(t *testing.T, setup string) string {
 			t.Fatalf("add cold: %s", out)
 		}
 		return p
+	case setupNoMirror:
+		p := newProject(t)
+		seedDep(t, p)
+		if err := os.RemoveAll(mirrorDirForTest(t, "github:x/dep")); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	case setupDrift, setupDrifted:
+		r := scUpstream(t, "github:x/drift", "export const a = 1\n", "")
+		p := newProject(t)
+		if code, out := runCaptureCode(t, "add", "github:x/drift@v1", "--ref-type=tag", "--dir="+p); code != 0 {
+			t.Fatalf("add drift: %s", out)
+		}
+		if code, out := runCaptureCode(t, "install", "--dir="+p); code != 0 {
+			t.Fatalf("install drift: %s", out)
+		}
+		// 上游把 tag 挪到新提交：非预期漂移。
+		r.WriteFile("index.ts", "export const a = 2\n")
+		r.Commit("fix: move the tag")
+		r.Exec("tag", "-f", "v1")
+		if setup == setupDrifted {
+			writeSupplyChain(t, p, `{"verifyOnLock": true}`)
+		}
+		return p
+	case setupTampered:
+		p := newProject(t)
+		seedDep(t, p)
+		m5TamperLockDigest(t, p)
+		return p
 	case setupOsvClean:
 		p := newProject(t)
 		seedDep(t, p)
+		srv := osvStub(t, `{}`)
+		t.Setenv("NGM_OSV_URL", srv.URL)
+		grantNetFor(t, home, srv)
+		return p
+	case setupOsvVuln:
+		p := newProject(t)
+		seedDep(t, p)
+		srv := osvStub(t, `{"vulns":[{"id":"GHSA-1","summary":"v","severity":"HIGH"}]}`)
+		t.Setenv("NGM_OSV_URL", srv.URL)
+		grantNetFor(t, home, srv)
+		return p
+	case setupEngine:
+		p := newProject(t)
+		testutils.WriteFile(t, p, "a.css", "a{color:red}\n")
+		testutils.WriteFile(t, p, "src.ts", "export const a: number = 1\n")
+		testutils.WriteFile(t, p, "entry.ts", "export const a = 1\n")
+		writeEngineCatalog(t, p,
+			engineEntry{Name: "fake", Kind: "typeCheck", Adapter: "subprocess", Command: fakeEngine},
+			engineEntry{Name: "fake", Kind: "typeDecl", Adapter: "subprocess", Command: fakeEngine},
+			engineEntry{Name: "fake", Kind: "bundle", Adapter: "subprocess", Command: fakeEngine},
+			engineEntry{Name: "fake", Kind: "transform", Adapter: "subprocess", Command: fakeEngine},
+			engineEntry{Name: "fake", Kind: "css", Adapter: "subprocess", Command: fakeEngine},
+		)
 		return p
 	case setupGhost:
 		p := newProject(t)
@@ -349,6 +485,15 @@ func lookupMeasured(cmd string, code int) (*exitCase, bool) {
 	return nil, false
 }
 
+func lookupElsewhere(cmd string, code int) bool {
+	for _, c := range exitCodeElsewhere {
+		if c.cmd == cmd && c.code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func lookupGap(cmd string, code int) bool {
 	for _, g := range exitCodeGaps[cmd] {
 		if g == code {
@@ -357,3 +502,20 @@ func lookupGap(cmd string, code int) bool {
 	}
 	return false
 }
+
+// declares 报告 cmd 的用法文本是否声明了 code。
+func declares(cmd string, code int) bool {
+	for _, spec := range commands {
+		if spec.Name != cmd {
+			continue
+		}
+		for _, c := range declaredExitCodes(spec.Usage) {
+			if c == code {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var _ = http.StatusOK
