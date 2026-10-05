@@ -15,6 +15,7 @@ package errs
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Code 错误码。与退出码一一对应（除 0），便于在内部传递而不丢失语义。
@@ -160,6 +161,14 @@ func ExitCode(err error) int {
 //	  hint:  <hint>
 //
 // 顶层 CLI 在非 --json 模式下调用此函数。
+//
+// **hint 会沿着包装链找**（v0.28）：自身没给 hint 时，取 `Cause` 链上**第一条**
+// 非空 hint。修的是一个实测缺陷——内层带着可行动的建议、外层 `Wrap` 时给了空
+// hint，用户就再也看不到那句话了（实测输出只剩 `cause:` 一行）。
+//
+// 为什么在**渲染**处修而不是在 `Wrap` 处继承：一次修好全部 300 个构造点里
+// 那 129 个空 hint 的站点，且**不改动错误本身的数据**（`--json` 与
+// `errors.As` 的消费者看不到任何变化）。hint 是给人读的，那就该在给人读的地方接上。
 func FormatHuman(err error) string {
 	if err == nil {
 		return ""
@@ -172,8 +181,27 @@ func FormatHuman(err error) string {
 	if ne.Cause != nil {
 		out += "\n  cause: " + ne.Cause.Error()
 	}
-	if ne.Hint != "" {
-		out += "\n  hint:  " + ne.Hint
+	if hint := inheritedHint(ne); hint != "" {
+		out += "\n  hint:  " + hint
 	}
 	return out
+}
+
+// inheritedHint 取这条错误自己的 hint；没有就沿 `Cause` 链找第一条非空的。
+//
+// 深度优先、只走**第一条**：多条建议堆在一起比没有建议更难读。
+// 环（自己包自己）不会发生，但保险起见限一个深度。
+func inheritedHint(ne *NgmError) string {
+	for depth, cur := 0, ne; cur != nil && depth < 16; depth++ {
+		if strings.TrimSpace(cur.Hint) != "" {
+			return cur.Hint
+		}
+		var next *NgmError
+		if cur.Cause != nil && errors.As(cur.Cause, &next) {
+			cur = next
+			continue
+		}
+		return ""
+	}
+	return ""
 }
