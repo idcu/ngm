@@ -23,7 +23,28 @@ import (
 // 与 `Fixed in: <版本>`（audit 用它给出修复版本）。判据不要求它们长得一样，
 // 只要求**每一条失败项都有**——这正是实测里缺的那一格：
 // 公告**没有**记录修复版本时，audit 的报告里一句话都没有。
-var reActionLine = regexp.MustCompile(`(?m)^\s*(?:→ |Fixed in: )`)
+// reActionLine 抓**整行**（v0.33 起要读它的内容：一行"接下来做什么"必须点名
+// 一个用户能照着做的东西）。v0.32 只数条数，那时不需要 `.*$`。
+var reActionLine = regexp.MustCompile(`(?m)^\s*(?:→ |Fixed in: ).*$`)
+
+// actionKind 抽出一行行动行的**约定记号**：`→` 或 `Fixed in:`。
+//
+// 为什么不能直接用匹配到的文本：v0.33 把 `reActionLine` 改成抓**整行**之后，
+// 匹配结果从 `→ ` 变成 `→ driftKind: …`，而下面的守卫原本拿整串当键去统计约定——
+// 键全变了，于是它误报"两种约定都没走到"。
+//
+// **改一个共享辅助设施，要回去看还有谁在用它的哪一种含义。**
+// 抓到这个错的是 `go test ./...`：单跑 TestV33 是绿的。
+func actionKind(line string) string {
+	l := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(l, "→"):
+		return "→"
+	case strings.HasPrefix(l, "Fixed in:"):
+		return "Fixed in:"
+	}
+	return "(unknown)"
+}
 
 // failMark 是"这一项失败了"的记号。
 //
@@ -125,7 +146,7 @@ func TestV32EveryFailureReportSaysWhatToDoNext(t *testing.T) {
 			actions += nActions
 
 			for _, m := range reActionLine.FindAllString(text, -1) {
-				conventions[strings.TrimSpace(m)]++
+				conventions[actionKind(m)]++
 			}
 			if nItems == 0 {
 				t.Fatalf("a failing report with no failing item (`✗`) in it:\n%s", text)
