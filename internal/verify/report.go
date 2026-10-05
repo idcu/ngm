@@ -123,6 +123,14 @@ type DepResult struct {
 	Remediation string `json:"remediation,omitempty"`
 	// Err 是操作性失败的描述。非空表示校验未能完成，整体退出码为 4。
 	Err string `json:"error,omitempty"`
+	// ErrHint 是**那个错误自己带的建议**（沿包装链找第一条非空的）。
+	//
+	// 为什么要有这个字段（v0.35）：`res.Err = merr.Error()` 只留 message，
+	// 而最能说清"接下来做什么"的往往是**最贴近成因的那一层**——
+	// 权限层知道要往 `permissions.allow` 里加哪个 host，mirror 层知道
+	// "run once without --offline"。丢掉它，报告就只能给一句通用的建议
+	// （实测：`ngm install` 对"权限被拒"是错的下一步——它也会被拒）。
+	ErrHint string `json:"errorHint,omitempty"`
 }
 
 // Summary 是报告聚合，也是退出码的唯一来源。

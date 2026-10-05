@@ -210,6 +210,10 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 				res.Err = digestCheck.Detail
 				derr = errs.New(errs.CodeGitFetch, d.Name+": "+digestCheck.Detail+" (--offline)",
 					"the local mirror is cold; run once without --offline (or `ngm install`) to warm it")
+				// v0.35：上面那条 `errs.New` 此前**写了却没人读**——下一句就离开这个分支，
+				// 于是那句建议被算出来、赋值、丢掉（`go vet` 不看这种；`ineffassign` 会）。
+				// 存到 res 上，渲染层才有得用。
+				res.ErrHint = errs.Hint(derr)
 
 			default:
 				// 在线：取对象后重试一次。
@@ -238,12 +242,14 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 				res.Checks = append(res.Checks, digestCheck)
 				if derr != nil {
 					res.Err = derr.Error()
+					res.ErrHint = errs.Hint(derr)
 				}
 			}
 		} else {
 			res.Checks = append(res.Checks, digestCheck)
 			if derr != nil {
 				res.Err = derr.Error()
+				res.ErrHint = errs.Hint(derr)
 			}
 		}
 	}
@@ -266,6 +272,13 @@ func mirrorPathFor(opts Options, repo resolve.Canonical) string {
 func finishSkippingRefAndDigest(res DepResult, merr error, mirrorPath string,
 	d *lock.Dependency, store *vendor.ContentStore, opts Options) (DepResult, error) {
 	res.Err = merr.Error()
+	// v0.35：把错误**自己带的建议**留下来。这里是实测到的两条成因汇合的地方：
+	//   · mirror 不在（--offline 冷启动）⇒ offlineEnsureMirror 的
+	//     "run once without --offline to populate the mirror, or use `ngm install`"；
+	//   · 网络被策略拒 ⇒ 权限层的
+	//     `add "net:<host>" to permissions.allow in ~/.ngm/config.json`。
+	// 只留 message 的话，报告只能给一句**对后者是错的**通用建议（`ngm install` 也会被拒）。
+	res.ErrHint = errs.Hint(merr)
 	res.Checks = append(res.Checks, CheckResult{
 		Check:       CheckRef,
 		Status:      StatusFail,
@@ -659,6 +672,14 @@ func aggregateDrift(checks []CheckResult) DriftKind {
 func remediationFor(res *DepResult) string {
 	switch {
 	case res.Err != "":
+		// **最贴近成因的那一层**写下的建议优先（v0.35）。
+		//
+		// 这是 v0.28 那条原则（"建议沿包装链找第一句非空的"）在**报告**这一侧的同一句话：
+		// 权限层知道该往哪个键里加哪个 host，mirror 层知道"跑一次在线就好"——
+		// 这个函数**猜不出来**。只有链上没有建议时才退回下面那句通用话。
+		if res.ErrHint != "" {
+			return res.ErrHint
+		}
 		// **点名命令**（v0.34）：原来写的是 "re-run without --offline"——
 		// 说了要做什么，却没说**用什么做**。实测（v0.34）两条触发路径：
 		//   · mirror 不在（--offline 冷启动）⇒ `ngm install` 会把它取下来；

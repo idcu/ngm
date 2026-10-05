@@ -187,6 +187,23 @@ func FormatHuman(err error) string {
 	return out
 }
 
+// Hint 返回这条错误的建议（沿 `Cause` 链找第一条非空的）；没有则返回空串。
+//
+// 与 FormatHuman 用的是**同一个** inheritedHint：任何要给出"下一步"的地方
+// 都该看到同一句话。否则同一个失败会在错误文本里有建议、在报告里没有——
+// v0.35 实测到的正是这种分裂：`res.Err = merr.Error()` 只留下 message，
+// 而**最贴近成因的那一层**（权限层、mirror 层）写下的建议就此消失。
+func Hint(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ne *NgmError
+	if !errors.As(err, &ne) {
+		return ""
+	}
+	return inheritedHint(ne)
+}
+
 // inheritedHint 取这条错误自己的 hint；没有就沿 `Cause` 链找第一条非空的。
 //
 // 深度优先、只走**第一条**：多条建议堆在一起比没有建议更难读。
