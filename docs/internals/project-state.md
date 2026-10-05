@@ -74,6 +74,9 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.16** | **机器可读输出不能说谎** | `--json` 契约（**20 个状态 / 9 种命令形态 × 4 条规矩**：恰好一份 JSON · 模式不改变退出码 · 报告里的退出码等于进程退出码 · 输入错误时 stdout 为空）+ 把机器接口的形状写进 [CLI 参考](../guides/cli.md)（此前用户侧一处未记）。产品代码 **0 行改动** |
 | **v0.17** | **解释输出必须有界** | `why` 默认 **64** 条路径 / `tree` 默认 **4096** 条目（[ADR-024](../adr/adr-024-bounded-explanations.md)），截断**必须说出来**（文字 + `pathsTruncated` / `entriesTruncated` + 条目标记），`--all` 解除，退出码不变。实测：**41 个节点 → 1 048 576 条路径 / 0.778s / 626 MB**，而图形状来自上游清单。另修 `observability.md` 两段与渲染器不符的输出示例（方框形状）+ 加网与 golden 逐行对照 |
 | **v0.18** | **第一次真实联网复核** | 新增可选复核（`NGM_REAL_UPSTREAM=1`，**默认跳过**：只断言本项目能控制的事，联网部分只记录、远端不可达即判"未证明"）+ 一次真实运行记录。**一条假设被测量否掉**（"网络等待没有上界"——失败由 git 自己的界终止：RST ~20s / TCP ~21s），因此产品代码 **0 行改动**。**完整首次上手路径未在本环境验证**（本机 git-https 三次只成功一次），如实记为未完成 |
+| **v0.19** | **用户看到的文本也是接口** | 每个命令的用法文本都写了自己的 `EXIT CODES`（8 个新增 + 修正 `install` 漏掉的 2 / 5）+ 修掉 `ngm config` 的三处缺陷（`--dir` 被静默丢弃 / 多余位置参数 / 无清单却报 OK）+ 清掉用户可见文本里的内部阶段标签（`M\d`，用 `go/scanner` 扫字符串字面量） |
+| **v0.20** | **先测量，两个候选都被证伪** | ① 缺引擎时报错**已经列了候选**（`(available: self, typescript)`）；② 三类配置错误下 **21 个命令已经一致**（exit 3 且点名路径）。产品代码 **0 行改动**；"待决清单会自己变脏"写进复盘 |
+| **v0.21** | **声明必须可核对** | 70 对（命令, 退出码）声明 → **44 条离线实测 + 26 条已知缺口**（`exitCodeGaps` 自带过期绊线：条目必须仍对应真实声明）。修掉一张网当场抓出的**产品缺陷**：`ngm tree --offline` 不把 `--offline` 穿进图解析（`env.GraphOptions()` 不带它）⇒ 退 **3** 而非承诺的 **4**，与 `install` / `update` 不一致 |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -92,7 +95,9 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **`v0.16.0`** | ✅ | ✅ **7 个**（tag 推送触发，05:53 UTC 已发布） | ❌ 待上传 |
 | **`v0.17.0`** | ✅ | ✅ **7 个**（tag 推送触发，07:05 UTC 已发布） | ❌ 待上传 |
 | **`v0.18.0`** | ✅ | ✅ **7 个**（tag 推送触发，10:25 UTC 已发布） | ❌ 待上传 |
-| **`v0.19.0`** | ✅ | ✅ **7 个**（tag 推送触发，12:0? UTC 已发布——**第十一次连续成功**） | ❌ 待上传 |
+| **`v0.19.0`** | ✅ | ✅ **7 个**（tag 推送触发，11:21 UTC 已发布——**第十一次连续成功**） | ❌ 待上传 |
+| **`v0.20.0`** | ⏳ **随本次推送** | ⏳ 随本次推送 | ❌ 待上传 |
+| **`v0.21.0`** | ⏳ **随本次推送** | ⏳ 随本次推送 | ❌ 待上传 |
 
 > **上一版这一栏把 `v0.1.0` 算进了"Gitee 也可取到"**——它不在那里。本页此前从
 > [补发记录](../development/README.md#补发记录2026-10-02gitee-侧)（只有 v0.2.0/v0.3.0/v0.4.0 三条）
@@ -148,7 +153,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.19.0` 的 **Gitee 发行版（16 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.19.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.21.0` 的 **Gitee 发行版（18 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -186,7 +191,7 @@ bash scripts/check-release-status.sh --published
 | 3s 目标 | v0.5 实测：受控对照（未优化）最大 2.433s **也过线**，而跨机器方差 ≥0.3s > 本轮收益 0.45s | ✅ **已结项**（ADR-022）：3s 降级为观测值，门禁改为 spawn 预算 |
 | `symlink` 模式 | 恢复它要"按需物化一棵 hardlink 树"，是**新决策**不是回滚 | ✅ **已结项**（ADR-021）：保留降级 |
 | 四个 release 未生成 | **镜像转发 tag 不保证触发 `release.yml`**：`v0.5.0`~`v0.8.0`（一批四个）没触发，而 `v0.9.0`/`v0.10.0`/`v0.11.0`/`v0.12.0`（单独打）**四次都触发了**。原因不在本仓库可观测范围内 | ⏸️ **补发已暂缓**（2026-10-04，§3.2）；**新版本不受影响**（走同一条正常通道）· [发布清单](../development/README.md#发布清单每个版本) · v0.8 复盘 §2 |
-| Gitee 发行版 | Gitee 无 API token 时是**人工上传**；工具已就绪（幂等 + 双向校验），读数也已就绪 | ⏸️ **补发已暂缓**（同上）：缺 `v0.1.0` 及 `v0.5.0`~`v0.19.0` **共 16 个版本**（`v0.1.0` 一直缺，此前没人查）· `scripts/upload-gitee-assets.ps1`（补）· `scripts/check-gitee-release-status.sh`（看） |
+| Gitee 发行版 | Gitee 无 API token 时是**人工上传**；工具已就绪（幂等 + 双向校验），读数也已就绪 | ⏸️ **补发已暂缓**（同上）：缺 `v0.1.0` 及 `v0.5.0`~`v0.21.0` **共 18 个版本**（`v0.1.0` 一直缺，此前没人查）· `scripts/upload-gitee-assets.ps1`（补）· `scripts/check-gitee-release-status.sh`（看） |
 | 自建 Git 非默认端口 | `splitURLForm` **显式剥掉端口**，`Canonical` 只存 `Host`+`Path`；修它要给 `Canonical` 加字段 = schema 级变更 | ✅ **"静默"这一半已修**（v0.12：明确拒绝并报出端口，默认端口仍接受）；**支持**仍待真实需求 · [metrics](./metrics.md#已知限制非默认端口v011-c-组实测) |
 | 无 registry 生态 | **非目标是刻意的**：registry 包管理交给 pnpm/npm/yarn | 不变 · capability-matrix |
 | **采用** | 公开仓库创建于 **2026-09-29**，此前**没有任何许可证**（"保留所有权利"→ 法律上无人可以用）、没有 description 与 topics | 许可证已改为 **MIT**（v0.12）；**description / topics 需在网页上填**；剩下的是"找一个真实使用场景" |

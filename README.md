@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.19 delivered in source**, and all nineteen tags `v0.1.0` … `v0.19.0` exist.
+Status: **v0.1 … v0.21 delivered in source**, and all twenty-one tags `v0.1.0` … `v0.21.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -229,6 +229,8 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.17 | bounded the explanations: `why` enumerates at most 64 paths and `tree` expands at most 4096 entries by default — the count is exponential in graph width (41 nodes produced over a million paths / 626 MB) and the graph's shape comes from upstream manifests, so both say so when they stop, and `--all` lifts the bound (ADR-024) | delivered · released |
 | v0.18 | the first run against a **real remote**: an opt-in network check (`NGM_REAL_UPSTREAM=1`, skipped by default) plus a recorded attempt — no product code changed, because the one hypothesis worth acting on ("network waits have no bound") was **disproved by measurement** (failures end at git's own limits: ~20s reset, ~21s connect timeout) | delivered · released |
 | v0.19 | the text users see is an interface too: every command's usage now writes its own `EXIT CODES` (8 new + a correction to `install`), `config` learned `--dir` and stopped reporting OK where there is no manifest, and the internal stage labels (`M\d`) leaked into user-visible strings were removed | delivered · released |
+| v0.20 | measure first: two pending candidates were both **disproved** — the "missing engine" error already lists its candidates, and all 21 commands already refuse consistently on configuration errors. No product code changed | delivered · released |
+| v0.21 | made declarations answerable: every exit code each command's usage promises must either have an offline trigger that is actually run, or be recorded as a known gap — and the gap list trips itself when it goes stale. Found and fixed one product defect: `ngm tree --offline` did not thread `--offline` into graph resolution, exiting 3 instead of the 4 it promises | delivered · released |
 | v0.19 | **the text users see is an interface too**: every command's usage now writes its own `EXIT CODES` (8 new + a correction to `install`, which had silently omitted 2 and 5), `config` learned `--dir` and stopped reporting OK for a directory with no manifest, and the internal stage labels (`M\d`) leaked into user-visible strings were removed | delivered · released |
 
 ---
