@@ -208,9 +208,38 @@ func runEnginesValidate(ec *engineContext, jsonOut bool, stdout, stderr io.Write
 			label = "(catalog)"
 		}
 		fmt.Fprintf(stdout, "✗ %s: %s [%s]\n", label, is.Message, is.Kind)
+		// v0.36：**每一条问题都要给下一步**。
+		//
+		// 此前这份报告是"7 个问题、exit 5、一行下一步都没有"——它是被
+		// **扫描型**判据（对全部非零用例扫 `✗`）抓到的，而不是靠我想到去看它。
+		// 版式与 `verify` 一致：失败项一行，缩进的 `→` 一行。
+		//
+		// 两类问题的下一步**不同**（v0.35 那条经验：最知道的那一层说话）：
+		// 一个是"把命令装上／改清单指向存在的那个"，另一个是"把声明的版本改成实装的"。
+		fmt.Fprintf(stdout, "  → %s\n", issueAdvice(is.Kind))
 	}
 	fmt.Fprintf(stdout, "\n%d issue(s) found\n", len(issues))
 	return adapter.ExitCode(issues)
+}
+
+// issueAdvice 给每一类 validate 问题一句"接下来做什么"。
+//
+// 两句话都点名了**清单文件名**、**要改的键**与**可照抄的命令**——
+// 报告里的建议必须能被照着做（v0.33：点名一个真能执行的东西）。
+//
+// `[version]` 那句刻意不写"必须升级"：版本不一致在 validate 里是**信息**而非失败
+// （旧版本常常照样能跑），所以它是"改声明让它与实装相符"，不是"去升一个版本"。
+func issueAdvice(kind adapter.IssueKind) string {
+	switch kind {
+	case adapter.IssueUnavailable:
+		return "install it, or point `command` in " + adapter.FileName +
+			" at an existing one; then re-run `ngm engines validate`"
+	case adapter.IssueVersion:
+		return "update the declared `version` in " + adapter.FileName +
+			" to match what is installed (a mismatch is information, not a blocker); " +
+			"re-run `ngm engines validate` to confirm"
+	}
+	return "fix this entry in " + adapter.FileName + ", then re-run `ngm engines validate`"
 }
 
 // engineRows 把清单转成输出行，并探测每个条目的可用性与实际版本。
