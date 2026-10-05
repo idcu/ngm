@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.34 delivered in source**, and all thirty-four tags `v0.1.0` … `v0.34.0` exist.
+Status: **v0.1 … v0.35 delivered in source**, and all thirty-five tags `v0.1.0` … `v0.35.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -244,6 +244,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.32 | reports must speak too: every failing item (`✗`) has to carry a line saying what to do next. The new net caught two real gaps on its first run — `audit` said nothing when an advisory records no fixed version, and `tree --osv` marked a vulnerability without naming it or pointing at `ngm audit` (while the *unchecked* branch already had that pointer) | delivered · released |
 | v0.33 | advice has to name names: having a next-step line is not enough — that line must name something executable, and the named thing is cross-checked against the running command table and the config schema sources. A wrong pointer is worse than no pointer. The net's boundary is stated plainly: it can tell that advice points at something real, not that the something is the right thing to do | delivered · released |
 | v0.34 | advice has to match the *shape* of the failure: drift points at `ngm update`, changed bytes at `ngm install`, vulnerabilities at `ngm audit` — not just any command that exists. Writing that judgement measured a real defect: the "check could not complete" branch of `verify` had its advice computed and then dropped by a render gate, the same shape as v0.28. The teeth show it plainly: point the critical advice at `ngm audit` and v0.33 passes while v0.34 fails | delivered · released |
+| v0.35 | advice has to acknowledge the *cause*: one branch of `verify` covers a missing mirror and a policy-denied host, and v0.34 gave both the same sentence — which is wrong for the second. The right sentence was already written by the layer closest to the cause and was dropped twice: once by `err.Error()` keeping only the message, once by an assignment nothing ever read. Fixed by letting the layer that knows say it (`errs.Hint` + `ErrHint`), so a new cause becomes correct on its own | delivered · released |
 | v0.19 | **the text users see is an interface too**: every command's usage now writes its own `EXIT CODES` (8 new + a correction to `install`, which had silently omitted 2 and 5), `config` learned `--dir` and stopped reporting OK for a directory with no manifest, and the internal stage labels (`M\d`) leaked into user-visible strings were removed | delivered · released |
 
 ---

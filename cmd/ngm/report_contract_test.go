@@ -111,7 +111,19 @@ var reportCases = []reportCase{
 			return buildFixture(t, home, setupNoMirror)
 		},
 		args:     []string{"verify", "--offline"},
-		remedies: []string{"`ngm install`", "`ngm verify`"},
+		remedies: []string{"`ngm install`"},
+	},
+	{
+		// v0.35 新增：**同一个分支的另一种成因**——网络被策略拒（不是 --offline，
+		// 而是本环境默认禁网）。它此前拿到的是"run `ngm install`"那句**错的**建议：
+		// 网络被拒时 `ngm install` 也会被拒，真正的下一步是往 `permissions.allow`
+		// 里加 host——而这句话**权限层早就写好了**，只是被 `res.Err = merr.Error()` 丢掉。
+		name: "verify/检查未能完成（网络被策略拒）",
+		setup: func(t *testing.T, home string) string {
+			return buildFixture(t, home, setupNoMirror)
+		},
+		args:     []string{"verify"},
+		remedies: []string{"permissions.allow"},
 	},
 	{
 		name: "audit/公告没有修复版本",

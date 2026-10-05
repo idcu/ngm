@@ -240,6 +240,10 @@ verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
   就只写 `→ <建议>`——这一支曾经被渲染的门整块吞掉（建议算好了却没送到用户眼前）
 - **建议要承认失败的形状**（v0.34）：因漂移失败指向 `ngm update`、因字节被改失败指向
   `ngm install`、因漏洞失败指向 `ngm audit`——**而不是随便一个真实存在的命令**
+- **建议要承认成因**（v0.35）："检查未能完成"这一支覆盖两种**成因完全不同**的失败——
+  mirror 不在（⇒ 跑一次在线，或 `ngm install`）与网络被**策略**拒（⇒ 往 `permissions.allow`
+  里加那个 host）。后者由**权限层自己**给出（它知道该改哪个键、哪个 host），
+  报告原样透传：**最贴近成因的那一层最知道该怎么办**，`remediationFor` 猜不出来
 - 通过的检查不展开；只有**未通过**的检查才输出其 `check: detail` 行（信息密度留给行动依据）
 - `--offline` 时依赖行带 `[stale]`，并在末尾注明"refs were compared against the local mirror snapshot"
 - `--json` 输出同一份判定的机器可读形式（`dependencies[].checks[]` + `summary.exitCode`），
