@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.29 delivered in source**, and all twenty-nine tags `v0.1.0` … `v0.29.0` exist.
+Status: **v0.1 … v0.30 delivered in source**, and all thirty tags `v0.1.0` … `v0.30.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -239,6 +239,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.27 | the loosest list of all — field names that live in *prose* rather than in a table — is now checked too, anchored to the lines that talk about `--json` (52 lines, 21 names; the anchor takes false positives from 27/62 to 0). The config doc also gained its reverse check | delivered · released |
 | v0.28 | a census of "does this error have a next step" (300 construction sites, 129 with none) turned up a real, user-visible defect: the `hint:` line was **lost when errors were wrapped**. Fixed at the one place it can be lost — the renderer now walks the cause chain — which repairs all 300 sites without touching any error data, plus a ratchet so the count cannot grow | delivered · released |
 | v0.29 | read the 11 ratcheted sites one by one and found every one of them *can* carry a real next step, so the ratchet became a hard gate (0/47); an end-to-end net now proves the advice actually reaches the user by making `ngm init` fail for real | delivered · released |
+| v0.30 | runtime proof instead of source reading: reusing the 64 exit-code cases, every one of the 15 error-text failures carries a next step and none fails silently (the 28 report-style failures are out of scope but reported). The judgement guards its own reachability, and a repository-wide ratchet watches the half the user-layer gate cannot see | delivered · released |
 | v0.19 | **the text users see is an interface too**: every command's usage now writes its own `EXIT CODES` (8 new + a correction to `install`, which had silently omitted 2 and 5), `config` learned `--dir` and stopped reporting OK for a directory with no manifest, and the internal stage labels (`M\d`) leaked into user-visible strings were removed | delivered · released |
 
 ---
