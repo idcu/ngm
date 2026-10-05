@@ -245,6 +245,34 @@ func (r *TreeReport) Render(w io.Writer) {
 	if !r.OSVChecked {
 		fmt.Fprintf(w, "vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)\n")
 	}
+	if r.OSVChecked {
+		// 查到了漏洞**更要**给出下一步（v0.32）。
+		//
+		// 树只画 `✗` 与**条数**——"哪条公告、修复在哪个版本、严重度多少"在
+		// `ngm audit` 的报告里（树要的是一眼看全，不是清单）。不指过去，
+		// 用户只被告知"有事"，却不知道"做什么"：这正是 v0.32 在 audit 报告里
+		// 修掉的同一类缺口（说清了"是什么"，没给"怎么办"）。
+		//
+		// 行首用 `→`：与 `verify` 的 `→ driftKind: …` 同一个约定，
+		// 于是"grep `^\s*→`"就是这份输出里的全部下一步。
+		if n := vulnCount(r.Entries); n > 0 {
+			fmt.Fprintf(w, "\n  → %d known vulnerability(ies); run `ngm audit` for the advisories "+
+				"and the versions that fix them\n", n)
+		}
+	}
+}
+
+// vulnCount 数出树里所有条目的漏洞总数（含子节点）。
+//
+// 与 `cmd/ngm` 里的 countVulns 是同一件事，但那一个在 package main、
+// 且用途是决定退出码；这里只是为了让渲染**自己**知道该不该给指针。
+func vulnCount(entries []*TreeEntry) int {
+	n := 0
+	for _, e := range entries {
+		n += len(e.Vulns)
+		n += vulnCount(e.Children)
+	}
+	return n
 }
 
 func renderEntry(w io.Writer, e *TreeEntry, prefix string) {

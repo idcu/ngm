@@ -71,7 +71,20 @@ func (r *AuditReport) Render(w io.Writer) {
 			fmt.Fprintf(w, "  %s: %s (%s)\n", v.Severity, v.Summary, v.ID)
 			if v.FixedIn != "" {
 				fmt.Fprintf(w, "  Fixed in: %s\n", v.FixedIn)
+				continue
 			}
+			// 没有已发布的修复版本时**也必须给下一步**（v0.32）。
+			//
+			// 实测（v0.32）：公告带 `fixed` 时报告里有 `Fixed in: 1.2.4`；不带时
+			// **一句话都没有**——而"没有记录修复版本"在真实世界很常见（OSV 常常只记
+			// 受影响范围）。于是用户看到"1 个 HIGH、退 1"，却没有任何可做的事。
+			// 这与 `verify` 的报告不一致：后者在**每种**失败下都给一行 `→ …`。
+			//
+			// 给出的两条路都是真的：读公告（ID 是稳定句柄），
+			// 或**明确**接受风险（配置键会让它不再让 audit 失败——不是"忽略"，是"记录下来"）。
+			fmt.Fprintf(w, "  → no fixed version is recorded for this advisory: "+
+				"read https://osv.dev/vulnerability/%s, or record the acceptance "+
+				"via supplyChain.osvIgnoreSeverities in ngm.json\n", v.ID)
 		}
 		fmt.Fprintln(w)
 	}
