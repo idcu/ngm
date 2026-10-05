@@ -100,15 +100,19 @@ func runAuditHook(
 		fmt.Fprintf(stderr, "  %s", indent(string(res.Stderr), "  "))
 	}
 
+	// 显示名说明"是谁否决的"：退出码 1 与 verify 的引用漂移是同一个数字，
+	// 而这里发生的事是**你自己的钩子**否掉了这份依赖集。数值契约不变。
 	if res.TimedOut {
-		return runErr(ctx, stdout, stderr, errs.New(errs.CodeRefDrift,
+		e := errs.New(errs.CodeRefDrift,
 			fmt.Sprintf("the audit hook did not finish within %s", security.SandboxTimeout),
-			"a hook that cannot conclude is not a pass; run it by hand to see what it is doing"))
+			"a hook that cannot conclude is not a pass; run it by hand to see what it is doing")
+		return runErr(ctx, stdout, stderr, e.Labeled("AuditHook"))
 	}
 	if res.ExitCode != 0 {
-		return runErr(ctx, stdout, stderr, errs.New(errs.CodeRefDrift,
+		e := errs.New(errs.CodeRefDrift,
 			fmt.Sprintf("the audit hook rejected this dependency set (exit %d)", res.ExitCode),
-			"your own policy objected; the report above is what it was given"))
+			"your own policy objected; the report above is what it was given")
+		return runErr(ctx, stdout, stderr, e.Labeled("AuditHook"))
 	}
 
 	fmt.Fprintln(out, "  ✓ audit hook passed")

@@ -326,5 +326,8 @@ func (e *EngineError) AsNgmError() *errs.NgmError {
 		// 能确定是临时性失败时，直接告诉用户"再跑一次可能就好了"。
 		hint = "this looks transient — re-running may succeed; " + hint
 	}
-	return errs.Wrap(errs.CodeRefDrift, e.Message, hint, fmt.Errorf("engine exit %d", e.Code))
+	// 显示名换成 EngineFailed：退出码 1 在 verify 里是"引用漂移"，在这里是
+	// "引擎跑了但失败"。数值契约不变（仍是 1），只换给人看的那个词。
+	return errs.Wrap(errs.CodeRefDrift, e.Message, hint,
+		fmt.Errorf("engine exit %d", e.Code)).Labeled("EngineFailed")
 }

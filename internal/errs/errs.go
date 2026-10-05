@@ -80,14 +80,43 @@ type NgmError struct {
 	Message string
 	Cause   error
 	Hint    string
+
+	// Label 覆盖**显示名**（默认取 Code.String()）。
+	//
+	// 为什么需要它：**一个数字只能有一个名字，而同一个数字在不同命令里
+	// 可能指的是不同的事**。退出码 1 至少有四种来源——verify 的引用漂移、
+	// audit 的超阈值漏洞、audit 钩子否决、以及**引擎运行了但失败**。
+	// 前三种里 `RefDrift` 勉强贴切，第四种完全不贴切：跑 `ngm typecheck` 的人
+	// 看到 `RefDrift:` 会去找"漂移"，而实际发生的是引擎退出非零（v0.22 实测）。
+	//
+	// Label 只改**给人看的那个词**：Code、退出码、`--json` 一字不变。
+	// 机器读到的东西仍然只有数字——这正是 v0.16 钉下的契约。
+	Label string
+}
+
+// label 返回要显示的名字：优先用显式 Label，否则用码的默认名。
+func (e *NgmError) label() string {
+	if e.Label != "" {
+		return e.Label
+	}
+	return e.Code.String()
+}
+
+// Labeled 返回**同一份错误的副本**，只把显示名换掉。
+//
+// 它存在的理由见 NgmError.Label 的注释：数值是契约，名字是给人读的。
+func (e *NgmError) Labeled(label string) *NgmError {
+	cp := *e
+	cp.Label = label
+	return &cp
 }
 
 // Error 实现 error 接口。
 func (e *NgmError) Error() string {
 	if e.Cause != nil {
-		return fmt.Sprintf("%s: %s: %v", e.Code, e.Message, e.Cause)
+		return fmt.Sprintf("%s: %s: %v", e.label(), e.Message, e.Cause)
 	}
-	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+	return fmt.Sprintf("%s: %s", e.label(), e.Message)
 }
 
 // Unwrap 让 errors.Is/As 能穿透到 Cause。
@@ -139,7 +168,7 @@ func FormatHuman(err error) string {
 	if !errors.As(err, &ne) {
 		return "error: " + err.Error()
 	}
-	out := ne.Code.String() + ": " + ne.Message
+	out := ne.label() + ": " + ne.Message
 	if ne.Cause != nil {
 		out += "\n  cause: " + ne.Cause.Error()
 	}

@@ -521,5 +521,11 @@ func runChain[T any](
 		msg = fmt.Sprintf("%s: all %d engines failed (%s)", kind, len(lines), strings.Join(lines, "; "))
 	}
 
-	return zero, errs.Wrap(code, msg, hint, lastErr)
+	ngmErr := errs.Wrap(code, msg, hint, lastErr)
+	if executed {
+		// 走的是退出码 1（与 verify 的"引用漂移"同一个数字），但这里发生的事
+		// 是"引擎跑了却失败"——显示名必须说这件事，否则用户会去找漂移。
+		ngmErr = ngmErr.Labeled("EngineFailed")
+	}
+	return zero, ngmErr
 }
