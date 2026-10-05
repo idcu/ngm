@@ -3,7 +3,7 @@
 // 退出码与 architecture/observability.md 对齐：
 //
 //	0 成功（verify 的"仅预期更新"也归此）
-//	1 策略失败（verify 非预期漂移；audit 超阈值漏洞）
+//	1 策略失败（verify 非预期漂移；audit 超阈值漏洞；**引擎运行了但失败**）
 //	2 完整性失败（verify digest 重放不匹配）
 //	3 配置/策略/lock 错误
 //	4 Git/网络失败（含 --offline 资源缺失）
@@ -24,7 +24,19 @@ const (
 	// CodeOK 表示成功（保留给需要返回 Code 的内部接口；退出码 0 不通过本类型表达）。
 	CodeOK Code = 0
 
-	// CodeRefDrift 1：策略失败（verify 非预期漂移；audit 超阈值漏洞）。
+	// CodeRefDrift 1：策略失败。**它现在有三个来源**：
+	//
+	//   - verify 非预期漂移（tag 被移动 / 分支历史被改写）——名字的来源；
+	//   - audit 超阈值漏洞；
+	//   - **引擎运行了但失败**（`typecheck` / `typedecl` / `build` / `transform` / `css`
+	//     的退出码 1 都走这里，见 internal/adapter/engine.go）。
+	//
+	// 第三种用途为 v0.22 实测所确认，而此前这段注释**一处未提**——注释与事实不符
+	// 是"读数说谎"的一种：它不会让任何测试变红。
+	//
+	// 已知代价：String() 只有一个名字，于是那 5 个命令打印的错误前缀是
+	// `RefDrift: …`，读起来像"引用漂移"。是否改名见 v0.22 复盘的候选（改动
+	// 人类可读输出，需权衡；数值契约不受影响）。
 	CodeRefDrift Code = 1
 	// CodeDigestMismatch 2：完整性失败（verify digest 重放不匹配）。
 	CodeDigestMismatch Code = 2
