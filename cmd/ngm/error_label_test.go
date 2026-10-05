@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/security"
 	"github.com/idcu/ngm/internal/testutils"
 )
 
@@ -72,5 +74,65 @@ func TestV23EngineFailureNamesItself(t *testing.T) {
 	}
 	if combined := o2.String() + e2.String(); strings.Contains(combined, "EngineFailed") {
 		t.Errorf("the engine label must not leak into verify's report:\n%s", combined)
+	}
+}
+
+// TestV24AuditHookVerdictNamesItself 补上 v0.23 留下的那个洞：
+// 钩子的"否决 / 超时"两条分支当时改了显示名，却**没有网看着**——
+// 因为走到那里需要真的用 Deno 跑一次脚本（本环境没有 Deno，缺它会先退 5）。
+//
+// 处置是把它抽成一个吃 `*security.Result` 的纯函数，于是可以用合成结果直接测。
+// 这张网守三件事：**是谁否决的（`AuditHook`，不是 `RefDrift`）**、
+// **数值仍是 1**、以及**两种失败必须说不同的话**（"它说自己不过关" ≠ "它没能给出结论"）。
+func TestV24AuditHookVerdictNamesItself(t *testing.T) {
+	cases := []struct {
+		name      string
+		res       *security.Result
+		wantLabel string // 空 = 通过
+		wantMsg   string
+	}{
+		{"passed", &security.Result{ExitCode: 0}, "", ""},
+		{"no result", nil, "", ""},
+		{"rejected", &security.Result{ExitCode: 3}, "AuditHook", "rejected this dependency set"},
+		{"timed out", &security.Result{TimedOut: true, ExitCode: -1}, "AuditHook", "did not finish within"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := auditHookVerdict(tc.res)
+			if tc.wantLabel == "" {
+				if got != nil {
+					t.Fatalf("this result must be a pass, got: %s", errs.FormatHuman(got))
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("this result must be a failure")
+			}
+			if errs.ExitCode(got) != 1 {
+				t.Errorf("a hook rejection is a policy failure (exit 1), got %d", errs.ExitCode(got))
+			}
+			human := errs.FormatHuman(got)
+			if !strings.HasPrefix(human, tc.wantLabel+": ") {
+				t.Errorf("the line must start with %q, got:\n%s", tc.wantLabel, human)
+			}
+			if strings.Contains(human, "RefDrift") {
+				t.Errorf("the default name is misleading here — the hook is what objected:\n%s", human)
+			}
+			if !strings.Contains(human, tc.wantMsg) {
+				t.Errorf("the message should say %q, got:\n%s", tc.wantMsg, human)
+			}
+			if got.Hint == "" {
+				t.Errorf("a rejection with no hint is not actionable:\n%s", human)
+			}
+		})
+	}
+
+	// 两种失败**不许长成同一句话**：一个是"它说自己不过关"，另一个是"它没能给出结论"。
+	// 合并它们会让"钩子根本没跑完"看起来像"钩子投了反对票"。
+	rej := errs.FormatHuman(auditHookVerdict(&security.Result{ExitCode: 1}))
+	tmo := errs.FormatHuman(auditHookVerdict(&security.Result{TimedOut: true}))
+	if rej == tmo {
+		t.Errorf("a rejection and a timeout must be distinguishable:\n%s", rej)
 	}
 }

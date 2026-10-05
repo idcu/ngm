@@ -100,21 +100,36 @@ func runAuditHook(
 		fmt.Fprintf(stderr, "  %s", indent(string(res.Stderr), "  "))
 	}
 
-	// 显示名说明"是谁否决的"：退出码 1 与 verify 的引用漂移是同一个数字，
-	// 而这里发生的事是**你自己的钩子**否掉了这份依赖集。数值契约不变。
-	if res.TimedOut {
-		e := errs.New(errs.CodeRefDrift,
-			fmt.Sprintf("the audit hook did not finish within %s", security.SandboxTimeout),
-			"a hook that cannot conclude is not a pass; run it by hand to see what it is doing")
-		return runErr(ctx, stdout, stderr, e.Labeled("AuditHook"))
-	}
-	if res.ExitCode != 0 {
-		e := errs.New(errs.CodeRefDrift,
-			fmt.Sprintf("the audit hook rejected this dependency set (exit %d)", res.ExitCode),
-			"your own policy objected; the report above is what it was given")
-		return runErr(ctx, stdout, stderr, e.Labeled("AuditHook"))
+	if e := auditHookVerdict(res); e != nil {
+		return runErr(ctx, stdout, stderr, e)
 	}
 
 	fmt.Fprintln(out, "  ✓ audit hook passed")
 	return baseCode
+}
+
+// auditHookVerdict 把钩子的运行结果翻成"通过"或一条**说明是谁否决的**错误。
+//
+// 为什么单独成函数：要走到"否决/超时"这两条分支，得真的用 Deno 跑一次脚本，
+// 而**沙箱不存在时根本到不了这里**（缺 Deno 会先退 5）。于是这两行在 v0.23
+// 改了显示名却**没有网看着**——抽出来之后可以用合成的 Result 直接测。
+func auditHookVerdict(res *security.Result) *errs.NgmError {
+	if res == nil {
+		return nil
+	}
+	// 显示名说明"是谁否决的"：退出码 1 与 verify 的引用漂移是同一个数字，
+	// 而这里发生的事是**你自己的钩子**否掉了这份依赖集。数值契约不变。
+	if res.TimedOut {
+		return errs.New(errs.CodeRefDrift,
+			fmt.Sprintf("the audit hook did not finish within %s", security.SandboxTimeout),
+			"a hook that cannot conclude is not a pass; run it by hand to see what it is doing").
+			Labeled("AuditHook")
+	}
+	if res.ExitCode != 0 {
+		return errs.New(errs.CodeRefDrift,
+			fmt.Sprintf("the audit hook rejected this dependency set (exit %d)", res.ExitCode),
+			"your own policy objected; the report above is what it was given").
+			Labeled("AuditHook")
+	}
+	return nil
 }
