@@ -181,6 +181,12 @@ func (r *AuditReport) Format() string {
         sb.WriteString(fmt.Sprintf("  %s: %s (%s)\n", v.Severity, v.Summary, v.ID))
         if v.FixedIn != "" {
             sb.WriteString(fmt.Sprintf("  Fixed in: %s\n", v.FixedIn))
+        } else {
+            // 没有修复版本时也要给下一步：读公告，或明确接受风险（v0.32）
+            sb.WriteString(fmt.Sprintf(
+                "  → no fixed version is recorded for this advisory: "+
+                    "read https://osv.dev/vulnerability/%s, or record the acceptance "+
+                    "via supplyChain.osvIgnoreSeverities in ngm.json\n", v.ID))
         }
         sb.WriteString("\n")
     }

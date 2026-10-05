@@ -92,6 +92,10 @@ vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)
 
 > 与 why 一样，**这一段就是快照**（`cmd/ngm/testdata/tree.golden`），
 > 由 `TestV17DocOutputExamplesMatchTheGoldens` 逐行对照。
+>
+> `--osv` 查到漏洞时（退出码 1），树末追加一行以 `→` 开头的**下一步**：
+> 树只画 `✗` 与**条数**，而"哪条公告、严重度多少、修复在哪个版本"在 `ngm audit` 的报告里——
+> 不指过去，用户只被告知"有事"，不知道"做什么"（v0.32 修）。
 > 层级由**缩进**体现（子节点前缀 `│   `）——本页此前画的是 `├──`/`└──` 方框，
 > 那是渲染器从不产生的形状。
 
@@ -169,7 +173,17 @@ $ ngm audit
 ⚠ github:org/logger@main (branch) → def456abc
   MEDIUM: ReDoS in parser (GHSA-yyyy-yyyy-yyyy)
   Fixed in: v2.0.1
+  → no fixed version is recorded for this advisory: read https://osv.dev/vulnerability/GHSA-yyyy-yyyy-yyyy, or record the acceptance via supplyChain.osvIgnoreSeverities in ngm.json
 ```
+
+**每一条发现项都要有一行"接下来做什么"**（v0.32 起）：
+
+- 公告记录了修复版本 ⇒ `Fixed in: <版本>`
+- 公告**没有**记录修复版本 ⇒ 以 `→` 开头的一行，给出两条真实的路：读公告，或**明确**把该严重度记进
+  `supplyChain.osvIgnoreSeverities`（不是"忽略"，是"记录下来"——它仍会被计入报告里的 ignored 条数）
+
+> 为什么值得单列一条：修复版本**没有**被记录在 OSV 里是常见情形，而此前这种发现项只报"有什么"、
+> 不说"怎么办"——用户看到"1 个 HIGH、退 1"，却没有任何可做的事。
 
 详见 [供应链防护](./supply-chain.md)。
 
