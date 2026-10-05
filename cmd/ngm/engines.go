@@ -173,6 +173,17 @@ func runEnginesInfo(ctx context.Context, ec *engineContext, name string, jsonOut
 	return 0
 }
 
+// enginesValidateReport 是 `ngm engines validate --json` 的**机器接口形状**。
+//
+// 提到包级是为了让文档对得上（v0.26）：`cli.md` 的形状表写着 `version` / `ok` / `issues`，
+// 而**一张要对得上实现的形状表，前提是形状有一个名字**——匿名的结构体字面量
+// 没有任何机械判据能把它与文档对齐。同一版里 `integrations` 也是匿名的，一起提出来了。
+type enginesValidateReport struct {
+	Version int             `json:"version"`
+	OK      bool            `json:"ok"`
+	Issues  []adapter.Issue `json:"issues"`
+}
+
 // runEnginesValidate 校验清单结构与本机可用性。
 //
 // 退出码规则单源在 adapter.ExitCode（schema 错误优先于可用性问题）。
@@ -180,11 +191,7 @@ func runEnginesValidate(ec *engineContext, jsonOut bool, stdout, stderr io.Write
 	issues := ec.catalog.Validate()
 
 	if jsonOut {
-		payload := struct {
-			Version int             `json:"version"`
-			OK      bool            `json:"ok"`
-			Issues  []adapter.Issue `json:"issues"`
-		}{Version: ec.catalog.Version, OK: len(issues) == 0, Issues: issues}
+		payload := enginesValidateReport{Version: ec.catalog.Version, OK: len(issues) == 0, Issues: issues}
 		if code := writeJSON(stdout, stderr, payload); code != 0 {
 			return code
 		}

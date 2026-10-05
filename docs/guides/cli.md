@@ -124,10 +124,10 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
 | `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked`（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`） | ✗ |
-| `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `locked` · `paths` · `rootDeclared`（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
+| `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `subPath`（monorepo 子路径，无则省略） · `locked` · `paths` · `rootDeclared`（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
 | `ngm outdated --json` | 对象：`offline` · `entries` · `dependencies` · `updates` · `stale` | ✗ |
-| `ngm engines list --json` | **数组**（每个元素是一行引擎） | ✗ |
-| `ngm engines info <name> --json` | **数组**（同名不同 kind 会各占一行：`esbuild` 同时是 bundler 与 transformer） | ✗ |
+| `ngm engines list --json` | **数组**：每个元素是 `name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `builtin` · `supportedInput` · `defaultOptions` | ✗ |
+| `ngm engines info <name> --json` | **数组**：同一个元素形状（`name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `builtin` · `supportedInput` · `defaultOptions`）；同名不同 kind 会各占一行（`esbuild` 同时是 bundler 与 transformer） | ✗ |
 | `ngm engines validate --json` | 对象：`version` · `ok` · `issues` | ✗ |
 
 > 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。

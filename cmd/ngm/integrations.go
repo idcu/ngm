@@ -120,25 +120,37 @@ func exitIntegrations(conflicts int) int {
 	return 0
 }
 
+// integrationArtifact / integrationsReport 是这个命令的**机器接口形状**。
+//
+// 为什么要把它们从函数里提成具名类型（v0.26）：`cli.md` 的《`--json` 的形状》
+// 写着这个命令的顶层键，而**一张要对得上实现的形状表，前提是形状有一个名字**。
+// 匿名结构体字面量没有名字，于是没有任何机械判据能把它与文档对齐——
+// 同一版里 `engines validate` 也是匿名的，一起提出来了。
+//
+// 提到包级还有一个副作用：嵌套的 `artifact` 也从函数作用域变成包级类型，
+// 于是"哪些字段是接口的一部分"在类型层面一眼可见。
+type integrationArtifact struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+	Diff   string `json:"diff,omitempty"`
+	Hint   string `json:"hint,omitempty"`
+}
+
+type integrationsReport struct {
+	Tool      string                `json:"tool"`
+	DryRun    bool                  `json:"dryRun"`
+	Artifacts []integrationArtifact `json:"artifacts"`
+	Warnings  []string              `json:"warnings"`
+	ExitCode  int                   `json:"exitCode"`
+}
+
 func writeIntegrationsJSON(stdout, stderr io.Writer, tool string, dryRun bool, outcomes []integrations.Outcome, warns []string, code int) int {
-	type artifact struct {
-		Path   string `json:"path"`
-		Status string `json:"status"`
-		Diff   string `json:"diff,omitempty"`
-		Hint   string `json:"hint,omitempty"`
-	}
-	payload := struct {
-		Tool      string     `json:"tool"`
-		DryRun    bool       `json:"dryRun"`
-		Artifacts []artifact `json:"artifacts"`
-		Warnings  []string   `json:"warnings"`
-		ExitCode  int        `json:"exitCode"`
-	}{Tool: tool, DryRun: dryRun, Warnings: warns, ExitCode: code}
+	payload := integrationsReport{Tool: tool, DryRun: dryRun, Warnings: warns, ExitCode: code}
 	if payload.Warnings == nil {
 		payload.Warnings = []string{}
 	}
 	for _, o := range outcomes {
-		payload.Artifacts = append(payload.Artifacts, artifact{
+		payload.Artifacts = append(payload.Artifacts, integrationArtifact{
 			Path: o.Path, Status: string(o.Status), Diff: o.Diff, Hint: o.Hint,
 		})
 	}

@@ -89,15 +89,18 @@ func TestV25JSONShapeTableMatchesTheImplementation(t *testing.T) {
 	checked := 0
 
 	for _, row := range rows {
-		globs, ok := jsonShapeSourceFiles[row.command]
+		globs, ok := jsonShapeSourceFiles[row.id()]
+		if !ok {
+			globs, ok = jsonShapeSourceFiles[row.command]
+		}
 		if !ok {
 			t.Errorf("the shape table documents `ngm %s --json`, but the net has no implementation "+
-				"mapping for it — add one (a new command's shape must be checked too)", row.command)
+				"mapping for it — add one (a new command's shape must be checked too)", row.id())
 			continue
 		}
 		tags := jsonTagsOf(t, globs)
 		if len(tags) == 0 {
-			t.Errorf("no json tags found for `ngm %s` via %v — the mapping is wrong", row.command, globs)
+			t.Errorf("no json tags found for `ngm %s` via %v — the mapping is wrong", row.id(), globs)
 			continue
 		}
 		for _, key := range row.keys {
@@ -108,7 +111,7 @@ func TestV25JSONShapeTableMatchesTheImplementation(t *testing.T) {
 			checked++
 			if !tags[key] {
 				t.Errorf("`ngm %s --json` is documented with the key %q, but no such json tag exists in %v",
-					row.command, key, globs)
+					row.id(), key, globs)
 			}
 		}
 	}
@@ -164,7 +167,20 @@ func TestV25ConfigFieldTablesMatchTheSchema(t *testing.T) {
 
 type shapeRow struct {
 	command string
+	sub     string // 子命令（如 `engines validate` 的 validate）；没有则为空
 	keys    []string
+}
+
+// id 返回这一行的查找键：优先 `<命令> <子命令>`，退回 `<命令>`。
+//
+// 为什么要把子命令分出来（v0.26）：`engines` 的三行里，
+// `list` / `info` 的顶层是**数组**（元素是 `engineRow`），`validate` 是**对象**
+// （`enginesValidateReport`）——混成一行就没法说清"这些键属于哪个类型"。
+func (r shapeRow) id() string {
+	if r.sub != "" {
+		return r.command + " " + r.sub
+	}
+	return r.command
 }
 
 // parseJSONShapeTable 从 cli.md 的《`--json` 的形状》表里取出 命令 → 字段名。
@@ -204,6 +220,13 @@ func parseJSONShapeTable(t *testing.T) []shapeRow {
 			continue
 		}
 		row := shapeRow{command: m[1]}
+		// 第二个词是子命令吗？`integrations add <tool>` / `engines validate` 是；
+		// `why <dep>` 与 `verify --json` 不是（含 `<` 或以 `-` 开头）。
+		if rest := strings.Fields(strings.TrimPrefix(l, "| `ngm "+m[1])); len(rest) > 1 {
+			if w := rest[0]; !strings.HasPrefix(w, "-") && !strings.ContainsAny(w, "<>") {
+				row.sub = w
+			}
+		}
 		for _, k := range reBacktick.FindAllStringSubmatch(l, -1) {
 			tok := k[1]
 			if i := strings.LastIndex(tok, "."); i >= 0 {
