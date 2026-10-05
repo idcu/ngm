@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.24 均已交付**；**`v0.1.0` ~ `v0.24.0` 二十四个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.25 均已交付**；**`v0.1.0` ~ `v0.25.0` 二十五个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -66,6 +66,7 @@
 > | v0.22 | [计划](./v0.22-plan.md) | [复盘](./v0.22-retrospective.md) | **把缺口压下去**：缺口 26 → **3**（实测 44 → **67 / 70**）。用假引擎覆盖五个 kind 的成功与失败，用漂移/篡改/冷 mirror/缺 Deno 夹具覆盖 1/2/4/5。剩下的 3 条 `update` 缺口**每条都带实测记录**说明为什么测不到 |
 > | v0.23 | [计划](./v0.23-plan.md) | [复盘](./v0.23-retrospective.md) | **名字必须说发生了什么**：把"显示名"从"数值"里拆出来（`NgmError.Label`）——退出码 1 是**四种含义共用一个数字**，`ngm typecheck` 失败时不再说 `RefDrift:` 而说 `EngineFailed:`。数值、`--json`、`errors.Is/As` 一字未动；顺带在**规范**里抓到一处同类漏写 |
 > | v0.24 | [计划](./v0.24-plan.md) | [复盘](./v0.24-retrospective.md) | **退出码的四方事实源必须对得上**：实现 / 规范表 / 规格常量块 / 用户侧汇总，首次被一条判据串起来（**`iota` 顺序错了会让所有码静默平移**）。开工第一次跑就抓到 `observability.md` 另一处漏写（码 1 没提 audit 钩子）；顺带补上 v0.23 遗留的"改了但没有网看着" |
+> | v0.25 | [计划](./v0.25-plan.md) | [复盘](./v0.25-retrospective.md) | **文档里手工写下的字段清单不许与实现脱节**：`--json` 形状表（9 命令 / 48 键）+ `configuration.md` 三张字段表（19 键）首次对账。**产品代码 0 行改动**；最贵的一课是判据先量再写（朴素版误报 27/62） |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -377,6 +378,8 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
   | `TestV23EngineFailureNamesItself` | `cmd/ngm`（**v0.23 新增**） | **端到端**：`ngm typecheck` 因引擎失败退出时，stderr 必须**含 `EngineFailed`、不含 `RefDrift`**，且**仍然退 1**（数值契约不许跟着名字变）。对照：新标签**不许泄漏**到 `verify` 的报告里。牙齿：摘掉 `runner.go` 的 `Labeled` ⇒ 红，并打印出旧消息 `RefDrift: typeCheck: … failed` |
   | `TestV24ExitCodeContractAgreesAcrossSources` | `cmd/ngm`（**v0.24 新增**） | **退出码的四方对账**：实现（`internal/errs`）· 规范表（`observability.md`）· 规格常量块（`p0-core.md`）· 用户侧汇总（`cli.md`）必须一致。**重点是规格的 `iota + 1` 顺序**——重排一行所有码静默平移，而规格是给人抄的。另有**会自己过期**的关键词表守着"码 1 的四种来源都写全了"。牙齿：换位 `ErrConfigInvalid`/`ErrDigestMismatch` ⇒ 红并点名数值错位 |
   | `TestV24AuditHookVerdictNamesItself` | `cmd/ngm`（**v0.24 新增**） | 补 v0.23 明确记下的欠账（"改了但没有网看着"）：把钩子判断抽成纯函数 `auditHookVerdict(*security.Result)` 后用合成结果测——**是谁否决的**（`AuditHook` 而非 `RefDrift`）· **数值仍是 1** · **两种失败说的话必须不同**（"它说自己不过关" ≠ "它没能给出结论"） |
+  | `TestV25JSONShapeTableMatchesTheImplementation` | `cmd/ngm`（**v0.25 新增**） | `cli.md`《`--json` 的形状》表里点名的每个键（**9 个命令 / 48 个键**），必须在**该命令的报告实现**里作为 json tag 存在（映射按命令给，其中 `integrations`/`engines` 指向 **CLI 层自己**）。豁免名单自带过期绊线。**它只证明"表里写了的都真的存在"，不证明"该写的都写了"**。牙齿：把 `allowDrift` 改成 `allowDrifting` ⇒ 红并点名 |
+  | `TestV25ConfigFieldTablesMatchTheSchema` | `cmd/ngm`（**v0.25 新增**） | `configuration.md` 三张「字段」表（`ngm.json` / `dependencies` / `supplyChain`，共 **19 个键**）必须在 schema 的 json tag 里存在。注意 `supplyChain` 指向 `internal/config`（`SupplyChainConfig` 的 tag），而 `internal/supplychain` 是**策略解析**（方法形态）——**这类网唯一会骗人的地方就是映射**。牙齿：把 `verifyOnLock` 改成 `verifyOnLocked` ⇒ 红 |
 - 每个阶段的"验收"必须是**可执行验证**（命令 + 期望输出），写入对应测试或手测脚本
 - v0.1 总验收 = [roadmap 退出标准](../internals/roadmap.md) 4 条 + [README 四问](../README.md)（1/2/3 实测记录，4 由 ADR-008 定义）：
   - 真实项目跑通 `ngm install` ✅
