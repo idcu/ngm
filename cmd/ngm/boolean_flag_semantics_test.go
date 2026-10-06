@@ -1,9 +1,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -34,35 +31,43 @@ import (
 // 「flag provided but not defined」当成"空值不等价"报了出来，红的是**我的表**。
 // 这与 v0.33 那条经验同源：**核对对象应来自源码/运行时，而不是我抄的一份常数**。
 //
-// 派生方式：`fs.Bool("name"` 出现在 `cmd/ngm/<command>.go` 里。
-// 子命令文件（cache / store / config / …）里可能有**属于某个子命令**的 flag，
-// 那种组合在运行时会报 "flag provided but not defined" —— 由调用方**公开跳过并计数**。
-func boolFlagsFromSource(t *testing.T, cmd string) []string {
+// 派生方式（v0.45 修正）：**按 flagset 块**取"属于这个命令自己那一块"的布尔 flag，
+// 并且**在所有源文件里找**——不是只看 `<命令名>.go`。
+//
+// 两处修正，都是实测出来的：
+//
+//	① v0.43 原版是"整个文件里的 `fs.Bool`"，而有的文件里住着**不止一个命令**——
+//	   `typecheck.go` 里既有 `typecheck` 也有 `css`。于是 `typecheck --minify` 被派了出来，
+//	   运行时报 "flag provided but not defined"，被当成"它属于某个子命令"**跳过**。
+//	   真相是我的派生规则太粗。
+//	② 而按"文件名 == 命令名"去找，`css` 就**一条也派生不出来**（没有 `css.go`，
+//	   它住在 `typecheck.go` 里）——也就是说 `css --minify` / `css --dry-run`
+//	   **从来没有被任何一张网看过**。这是 v0.45 修 ① 时顺带发现的一个更大的洞：
+//	   修 ① 之前它被 `typecheck` 那条**假跳过**遮住了（看起来"测过了，只是跳过了"）。
+//
+// 现在按块、跨文件：名字等于命令名的块归这张网，
+// 名字带空格的块（`store prune`）归 v0.45 的 `TestV45…`，
+// 其余的由它那条**覆盖并集**守卫抓（那条守卫刻意用与这里同一条路去找，
+// 而不是核对名字——第一版就是核对名字，于是没抓到 ②）。
+func boolFlagsOfCommand(t *testing.T, cmd string) []string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), "cmd", "ngm", cmd+".go"))
-	if err != nil {
-		return nil // 没有同名文件：这个命令的 flag 不在这套派生规则里
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, m := range reBoolFlagDecl.FindAllStringSubmatch(string(data), -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			out = append(out, m[1])
+	for _, file := range sourceFiles(t) {
+		for _, b := range flagsetBlocksOf(t, file) {
+			if b.name == cmd {
+				return b.flags
+			}
 		}
 	}
-	return out
+	return nil
 }
-
-var reBoolFlagDecl = regexp.MustCompile(`fs\.Bool\("([a-z][a-z-]*)"`)
 
 func TestV43BooleanFlagsHoldGoSemantics(t *testing.T) {
 	testutils.AllowEngines(t, "fake-engine")
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
-	checked, skipped := 0, 0
+	checked := 0
 	for _, spec := range commands {
-		flags := boolFlagsFromSource(t, spec.Name)
+		flags := boolFlagsOfCommand(t, spec.Name)
 		if len(flags) == 0 {
 			continue
 		}
@@ -90,65 +95,36 @@ func TestV43BooleanFlagsHoldGoSemantics(t *testing.T) {
 					return c, strings.ReplaceAll(out, proj, "<proj>")
 				}
 
-				plain, oPlain := run(t, "--"+flag)          // --flag
-				yes, oYes := run(t, "--"+flag+"=true")      // --flag=true
-				off, oOff := run(t, "--"+flag+"=false")     // --flag=false
-				base, oBase := run(t)                       // 不给
-				bad, oBad := run(t, "--"+flag+"=x")         // --flag=x
-				junk, oJunk := run(t, "--"+flag, "ZZ-JUNK") // 布尔 flag 后的 token
-
-				// 派生规则会把**属于某个子命令的** flag 也算进来（同一个文件里可能有多套
-				// flagset）。那种组合在运行时会说 "flag provided but not defined" ——
-				// 那不是缺陷，是这张表的粒度**公开租**下的已知误差：跳过、计数、报出来。
-				if strings.Contains(oPlain, "flag provided but not defined") ||
-					strings.Contains(oBase, "flag provided but not defined") {
-					skipped++
-					t.Skipf("`--%s` 不是 `ngm %s` 这一层的 flag（属于某个子命令）——跳过", flag, spec.Name)
-				}
-
-				if plain != yes || oPlain != oYes {
-					t.Errorf("`--%s=true` 与 `--%s` 不等价（exit %d vs %d）:\n  %s\n  %s",
-						flag, flag, yes, plain, firstLine(oYes), firstLine(oPlain))
-				}
-				if off != base || oOff != oBase {
-					t.Errorf("`--%s=false` 与**不给**它不等价（exit %d vs %d）:\n  %s\n  %s",
-						flag, off, base, firstLine(oOff), firstLine(oBase))
-				}
-				if bad == 0 {
-					t.Errorf("`--%s=x` 被接受了（exit 0）——Go 说那不是合法布尔值，"+
-						"静默当成 true 是最坏的处置:\n  %s", flag, firstLine(oBad))
-				}
-				if junk == 0 {
-					t.Errorf("`--%s ZZ-JUNK` 退 0 —— 那个 token 被当成了 flag 的值**被吞掉**了，"+
-						"而布尔 flag 从不消费下一个 token（normalizeArgs 的注释专门写过这件事）:\n  %s",
-						flag, firstLine(oJunk))
-				}
+				// 四条断言与 v0.45（子命令层）**共用**同一个函数：两层对同一件事
+				// 只能有一套判据，否则两份迟早会各自漂移。
+				checkBoolFlagSemantics(t, spec.Name, flag, run)
 				checked++
-				t.Logf("%-12s --%-14s ①✓ ②%s ③exit=%d ④exit=%d", spec.Name, flag,
-					map[bool]string{true: "✓", false: "✗"}[off == base && oOff == oBase], bad, junk)
 			})
 		}
 	}
 
 	// 覆盖守卫分两层。
 	//
-	// ① **结构性**：派生表里的每一对都必须"要么跑完、要么被公开跳过"——两边数目必须相等。
-	//    这条不依赖任何我拍的阈值。
+	// ① **结构性**：派生表里的每一对都必须跑完——两边数目必须相等。
+	//
+	//    v0.43 时右边还有一个"被公开跳过"的加数（3 对属于子命令的 flagset）。
+	//    v0.45 把派生改成**按块**之后跳过归零：子命令层的 2 对由 `TestV45…` 覆盖，
+	//    而同一文件里第二个命令的 flag（`typecheck --minify`，其实是 `css` 的）
+	//    不再被算错到第一个命令头上。这条现在不依赖任何我拍的阈值。
 	expected := 0
 	for _, spec := range commands {
-		expected += len(boolFlagsFromSource(t, spec.Name))
+		expected += len(boolFlagsOfCommand(t, spec.Name))
 	}
-	if checked+skipped != expected {
-		t.Fatalf("the derived table has %d pair(s) but %d ran and %d were skipped — "+
-			"some pair neither ran nor was skipped openly", expected, checked, skipped)
+	if checked != expected {
+		t.Fatalf("the derived table has %d pair(s) but %d ran — some pair was neither run nor "+
+			"accounted for elsewhere (subcommand-layer flags belong to TestV45…)", expected, checked)
 	}
-	// ② **规模**：真跑完的必须够多（否则这张表会退化成"什么都跳过"）。
-	//    35 是**实测值 38** 之下的一个下限，不是估的：`fs.Bool` 清点出来 41 对，
-	//    其中 3 对属于子命令的 flagset（公开跳过）。
+	// ② **规模**：跑完的必须够多（否则这张表会退化成"什么都跑不了"）。
+	//    35 是实测值 **38** 之下的一个下限，不是估的。
 	if checked < 35 {
-		t.Fatalf("only %d flag(s) were fully checked (skipped %d) — the derived table no longer "+
-			"covers what it claims", checked, skipped)
+		t.Fatalf("only %d flag(s) were fully checked — the derived table no longer "+
+			"covers what it claims", checked)
 	}
 	t.Logf("boolean flags: %d × 4 assertions (① =true ≡ --flag · ② =false ≡ 不给 · ③ =x 被拒 · ④ 不吞 token); "+
-		"%d skipped as subcommand-scoped", checked, skipped)
+		"skipped: 0（子命令层的 flag 归 TestV45… 的网）", checked)
 }
