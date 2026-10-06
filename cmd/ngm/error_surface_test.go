@@ -45,11 +45,21 @@ type surfaceCase struct {
 // 并不需要这个断言。旁表的代价是键可能与用例名脱节，所以下面有一条守卫：
 // **旁表里的每个键都必须在 surfaceCases 里存在**（名单自己要有牙齿）。
 var surfaceAdviceMust = map[string][]string{
+	// 解码类失败（JSON 的形状就不对）：这一层只知道"解析器在看这个文件"，
+	// 所以建议仍是兜底那句——它点名了一个真命令，合格。
 	"manifest-field-has-the-wrong-type":   {"config validate"},
 	"manifest-dependencies-is-not-a-list": {"config validate"},
-	"manifest-schema-version-is-too-new":  {"config validate"},
-	"manifest-schema-version-is-absent":   {"config validate"},
-	// 这两条是这一版抓到的错位：建议必须提到**相对路径**这件事。
+	// 校验类失败（能解析、值不合法）：v0.49 起内层**自己带建议**，
+	// 于是用户看到的是"改哪个字段、改成什么"，而不再是兜底那句。
+	// ⚠️ v0.48 时这里要求的是 `config validate`——那一版钉的其实是**兜底那句话**，
+	// 而 v0.49 的目的正是让兜底退场。**上一版的断言红了，红得对。**
+	"manifest-schema-version-is-too-new": {"schemaVersion"},
+	"manifest-version-is-absent":         {"`version`"},
+	"manifest-dependency-ref-type-is-invalid": {
+		"refType"},
+	"manifest-vendor-mode-is-invalid":                {"vendor.mode"},
+	"manifest-minimum-release-age-is-not-a-duration": {"ISO 8601"},
+	// 这两条是 v0.48 抓到的错位：建议必须提到**相对路径**这件事。
 	"sub-path-escapes-the-repository": {"relative"},
 	"sub-path-is-absolute":            {"relative"},
 }
@@ -163,14 +173,21 @@ var surfaceCases = []surfaceCase{
 	{"manifest-schema-version-is-too-new", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 2,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
+			"{\n  \"schemaVersion\": 2,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+				"  \"runtime\": \"node\"\n}\n")
 		return p
 	}, []string{"verify"}, ""},
 
-	{"manifest-schema-version-is-absent", func(t *testing.T) string {
+	// v0.49 把这一条**改对了**：原先它写的是 `schemaVersion: 0`，名字叫"版本缺失"，
+	// 而实际上撞的是**另一个字段**（`version is required`）——`schemaVersion: 0`
+	// 是合法的（按缺省处理），于是这条用例从来没有造出它自称的那个状态。
+	// 抓到它的是 v0.48 新增的那条判据：建议**承认的是 version**，而不是这条用例
+	// 声称的形状。这正是 v0.31 那条教训（"夹具不再造出它自称的状态"）的复发，
+	// 只是这次不是靠人看，是靠**建议里的字样**露的马脚。
+	{"manifest-version-is-absent", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 0,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
+			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
 		return p
 	}, []string{"tree"}, ""},
 
@@ -186,12 +203,50 @@ var surfaceCases = []surfaceCase{
 		return p
 	}, []string{"add", "github:x/dep@v1", "--ref-type=tag", "--path=/etc"}, ""},
 
+	// ---- v0.49 新增：校验类失败的三个变体（能解析、值不合法） ----
+	//
+	// 它们走的是 `config.Validate*` 一族——v0.49 给那一族补上了字段级建议，
+	// 这三条用来证明**建议真的到得了用户眼前**（不是只写在源码里）。
+	{"manifest-dependency-ref-type-is-invalid", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+				"  \"runtime\": \"node\",\n  \"dependencies\": [\n"+
+				"    {\"name\": \"github:x/dep\", \"ref\": \"v1\", \"refType\": \"banana\"}\n  ]\n}\n")
+		return p
+	}, []string{"install"}, ""},
+
+	{"manifest-vendor-mode-is-invalid", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+				"  \"runtime\": \"node\",\n  \"vendor\": {\"mode\": \"nope\"}\n}\n")
+		return p
+	}, []string{"install"}, ""},
+
+	{"manifest-minimum-release-age-is-not-a-duration", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+				"  \"runtime\": \"node\",\n  \"supplyChain\": {\"minimumReleaseAge\": \"two weeks\"}\n}\n")
+		return p
+	}, []string{"install"}, ""},
+
 	// ---- 对照组：这条路径**预期成功** ----
 	{"verify-a-healthy-project", func(t *testing.T) string {
 		p := newProject(t)
 		seedDep(t, p)
 		return p
 	}, []string{"verify"}, "对照组：健康的项目**应当**通过——它不是失败面的一部分，但必须被跑一遍"},
+
+	{"missing-schema-version-is-not-a-failure", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n  \"runtime\": \"node\"\n}\n")
+		return p
+	}, []string{"tree"}, "**实测边界**：`schemaVersion` 缺省是**合法**的——加载时按当前版本补上" +
+		"（见 internal/config 的加载路径）。写这一条是因为上面那条用例原先把它当失败测，" +
+		"而真正的失败是 `version` 缺失。这条钉住\"缺省合法\"这个事实：它哪天变了会红"},
 }
 
 func writeSurfaceFile(t *testing.T, dir, name, body string) {
@@ -214,7 +269,9 @@ var reErrorName = regexp.MustCompile(`^([A-Za-z]+):`)
 // **名单自己要有牙齿**。
 // v0.48 起是 20：14 条（v0.31） + 6 条形状（清单字段类型错 · 依赖不是数组 ·
 // schemaVersion 太新 / 缺失 · 子路径逃出仓库 · 子路径是绝对路径）。
-const minSurfaceFailureCases = 20
+// v0.49 起是 23：上面 20 条（其中 1 条改对了名字与夹具）+ 3 条校验类变体
+// （refType 非法 · vendor.mode 非法 · minimumReleaseAge 不是时长）。
+const minSurfaceFailureCases = 23
 
 // TestV31EveryReachableFailurePathExplainsItself 逐条走**真实失败路径**，
 // 断言"用户看到的错误说得清下一步"。
