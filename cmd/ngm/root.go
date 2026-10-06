@@ -119,10 +119,44 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// 显式给了**空**目录 ⇒ 拒绝（v0.41 修）。
+	//
+	// Go 的 flag 把 `--dir=` 解析成空串，而空串与"没给这个 flag"在后续代码里无法区分——
+	// 于是命令**静默地把空值当成 CWD**。实测后果（这条判据自己抓到的）：
+	// `ngm add github:x/dep@v1 --dir=` 会去改**当前目录**的 ngm.json；
+	// `ngm init github.com:x/app --dir=` 会在当前目录建出项目。
+	//
+	// 最可能的来源是变量展开失败（`--dir="$PROJ"` 而 `$PROJ` 未设），而用户看到的是"成功了"。
+	// 用法文本写着 `default: .`——想用当前目录就别给这个 flag，给了空值一定是个错误。
+	if emptyDirFlag(args) {
+		fmt.Fprint(stderr, "ngm: `--dir=` was given an empty value — that is almost always an unset "+
+			"variable (`--dir=\"$PROJ\"`); pass a real path, or drop the flag to use the current directory\n\n")
+		fmt.Fprint(stderr, spec.Usage)
+		return 3
+	}
+
 	// 参数顺序交由子命令用 normalizeArgs 处理（它知道自己的 flag 类型）。
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return spec.Run(ctx, rest, stdout, stderr)
+}
+
+// emptyDirFlag 报告参数里有没有"显式给了空目录"的写法。
+//
+// 三种拼法都要挡：`--dir=` · `-dir=` · `--dir ""`（两个 token，值是空串）。
+// 只挡**显式给了空值**这一种情况；不给这个 flag 仍然是合法的（默认 `.`）。
+func emptyDirFlag(args []string) bool {
+	for i, a := range args {
+		switch a {
+		case "--dir=", "-dir=":
+			return true
+		case "--dir", "-dir":
+			if i+1 < len(args) && args[i+1] == "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // flagSpec 描述一个子命令 flag：名称与是否接受值。
