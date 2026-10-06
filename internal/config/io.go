@@ -33,7 +33,12 @@ func ReadProjectFile(path string) (*ProjectFile, error) {
 		// 不在这里包装的后果（v0.2 验收时实测发现）：同一个非法 ngm.json，
 		// `ngm config validate` 是 exit 3（它自己包了一层），而 `ngm install`
 		// 却是 exit 1——CI 无法靠退出码区分"配置写错了"与"程序自己崩了"。
-		return nil, errs.Wrap(errs.CodeConfigInvalid, "invalid "+path,
+		// 兜底：**只在内层没话说时**出场（v0.49 起用 WrapUnlessHinted）。
+		//
+		// 内层（validate.go 的校验）现在自己带建议，那句建议知道**是哪个字段、该填什么**；
+		// 而这句兜底只会说"这个文件整体坏了"。原先渲染取最外层非空那句，
+		// 于是兜底把内层盖掉了——用户永远只看到这一句。
+		return nil, errs.WrapUnlessHinted(errs.CodeConfigInvalid, "invalid "+path,
 			"fix the reported field, or run `ngm config validate` for details", err)
 	}
 	return p, nil

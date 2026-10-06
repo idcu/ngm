@@ -113,22 +113,14 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Path:    spec.Path,
 	}
 	if err := dep.Validate(); err != nil {
-		// 兜底建议：它讲的是**仓库标识**的形状，只在内层没话说时才用它。
-		//
-		// v0.48 实测的错位：`--path=/etc` 的 cause 是"路径必须相对"，
-		// 而内层（`validateDepPath`）当时返回的是**裸 fmt.Errorf**（没有建议），
-		// 于是用户拿到的唯一一句建议就是这句兜底——**为 path 挨骂，
-		// 却被告知去检查仓库标识**。
-		//
-		// 处置：内层带上真建议（它最知道该怎么改），这里则**不遮蔽**它——
-		// 这正是 v0.35 那条原则（最贴近成因的那一层最知道该怎么办）在另一处的落地。
-		hint := "the accepted shape is `<host>:<org>/<repo>[@<ref>]` with " +
-			"--ref-type=tag|branch|commit; see `ngm add --help`"
-		if errs.Hint(err) != "" {
-			hint = ""
-		}
-		return runErr(ctx, stdout, stderr,
-			errs.Wrap(errs.CodeConfigInvalid, "invalid dependency", hint, err))
+		// 兜底建议（v0.48 引入、v0.49 统一成 WrapUnlessHinted）：它讲的是**仓库标识**的
+		// 形状，只在**内层没话说**时才用它——否则用户会为 path 挨骂、却被指去查仓库标识。
+		// v0.49 起 `dep.Validate()` 的每个字段分支都自己带建议，于是这句兜底
+		// 只在"说不出是哪个字段"时出场。
+		return runErr(ctx, stdout, stderr, errs.WrapUnlessHinted(errs.CodeConfigInvalid,
+			"invalid dependency",
+			"the accepted shape is `<host>:<org>/<repo>[@<ref>]` with --ref-type=tag|branch|commit; "+
+				"see `ngm add --help`", err))
 	}
 
 	added, err := pf.UpsertDependency(dep)

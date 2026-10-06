@@ -136,6 +136,25 @@ func Wrap(code Code, msg, hint string, cause error) *NgmError {
 	return &NgmError{Code: code, Message: msg, Cause: cause, Hint: hint}
 }
 
+// WrapUnlessHinted 包装 err，但**内层已经有建议时不再附加兜底建议**。
+//
+// 为什么（v0.48 / v0.49 实测）：渲染处取的是句链上**最外层非空**的建议，
+// 于是"兜底那句"会**遮蔽**内层更具体的那句。两处实测：
+//
+//	· `ngm add --path=/etc`：内层（validateDepPath）知道该写成相对路径，
+//	  而用户看到的是调用方那句"仓库标识的形状"——**为 path 挨骂，被指去查仓库标识**；
+//	· `ngm install` 读到坏的 ngm.json：内层知道是哪个字段、该填什么，
+//	  而用户看到的永远是"fix the reported field"那句兜底。
+//
+// 兜底的本意是"内层没话说时我说"，所以它就该**只在内层没话说时**出场。
+// 需要看内层建议的地方一律用本函数，而不是 Wrap。
+func WrapUnlessHinted(code Code, msg, fallbackHint string, cause error) *NgmError {
+	if Hint(cause) != "" {
+		fallbackHint = ""
+	}
+	return Wrap(code, msg, fallbackHint, cause)
+}
+
 // ExitCode 从 error 中取出退出码；非 NgmError 返回 1（通用失败）。
 //
 // 约定：调用方在 main 末尾用

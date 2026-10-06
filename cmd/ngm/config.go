@@ -92,7 +92,8 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 	home, _ := os.UserHomeDir()
 	r, err := config.Load(abs, home)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "validate ngm.json", "fix the reported field or remove unknown fields", err))
+		return runErr(ctx, stdout, stderr, errs.WrapUnlessHinted(errs.CodeConfigInvalid,
+			"validate ngm.json", "fix the reported field or remove unknown fields", err))
 	}
 	fmt.Fprintln(stdout, "ngm.json OK")
 
