@@ -33,6 +33,27 @@ type surfaceCase struct {
 	expectZero string
 }
 
+// surfaceAdviceMust（v0.48）要求某条路径的**建议**至少命中其中一个子串——
+// 即"建议要承认**这一种失败**的形状"（v0.34 的原则，落到错误文本这一侧）。
+//
+// 为什么需要它：`ngm add --path=/etc` 的 cause 说的是"路径必须相对"，
+// 而用户看到的建议整句都在讲 `<host>:<org>/<repo>[@<ref>]`——为 path 挨骂，
+// 却被告知去检查仓库标识。**没有这张表，那种错位是绿的。**
+//
+// 为什么是旁表而不是用例里的一个字段：这张表有 20 条用例，全是**位置式**字面量
+// （`{name, setup, args, expectZero}`），加字段要动全部 20 条——而其中 19 条
+// 并不需要这个断言。旁表的代价是键可能与用例名脱节，所以下面有一条守卫：
+// **旁表里的每个键都必须在 surfaceCases 里存在**（名单自己要有牙齿）。
+var surfaceAdviceMust = map[string][]string{
+	"manifest-field-has-the-wrong-type":   {"config validate"},
+	"manifest-dependencies-is-not-a-list": {"config validate"},
+	"manifest-schema-version-is-too-new":  {"config validate"},
+	"manifest-schema-version-is-absent":   {"config validate"},
+	// 这两条是这一版抓到的错位：建议必须提到**相对路径**这件事。
+	"sub-path-escapes-the-repository": {"relative"},
+	"sub-path-is-absolute":            {"relative"},
+}
+
 var surfaceCases = []surfaceCase{
 	// ---- 配置类：四种坏法，四条不同的路径 ----
 	{"manifest-is-not-json", func(t *testing.T) string {
@@ -120,6 +141,51 @@ var surfaceCases = []surfaceCase{
 		return p
 	}, []string{"tree", "--osv", "--offline"}, ""},
 
+	// ---- v0.48 新增：清单的**形状**（v0.38 记下这三种，一直没做；三种都实测过） ----
+	//
+	// 它们与上面"坏 JSON / 缺字段"是**不同的失败面**：JSON 能解析、字段也在，
+	// 只是**值不合形状**。三条各自走到清单校验的不同分支。
+	{"manifest-field-has-the-wrong-type", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 1,\n  \"name\": 123,\n  \"runtime\": \"node\"\n}\n")
+		return p
+	}, []string{"verify"}, ""},
+
+	{"manifest-dependencies-is-not-a-list", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\",\n"+
+				"  \"dependencies\": \"nope\"\n}\n")
+		return p
+	}, []string{"install"}, ""},
+
+	{"manifest-schema-version-is-too-new", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 2,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
+		return p
+	}, []string{"verify"}, ""},
+
+	{"manifest-schema-version-is-absent", func(t *testing.T) string {
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.json",
+			"{\n  \"schemaVersion\": 0,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
+		return p
+	}, []string{"tree"}, ""},
+
+	{"sub-path-escapes-the-repository", func(t *testing.T) string {
+		p := newProject(t)
+		scUpstream(t, "github:x/dep", "export const dep = 1\n", "")
+		return p
+	}, []string{"add", "github:x/dep@v1", "--ref-type=tag", "--path=../escape"}, ""},
+
+	{"sub-path-is-absolute", func(t *testing.T) string {
+		p := newProject(t)
+		scUpstream(t, "github:x/dep", "export const dep = 1\n", "")
+		return p
+	}, []string{"add", "github:x/dep@v1", "--ref-type=tag", "--path=/etc"}, ""},
+
 	// ---- 对照组：这条路径**预期成功** ----
 	{"verify-a-healthy-project", func(t *testing.T) string {
 		p := newProject(t)
@@ -146,7 +212,9 @@ var reErrorName = regexp.MustCompile(`^([A-Za-z]+):`)
 //
 // 删掉一条用例 → 这个数对不上 → 红。与 v0.15 的负例名单、v0.22 的缺口名单同一个套路：
 // **名单自己要有牙齿**。
-const minSurfaceFailureCases = 14
+// v0.48 起是 20：14 条（v0.31） + 6 条形状（清单字段类型错 · 依赖不是数组 ·
+// schemaVersion 太新 / 缺失 · 子路径逃出仓库 · 子路径是绝对路径）。
+const minSurfaceFailureCases = 20
 
 // TestV31EveryReachableFailurePathExplainsItself 逐条走**真实失败路径**，
 // 断言"用户看到的错误说得清下一步"。
@@ -205,7 +273,37 @@ func TestV31EveryReachableFailurePathExplainsItself(t *testing.T) {
 			if !strings.Contains(stderr, "hint:") {
 				t.Errorf("exited %d with an error that gives no next step:\n%s", code, stderr)
 			}
+			// v0.48：**建议要承认这一种失败的形状**（该路径被登记时才要求）。
+			// 只要求"有建议"是不够的——一句关于**别处**的建议也是建议。
+			if must := surfaceAdviceMust[sc.name]; len(must) > 0 {
+				ok := false
+				for _, s := range must {
+					if strings.Contains(stderr, s) {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					t.Errorf("the advice does not acknowledge **this** failure's shape "+
+						"(expected one of %v in the hint):\n%s", must, stderr)
+				}
+			}
 		})
+	}
+
+	// 旁表的键必须在用例表里存在——否则那条登记**什么也没看着**（名单自己要有牙齿）。
+	for name := range surfaceAdviceMust {
+		found := false
+		for _, sc := range surfaceCases {
+			if sc.name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("surfaceAdviceMust mentions %q, which is not a case in surfaceCases — "+
+				"a stale entry watches nothing", name)
+		}
 	}
 
 	// ③ 可达性守卫。
