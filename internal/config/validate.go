@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/resolve"
 )
 
@@ -86,17 +87,28 @@ func (d *Dependency) Validate() error {
 }
 
 // validateDepPath 校验 monorepo 子路径：相对路径、不含 `..`、不含前导 `/`。
+//
+// **给建议**（v0.48）：它是唯一知道"该往哪个方向改"的那一层。
+// 原先它返回裸 `fmt.Errorf`，于是用户拿到的建议只能是调用方那句兜底——
+// 实测：`ngm add --path=/etc` 的 cause 说的是"路径必须相对"，
+// 而用户看到的建议整句在讲 `<host>:<org>/<repo>[@<ref>]`（那是**仓库标识**的形状）。
+// 为 path 挨骂，却被告知去检查别的地方。
 func validateDepPath(p string) error {
+	const hint = "use a path relative to the repository root, " +
+		"e.g. `packages/core` (no leading `/`, no `.` or `..`)"
 	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
-		return fmt.Errorf("path %q must be relative (no leading slash)", p)
+		return errs.New(errs.CodeConfigInvalid,
+			fmt.Sprintf("path %q must be relative (no leading slash)", p), hint)
 	}
 	segs := strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' })
 	if len(segs) == 0 {
-		return fmt.Errorf("path %q is empty after normalization", p)
+		return errs.New(errs.CodeConfigInvalid,
+			fmt.Sprintf("path %q is empty after normalization", p), hint)
 	}
 	for _, s := range segs {
 		if s == "." || s == ".." {
-			return fmt.Errorf("path %q must not contain `.` or `..`", p)
+			return errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("path %q must not contain `.` or `..`", p), hint)
 		}
 	}
 	return nil

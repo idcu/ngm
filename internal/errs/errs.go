@@ -179,12 +179,28 @@ func FormatHuman(err error) string {
 	}
 	out := ne.label() + ": " + ne.Message
 	if ne.Cause != nil {
-		out += "\n  cause: " + ne.Cause.Error()
+		out += "\n  cause: " + causeLine(ne)
 	}
 	if hint := inheritedHint(ne); hint != "" {
 		out += "\n  hint:  " + hint
 	}
 	return out
+}
+
+// causeLine 渲染 cause 行：内层是 NgmError、且**代码与顶层相同**时只写它的 message。
+//
+// 为什么（v0.48）：`validateDepPath` 开始给建议之后，它返回的是 errs 错误，
+// 于是 cause 行变成 `cause: ConfigInvalid: path "/etc" must be relative …`——
+// 同一个代码名在**同一条错误**上重复了一次，读起来像两个错误。
+//
+// 代码**不同**时仍保留前缀：那说明这一段是由另一类失败引起的
+// （例如底层是个 `GitFetch`），那句话不该被吞掉。
+func causeLine(ne *NgmError) string {
+	var inner *NgmError
+	if errors.As(ne.Cause, &inner) && inner.Code == ne.Code {
+		return inner.Message
+	}
+	return ne.Cause.Error()
 }
 
 // Hint 返回这条错误的建议（沿 `Cause` 链找第一条非空的）；没有则返回空串。
