@@ -137,7 +137,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **`v0.38.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-06 01:07 UTC 已发布） | ❌ 待上传 |
 | **`v0.39.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-06 02:47 UTC 已发布） | ❌ 待上传 |
 | **`v0.40.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-06 03:45 UTC 已发布） | ❌ 待上传 |
-| **`v0.41.0`** | ⏳ **随本次推送** | ⏳ 随本次推送 | ❌ 待上传 |
+| **`v0.41.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-06 04:50 UTC 已发布） | ❌ 待上传 |
 
 > **上一版这一栏把 `v0.1.0` 算进了"Gitee 也可取到"**——它不在那里。本页此前从
 > [补发记录](../development/README.md#补发记录2026-10-02gitee-侧)（只有 v0.2.0/v0.3.0/v0.4.0 三条）
@@ -193,7 +193,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.40.0` 的 **Gitee 发行版（37 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.41.0` 的 **Gitee 发行版（38 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -265,7 +265,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 
 ```bash
 # 方式一：预编译二进制（推荐）
-#   最新可取（GitHub）：v0.40.0 —— 六个平台 + SHA256SUMS
+#   最新可取（GitHub）：v0.41.0 —— 六个平台 + SHA256SUMS
 #   Gitee 侧目前只到 v0.4.0（15 个版本缺附件，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
