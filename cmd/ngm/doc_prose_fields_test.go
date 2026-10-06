@@ -1,6 +1,9 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -68,7 +71,8 @@ func TestV27ProseJSONFieldNamesExist(t *testing.T) {
 	}
 
 	seen := map[string][]string{}
-	scanned := 0
+	codeIdentifiers := packageIdentifiers(t)
+	scanned, skippedIdents := 0, 0
 	for _, doc := range livingDocs(t) {
 		body, err := os.ReadFile(doc)
 		if err != nil {
@@ -86,6 +90,10 @@ func TestV27ProseJSONFieldNamesExist(t *testing.T) {
 				}
 				if strings.HasPrefix(tok, "ngm") {
 					continue
+				}
+				if codeIdentifiers[tok] {
+					skippedIdents++
+					continue // 是仓库里定义的标识符（函数/类型/常量/变量），不是 json 字段
 				}
 				seen[tok] = append(seen[tok], filepath.Base(doc))
 			}
@@ -118,8 +126,8 @@ func TestV27ProseJSONFieldNamesExist(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no prose field name was checked — a net that checks nothing is not a net")
 	}
-	t.Logf("prose check: %d lines mention --json, %d field names verified against the implementation",
-		scanned, checked)
+	t.Logf("prose check: %d lines mention --json, %d field names verified against the implementation, "+
+		"%d token(s) skipped as code identifiers", scanned, checked, skippedIdents)
 }
 
 // configReverseSections 把 configuration.md 的章节映射到**结构体名**，用于反向判据。
@@ -173,6 +181,55 @@ func TestV27EveryConfigFieldIsDocumented(t *testing.T) {
 }
 
 // implementationJSONTags 收集整个仓库（非测试 Go 代码）里的全部 json tag。
+// packageIdentifiers 收集仓库里**定义**的 Go 标识符（函数 / 类型 / 常量 / 变量名）。
+//
+// 为什么需要它（v0.43）：这条判据把「提到 --json 的行上、含大写的反引号标识符」
+// 当作 json 字段名，而文档里同样会提到 **Go 函数名**（`normalizeArgs`）——
+// 它不是字段，也不该被要求是字段（实测它就红在这里）。
+//
+// 处置：**从源码派生"哪些名字是这个仓库里的标识符"**，而不是加一张会腐烂的白名单。
+func packageIdentifiers(t *testing.T) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	fset := token.NewFileSet()
+	err := filepath.Walk("../..", func(path string, info os.FileInfo, werr error) error {
+		if werr != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		slash := filepath.ToSlash(path)
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+			strings.Contains(slash, "/.git/") || strings.Contains(slash, "/testdata/") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			return nil
+		}
+		for _, d := range f.Decls {
+			switch decl := d.(type) {
+			case *ast.FuncDecl:
+				out[decl.Name.Name] = true
+			case *ast.GenDecl:
+				for _, spec := range decl.Specs {
+					switch s := spec.(type) {
+					case *ast.TypeSpec:
+						out[s.Name.Name] = true
+					case *ast.ValueSpec:
+						for _, n := range s.Names {
+							out[n.Name] = true
+						}
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func implementationJSONTags(t *testing.T) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
