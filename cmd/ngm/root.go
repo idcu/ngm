@@ -160,13 +160,14 @@ func normalizeArgs(args []string, specs []flagSpec) []string {
 		valFlags["-"+s.Name] = true
 	}
 
-	var flags, positional []string
+	var flags, positional, rest []string
 	afterDoubleDash := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 
 		if afterDoubleDash {
-			positional = append(positional, a)
+			// 单独攒着：它们**必须**留在 `--` 之后（见函数末尾的说明）。
+			rest = append(rest, a)
 			continue
 		}
 		if a == "--" {
@@ -201,7 +202,22 @@ func normalizeArgs(args []string, specs []flagSpec) []string {
 		}
 		flags = append(flags, a)
 	}
-	return append(flags, positional...)
+	// **把 `--` 还回去**（v0.40 修）。
+	//
+	// 分类本来就是对的：`--` 之后的 token 确实被归到了 positional。
+	// 但**重排会把这个信息丢掉**——`--dir=<bad>` 被原样放到列表末尾，
+	// 而 `flag.Parse` 的规则是「遇到第一个非 flag 才停」，于是它又被当成 flag 解析。
+	// 实测：`ngm verify --dir=<好> -- --dir=<坏>` 用的是**坏**目录，
+	// 与本函数开头承诺的「`--` 之后一律视为 positional」正好相反（10 个命令都这样）。
+	//
+	// 修法是在它们前面**重新插入一个 `--`**，让 flag.Parse 在那里停下；
+	// `--` 自身会被它吃掉（不会出现在 `fs.Args()` 里），所以下游看到的东西不变。
+	out := append(flags, positional...)
+	if len(rest) > 0 {
+		out = append(out, "--")
+		out = append(out, rest...)
+	}
+	return out
 }
 
 func findCommand(name string) *commandSpec {

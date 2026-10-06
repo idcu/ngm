@@ -48,9 +48,16 @@ func TestNormalizeArgs(t *testing.T) {
 			want: []string{"--dir", "--force", "app"},
 		},
 		{
-			name: "double dash terminates flag scanning",
+			// v0.40：**`--` 必须留在输出里**。
+			//
+			// 这条用例此前期望 `--` 被丢掉（`["--dir=x", "--not-a-flag"]`），
+			// 而那正是缺陷：重排之后 `--not-a-flag` 又回到了 flag 位置，
+			// 而 `flag.Parse` 的规则是"遇到第一个非 flag 才停"——它照样会被当成 flag 解析。
+			// 实测：`ngm verify --dir=<好> -- --dir=<坏>` 用的是**坏**目录（9 个命令如此），
+			// 与本函数开头承诺的「`--` 之后一律视为 positional」正好相反。
+			name: "double dash terminates flag scanning (and must survive the reordering)",
 			in:   []string{"--dir=x", "--", "--not-a-flag"},
-			want: []string{"--dir=x", "--not-a-flag"},
+			want: []string{"--dir=x", "--", "--not-a-flag"},
 		},
 		{
 			name: "no flags at all",
