@@ -52,16 +52,31 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 	}{
 		{"dir-missing", func(t *testing.T) string { return filepath.Join(t.TempDir(), "nope") }},
 		{"no-manifest", func(t *testing.T) string { return t.TempDir() }},
-		{"manifest-broken", func(t *testing.T) string {
-			d := t.TempDir()
-			if err := os.WriteFile(filepath.Join(d, "ngm.json"), []byte("{"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			return d
+		{"manifest-broken-json", func(t *testing.T) string { return manifestDir(t, "{") }},
+		{"manifest-without-a-name", func(t *testing.T) string {
+			return manifestDir(t, `{"runtime":"node"}`)
+		}},
+		{"manifest-with-an-unknown-runtime", func(t *testing.T) string {
+			return manifestDir(t, `{"name":"github.com:x/app","runtime":"cobol"}`)
+		}},
+		{"manifest-with-a-dependency-without-a-name", func(t *testing.T) string {
+			return manifestDir(t, `{"name":"github.com:x/app","runtime":"node",`+
+				`"dependencies":[{"ref":"v1","refType":"tag"}]}`)
+		}},
+		{"manifest-with-a-mistyped-dependencies-field", func(t *testing.T) string {
+			return manifestDir(t, `{"name":"github.com:x/app","runtime":"node","dependencies":"nope"}`)
+		}},
+		{"lock-is-broken-json", func(t *testing.T) string {
+			// 这一条需要一个**合法项目**再加一个坏锁（夹具仍然很便宜：不起 git）。
+			p := newProject(t)
+			writeSurfaceFile(t, p, "ngm.lock", "{")
+			return p
 		}},
 	}
 
 	counts := map[string]int{}
+	oks := []string{}
+	okByCmd := map[string]int{}
 	runs := 0
 
 	for _, spec := range commands {
@@ -90,6 +105,8 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 						firstLine(text))
 				case code == 0:
 					counts["ok"]++
+					oks = append(oks, spec.Name+"/"+sh.name)
+					okByCmd[spec.Name]++
 				case strings.TrimSpace(text) == "":
 					counts["silent"]++
 					t.Errorf("exited %d without saying anything — a silent failure is the hardest kind to debug", code)
@@ -123,8 +140,61 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 	if counts["unclassified"] != 0 {
 		t.Fatalf("%d run(s) fell outside every known channel (%v)", counts["unclassified"], counts)
 	}
+
+	// 退 0 的格子**不受任何通道契约约束**——若它们悄悄攒起来，
+	// 这张网的覆盖率就会在数字上很好看、在实际上很空。所以两件事：
+	//
+	//	① 把它们**报出来**（人要看一眼这些"没问题"是什么）；
+	//	② 其中"**全形状都退 0**"的命令**必须在 globalCommands 里**——
+	//	   一个对项目上下文完全无所谓的命令，要么是有据可查的全局命令，
+	//	   要么说明矩阵够不到它（与"用法文本不许出现"同一个道理）。
+	for _, label := range oks {
+		t.Logf("exit 0: %s", label)
+	}
+
+	// **"退 0" 必须是登记过的**（v0.38）。
+	//
+	// 退 0 的格子不受任何通道契约约束：这里没建议可给、也没报告可查。
+	// 所以它们是这张网唯一能"悄悄攒起来"的地方——数字上很好看、实际上很空。
+	// 处置与 v0.15 的负例名单、v0.22 的缺口名单同款：**每一格都要写下为什么它是 0**，
+	// 而且**双向**都要对账（有格子没登记 ⇒ 红；登记了却没有格子 ⇒ 红）。
+	for cmd, n := range okByCmd {
+		if _, ok := exitZeroByDesign[cmd]; !ok {
+			t.Errorf("`ngm %s` exited 0 in %d run(s) and nothing here says why — "+
+				"a zero is not a pass until someone writes down what it means", cmd, n)
+		}
+	}
+	for cmd := range exitZeroByDesign {
+		if okByCmd[cmd] == 0 {
+			t.Errorf("exitZeroByDesign lists %q, but no run of it exited 0 any more — "+
+				"the registration went stale, drop it (or find out what changed)", cmd)
+		}
+	}
+	for cmd, n := range okByCmd {
+		if n == len(shapes) && !globalCommands[cmd] {
+			if _, registered := exitZeroByDesign[cmd]; registered {
+				continue
+			}
+			t.Errorf("`ngm %s` exited 0 under **every** shape — it ignores the project context entirely. "+
+				"Either it is a global command (add it to globalCommands with a reason), "+
+				"or the matrix cannot reach it", cmd)
+		}
+	}
 	t.Logf("config matrix: %d runs over %d commands × %d shapes → %v",
 		runs, len(commands), len(shapes), counts)
+}
+
+// manifestDir 造一个"只有 ngm.json、内容是给定文本"的目录。
+//
+// 为什么不做成夹具（起 git、种 mirror）：这些形状**只需要一个文件**——
+// 而正是这种廉价，让"把形状枚举完整"变得划算（见本版复盘）。
+func manifestDir(t *testing.T, body string) string {
+	t.Helper()
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "ngm.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
 
 // matrixArgs 给每个命令一份"语法上够用"的参数，好让它走到**配置层**。
@@ -159,3 +229,25 @@ var matrixArgs = map[string][]string{
 // 而不是某个项目。**这份名单必须完整**——多一个没列到的全局命令，
 // 矩阵就会给它塞 `--dir`，于是它打用法文本，而判据把"落在用法文本桶"当作红。
 var globalCommands = map[string]bool{"cache": true, "store": true}
+
+// exitZeroByDesign 登记"**退 0 是正确行为**"的格子，并写下**为什么**。
+//
+// 为什么需要这张表（v0.38）：退 0 的格子不受任何通道契约约束——没有建议可给、
+// 也没有报告可查。于是它们是这张网唯一能**悄悄攒起来**的地方：
+// 覆盖率数字很好看，实际上什么都没查。登记 + 双向对账（有格子没登记 ⇒ 红；
+// 登记了却没格子 ⇒ 红）把这个口子关上。
+//
+// 每条理由都是**实测**出来的（v0.38 逐条跑过），不是"大概吧"。
+var exitZeroByDesign = map[string]string{
+	"cache": "全局命令：操作 `~/.ngm` 的缓存，与项目上下文无关（8 个形状都退 0）。" +
+		"见 globalCommands",
+	"store": "全局命令：操作 `~/.ngm` 的内容存储，与项目上下文无关（8 个形状都退 0）。" +
+		"见 globalCommands",
+	"init": "`init` 的职责就是**创建**清单——「目录不存在」与「空目录」正是它的成功路径",
+	"add": "`add` 只写清单、**不读锁**：实测锁损坏时它照常追加，并打印 " +
+		"`next: run ngm install to resolve and lock`（把解析交给 install）",
+	"update": "`update` 的职责**就是（重）写锁**：实测 `--all` 在锁损坏时全量重解析并写出新锁" +
+		"（坏锁它不需要读）",
+	"config":  "`config validate` 校验的是**清单**，不读锁",
+	"engines": "`engines list` 读的是引擎目录，不读锁",
+}
