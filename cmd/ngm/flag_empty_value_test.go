@@ -8,13 +8,9 @@ import (
 	"github.com/idcu/ngm/internal/testutils"
 )
 
-// v0.42：**取值 flag 的空值**——把 v0.41 的教训推广到 `--dir` 之外。
+// v0.42 / v0.46：**取值 flag 的空值**——必须是"与不给等价"或"明确失败"。
 //
-// v0.41 修的是 `--dir=`：空串与"没给这个 flag"无法区分，于是命令静默把空值当成 CWD，
-// 结果是"改了别的项目的文件"。这一版问：其余取值 flag 呢？
-//
-// 实测（见 §1）：**没有一处再写 CWD**，而空值大多被**明确拒绝**。
-// 于是判据写成一条更普适、也更能长期看住的规则：
+// v0.42 立的是这条判据（由 v0.41 的 `--dir=` 缺陷推广而来）：
 //
 //	**显式空值要么与"没给这个 flag"完全等价，要么失败——
 //	绝不能"两个都成功、结果却不同"。**
@@ -26,27 +22,60 @@ import (
 //
 // 另一条不变量（v0.41 的血）：**任何一次运行都不许在 CWD 里留下东西**。
 // 判据把 CWD 换成一个空目录，跑完检查它是否还是空的。
-var valueFlagsEmptyValue = map[string][]string{
-	"add":       {"--ref-type", "--path"},
-	"audit":     {"--hook"},
-	"build":     {"--engine", "--outfile"},
-	"transform": {"--engine", "--loader", "--target", "--format", "--outfile"},
-	"typedecl":  {"--outdir", "--engine"},
-	"typecheck": {"--engine"},
-	"css":       {"--engine"},
-	"init":      {"--runtime"},
+//
+// 而 v0.46 修的是**表的来源**：v0.42 用的是一张**手抄**的 map（14 条），
+// 而同一个派生在源码里给出 **37 条**——差的 **23 条从来没被这张网看过**。
+// 其中一条是 `css --outfile=`：**`css` 这个命令连着两版都在漏**
+// （v0.45 漏的是它的**布尔** flag，这一版漏的是它的**取值** flag），
+// 而病根是同一个——派生规则按"文件名 == 命令名"找源码，`css` 却住在 `typecheck.go` 里。
+//
+// 所以这一版把表换成**从源码按块派生**（`flagsetBlocksOf`，跨文件、带声明种类），
+// 手抄表**删掉**：它既是缺口，也是"看起来覆盖了"的假象。
+// valueFlagPair 是"这张网会跑的一条"：块名 + 它的分段 + flag 名。
+type valueFlagPair struct {
+	block string
+	parts []string
+	flag  string
+}
+
+// valueFlagPairs 是这张网**实际会跑**的表——也是 v0.46 的覆盖守卫核对**取值**一侧时用的表。
+//
+// 守卫调它、网也调它，**不是各写一遍规则**：v0.45 的第一版守卫就是自己另写了一套
+// （核对名字而不是覆盖路径），于是它放过了 `css` 的两个 flag。
+// 这一版把"哪些 flag 归哪张网"收敛成**唯一一份选择函数**。
+func valueFlagPairs(t *testing.T) []valueFlagPair {
+	t.Helper()
+	known := map[string]bool{}
+	for _, c := range commands {
+		known[c.Name] = true
+	}
+	var out []valueFlagPair
+	for _, file := range sourceFiles(t) {
+		for _, b := range flagsetBlocksOf(t, file) {
+			parts := strings.Fields(b.name)
+			if len(parts) == 0 || !known[parts[0]] {
+				continue // 不属于任何命令的 flagset：由 v0.45 的覆盖并集守卫报出来
+			}
+			for _, f := range b.valueFlags() {
+				out = append(out, valueFlagPair{block: b.name, parts: parts, flag: f})
+			}
+		}
+	}
+	return out
 }
 
 func TestV42EmptyValueNeverSilentlyChangesBehaviour(t *testing.T) {
 	testutils.AllowEngines(t, "fake-engine")
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
-	refused, equivalent := 0, 0
+	refused, equivalent, derived := 0, 0, 0
 
-	for _, spec := range commands {
-		flags := valueFlagsEmptyValue[spec.Name]
-		for _, flag := range flags {
-			t.Run(spec.Name+flag+"=", func(t *testing.T) {
+	for _, p := range valueFlagPairs(t) {
+		parts, flag := p.parts, p.flag
+		{
+			derived++
+			label := p.block + " --" + flag
+			t.Run(label+"=", func(t *testing.T) {
 				isolateUserEnv(t)
 				scratch := t.TempDir()
 				old, err := os.Getwd()
@@ -62,18 +91,27 @@ func TestV42EmptyValueNeverSilentlyChangesBehaviour(t *testing.T) {
 					t.Helper()
 					isolateUserEnv(t)
 					proj := newProject(t)
-					if spec.Name == "transform" || spec.Name == "css" || spec.Name == "build" {
+					if parts[0] == "transform" || parts[0] == "css" || parts[0] == "build" {
 						writeSurfaceFile(t, proj, "in.ts", "export const a = 1\n")
 						writeSurfaceFile(t, proj, "a.css", "a{color:red}\n")
 					}
-					args := append([]string{spec.Name}, withoutFlag(matrixArgs[spec.Name], flag)...)
-					if spec.Name == "transform" {
+					// 命令层：参数用 matrixArgs 那套"语法上够用"的底子。
+					// 子命令层：底子就是块名本身（`store prune`）——matrixArgs 里
+					// 那个 `store` 的 `usage` 会变成 `store usage prune`（错的）。
+					args := []string{}
+					if len(parts) == 1 {
+						args = append(args, withoutFlag(matrixArgs[parts[0]], "--"+flag)...)
+					}
+					args = append(append([]string{}, parts...), args...)
+					if parts[0] == "transform" {
 						args = append(args, "in.ts")
 					}
 					if withEmpty {
-						args = append(args, flag+"=")
+						args = append(args, "--"+flag+"=")
 					}
-					args = append(args, "--dir="+proj)
+					if !globalCommands[parts[0]] {
+						args = append(args, "--dir="+proj)
+					}
 					c, out := runCaptureCode(t, args...)
 					return c, strings.ReplaceAll(out, proj, "<proj>")
 				}
@@ -98,10 +136,11 @@ func TestV42EmptyValueNeverSilentlyChangesBehaviour(t *testing.T) {
 						flag, firstLine(oEmpty), firstLine(oPlain))
 				case cEmpty == 0 && cPlain == 0:
 					equivalent++
-					t.Logf("empty %s= ≡ 不给（两者都成功且输出相同）", flag)
+					t.Logf("%-22s empty --%s= ≡ 不给（两者都成功且输出相同）", p.block, flag)
 				case cEmpty != 0:
 					refused++
-					t.Logf("empty %s= 被拒绝（exit %d: %s）", flag, cEmpty, firstLine(oEmpty))
+					t.Logf("%-22s empty --%s= 被拒绝（exit %d: %s）",
+						p.block, flag, cEmpty, firstLine(oEmpty))
 				default:
 					t.Errorf("`%s=` 成功了，而**不给**它却失败（exit %d）——说明空值触发了另一条路:\n  %s",
 						flag, cPlain, firstLine(oPlain))
@@ -110,18 +149,23 @@ func TestV42EmptyValueNeverSilentlyChangesBehaviour(t *testing.T) {
 		}
 	}
 
-	// 可达性守卫：两种合格处置都要有样本。
-	// 若哪天所有空值都被拒绝（或全都被当成"没给"），这张网会退化成只查一件事。
-	total := refused + equivalent
-	if total < 12 {
-		t.Fatalf("only %d flag(s) were exercised — the table shrank", total)
+	// 守卫① **结构性**：派生出的每一条都必须跑过——不依赖任何我拍的数。
+	if ran := refused + equivalent; ran != derived {
+		t.Fatalf("the derived table has %d value flag(s) but %d ran — "+
+			"some flag neither ran nor was accounted for", derived, ran)
 	}
+	// 守卫② **规模下限**：实测 37 条；表被改窄（或派生又漂了）时这条会响。
+	if derived < 30 {
+		t.Fatalf("only %d value flag(s) were derived — the table shrank", derived)
+	}
+	// 守卫③ **可达性**：两种合格处置都要有样本。
+	// 若哪天所有空值都被拒绝（或全都被当成"没给"），这张网会退化成只查一件事。
 	if refused == 0 || equivalent == 0 {
 		t.Fatalf("both dispositions must exist: refused=%d equivalent=%d — "+
 			"one of them vanishing means the table no longer covers what it claims", refused, equivalent)
 	}
-	t.Logf("empty value: %d flag(s) → %d refused, %d equivalent to omitting it; no run touched the CWD",
-		total, refused, equivalent)
+	t.Logf("empty value: %d flag(s) derived from source → %d refused, %d equivalent to omitting it; "+
+		"no run touched the CWD", derived, refused, equivalent)
 }
 
 // withoutFlag 从参数表里去掉某个 flag 的取值（用来造"不给这个 flag"的对照）。

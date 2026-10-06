@@ -54,7 +54,7 @@ func boolFlagsOfCommand(t *testing.T, cmd string) []string {
 	for _, file := range sourceFiles(t) {
 		for _, b := range flagsetBlocksOf(t, file) {
 			if b.name == cmd {
-				return b.flags
+				return b.boolFlags()
 			}
 		}
 	}

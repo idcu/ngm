@@ -35,17 +35,84 @@ import (
 // 归零的读数：v0.43 的公开跳过 **3 → 0**，而两层合起来覆盖**全部**派生出的布尔 flag
 // （由 §守卫 里那条"并集"断言钉住）。
 
+// flagDecl 是一条 flag 声明：名字 + 声明的种类。
+//
+// 为什么要带种类（v0.46）：同一套派生要喂两张判据不同的网——
+// **布尔 flag**（v0.43 / v0.45：`=true`/`=false`/`=x`/不吞 token）与
+// **取值 flag**（v0.42：空值必须"与不给等价"或"明确失败"）。
+// 种类来自声明本身（`fs.Bool` / `fs.String` / `fs.Duration` / `fs.Int`），不是我记的。
+type flagDecl struct {
+	name string
+	kind string // "Bool" / "String" / "Duration" / "Int"
+}
+
 // flagsetBlock 是一个 flagset 声明块：从 `newFlagSet("name"` 到下一个声明之前。
 type flagsetBlock struct {
 	// name 是声明时的名字，例如 `typecheck` / `css` / `store prune`。
 	name string
-	// flags 是这一块里声明的**布尔** flag（按出现顺序，去重）。
-	flags []string
+	// decls 是这一块里声明的 flag（按出现顺序，同名去重）。
+	decls []flagDecl
+}
+
+// boolFlags 返回这一块里的布尔 flag 名（v0.43 / v0.45 用）。
+func (b flagsetBlock) boolFlags() []string {
+	var out []string
+	for _, d := range b.decls {
+		if d.kind == "Bool" {
+			out = append(out, d.name)
+		}
+	}
+	return out
+}
+
+// valueFlags 返回这一块里的**取值** flag 名（v0.42 用）：
+// String / Duration / Int —— 也就是"要吃掉一个值"的那些。
+func (b flagsetBlock) valueFlags() []string {
+	var out []string
+	for _, d := range b.decls {
+		if d.kind != "Bool" {
+			out = append(out, d.name)
+		}
+	}
+	return out
+}
+
+// allFlags 返回这一块里的全部 flag 名（不分种类）——覆盖守卫用。
+func (b flagsetBlock) allFlags() []string {
+	var out []string
+	for _, d := range b.decls {
+		out = append(out, d.name)
+	}
+	return out
+}
+
+// subcommandBoolPairs 是**这张网实际会跑**的表：名字带空格、第一段是真命令、有布尔 flag。
+//
+// 它被抽出来是为了让 v0.46 的覆盖守卫调它——守卫要按**三张网各自的选择函数**
+// 拼出覆盖集，而不是自己再写一套规则（v0.45 的第一版守卫就是这样放过了 `css`：
+// 它核对的是名字，不是覆盖路径）。
+func subcommandBoolPairs(t *testing.T) []flagsetBlock {
+	t.Helper()
+	known := map[string]bool{}
+	for _, c := range commands {
+		known[c.Name] = true
+	}
+	var out []flagsetBlock
+	for _, file := range sourceFiles(t) {
+		for _, b := range flagsetBlocksOf(t, file) {
+			parts := strings.Fields(b.name)
+			if len(parts) < 2 || !known[parts[0]] || len(b.boolFlags()) == 0 {
+				continue
+			}
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 var (
 	reFlagSetDecl = regexp.MustCompile(`newFlagSet\("([^"]+)"`)
-	reBoolDecl    = regexp.MustCompile(`fs\.Bool\("([a-z][a-z-]*)"`)
+	reFlagDecl    = regexp.MustCompile(`fs\.(Bool|String|Duration|Int)\("([a-z][a-z-]*)"`)
 )
 
 // flagsetBlocksOf 把 `cmd/ngm/<file>` 拆成 flagset 块。
@@ -70,10 +137,10 @@ func flagsetBlocksOf(t *testing.T, file string) []flagsetBlock {
 		body := src[loc[1]:end]
 		b := flagsetBlock{name: src[loc[2]:loc[3]]}
 		seen := map[string]bool{}
-		for _, m := range reBoolDecl.FindAllStringSubmatch(body, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				b.flags = append(b.flags, m[1])
+		for _, m := range reFlagDecl.FindAllStringSubmatch(body, -1) {
+			if !seen[m[2]] {
+				seen[m[2]] = true
+				b.decls = append(b.decls, flagDecl{name: m[2], kind: m[1]})
 			}
 		}
 		out = append(out, b)
@@ -138,21 +205,13 @@ func TestV45SubcommandFlagsHoldTheSameSemantics(t *testing.T) {
 	testutils.AllowEngines(t, "fake-engine")
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
-	known := map[string]bool{}
-	for _, c := range commands {
-		known[c.Name] = true
-	}
-
 	checked := 0
-	for _, file := range sourceFiles(t) {
-		for _, b := range flagsetBlocksOf(t, file) {
-			// 只认**子命令层**：名字里有空格，且第一段是真命令。
-			parts := strings.Fields(b.name)
-			if len(parts) < 2 || !known[parts[0]] || len(b.flags) == 0 {
-				continue
-			}
-			sub := parts
-			for _, flag := range b.flags {
+	for _, b := range subcommandBoolPairs(t) {
+		{
+			// 只认**子命令层**：名字里有空格，且第一段是真命令（选择规则在
+			// `subcommandBoolPairs` 里，守卫调的是同一个函数）。
+			sub := strings.Fields(b.name)
+			for _, flag := range b.boolFlags() {
 				t.Run(b.name+"/--"+flag, func(t *testing.T) {
 					run := func(t *testing.T, extra ...string) (int, string) {
 						t.Helper()
@@ -193,27 +252,40 @@ func TestV45SubcommandFlagsHoldTheSameSemantics(t *testing.T) {
 	// 都落在这个集合里。落不进去就是**没人看的东西**。
 	unowned := 0
 	covered := map[string]bool{}
+	// 命令层：布尔归 v0.43、取值归 v0.42 —— 两处都调**它们自己的**选择函数。
 	for _, c := range commands {
 		for _, f := range boolFlagsOfCommand(t, c.Name) {
 			covered[c.Name+" --"+f] = true
 		}
 	}
+	// 取值一侧（v0.46）：直接调 v0.42 那张网的选择函数——它现在**跨两层**
+	//（命令层 + 子命令层，于是 `store prune --older-than` 也在里面）。
+	for _, p := range valueFlagPairs(t) {
+		covered[p.block+" --"+p.flag] = true
+	}
+	// 子命令层：布尔归这张网——同样调它自己的选择函数。
+	for _, b := range subcommandBoolPairs(t) {
+		for _, f := range b.boolFlags() {
+			covered[b.name+" --"+f] = true
+		}
+	}
+
 	for _, file := range sourceFiles(t) {
 		for _, b := range flagsetBlocksOf(t, file) {
-			if len(b.flags) == 0 {
-				continue
-			}
 			parts := strings.Fields(b.name)
-			if len(parts) >= 2 && known[parts[0]] {
-				for _, f := range b.flags {
-					covered[b.name+" --"+f] = true
-				}
+			if len(parts) == 0 {
 				continue
 			}
-			for _, f := range b.flags {
-				if !covered[parts[0]+" --"+f] {
+			// 一个 flag 只要被**任一条路**覆盖就算数：命令层用 `<命令> --flag` 这个键，
+			// 子命令层用 `<命令> <子命令> --flag`。
+			//
+			// 这里刻意**不**写"名字带空格 ⇒ 一定被覆盖"那种捷径——v0.45 的第一版
+			// 就是这么错的（它按名字判断，于是放过了 `css`）。判断依据只有
+			// 上面那三个**选择函数**给出的集合。
+			for _, f := range b.allFlags() {
+				if !covered[parts[0]+" --"+f] && !covered[b.name+" --"+f] {
 					unowned++
-					t.Errorf("the flagset %q (%s) contributes `--%s`, which neither net reaches — "+
+					t.Errorf("the flagset %q (%s) contributes `--%s`, which no net reaches — "+
 						"it would be silently unchecked", b.name, file, f)
 				}
 			}
