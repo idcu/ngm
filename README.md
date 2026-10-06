@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.39 delivered in source**, and all thirty-nine tags `v0.1.0` … `v0.39.0` exist.
+Status: **v0.1 … v0.40 delivered in source**, and all forty tags `v0.1.0` … `v0.40.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -249,6 +249,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.37 | enumerate instead of sweep: 21 commands × 3 configuration-error shapes = 63 runs, each required to honour its channel (error text carries a next step, reports carry a next step, usage text must not appear at all, silence is red, and an output fitting no known channel is red too). Under a second, no fixtures — and it caught two bugs of mine rather than the product's | delivered · released |
 | v0.38 | more shapes (3 → 8, including a corrupt lock), and the net's one remaining hole closed: a run that exits 0 satisfies no contract at all, so every such cell must now be registered with the measured reason why zero is correct — checked in both directions, so a stale registration fails too | delivered · released |
 | v0.39 | the argument dimension: every command run with no positional arguments and with one extra argument nobody understands. 42 runs, all non-zero, and the invariant that matters is that **an extra argument is never silently ignored** — v0.19 fixed one command for this, now it holds for all of them | delivered · released |
+| v0.40 | how arguments are *spelled*: ordering, repetition, and `--`. All three rest on sentences the product already wrote about itself, and one of them was lying: the argument rewriter classified everything after `--` as a positional and then **dropped the `--` when re-emitting**, so those tokens landed back in flag position — nine commands affected. One existing unit test had encoded that bug as its expectation | delivered · released |
 | v0.19 | **the text users see is an interface too**: every command's usage now writes its own `EXIT CODES` (8 new + a correction to `install`, which had silently omitted 2 and 5), `config` learned `--dir` and stopped reporting OK for a directory with no manifest, and the internal stage labels (`M\d`) leaked into user-visible strings were removed | delivered · released |
 
 ---
