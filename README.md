@@ -24,14 +24,14 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **39 of 43** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | **3 of 43** | **`v0.1.0`**, plus `v0.5.0` … `v0.43.0` |
+| GitHub | **40 of 44** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 44** | **`v0.1.0`**, plus `v0.5.0` … `v0.44.0` |
 
-New versions are released by the tag push itself, and that path has now worked thirty-five times
+New versions are released by the tag push itself, and that path has now worked thirty-six times
 (`v0.9.0` … `v0.29.0`) — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those forty historical artifacts is deferred by decision (2026-10-04)** — not
-forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.43` compile with the
+**Back-filling those forty-one historical artifacts is deferred by decision (2026-10-04)** — not
+forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.44` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
 returns 401 without a token, and the Gitee uploader needs a `GITEE_TOKEN` — so resuming it is one
@@ -39,7 +39,7 @@ command per version. The decision, its rationale and the signals that would make
 are recorded in
 [`docs/development/README.md`](./docs/development/README.md#发布清单每个版本).
 
-Until then, **`v0.4.0` is the newest version downloadable from both sources, and `v0.43.0` is the
+Until then, **`v0.4.0` is the newest version downloadable from both sources, and `v0.44.0` is the
 newest downloadable from GitHub.** Both readings are mechanical, not remembered: the checklist that
 keeps "delivered" and "released" from drifting apart is in `docs/development/README.md`, and the
 Gitee side of it has a reading of its own (`scripts/check-gitee-release-status.sh`, with a Windows
