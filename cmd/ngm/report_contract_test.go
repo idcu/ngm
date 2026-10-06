@@ -27,6 +27,9 @@ import (
 // 一个用户能照着做的东西）。v0.32 只数条数，那时不需要 `.*$`。
 var reActionLine = regexp.MustCompile(`(?m)^\s*(?:→ |Fixed in: ).*$`)
 
+// reLockCommit 抓锁里第一个依赖的 commit（夹具用它改写锁）。
+var reLockCommit = regexp.MustCompile(`"commit":\s*"([0-9a-f]{40})"`)
+
 // actionKind 抽出一行行动行的**约定记号**：`→` 或 `Fixed in:`。
 //
 // 为什么不能直接用匹配到的文本：v0.33 把 `reActionLine` 改成抓**整行**之后，
@@ -124,6 +127,42 @@ var reportCases = []reportCase{
 		},
 		args:     []string{"verify"},
 		remedies: []string{"permissions.allow"},
+	},
+	{
+		// v0.44 新增：**第三种成因**——锁钉了一个 commit，而它**不在本机 mirror 里**
+		// （上游在我们取过之后又提交了，而我此刻离线）。
+		//
+		// 它走到的是 `verify.go` 的 `errCommitMissing` + `opts.Offline` 那一支：
+		// v0.35 记下"可达性未证明"（当时覆盖的两条路都走 `finishSkippingRefAndDigest`，
+		// 而这一支里那行 `errs.New` 写下的建议没人读到过）。这一版把它造出来。
+		name: "verify/检查未能完成（锁钉的 commit 不在本机 mirror）",
+		setup: func(t *testing.T, home string) string {
+			p := newProject(t)
+			up := scUpstream(t, "github:x/dep", "export const dep = 1\n", "")
+			if code, out := runCaptureCode(t, "add", "github:x/dep@v1", "--ref-type=tag", "--dir="+p); code != 0 {
+				t.Fatalf("add: %s", out)
+			}
+			if code, out := runCaptureCode(t, "install", "--dir="+p); code != 0 {
+				t.Fatalf("install: %s", out)
+			}
+			// 取过之后再在上游提交一个：它**真实存在**，但不在本机 mirror 里。
+			up.WriteFile("index.ts", "export const dep = 2\n")
+			ahead := up.Commit("feat: ahead of what this machine has")
+
+			lockPath := filepath.Join(p, "ngm.lock")
+			raw, err := os.ReadFile(lockPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := reLockCommit.FindStringSubmatch(string(raw))
+			if m == nil {
+				t.Fatalf("the lock has no commit to rewrite:\n%s", raw)
+			}
+			writeSurfaceFile(t, p, "ngm.lock", strings.Replace(string(raw), m[1], ahead, 1))
+			return p
+		},
+		args:     []string{"verify", "--offline"},
+		remedies: []string{"`ngm install`"},
 	},
 	{
 		name: "audit/公告没有修复版本",

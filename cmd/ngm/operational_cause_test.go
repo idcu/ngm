@@ -27,10 +27,13 @@ var operationalCauses = []struct {
 	// marker 必须出现在**这一成因**的行动行里：
 	//   · mirror 不在 ⇒ 那句建议点名 `ngm install`（把 mirror 取下来）
 	//   · 网络被拒 ⇒ 那句建议点名 permissions.allow（去放行那个 host）
+	//   · 锁钉的 commit 不在本机 mirror ⇒ 那句话说的是"镜像冷"，
+	//     而它的下一步正是**跑一次在线**（那才能分辨"镜像没取过"与"上游丢了它"）
 	marker string
 }{
 	{"verify/检查未能完成（mirror 不在）", "`ngm install`"},
 	{"verify/检查未能完成（网络被策略拒）", "permissions.allow"},
+	{"verify/检查未能完成（锁钉的 commit 不在本机 mirror）", "the local mirror is cold"},
 }
 
 func TestV35OperationalFailuresAdviseTheirOwnCause(t *testing.T) {
@@ -74,23 +77,25 @@ func TestV35OperationalFailuresAdviseTheirOwnCause(t *testing.T) {
 		})
 	}
 
-	// 判据的核心：**不能是同一句话**。
-	// 同一片分支覆盖两种成因，若两处给出一模一样的建议，那么其中至少一处是错的
-	// ——因为这两条路该做的事本来就不同（一个去取 mirror，一个去放行 host）。
-	if len(advice) == 2 {
-		a, b := "", ""
-		for _, v := range advice {
-			if a == "" {
-				a = v
-				continue
-			}
-			b = v
-		}
-		if a == b {
-			t.Errorf("both operational causes were given the same advice:\n%s\n"+
+	// 判据的核心：**两两不能是同一句话**。
+	// 同一片分支覆盖多种成因，若两处给出一模一样的建议，那么其中至少一处是错的
+	// ——因为这些路该做的事本来就不同（去取 mirror / 去放行 host / 跑一次在线做分辨）。
+	//
+	// v0.44 起是**两两**核对（成因从 2 种涨到 3 种）：原来是硬编码"两句不相同"，
+	// 那种写法在成因变多之后会**静默地只查前两句**。
+	seen := map[string]string{}
+	for name, line := range advice {
+		if prev, dup := seen[line]; dup {
+			t.Errorf("two operational causes were given the same advice (%q 与 %q):\n%s\n"+
 				"one branch cannot be right for both — a missing mirror is fixed by fetching, "+
-				"a denied host by allowing it", a)
+				"a denied host by allowing it, an absent commit by going online once",
+				prev, name, line)
 		}
+		seen[line] = name
 	}
-	t.Logf("operational causes: %d advices, distinct=%v", len(advice), len(advice) == 2)
+	if len(advice) != len(operationalCauses) {
+		t.Fatalf("only %d of %d causes produced an advice line — a cause silently dropped out",
+			len(advice), len(operationalCauses))
+	}
+	t.Logf("operational causes: %d advices, all distinct=%v", len(advice), len(seen) == len(advice))
 }

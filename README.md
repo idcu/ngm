@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.43 delivered in source**, and all forty-three tags `v0.1.0` … `v0.43.0` exist.
+Status: **v0.1 … v0.44 delivered in source**, and all forty-four tags `v0.1.0` … `v0.44.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -253,6 +253,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.41 | `--dir` spellings and the empty value: four spellings must be byte-identical, and an explicitly empty `--dir=` must be refused. It was not — an empty string is indistinguishable from "flag not given", so the command silently fell back to the current directory: `add … --dir=` edited the *current* project's manifest, `init … --dir=` built a project in the current directory. The judgement looks only at side effects (the current directory must stay empty) | delivered · released |
 | v0.42 | the empty value, generalised to every value-taking flag: 15 flag/command pairs, of which 14 refuse it outright and 1 treats it exactly like omitting the flag — none of them touches the working directory. The rule is written in the shape of the defect: **an empty value must either be refused or behave exactly like omission, never succeed differently** | delivered · released |
 | v0.43 | boolean flags: the table of 41 command/flag pairs is derived from the source rather than recalled, and 38 of them are put through four assertions — `=true` equals the bare flag, `=false` equals omitting it, `=x` must be refused, and a boolean flag must never consume the token after it (the rewriter's own comment promises exactly that) | delivered · released |
+| v0.44 | closing a nine-version-old "unproven": one branch of `verify` (a commit missing from the local mirror, while offline) had never been reached by any test, so the advice written inside it — the value of what was a dead assignment until v0.35 — had no evidence of ever reaching a user. This version builds that state with a commit that genuinely exists upstream, and the branch turns out to work, and the advice turns out to actually discriminate: run online once and the verdict changes from "not in the mirror" to "upstream discarded it" | delivered · released |
 | v0.19 | **the text users see is an interface too**: every command's usage now writes its own `EXIT CODES` (8 new + a correction to `install`, which had silently omitted 2 and 5), `config` learned `--dir` and stopped reporting OK for a directory with no manifest, and the internal stage labels (`M\d`) leaked into user-visible strings were removed | delivered · released |
 
 ---
