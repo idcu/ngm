@@ -98,10 +98,21 @@ func TestV15DocExamplesAreRealInvocations(t *testing.T) {
 				if rootFlags[f] {
 					continue
 				}
-				if !mentionRe(f).MatchString(text) {
-					t.Errorf("%s: `ngm %s` does not take --%s (it is not in that command's usage text):\n    %s",
-						display, sub, f, cand)
+				if mentionRe(f).MatchString(text) {
+					continue
 				}
+				// v0.54：**故意写出来的失败调用**走同一张例外表。
+				//
+				// 这类句子不是"命令名写错了"，而是**实测记录**：
+				// "这样的调用会被拒绝"本身是真的（散文正说着这一点，例如
+				// 「解析失败时该给一份机器可读的信封」）。例外条目同样**不会悄悄过期**
+				// ——下面那个 used[] 守卫要求它在文档里仍然匹配得到。
+				if idx, exempt := docExceptionFor(display, cand); exempt {
+					used[idx] = true
+					continue
+				}
+				t.Errorf("%s: `ngm %s` does not take --%s (it is not in that command's usage text):\n    %s",
+					display, sub, f, cand)
 			}
 		}
 	}
@@ -118,15 +129,18 @@ func TestV15DocExamplesAreRealInvocations(t *testing.T) {
 	t.Logf("checked %d documented invocation(s) across %d document(s)", checked, len(docs))
 }
 
-// docExampleExceptions 是**故意**写出来的"不存在的命令"，每条的判据是
-// **文档正是在说不存在**。
+// docExampleExceptions 是**故意**写出来的"不合法调用"，每条的判据是
+// **文档正是在说它不合法**。
 //
-// 为什么是一份名单、而不是把判据放宽到能容纳它们：这两处不是命令写错了，是**负例**
-// （"ngm 没有 test 命令"、"迁移命令尚不存在"）。判据一旦放宽到能容纳它们，
-// 就等于不再检查"命令名是否存在"——而那正是本网唯一的牙齿。
+// 为什么是一份名单、而不是把判据放宽到能容纳它们：这几处不是命令/flag 写错了，是**负例**
+// （"ngm 没有 test 命令"、"迁移命令尚不存在"、"这样的调用会被拒绝"）。
+// 判据一旦放宽到能容纳它们，就等于不再检查"命令名/flag 是否存在"——而那正是本网唯一的牙齿。
 //
 // 名单**不会悄悄过期**：上面的断言要求每个条目在当前文档里**确实还能匹配到**，
 // 一旦那处示例被删改，测试会红并要求把条目一并删掉。
+//
+// v0.54 起它也覆盖**flag 级**的负例（此前只管命令级）：判据的形态没变，
+// 只是"不合法"可以发生在两个层级上。
 var docExampleExceptions = []struct {
 	doc  string
 	text string
@@ -135,6 +149,12 @@ var docExampleExceptions = []struct {
 	{"docs/guides/test.md", "ngm test", "散文明确写着 ngm 没有 test 命令——这一行是负例"},
 	{"docs/guides/configuration.md", "ngm lock migrate", `写明"迁移命令尚不存在"（至今未发生 MAJOR 变更）`},
 	{"docs/architecture/locking.md", "ngm lock migrate", "同上"},
+	{"docs/guides/cli.md", "ngm verify --json --bogus",
+		"这一行是**实测记录**：散文说的是「解析阶段的失败也该有机器可读的形态」——" +
+			"那条调用会被拒绝，正是它的要点"},
+	{"docs/internals/project-state.md", "ngm verify --json --bogus",
+		"同上：v0.54 那一行记的是**实测读数**（exit 3 · stdout 0 字节），" +
+			"这条调用被拒绝正是读数本身"},
 }
 
 // docExceptionFor 返回命中的例外条目下标。

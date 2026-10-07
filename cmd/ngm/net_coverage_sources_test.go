@@ -69,6 +69,10 @@ var netCoverageSources = map[string]netSource{
 		source: "夹具表（`reportCases`）+ 派生 flag 表（`hasJSONFlag` → `boolFlagsOfCommand`）",
 		why:    "`reportCases` 是**夹具表**：它描述'造什么状态'，而'哪些命令支持 --json'是派生的",
 	},
+	"TestV54EarlyFailuresAreMachineReadableToo": {
+		what:   "解析阶段的失败（未知 flag 两种顺序 · 未知命令 · 缺子命令）也要有信封",
+		source: "运行时命令表（`commands`）+ 派生 flag 表（`hasJSONFlag` → `boolFlagsOfCommand`）",
+	},
 	"TestV51JSONErrorEnvelopeIsCompleteAndSameSentence": {
 		what:   "失败路径上的错误信封",
 		source: "错误面表（`surfaceCases`，复用 v0.31 的夹具）+ 派生 flag 表",
