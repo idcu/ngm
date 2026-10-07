@@ -27,7 +27,7 @@
 > | 你的网络 | 用哪个 | 地址前缀 | 目前最新可取 |
 > |---------|--------|---------|------------|
 > | 国内 | **Gitee 发行版**（推荐） | `https://gitee.com/idcu/ngm/releases/download/v0.4.0` | **v0.4.0** |
-> | 海外 / 想取最新 | GitHub Release（上游） | `https://github.com/idcu/ngm/releases/latest/download` | **v0.49.0** |
+> | 海外 / 想取最新 | GitHub Release（上游） | `https://github.com/idcu/ngm/releases/latest/download` | **v0.50.0** |
 >
 > 两个源的产物**字节完全相同**，共用同一份 `SHA256SUMS`，可以互相校验。
 > Gitee 的附件在每次发布后**手动**上传，因此只有**版本固定**地址（Gitee 没有 `latest/download` 形态）；
@@ -38,20 +38,20 @@
 >
 > | 发行源 | 有附件的版本 |
 > |--------|------------|
-> | **GitHub** | `v0.1.0` ~ `v0.4.0`、**`v0.9.0`** ~ **`v0.49.0`**（各 7 个附件） |
+> | **GitHub** | `v0.1.0` ~ `v0.4.0`、**`v0.9.0`** ~ **`v0.50.0`**（各 7 个附件） |
 > | **Gitee** | `v0.2.0` ~ `v0.4.0`（各 7 个附件 + 2 个源码包；`SHA256SUMS` 已与 GitHub 逐字节比对） |
 >
 > ⚠️ **空缺有十九处，且补发已决定暂缓（2026-10-04，项目所有者决定）**——
 > **有意延后，不是遗漏**。成因是凭据：
 > ①`v0.5.0` ~ `v0.8.0` 的 GitHub release 未生成（镜像转发 tag 未触发发布工作流，
 > 补发见[发布清单](../development/README.md#发布清单每个版本)第 2 步）；
-> ② Gitee 侧缺 **`v0.1.0` 及 `v0.5.0` ~ `v0.49.0` 共四十六个版本**（需 `GITEE_TOKEN`）。
+> ② Gitee 侧缺 **`v0.1.0` 及 `v0.5.0` ~ `v0.50.0` 共四十七个版本**（需 `GITEE_TOKEN`）。
 > 判据与恢复信号写在[发布清单](../development/README.md#发布清单每个版本)开头：
 > 缺口涉及的版本**功能全在源码里**（下面的「方式二」），而最新的 `v0.12.0` 在 GitHub 上可取，
 > 所以现在没有人在等这些二进制。**一旦有人要用 Gitee 取到 `v0.4.0` 之后的版本，它就值得恢复。**
 >
-> **换句话说：想要最新的产物请从 GitHub 取**（`v0.49.0`）；只在 Gitee 上取的话，
-> 最新是 `v0.4.0`——而 `v0.5` ~ `v0.49` 的功能（含 `store usage`、`store prune --orphans`、
+> **换句话说：想要最新的产物请从 GitHub 取**（`v0.50.0`）；只在 Gitee 上取的话，
+> 最新是 `v0.4.0`——而 `v0.5` ~ `v0.50` 的功能（含 `store usage`、`store prune --orphans`、
 > 层 2 换布局）**都在源码里已交付**，用「方式二」编译即可拿到。
 
 产物命名统一为 **`ngm-<os>-<arch>[.exe]`**，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
@@ -74,7 +74,7 @@
 #   Gitee（国内推荐）: BASE=https://gitee.com/idcu/ngm/releases/download/v0.4.0
 #                      （Gitee 侧最新有附件的版本就是 v0.4.0，原因见上面的空缺说明）
 #   GitHub（上游）   : BASE=https://github.com/idcu/ngm/releases/latest/download
-#                      （想钉版本就用 .../releases/download/v0.49.0）
+#                      （想钉版本就用 .../releases/download/v0.50.0）
 
 # macOS (Apple silicon)
 curl -L "$BASE/ngm-darwin-arm64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm
