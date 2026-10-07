@@ -7,6 +7,27 @@ import (
 	"testing"
 )
 
+// countBareErrorsIn 数 `internal/config/<file>` 里不带建议的裸错误处数
+// （`errors.New(` / `fmt.Errorf(` 且不含 `%w`）。
+func countBareErrorsIn(t *testing.T, file string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "config", file))
+	if err != nil {
+		t.Fatalf("读不到 internal/config/%s：%v", file, err)
+	}
+	n := 0
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case strings.Contains(line, "errors.New("):
+			n++
+		case strings.Contains(line, "fmt.Errorf(") && !strings.Contains(line, "%w"):
+			n++
+		}
+	}
+	return n
+}
+
 // v0.49：**config 包的校验错误必须自带建议**（静态普查）。
 //
 // 起点是 v0.48 的读数：`internal/config/validate.go` 的三十处校验全是裸错误
@@ -69,6 +90,27 @@ func TestV49ConfigValidationAlwaysCarriesAHint(t *testing.T) {
 			t.Errorf("例外表里的这一条在 validate.go 里已经不存在了：%s\n"+
 				"删掉代码却留着登记，等于登记看着空气", k)
 		}
+	}
+
+	// ---- 第二个文件：**故意**不带建议的那些，必须具名（v0.52） ----
+	//
+	// `internal/config/duration.go` 是 ISO 8601 时长的**解析器**：它的错误说的是
+	// "输入的哪一段看不懂"（`%q: missing unit after %d`），而补"该怎么改"的职责
+	// 在**字段层**（`validate.go` 的 `minimumReleaseAge` 分支）——**一处代替八处**，
+	// 而且字段层知道这个值该填在哪个键里（v0.49 的决定）。
+	//
+	// 为什么要在这里登记：**"故意不修"和"漏了"在源码里长得一模一样**。
+	// 没有这条登记，下一个人（或下一个我）会把它当成漏网，或者把字段层的建议删掉。
+	// 10 是**实测值**（`grep -c 'errors.New(|fmt.Errorf('`），不是估的——
+	// v0.43 那条教训：守卫阈值拍错了，红的是我的数字。
+	const durationBareAllow = 10
+	if got := countBareErrorsIn(t, "duration.go"); got > durationBareAllow {
+		t.Errorf("duration.go 有 %d 处不带建议的裸错误，而登记的允许数是 %d ——"+
+			"新增的解析错误要么自己带上建议，要么把这个允许数改大并在注释里写清为什么",
+			got, durationBareAllow)
+	} else if got < durationBareAllow {
+		t.Logf("duration.go: %d 处裸错误（登记允许 %d）——可以把允许数收紧到 %d",
+			got, durationBareAllow, got)
 	}
 
 	// 可达性：这条判据必须**真的看到了东西**（否则文件被改名/清空时它会静默通过）。
