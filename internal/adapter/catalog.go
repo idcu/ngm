@@ -433,6 +433,13 @@ type Issue struct {
 	Kind IssueKind `json:"kind"`
 	// Message 是可读描述。
 	Message string `json:"message"`
+	// Remediation 是"这条问题该做什么"（v0.50）——与人读那侧的 `→` 行同源
+	// （由 `cmd/ngm` 的 `issueAdvice` 按 Kind 产出，两处同一条句子）。
+	//
+	// 为什么加它：`engines validate --json` 此前只报"哪里不对"，
+	// 而人读那侧每条问题都配了一行"接下来做什么"——同一条报告在两个通道里
+	// 说不同的话，而机器那一侧说的更少。
+	Remediation string `json:"remediation,omitempty"`
 }
 
 // ExitCode 依据问题集合计算 `ngm engines validate` 的退出码。

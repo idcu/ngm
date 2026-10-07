@@ -55,6 +55,12 @@ type TreeReport struct {
 	Drifted      int          `json:"drifted"`
 	OSVChecked   bool         `json:"osvChecked"`
 	Entries      []*TreeEntry `json:"entries"`
+	// Remediation 是"这份树里查到了漏洞"时的下一步（v0.50），与人读那侧的 `→` 行同源。
+	//
+	// 为什么放进报告：读 `--json` 的脚本此前只能看到 `vulnerabilities` 数组，
+	// 看不到"该跑 `ngm audit`"这件事——同一条报告在两个通道里说不同的话，
+	// 而机器那一侧说的更少。
+	Remediation string `json:"remediation,omitempty"`
 
 	// EntriesTruncated 为真表示 Entries **不完整**（达到展开预算）。
 	// 与 why 的同名字段一样，它存在的唯一理由是**截断必须可见**。
@@ -246,31 +252,36 @@ func (r *TreeReport) Render(w io.Writer) {
 		fmt.Fprintf(w, "vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)\n")
 	}
 	if r.OSVChecked {
-		// 查到了漏洞**更要**给出下一步（v0.32）。
-		//
-		// 树只画 `✗` 与**条数**——"哪条公告、修复在哪个版本、严重度多少"在
-		// `ngm audit` 的报告里（树要的是一眼看全，不是清单）。不指过去，
-		// 用户只被告知"有事"，却不知道"做什么"：这正是 v0.32 在 audit 报告里
-		// 修掉的同一类缺口（说清了"是什么"，没给"怎么办"）。
-		//
-		// 行首用 `→`：与 `verify` 的 `→ driftKind: …` 同一个约定，
-		// 于是"grep `^\s*→`"就是这份输出里的全部下一步。
-		if n := vulnCount(r.Entries); n > 0 {
-			fmt.Fprintf(w, "\n  → %d known vulnerability(ies); run `ngm audit` for the advisories "+
-				"and the versions that fix them\n", n)
+		if n := VulnCount(r.Entries); n > 0 {
+			fmt.Fprintf(w, "\n  → %s\n", VulnRemediation(n))
 		}
 	}
 }
 
-// vulnCount 数出树里所有条目的漏洞总数（含子节点）。
+// VulnRemediation 是"树里查到了漏洞"时给出的下一步（v0.32 立、v0.50 收成一处）。
+//
+// 树只画 `✗` 与**条数**——"哪条公告、修复在哪个版本、严重度多少"在
+// `ngm audit` 的报告里（树要的是一眼看全，不是清单）。不指过去，
+// 用户只被告知"有事"，却不知道"做什么"：这正是 v0.32 在 audit 报告里
+// 修掉的同一类缺口（说清了"是什么"，没给"怎么办"）。
+//
+// v0.50 起它同时喂**两个通道**：人读那侧的行首 `→`（与 `verify` 的
+// `→ driftKind: …` 同一约定，于是"grep 行首 →"就是这份输出里的全部下一步）
+// 与 JSON 的 `remediation` 字段。两处同源是刻意的。
+func VulnRemediation(n int) string {
+	return fmt.Sprintf("%d known vulnerability(ies); run `ngm audit` for the advisories "+
+		"and the versions that fix them", n)
+}
+
+// VulnCount 数出树里所有条目的漏洞总数（含子节点）。
 //
 // 与 `cmd/ngm` 里的 countVulns 是同一件事，但那一个在 package main、
-// 且用途是决定退出码；这里只是为了让渲染**自己**知道该不该给指针。
-func vulnCount(entries []*TreeEntry) int {
+// 且用途是决定退出码；这里让渲染与报告装配都从同一个定义出发。
+func VulnCount(entries []*TreeEntry) int {
 	n := 0
 	for _, e := range entries {
 		n += len(e.Vulns)
-		n += vulnCount(e.Children)
+		n += VulnCount(e.Children)
 	}
 	return n
 }

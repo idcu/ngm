@@ -47,6 +47,11 @@ type Vuln struct {
 	Summary  string `json:"summary"`
 	Severity string `json:"severity"`
 	FixedIn  string `json:"fixedIn,omitempty"`
+	// Remediation 是**没有修复版本时**的"接下来做什么"（v0.50）。
+	//
+	// 命名与 `verify` 的报告对齐（那一侧从 v0.32 起就有 `remediation` 字段）。
+	// 有了它，读 `--json` 的脚本不必去解析人读文本来知道该做什么。
+	Remediation string `json:"remediation,omitempty"`
 }
 
 // OSVConfig 控制一次查询。
@@ -228,6 +233,13 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 			if item.FixedIn != "" {
 				break
 			}
+		}
+		// 机器可读那一侧也要有"下一步"（v0.50）：公告**没有**记录修复版本时，
+		// 人读那侧从 v0.32 起就有一行 `→ …`，而 JSON 里此前什么都没有——
+		// 读 `--json` 的脚本只知道"有个漏洞"，不知道该做什么。
+		// 同一条句子由 `NoFixAdvice` 产出，两处同源。
+		if item.FixedIn == "" {
+			item.Remediation = NoFixAdvice(item.ID)
 		}
 		out = append(out, item)
 	}

@@ -191,7 +191,14 @@ func runEnginesValidate(ec *engineContext, jsonOut bool, stdout, stderr io.Write
 	issues := ec.catalog.Validate()
 
 	if jsonOut {
-		payload := enginesValidateReport{Version: ec.catalog.Version, OK: len(issues) == 0, Issues: issues}
+		// 每条问题带上"下一步"（v0.50）：与人读那侧的 `→` 行同一条句子
+		// （同一个 `issueAdvice`），否则脚本只知道哪里不对、不知道该做什么。
+		withAdvice := make([]adapter.Issue, len(issues))
+		copy(withAdvice, issues)
+		for i := range withAdvice {
+			withAdvice[i].Remediation = issueAdvice(withAdvice[i].Kind)
+		}
+		payload := enginesValidateReport{Version: ec.catalog.Version, OK: len(issues) == 0, Issues: withAdvice}
 		if code := writeJSON(stdout, stderr, payload); code != 0 {
 			return code
 		}
@@ -217,6 +224,9 @@ func runEnginesValidate(ec *engineContext, jsonOut bool, stdout, stderr io.Write
 		// 两类问题的下一步**不同**（v0.35 那条经验：最知道的那一层说话）：
 		// 一个是"把命令装上／改清单指向存在的那个"，另一个是"把声明的版本改成实装的"。
 		fmt.Fprintf(stdout, "  → %s\n", issueAdvice(is.Kind))
+		// 机器可读那一侧也要有"下一步"（v0.50）：上面这行人读的 `→` 在 JSON 里
+		// 此前没有对应字段。同一条句子由 issueAdvice 产出，两处同源
+		// （填充在装配 payload 的地方做，见 runEnginesValidate）。
 	}
 	fmt.Fprintf(stdout, "\n%d issue(s) found\n", len(issues))
 	return adapter.ExitCode(issues)

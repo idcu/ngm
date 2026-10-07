@@ -140,7 +140,11 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return runErr(ctx, stdout, stderr, err)
 		}
 		rep.OSVChecked = true
-		if countVulns(entries) > 0 {
+		// 机器可读那一侧也要有"下一步"（v0.50）：人读那侧从 v0.32 起就有
+		// 一行 `→ N known vulnerability(ies); run ngm audit …`，而 JSON 里此前没有——
+		// 读 `--json` 的脚本只能看到漏洞数组，看不到该做什么。同一条句子同源。
+		if n := observability.VulnCount(entries); n > 0 {
+			rep.Remediation = observability.VulnRemediation(n)
 			exit = 1
 		}
 	}
