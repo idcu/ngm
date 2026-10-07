@@ -7,8 +7,11 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/idcu/ngm/internal/errs"
 )
 
 // 命令表：以 "name" 索引到实现。每个命令只负责一件事。
@@ -54,6 +57,57 @@ var commands = []*commandSpec{
 	{Name: "engines", Run: runEngines, Usage: enginesUsage},
 }
 
+// jsonAskedEarly 在**命令还没解析自己的 flag 之前**扫一遍原始参数（v0.54）：
+// 用户是不是提出要机器可读输出？
+//
+// 为什么需要它：错误信封（v0.51）是在 `runErr` 里写的，而 `runErr` 只在**命令内部**
+// 被调用——**解析失败**与**命令不存在**都发生在它之前。于是那一类失败上，
+// 脚本只能拿到"退出码 + 空 stdout + 一段 usage"（v0.54 实测：
+// `ngm verify --json --bogus` → exit 3 · stdout 0 字节 · stderr 3198 字节）。
+//
+// 它**不是**"这个命令支不支持 `--json`"的判断（那要等命令自己解析 flag）。
+// 它只回答"用户有没有提出这个要求"：提了，这次失败就该也是机器可读的——
+// 连"这个命令不认识 `--json`"这件事本身，也是机器可读的。
+//
+// 支持的拼法与 Go 的 flag 一致：`--json` / `-json` / `--json=true` / `--json=1`；
+// `=false` 不算提出。值写坏（`--json=bogus`）**算**提出——那时信封会告诉他
+// 是哪个 flag 的值不合法。
+func jsonAskedEarly(args []string) bool {
+	for _, a := range args {
+		name, val, hasVal := strings.Cut(a, "=")
+		if name != "--json" && name != "-json" {
+			continue
+		}
+		if !hasVal {
+			return true
+		}
+		if b, err := strconv.ParseBool(val); err != nil || b {
+			return true
+		}
+	}
+	return false
+}
+
+// failEarly 把小写的早期失败写成一份错误信封——只在用户提了 `--json` 时才写。
+//
+// 它**不打印人读文本**：那一段已经由 flag 包（usage）或调用点自己写到了 stderr；
+// 再打印一遍会让同一件事说两遍（v0.51 的 `runErr` 之所以两处都写，
+// 是因为人读那侧由它统一负责；这里不是同一种情形）。
+//
+// 码用 3（用法/配置错误，见 architecture/observability.md 的退出码约定），
+// 名字用 `Usage`——**数值是契约，名字给人读**（v0.51 的 DisplayName 正是为此）。
+func failEarly(args []string, stdout io.Writer, msg, hint string) {
+	if !jsonAskedEarly(args) {
+		return
+	}
+	err := errs.New(errs.CodeConfigInvalid, msg, hint)
+	err.Label = "Usage"
+	if werr := writeJSONError(stdout, err, errs.ExitCode(err)); werr != nil {
+		// 写不出去也不该改变退出码：人读那侧已经说清了。
+		_ = werr
+	}
+}
+
 // 顶层分发：处理 --version / --help 后取首个非 flag 元素作为子命令。
 //
 // 退出码约定：见 errs 包与 architecture/observability.md。
@@ -96,12 +150,16 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 	}
 	if sub == "" {
 		fmt.Fprint(stderr, rootUsage)
+		failEarly(args, stdout, "no subcommand given",
+			"run `ngm --help` for the list of commands")
 		return 3 // 缺子命令：CLI 用法错误，按"配置/用法错误"返回 3
 	}
 
 	spec := findCommand(sub)
 	if spec == nil {
 		fmt.Fprintf(stderr, "unknown command: %s\n\n%s\n", sub, rootUsage)
+		failEarly(args, stdout, "unknown command: "+sub,
+			"run `ngm --help` for the list of commands")
 		return 3
 	}
 

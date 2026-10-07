@@ -50,6 +50,9 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "dir"}, {Name: "offline", Bool: true}, {Name: "json", Bool: true},
 	})); err != nil {
+		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
+		failEarly(args, stdout, err.Error(),
+			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
