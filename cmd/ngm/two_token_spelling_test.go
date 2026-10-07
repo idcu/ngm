@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -55,14 +54,10 @@ func TestV47TwoTokenSpellingsAreTheSameThing(t *testing.T) {
 			args = append(args, "--dir="+proj)
 		}
 		c, out := runCaptureCode(t, args...)
-		out = strings.ReplaceAll(out, proj, "<proj>")
-		// 隔离 home 也要归一化：错误提示里会印 `~/.ngm/config.json` 的**绝对路径**，
-		// 而两次 run 各自 isolate 到不同的 temp 目录——不归一化的话，
-		// 判据会把"路径不同"当成"两种写法不等价"（v0.47 实测到的唯一一处红，
-		// 与本项目第五次踩的同一个坑：**红的是我的夹具**）。
-		out = strings.ReplaceAll(out, home, "<home>")
-		out = strings.ReplaceAll(out, filepath.ToSlash(home), "<home>")
-		return c, out
+		// 项目目录与隔离 home 都要归一化（v0.47 实测到的唯一一处红，
+		// 与本项目反复踩的同一个坑：**红的是我的夹具**）。
+		// v0.51 起统一走共享助手——它同时处理 JSON 的转义形态。
+		return c, normalizeRunPaths(t, out, proj, home)
 	}
 
 	// ---- 第一组：取值 flag —— `--flag ""` 与 `--flag=` 必须完全等价 ----

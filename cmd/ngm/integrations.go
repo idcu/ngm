@@ -49,6 +49,7 @@ func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Write
 	})); err != nil {
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() != 2 || fs.Arg(0) != "add" {
 		fmt.Fprint(stderr, integrationsUsage)
 		return 3

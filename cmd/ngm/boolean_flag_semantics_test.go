@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/idcu/ngm/internal/testutils"
@@ -77,7 +76,7 @@ func TestV43BooleanFlagsHoldGoSemantics(t *testing.T) {
 				// run 造一份**全新**的世界跑一次（夹具状态耦合是本项目的老坑）。
 				run := func(t *testing.T, extra ...string) (int, string) {
 					t.Helper()
-					isolateUserEnv(t)
+					home := isolateUserEnv(t)
 					proj := newProject(t)
 					if spec.Name == "transform" || spec.Name == "css" || spec.Name == "build" {
 						writeSurfaceFile(t, proj, "in.ts", "export const a = 1\n")
@@ -92,7 +91,10 @@ func TestV43BooleanFlagsHoldGoSemantics(t *testing.T) {
 						args = append(args, "--dir="+proj)
 					}
 					c, out := runCaptureCode(t, args...)
-					return c, strings.ReplaceAll(out, proj, "<proj>")
+					// 两次 run 各自 isolate 到**不同的** temp 目录，而输出里会印出
+					// 本次生成的路径（v0.51：错误信封里的锁文件路径，且在 JSON 里是转义的）——
+					// 统一走共享助手，别在每个网里各补一次（那是同一个形状的第四次）。
+					return c, normalizeRunPaths(t, out, proj, home)
 				}
 
 				// 四条断言与 v0.45（子命令层）**共用**同一个函数：两层对同一件事

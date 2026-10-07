@@ -52,6 +52,7 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	})); err != nil {
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() > 0 {
 		fmt.Fprint(stderr, outdatedUsage)
 		return 3

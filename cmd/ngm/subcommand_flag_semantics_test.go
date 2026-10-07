@@ -218,13 +218,10 @@ func TestV45SubcommandFlagsHoldTheSameSemantics(t *testing.T) {
 						home := isolateUserEnv(t)
 						args := append(append([]string{}, sub...), extra...)
 						c, out := runCaptureCode(t, args...)
-						// 把这一次的隔离 home 归一化掉。`store prune` 会印 content store 的
-						// **绝对路径**（`no unpack residue in <path> (nothing to do)`），
-						// 而两次 run 各自 isolate 到**不同的** temp 目录——不归一化的话，
-						// 判据会把"路径不同"当成"flag 不等价"（v0.45 实测到的第一处红）。
-						out = strings.ReplaceAll(out, home, "<home>")
-						out = strings.ReplaceAll(out, filepath.ToSlash(home), "<home>")
-						return c, out
+						// 把这一次的隔离 home 归一化掉（v0.45 实测到的第一处红：
+						// `store prune` 会印 content store 的**绝对路径**）。
+						// v0.51 起统一走共享助手——它同时处理 JSON 的转义形态。
+						return c, normalizeRunPaths(t, out, home)
 					}
 					checkBoolFlagSemantics(t, b.name, flag, run)
 				})

@@ -103,6 +103,16 @@ func (e *NgmError) label() string {
 	return e.Code.String()
 }
 
+// DisplayName 是 label 的导出形式：**给用户看的名字**（`Labeled` 覆盖优先）。
+//
+// v0.51 加它是因为 `--json` 的错误信封要把同一个名字写进机器那侧——
+// 于是它不能只活在人读渲染里。数值是契约，名字是给人读的；
+// 两个通道都该拿到**同一个**名字。
+//
+// 名字不叫 `Label` 是因为 `NgmError` 已经有同名字段（`Labeled` 写进去的那个）；
+// 字段与方法同名在 Go 里直接编译不过。
+func (e *NgmError) DisplayName() string { return e.label() }
+
 // Labeled 返回**同一份错误的副本**，只把显示名换掉。
 //
 // 它存在的理由见 NgmError.Label 的注释：数值是契约，名字是给人读的。

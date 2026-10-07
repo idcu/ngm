@@ -72,6 +72,7 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	})); err != nil {
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 
 	env, err := newProjectEnv(*dirFlag)
 	if err != nil {

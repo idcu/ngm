@@ -53,6 +53,7 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	})); err != nil {
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() != 1 {
 		fmt.Fprint(stderr, whyUsage)
 		return 3

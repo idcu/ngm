@@ -28,8 +28,18 @@ import (
 //	① stdout 要么为空，要么是**恰好一份**合法 JSON 文档——不允许半份文档；
 //	② **退出码与不带 --json 时相同**（同一夹具、同一状态）；
 //	③ 报告里若带 `exitCode` / `summary.exitCode`，它**必须等于进程退出码**；
-//	④ 输入错误（依赖不在图里、引擎不在目录里、工具名不合法）时 stdout **必须为空**：
-//	   "我没有报告可给"不能用半份 JSON 表达。
+//	④ 输入错误（依赖不在图里、引擎不在目录里、工具名不合法）时，stdout **要么为空、
+//	   要么是恰好一份错误信封**：
+//	   · **空**：这个命令根本不接受 `--json`（出错时不该假装有机器可读输出）；
+//	   · **错误信封**（v0.51 起）：命令接受 `--json` 而这次失败 ⇒ 一份**完整**的
+//	     `{"version":1,"error":{code,exitCode,message,hint}}`。
+//
+//	   规矩的精神没变——**"我没有报告可给"不能用半份 JSON 表达**：
+//	   报告仍然不许在失败时出现半份；而**错误信封不是报告**，
+//	   它说的是"我失败了、原因与下一步在这里"。
+//
+//	   为什么改（v0.51 实测）：在此之前，脚本在失败路径上只能拿到
+//	   "退出码 + 空的 stdout + 一段人读文本"——知道出了事，却读不出是什么事。
 //
 // 第 ③ 条是本版的核心，也是**最容易被静默破坏**的一条：任何人改了闸门逻辑，
 // 进程退出码会变，而报告里那个字段（如果没人绑过）会继续写旧值——
@@ -158,7 +168,7 @@ func TestV16JSONReportsTellTheTruth(t *testing.T) {
 		t.Errorf("a known vulnerability above the threshold must exit 1; exit=%d", got)
 	}
 
-	// ---- 输入错误：stdout 必须为空 ----
+	// ---- 输入错误：stdout 要么为空、要么是恰好一份**错误信封**（v0.51 起） ----
 	for _, c := range []struct {
 		label string
 		args  []string
@@ -174,8 +184,32 @@ func TestV16JSONReportsTellTheTruth(t *testing.T) {
 		if code != c.want {
 			t.Errorf("%s: exit=%d want %d\n%s", c.label, code, c.want, stderr.String())
 		}
-		if len(bytes.TrimSpace(stdout.Bytes())) != 0 {
-			t.Errorf("%s: stdout must stay empty when there is no report to give:\n%s", c.label, stdout.String())
+		body := bytes.TrimSpace(stdout.Bytes())
+		if len(body) == 0 {
+			continue // 空是允许的（命令不接受 --json 的情形）
+		}
+		var doc struct {
+			Version int `json:"version"`
+			Error   *struct {
+				Code     string `json:"code"`
+				ExitCode int    `json:"exitCode"`
+				Message  string `json:"message"`
+				Hint     string `json:"hint"`
+			} `json:"error"`
+		}
+		if derr := json.Unmarshal(body, &doc); derr != nil {
+			t.Errorf("%s: stdout is neither empty nor one JSON document: %v\n%s",
+				c.label, derr, stdout.String())
+			continue
+		}
+		if doc.Error == nil {
+			t.Errorf("%s: 失败时 stdout 只能是一份**错误信封**，而它是一份报告（没有 error 段）:\n%s",
+				c.label, stdout.String())
+			continue
+		}
+		if doc.Error.ExitCode != code {
+			t.Errorf("%s: 信封里写着 exitCode=%d，而进程退 %d——机器可读输出在说谎",
+				c.label, doc.Error.ExitCode, code)
 		}
 	}
 

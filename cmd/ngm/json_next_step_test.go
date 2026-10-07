@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -66,20 +65,10 @@ func TestV50MachineReadableReportsCarryTheNextStepToo(t *testing.T) {
 			jsonCode := dispatch(jsonArgs, &jOut, &jErr)
 			body := jOut.String()
 
-			// **两边都要归一化**（v0.50 实测的第三次同一个形状）：两次 run 各自
-			// isolate 到**不同的** temp 目录，而建议里会印出那个绝对路径
-			// （`add "net:…" to permissions.allow in <home>/.ngm/config.json`）——
-			// 不归一化的话，判据会把"两次跑的 home 不同"当成"两个通道说的不是同一句话"。
-			// JSON 那一侧还要按**转义后**的形态替换（反斜杠在 JSON 里是 `\\`）。
-			replaceEscaped := func(s, from, to string) string {
-				s = strings.ReplaceAll(s, from, to)
-				if esc, eerr := json.Marshal(from); eerr == nil {
-					s = strings.ReplaceAll(s, string(esc[1:len(esc)-1]), to)
-				}
-				return strings.ReplaceAll(s, filepath.ToSlash(from), to)
-			}
-			human = replaceEscaped(human, humanHome, "<home>")
-			body = replaceEscaped(body, jsonHome, "<home>")
+			// **两边都要归一化**（v0.50 实测的第三次同一个形状；v0.51 收成共享助手）：
+			// 两次 run 各自 isolate 到**不同的** temp 目录，而输出里会印出那个绝对路径。
+			human = normalizeRunPaths(t, human, humanHome, humanDir)
+			body = normalizeRunPaths(t, body, jsonHome, jsonDir)
 
 			if jsonCode != humanCode {
 				t.Errorf("`--json` 改变了判定（exit %d vs %d）——v0.16 的第②条规矩", jsonCode, humanCode)

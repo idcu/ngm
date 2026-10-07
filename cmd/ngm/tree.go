@@ -69,6 +69,7 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	})); err != nil {
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() > 0 {
 		fmt.Fprint(stderr, treeUsage)
 		return 3

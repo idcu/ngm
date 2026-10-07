@@ -71,6 +71,7 @@ func runEngines(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})); err != nil {
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() < 1 {
 		fmt.Fprint(stderr, enginesUsage)
 		return 3
