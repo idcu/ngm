@@ -91,6 +91,12 @@ func TestV27ProseJSONFieldNamesExist(t *testing.T) {
 				if strings.HasPrefix(tok, "ngm") {
 					continue
 				}
+				if strings.Contains(tok, ".") {
+					// **限定名不是字段名**（v0.50 实测的假阳性：散文里写
+					// "与 `json.Marshal` 的转义不一致"——那讲的是标准库的函数）。
+					// json 字段名里不会有点：形状里的路径用 `[]`（`findings[].remediation`）。
+					continue
+				}
 				if codeIdentifiers[tok] {
 					skippedIdents++
 					continue // 是仓库里定义的标识符（函数/类型/常量/变量），不是 json 字段
@@ -197,10 +203,14 @@ func packageIdentifiers(t *testing.T) map[string]bool {
 			return nil
 		}
 		slash := filepath.ToSlash(path)
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+		if !strings.HasSuffix(path, ".go") ||
 			strings.Contains(slash, "/.git/") || strings.Contains(slash, "/testdata/") {
 			return nil
 		}
+		// **测试文件里的标识符也算标识符**（v0.50 实测的假阳性：散文里点名
+		// `jsonNotApplicable`——那是本目录 `_test.go` 里的登记表名，不是 json 字段）。
+		// 这条判据要挡的是"散文中写了一个不存在的**字段**"，
+		// 而不是"散文里提到了一个名字"。
 		f, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if perr != nil {
 			return nil

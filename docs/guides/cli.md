@@ -123,7 +123,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm verify --json` | 对象：`version` · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` | ✅ `summary.exitCode` |
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
-| `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked`（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`） | ✗ |
+| `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked`（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
 | `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `subPath`（monorepo 子路径，无则省略） · `locked` · `paths` · `rootDeclared`（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
 | `ngm outdated --json` | 对象：`offline` · `entries` · `dependencies` · `updates` · `stale` | ✗ |
 | `ngm engines list --json` | **数组**：每个元素是 `name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `builtin` · `supportedInput` · `defaultOptions` | ✗ |
@@ -133,6 +133,23 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 > 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。
 > 其余命令返回的是"一份报告"，所以是对象。本页只如实记录两者的差异——
 > **统一形状是破坏性变更**，要另立决定，不在文档里顺手改。
+
+**"接下来做什么"在机器那一侧也有名字**（v0.50）：人读的报告里，
+每一条失败项都配了一行 `→ …` 或 `Fixed in: …`（v0.32 起的契约）。
+从 v0.50 起，**同一个句子**在 JSON 里也有落处，于是读 `--json` 的脚本
+不必去解析人读文本：
+
+| 报告 | 字段 | 何时出现 |
+|------|------|---------|
+| `verify` | `dependencies[].remediation` | 该依赖有可分类的漂移或操作性失败时 |
+| `audit` | `findings[].vulnerabilities[].remediation` | **该公告没有记录修复版本**时（有修复版本时是 `fixedIn`） |
+| `tree` | `remediation`（顶层） | 查到漏洞时 |
+| `engines validate` | `issues[].remediation` | 每一条问题都带 |
+
+两条纪律：① **同一条句子、两个通道同源**——`NoFixAdvice` / `VulnRemediation` /
+`issueAdvice` 各只有一处，人读与 JSON 都从它取；② 这条契约由
+`TestV50MachineReadableReportsCarryTheNextStepToo` 机械守住，而它查的是**内容**
+（人读那句话必须逐字出现在 JSON 里），不是"有没有某个字段"。
 
 四条**每次调用都成立**的规矩（由 `TestV16JSONReportsTellTheTruth` 在 **20 个状态**上机械守住：
 17 次"带 `--json` 与不带"的对照 + 3 条输入错误路径）：
