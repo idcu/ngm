@@ -103,6 +103,18 @@ func TestV50MachineReadableReportsCarryTheNextStepToo(t *testing.T) {
 			// 因为条目级的 vuln 字段还在，粗判据照样绿。**绿不等于它在盯着什么**（v0.47）。
 			//
 			// 内容级判据同时钉住了"两个通道说同一句话"这件事：不是同一个句子就不算数。
+			// v0.53（把表里那条"小"的做掉）：**逐条计数**也要对得上。
+			//
+			// 内容级判据能发现"两处说的不是同一句话"，但发现不了
+			// "人读有 7 条、机器只给 1 条"——只要那 1 条恰好是其中一条的字句，
+			// 内容级判据就绿了（v0.50 的牙齿演示过这类"粗判据被替交差"）。
+			nJSON := strings.Count(body, `"remediation"`) + strings.Count(body, `"fixedIn"`)
+			if nJSON < nHuman {
+				t.Errorf("人读那侧有 %d 行行动行，而机器那侧只有 %d 处结构化字段——"+
+					"逐条对不上时，脚本只看得到其中一部分:\n%s", nHuman, nJSON, firstLine(human))
+			}
+			t.Logf("%-40s human=%d json=%d", rc.name, nHuman, nJSON)
+
 			for _, line := range reActionLine.FindAllString(human, -1) {
 				core := adviceCore(line)
 				if core == "" {
