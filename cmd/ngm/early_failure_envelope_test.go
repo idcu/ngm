@@ -71,14 +71,18 @@ func TestV54EarlyFailuresAreMachineReadableToo(t *testing.T) {
 		}
 	}
 
-	// ---- ② 未知命令 / 缺子命令 ----
+	// ---- ② 未知命令 ----
+	//
+	// 注：v0.54 时这里还有一条"只有 `--json`、没有子命令"⇒ message 含 `no subcommand`。
+	// v0.55 把根级校验提到子命令检查**之前**之后，`ngm --json` 报的是
+	// "unknown root flag: --json"——那个答案更准确（可照着做的是"把 flag 挪到命令之后"），
+	// 于是这条移交给 `TestV55…` 拥有，两处不留同一件事的两份判据。
 	for _, c := range []struct {
 		label string
 		args  []string
 		want  string
 	}{
 		{"nosuchcmd --json", []string{"nosuchcmd", "--json"}, "unknown command"},
-		{"（只有 --json，没有子命令）", []string{"--json"}, "no subcommand"},
 	} {
 		t.Run(c.label, func(t *testing.T) {
 			isolateUserEnv(t)

@@ -69,6 +69,11 @@ var netCoverageSources = map[string]netSource{
 		source: "夹具表（`reportCases`）+ 派生 flag 表（`hasJSONFlag` → `boolFlagsOfCommand`）",
 		why:    "`reportCases` 是**夹具表**：它描述'造什么状态'，而'哪些命令支持 --json'是派生的",
 	},
+	"TestV55RootLevelTakesOnlyHelpAndVersion": {
+		what: "子命令之前的 flag 不许被静默丢弃（根级只认 --help/-h/--version）",
+		source: "运行时表 `rootFlags`（`dispatch` 校验时读的同一份）取「接受」一侧；" +
+			"`boolFlagsOfCommand` 派生的命令层 flag 取「拒绝」一侧的样本",
+	},
 	"TestV54EarlyFailuresAreMachineReadableToo": {
 		what:   "解析阶段的失败（未知 flag 两种顺序 · 未知命令 · 缺子命令）也要有信封",
 		source: "运行时命令表（`commands`）+ 派生 flag 表（`hasJSONFlag` → `boolFlagsOfCommand`）",

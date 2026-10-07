@@ -4,12 +4,34 @@
 > [端到端验收](../development/v0.1-plan.md)守护，其后的由各版验收测试守护。
 > 未实现的命令不会静默成功——它们明确返回 `exit 3` 与可读提示。
 >
-> **全局 flag 的作用域（v0.12 修）**：`ngm --help` / `ngm --version` 输出根帮助与版本，
+> **全局 flag 的作用域（v0.12 修 · v0.55 收紧）**：`ngm --help` / `ngm --version` 输出根帮助与版本，
 > **`ngm <command> --help` 输出该命令自己的用法**——而且**就是**它参数错误时打印的那份文本
 > （各命令的 `xxxUsage` 常量），不是另写的第二份帮助。判据是**位置**：`--help` 出现在子命令
 > **之前**才算根级，因此 `ngm verify --help` 给你 verify 的用法，不是根帮助。
 > v0.12 之前这条是坏的：根级扫描跨越**整条**参数，子命令帮助那一分支永远走不到——
 > 它打印的 "help not yet implemented" 没有任何人见过。
+>
+> **根级只认 `--help` / `-h` / `--version` 这三个**（v0.55 起）。子命令**之前**的其他 token
+> 一律拒绝（`exit 3`，并提示"命令的 flag 写在命令**之后**"），不再静默丢弃。
+>
+> 为什么收紧：从前它们**进得去、出不来**——实测在一个有 `lock` 的项目上：
+>
+> ```text
+> $ ngm --json verify         # 用户要的是 JSON
+> exit 0 · stdout 是**人读文本** · stderr 0 字节
+> ```
+>
+> 这是最坏的一种：**走错通道、还一声不响**——脚本拿到散文、退出码还是 0，
+> 连"出事了"都不知道。现在它 `exit 3`，而且因为用户提了 `--json`，
+> 机器那侧还会收到一份**错误信封**（v0.54）：
+>
+> ```json
+> {"version":1,"error":{"code":"Usage","exitCode":3,"message":"unknown root flag: --json",
+>   "hint":"root level accepts only --help/--version; a command's flags go after the command (e.g. `ngm verify --json`)"}}
+> ```
+>
+> 校验与动手是**两个循环**：先全部核对、再执行——否则 `--version --bogus` 与
+> `--bogus --version` 会给不同结果，而"顺序敏感"不是一条能记住的规则。
 
 ---
 
