@@ -57,6 +57,19 @@ var commands = []*commandSpec{
 	{Name: "engines", Run: runEngines, Usage: enginesUsage},
 }
 
+// rootFlags 是根级**唯一**接受的 token（v0.55 立成一张表）。
+//
+// 它是一张**运行时表**，不是散在 switch 里的三个 case：`dispatch` 照着它校验，
+// 而 v0.55 那条判据也从**它**取"哪些该被接受"——判据与实现读同一个来源，
+// 才不会各自漂移（本项目的覆盖集纪律：从源码或运行时取，不从记忆取）。
+//
+// 契约写在 docs/guides/cli.md：根级只认这三个；命令的 flag 写在命令**之后**。
+var rootFlags = map[string]bool{
+	"--version": true,
+	"-h":        true,
+	"--help":    true,
+}
+
 // jsonAskedEarly 在**命令还没解析自己的 flag 之前**扫一遍原始参数（v0.54）：
 // 用户是不是提出要机器可读输出？
 //
@@ -137,6 +150,29 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 	head := args
 	if subIdx >= 0 {
 		head = args[:subIdx]
+	}
+	// v0.55：先**核对** head（子命令之前的那些 token），再动手。
+	//
+	// 从前这里只管那三个白名单值，其余的**静默丢弃**——而实测最坏的一种正是它：
+	//
+	//	$ ngm --json verify        # 有 lock 的项目，用户要的是 JSON
+	//	exit 0 · stdout 是**人读文本** · stderr 0 字节
+	//
+	// 也就是"**走错通道、还一声不响**"。根级只认这三个（cli.md 的契约），
+	// 其余的一律拒绝——而拒绝时 v0.54 那条信封会自动带上（用户提了 `--json` 的话），
+	// 于是连这次拒绝本身也是机器可读的。
+	//
+	// 两个循环：**先全部核对、再动手**。否则 `--version --bogus` 与
+	// `--bogus --version` 会得到不同结果，而"顺序敏感"不是一条能记住的规则。
+	for _, a := range head {
+		if rootFlags[a] {
+			continue // 白名单：下一轮统一处理
+		}
+		fmt.Fprintf(stderr, "unknown root flag: %s\n\n%s\n", a, rootUsage)
+		failEarly(args, stdout, "unknown root flag: "+a,
+			"root level accepts only --help/--version; a command's flags go after the command "+
+				"(e.g. `ngm verify --json`)")
+		return 3
 	}
 	for _, a := range head {
 		switch a {
