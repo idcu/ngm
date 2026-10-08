@@ -33,6 +33,7 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 	want := map[string]int{
 		"OK": 0, "RefDrift": 1, "DigestMismatch": 2,
 		"ConfigInvalid": 3, "GitFetch": 4, "EngineNotFound": 5,
+		"Internal": 6, // v0.59 · ADR-026：内部失败
 	}
 	if len(impl) != len(want) {
 		t.Fatalf("internal/errs declares %d codes, the contract defines %d: %v", len(impl), len(want), impl)
@@ -74,7 +75,7 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 	if len(obs) == 0 {
 		t.Fatal("docs/architecture/observability.md: no exit-code table found — the net's scope shrank")
 	}
-	for code := 0; code <= 5; code++ {
+	for code := 0; code <= 6; code++ {
 		row, ok := obs[code]
 		if !ok {
 			t.Errorf("docs/architecture/observability.md does not list exit code %d", code)
@@ -84,15 +85,15 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 			t.Errorf("exit code %d is documented with an empty semantics or sources: %+v", code, row)
 		}
 	}
-	if len(obs) != 6 {
-		t.Errorf("docs/architecture/observability.md lists %d exit codes, the contract defines 6", len(obs))
+	if len(obs) != 7 {
+		t.Errorf("docs/architecture/observability.md lists %d exit codes, the contract defines 7", len(obs))
 	}
 
 	// ④ 用户侧那一行：同样必须是 0..5，且每段都有说明。
 	if len(cli) == 0 {
 		t.Fatal("docs/guides/cli.md: no exit-code line found — the net's scope shrank")
 	}
-	for code := 0; code <= 5; code++ {
+	for code := 0; code <= 6; code++ {
 		text, ok := cli[code]
 		if !ok {
 			t.Errorf("docs/guides/cli.md's summary does not mention exit code %d", code)
@@ -102,8 +103,8 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 			t.Errorf("docs/guides/cli.md mentions exit code %d with no text", code)
 		}
 	}
-	if len(cli) != 6 {
-		t.Errorf("docs/guides/cli.md's summary lists %d exit codes, the contract defines 6", len(cli))
+	if len(cli) != 7 {
+		t.Errorf("docs/guides/cli.md's summary lists %d exit codes, the contract defines 7", len(cli))
 	}
 
 	// 五：**码 1 的来源必须是"全部"**。它是唯一一个被五类情形共用的数字，

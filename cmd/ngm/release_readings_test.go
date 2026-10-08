@@ -119,8 +119,25 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		display := strings.TrimPrefix(filepath.ToSlash(doc), "../../")
 		text := string(body)
 
+		// 两类模式的扫描面不同，因为它们的栖息地不同：
+		//
+		//	· **计数短语**（"五十九个 tag 均已打" / "缺 N 个" / "N 个里的 M 个" …）
+		//	  活在**正文**里 ⇒ 只扫正文 ✓。表格单元会把它们当**例句**引用
+		//	  （逐版表里写着"中文汉字「五十八个 tag 均已打」"），第一版在那儿误报过。
+		//	· **`N of M`** 只活在**表格**里（`| GitHub | **54 of 59** |`）⇒ 扫全文 ✓。
+		var prose strings.Builder
+		for _, line := range strings.Split(text, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "|") || strings.HasPrefix(trimmed, "> |") {
+				continue
+			}
+			prose.WriteString(line)
+			prose.WriteString("\n")
+		}
+		proseText := prose.String()
+
 		// ① 版本总数：中文写法
-		for _, m := range reZhTagCount.FindAllStringSubmatch(text, -1) {
+		for _, m := range reZhTagCount.FindAllStringSubmatch(proseText, -1) {
 			n, ok := zhNumber(m[1])
 			if !ok {
 				t.Errorf("%s: 读不出汉字数字 %q（判据只认到五十九）", display, m[1])
@@ -134,7 +151,7 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		}
 
 		// ① 版本总数：英文写法
-		for _, m := range reEnTagCount.FindAllStringSubmatch(text, -1) {
+		for _, m := range reEnTagCount.FindAllStringSubmatch(proseText, -1) {
 			n, ok := enNumber(m[1])
 			if !ok {
 				t.Errorf("%s: 读不出英文数词 %q", display, m[1])
@@ -158,7 +175,7 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		}
 
 		// ② 第三种写法（roadmap 那句）：`GitHub 有 57 个里的 53 个`
-		for _, m := range reZhOfN.FindAllStringSubmatch(text, -1) {
+		for _, m := range reZhOfN.FindAllStringSubmatch(proseText, -1) {
 			what, total, n := m[1], mustAtoi(t, m[2]), mustAtoi(t, m[3])
 			readings++
 			if total != delivered {
@@ -169,7 +186,7 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		}
 
 		// ② 中文那一行里的两个数
-		for _, m := range reZhTagline.FindAllStringSubmatch(text, -1) {
+		for _, m := range reZhTagline.FindAllStringSubmatch(proseText, -1) {
 			total, gh := mustAtoi(t, m[1]), mustAtoi(t, m[2])
 			readings++
 			if total != delivered {
@@ -184,7 +201,7 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		// 别的行也会出现两个版本号，而它们说的是别的事（例如"从未发布的那四个 tag"、
 		// "Gitee 侧只有 v0.1.0 与 v0.5.0 ~ v0.57.0"）——按全文匹配会把这些也当成
 		// 交付声明（这条判据的第一版就是这么错的）。
-		for _, line := range strings.Split(text, "\n") {
+		for _, line := range strings.Split(proseText, "\n") {
 			if !strings.Contains(line, "均已交付") && !strings.Contains(line, "delivered in source") {
 				continue
 			}
@@ -213,15 +230,15 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		// ② 暂缓那几处（缺 N 个 / Gitee 发行版（N 个）/ 共 N 个版本）：
 		//    它们都等于"版本数 − Gitee 数"，但 Gitee 数可能出现在别的文档里，
 		//    所以先收集，最后统一核对。
-		for _, m := range reZhGap.FindAllStringSubmatch(text, -1) {
+		for _, m := range reZhGap.FindAllStringSubmatch(proseText, -1) {
 			readings++
 			gaps = append(gaps, gapReading{display, mustAtoi(t, m[1]), "缺 N 个"})
 		}
-		for _, m := range reZhGiteeGap.FindAllStringSubmatch(text, -1) {
+		for _, m := range reZhGiteeGap.FindAllStringSubmatch(proseText, -1) {
 			readings++
 			gaps = append(gaps, gapReading{display, mustAtoi(t, m[1]), "Gitee 发行版（N 个）"})
 		}
-		for _, m := range reZhVersionC.FindAllStringSubmatch(text, -1) {
+		for _, m := range reZhVersionC.FindAllStringSubmatch(proseText, -1) {
 			n, ok := zhNumber(m[1])
 			if !ok {
 				t.Errorf("%s: 读不出汉字数字 %q", display, m[1])
@@ -230,7 +247,7 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 			readings++
 			gaps = append(gaps, gapReading{display, n, "共 N 个版本"})
 		}
-		for _, m := range reEnArtifacts.FindAllStringSubmatch(text, -1) {
+		for _, m := range reEnArtifacts.FindAllStringSubmatch(proseText, -1) {
 			n, ok := enNumber(m[1])
 			if !ok {
 				t.Errorf("%s: 读不出英文数词 %q", display, m[1])
@@ -241,7 +258,7 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		}
 
 		// ② 成功次数 == GitHub 数 − 从未发布的 4 个（延后核对，同上）
-		for _, m := range reEnTimes.FindAllStringSubmatch(text, -1) {
+		for _, m := range reEnTimes.FindAllStringSubmatch(proseText, -1) {
 			n, ok := enNumber(m[1])
 			if !ok {
 				t.Errorf("%s: 读不出英文数词 %q", display, m[1])

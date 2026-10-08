@@ -138,7 +138,7 @@ var netCoverageSources = map[string]netSource{
 		source: "文件系统派生已交付版本数（`docs/development/` 的复盘与计划文件数，两者交叉核对）" +
 			"+ `livingDocs(` 的活文档清单（另加发布清单那张**索引**，它是活的）",
 	},
-	"TestV57ExitOneSourcesAreRegistered": {
+	"TestV57ExitCodeSourcesAreRegistered": {
 		what: "码 1 的来源：谁能让进程以 1 退出 · 每一处归哪一类 · 每类都要写进文档",
 		why: "它的覆盖集是**源码自己**——`filepath.WalkDir` 走 `cmd/ngm` 与 `internal`、" +
 			"用 `go/parser` 求出每处站点所在的函数；没有任何一张可指的表或运行时集合，" +

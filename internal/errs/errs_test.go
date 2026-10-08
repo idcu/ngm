@@ -40,8 +40,11 @@ func TestNewAndWrap(t *testing.T) {
 	if ExitCode(nil) != 0 {
 		t.Fatalf("ExitCode(nil)=%d", ExitCode(nil))
 	}
-	if ExitCode(errors.New("plain")) != 1 {
-		t.Fatalf("plain err should map to 1")
+	// v0.59 · ADR-026：非 NgmError 的兜底从 1 改成 6（内部失败）——
+	// 它是"错误没走 ngm 的错误模型"，与"结论算出来了却说不出去"同一类；
+	// 而 1 的语义是**策略失败**（漂移 / 引擎 / 漏洞 / 钩子）。
+	if got := ExitCode(errors.New("plain")); got != 6 {
+		t.Fatalf("plain err should map to 6 (internal failure), got %d", got)
 	}
 }
 

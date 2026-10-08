@@ -180,6 +180,14 @@ var exitCodeMeasured = []exitCase{
 // 而清空 PATH 会让 git 一起消失——所以每个都得单独成测，
 // 在自己的 isolateUserEnv 里先建好夹具、再清 PATH。
 var exitCodeElsewhere = []exitCase{
+	// v0.59：码 6（内部失败 · ADR-026）由专属测试测量——那一组用例给 `dispatch`
+	// 传一个**永远写失败的 writer**，让命令算完结论、写报告时失败。
+	// 指针由 `TestV56RegisteredPointersResolve` 核对（它要求子测试真的存在）。
+	{cmd: "verify", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/verify"},
+	{cmd: "why", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/why"},
+	{cmd: "outdated", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/outdated"},
+	{cmd: "tree", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/tree"},
+	{cmd: "engines", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/engines"},
 	{cmd: "verify", code: 5, why: "TestV22DenoIsMissing/verify"},
 	{cmd: "install", code: 5, why: "TestV22DenoIsMissing/install"},
 	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},
@@ -266,16 +274,44 @@ var exitCodeGaps = map[string][]int{
 	//   5 —— 需要 Deno 缺失，而 update 运行时要 git；清空 PATH 会先把 git 拿掉，
 	//        于是先退 4（离线取数失败），到不了钩子那一步。
 	"update": {1, 2, 5},
+
+	// v0.59 新增的码 6（内部失败 · ADR-026）。可测量的那些已由
+	// `TestV22StdoutWriteFailureIsMeasured` 覆盖（verify · why · outdated · tree · engines，
+	// 见上面那张 elsewhere 表）；下面这些**本轮到不了**，原因逐条写明：
+	//
+	//   audit —— 需要一份 OSV 结果：联网被策略拒，而 `--offline` 会先退 4
+	//            （`no cached OSV result … and network access is disabled`）。
+	//            **可做**：造一份 OSV 缓存，或在允许网络的夹具里跑。
+	//   build / typecheck / css / transform —— 需要**目录里配好**的引擎：
+	//            假引擎有二进制，但 catalog 里没声明 ⇒ 命令先退 3。
+	//            **可做**：给夹具补一份 `ngm.engines.json`。
+	//   integrations —— `add <tool>` 要先认出工具名（`unknown integration …` ⇒ 退 3）。
+	//            **可做**：用目录里真实存在的那个名字。
+	//
+	// 记在这里而不是默默略过，正是这张表存在的理由：**测不到也要具名**。
+	"audit":        {6},
+	"build":        {6},
+	"typecheck":    {6},
+	"css":          {6},
+	"transform":    {6},
+	"integrations": {6},
 }
 
 // TestV21UsageExitCodeSectionsAreWellFormed 固定：**每个命令都写下了自己的退出码**，
 // 且那段文本**格式正确、机器可解析**。
 //
 // 为什么它值得一张网：`ngm <cmd> --help` 是脚本作者唯一会读的东西。
-// 段里写一个**不存在的码**（比如 6）比不写更糟——它看起来像承诺。
+// 段里写一个**不存在的码**（比如 9）比不写更糟——它看起来像承诺。
+//
+// v0.59：上界不再硬编码 5，而是**读全局契约表**（`observability.md` 的退出码表）
+// ——契约的唯一事实源在文档里，判据从那里取，才不会在契约扩展时落后一版。
 func TestV21UsageExitCodeSectionsAreWellFormed(t *testing.T) {
 	if len(commands) == 0 {
 		t.Fatal("the command table is empty — the net would pass vacuously")
+	}
+	contract := observabilityExitCodes(t)
+	if len(contract) == 0 {
+		t.Fatal("observability.md 里读不出退出码表——这条判据没有可核对的契约")
 	}
 
 	for _, spec := range commands {
@@ -286,9 +322,9 @@ func TestV21UsageExitCodeSectionsAreWellFormed(t *testing.T) {
 			}
 			seen := map[int]bool{}
 			for _, c := range codes {
-				if c < 0 || c > 5 {
-					t.Errorf("`ngm %s` declares exit code %d; the global contract defines 0..5",
-						spec.Name, c)
+				if _, ok := contract[c]; !ok {
+					t.Errorf("`ngm %s` declares exit code %d; the global contract "+
+						"(docs/architecture/observability.md) does not list it", spec.Name, c)
 				}
 				if seen[c] {
 					t.Errorf("`ngm %s` declares exit code %d twice", spec.Name, c)

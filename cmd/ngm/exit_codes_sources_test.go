@@ -13,32 +13,43 @@ import (
 	"testing"
 )
 
-// v0.57：**码 1 的来源必须有据可查**（把 V24 那条单向关键词表改成派生 + 双向）。
+// v0.57 立、v0.59 扩：**退出码的来源必须有据可查**。
 //
-// 起点是一个量出来的事实：关于"码 1 有哪些来源"，三处说法**互不相同**——
+// v0.57 管的是码 1：那时量出"关于码 1 有哪些来源"三处说法互不相同
+// （`errs.go` 的注释说 3 个、V24 的手写关键词表说 4 个、源码里 20+ 处站点），
+// 而那张关键词表只有**单向**——代码多一处来源不会红，靠人记得。
 //
-//	· `internal/errs/errs.go` 的注释说 **3 个**（漂移 · 漏洞 · 引擎）
-//	· V24 的手写关键词表说 **4 个**（漂移 · 引擎 · 漏洞 · 钩子）
-//	· 源码里**能让进程以 1 退出的站点**扫出来是 **20+ 处**
+// v0.59 动作更大：按 **ADR-026** 把"内部失败"分了出去（**码 6**），
+// 于是这条判据的宇宙也从一个码变成**两个码**：
 //
-// 而那张关键词表只有**单向**：文档少一个词会红，**代码多一处来源不会红**。
-// 它自己的注释写着"哪天真出现第五种来源，加进这里的同时也必须写进文档"——
-// 也就是**靠人记得**，而这一条正是本版要拿掉的东西。
+//	码 1（策略失败）  ← 提到 `CodeRefDrift`，或字面量 `return 1` / `exit = 1`
+//	码 6（内部失败）  ← 提到 `CodeInternal`
 //
 // 判据的形状（沿用 v0.56 那套，第三次现形）：
 //
-//	① **从源码派生**站点：谁能让进程以 1 退出（字面量 `return 1` / `exit = 1`，
-//	   或提到 `CodeRefDrift`），按 `文件 :: 所在函数` 作键；
+//	① **从源码派生**站点，按 `文件 :: 所在函数` 作键；
 //	② 每个派生站点都必须在下面的登记里（**漏站即红**——这是从前缺的那一半）；
 //	③ 登记里每个条目都必须在派生集合里（悬挂即红）；
-//	④ 每个 **source** 类站点都要归到一个 category，而每个 category
-//	   都必须在 observability.md 的码 1 那一行里被写到。
+//	④ 每个 **source** 类站点都要归到一个 category，而 category 说它属于哪个码
+//	   （`categoryCodes`）；**每个码的每一类**都必须在 observability.md
+//	   **那一行**里被写到（码 1 的那四类不许跑到码 6 的说明里去）。
 //
 // 键是 `文件 :: 函数`，值是一**条列表**：一个条目对应**一处站点**。
 // 于是"同一函数里多加一处"也躲不过——**列表长度必须等于该函数里的站点数**
-// （这条是牙齿 A 提醒我加的：只按函数名核对的话，在已登记的函数里再写一个
-// `return 1` 是看不见的，而"多一处说不出去"正是本版要防的那类漂移）。
-var reExitOneSite = regexp.MustCompile(`(return 1\b|exit\s*=\s*1\b|CodeRefDrift)`)
+// （这条是 v0.57 的牙齿 A 提醒我加的：只按函数名核对的话，在已登记的函数里再写一个
+// `return 1` 是看不见的，而"多一处说不出去"正是要防的那类漂移）。
+var reExitCodeSite = regexp.MustCompile(`(return 1\b|exit\s*=\s*1\b|CodeRefDrift|CodeInternal)`)
+
+// categoryCodes 是**类别 → 退出码**的唯一定义处（ADR-026 的决定就写在这里）。
+//
+// 分类不是装饰：它决定"这一类别该出现在哪个码的说明里"。
+var categoryCodes = map[string]int{
+	catDrift:    1,
+	catEngine:   1,
+	catHook:     1,
+	catVuln:     1,
+	catInternal: 6,
+}
 
 // exitOneRole 是一个站点在这件事里的角色。
 type exitOneRole string
@@ -55,37 +66,55 @@ const (
 type exitOneEntry struct {
 	role     exitOneRole
 	category string // roleSource 时必填：文档必须写到的那一类
-	why      string
+	// tokenCode 只在 **非 source** 条目上填：这一条解释的那个 token 提到的是哪个码
+	// （例如 `CodeRefDrift Code = 1` 那一行提到的是码 1）。
+	//
+	// 为什么要它：判据不只要能数"这个函数里有几处"，还要能查"**每一处退的是哪个码**"
+	// ——否则把某处 `errs.CodeInternal.ExitCode()` 改回字面量 `return 1`
+	// 是数不出来的（匹配数一样）。这一版实测到的洞。
+	tokenCode int
+	why       string
 }
 
-// 文档里的类别名（observability.md 的码 1 那一行必须逐类写到）。
+// 文档里的类别名（observability.md 相应的那一行必须逐类写到）。
 const (
-	catDrift     = "策略漂移"
-	catEngine    = "引擎运行失败"
-	catHook      = "审计钩子否决或超时"
-	catVuln      = "漏洞超阈值"
-	catInternal  = "内部失败"
-	catExitOneNM = "内部失败" // 与 catInternal 同一个类别（避免散落的字面量）
+	catDrift    = "策略漂移"
+	catEngine   = "引擎运行失败"
+	catHook     = "审计钩子否决或超时"
+	catVuln     = "漏洞超阈值"
+	catInternal = "内部失败"
 )
 
 var exitOneSiteRegistry = map[string][]exitOneEntry{
 	// ---- definitions：这个码本身（不是"来源"）----
-	"internal/errs/errs.go :: (top-level)": {{
-		role: roleDefinition, why: "`CodeRefDrift Code = 1`——数值的唯一定义处",
-	}},
-	"internal/errs/errs.go :: String": {{
-		role: roleDefinition, why: "`case CodeRefDrift:`——显示名映射",
-	}},
+	"internal/errs/errs.go :: (top-level)": {
+		{
+			role: roleDefinition, tokenCode: 1, why: "`CodeRefDrift Code = 1`——数值的唯一定义处",
+		},
+		{
+			role: roleDefinition, tokenCode: 6, why: "`CodeInternal Code = 6`——码 6 的数值定义处（v0.59 · ADR-026）",
+		},
+	},
+	"internal/errs/errs.go :: String": {
+		{
+			role: roleDefinition, tokenCode: 1, why: "`case CodeRefDrift:`——显示名映射",
+		},
+		{
+			role: roleDefinition, tokenCode: 6, why: "`case CodeInternal:`——同上（v0.59 新增码 6）",
+		},
+	},
 	"internal/errs/errs.go :: ExitCode": {{
-		role: roleDefinition, why: "`return 1`——码到退出码的映射",
+		role: roleSource, category: catInternal,
+		why: "**非 `NgmError` 的兜底**：错误没走 ngm 的错误模型 ⇒ 码 6（ADR-026）——" +
+			"从前它退 1，于是 CI 会把「有错误逃过了错误模型」读成「上游漂移」",
 	}},
 
 	// ---- helpers：返回 1 但不是退出码 ----
 	"internal/verify/report.go :: Rank": {{
-		role: roleHelper, why: "漂移分类的**排序权重**，返回值不进退出码",
+		role: roleHelper, tokenCode: 1, why: "漂移分类的**排序权重**，返回值不进退出码",
 	}},
 	"cmd/ngm/verify_signatures.go :: signatureRank": {{
-		role: roleHelper, why: "签名状态的**排序权重**，同上",
+		role: roleHelper, tokenCode: 1, why: "签名状态的**排序权重**，同上",
 	}},
 
 	// ---- sources：策略类（文档本来就该写的那几类）----
@@ -190,11 +219,11 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 	},
 }
 
-func TestV57ExitOneSourcesAreRegistered(t *testing.T) {
-	sites := exitOneSitesFromSource(t)
+func TestV57ExitCodeSourcesAreRegistered(t *testing.T) {
+	sites := exitCodeSitesFromSource(t)
 	total := 0
-	for _, n := range sites {
-		total += n
+	for _, codes := range sites {
+		total += len(codes)
 	}
 	if total == 0 {
 		t.Fatal("一个站点都没扫到——这条判据的范围缩到零了")
@@ -214,29 +243,51 @@ func TestV57ExitOneSourcesAreRegistered(t *testing.T) {
 			"要么写明它是 definition/helper", key)
 	}
 
-	// ③ 登记 ⊆ 派生，**并且逐函数对账条目数**：
-	// 一个条目对应一处站点，所以"同一函数里多加一处"也必须被发现。
+	// ③ 登记 ⊆ 派生，**并且逐函数对账数目与码**：
+	// 一个条目对应一处站点，所以"同一函数里多加一处"也必须被发现；
+	// 而"某处换了码"（例如把 `errs.CodeInternal.ExitCode()` 改回字面量 `return 1`）
+	// 只对数目是不够的——两处的**码**也要一一对上。
 	for key, entries := range exitOneSiteRegistry {
-		n, ok := sites[key]
+		got, ok := sites[key]
 		if !ok {
 			t.Errorf("登记里的 `%s` 在源码里找不到对应站点——登记指向空气（改名或删掉了？）", key)
 			continue
 		}
-		if n != len(entries) {
+		if len(got) != len(entries) {
 			t.Errorf("`%s` 里现在有 **%d** 处站点，而登记写着 %d 条——\n"+
 				"同一函数里多出（或少了）一处也是漂移：每一处都该有自己的 category 与 why",
-				key, n, len(entries))
+				key, len(got), len(entries))
+			continue
+		}
+		want := make([]int, 0, len(entries))
+		for _, e := range entries {
+			if e.role != roleSource {
+				want = append(want, e.tokenCode)
+				continue
+			}
+			code, ok := categoryCodes[e.category]
+			if !ok {
+				t.Errorf("`%s` 的 source 条目没有可用的 category（%q）——它属于哪个码无从判断",
+					key, e.category)
+				continue
+			}
+			want = append(want, code)
+		}
+		gotSorted, wantSorted := append([]int{}, got...), append([]int{}, want...)
+		sort.Ints(gotSorted)
+		sort.Ints(wantSorted)
+		if !intsEqual(gotSorted, wantSorted) {
+			t.Errorf("`%s` 的站点**退的码对不上**：源码里是 %v，登记说 %v——\n"+
+				"换了码（内部失败 ⇄ 策略失败）是语义改动，必须在登记里说明白",
+				key, gotSorted, wantSorted)
 		}
 	}
 
-	// ④ source ⊆ 文档：每个 category 都必须在 observability.md 的码 1 行里出现
+	// ④ source ⊆ 文档：**每一类**都要出现在**它那个码**的那一行里
 	obs := observabilityExitCodes(t)
-	row, ok := obs[1]
-	if !ok {
-		t.Fatal("observability.md 里没有码 1 那一行——这条判据没有可核对的对象")
-	}
 	sources, empty := 0, 0
-	categories := map[string]bool{}
+	byCode := map[int][]string{} // 码 → 它的类别（排序后）
+	seenCat := map[string]bool{}
 	for _, entries := range exitOneSiteRegistry {
 		for _, e := range entries {
 			if e.role != roleSource {
@@ -247,43 +298,62 @@ func TestV57ExitOneSourcesAreRegistered(t *testing.T) {
 				empty++
 				continue
 			}
-			categories[e.category] = true
+			code, ok := categoryCodes[e.category]
+			if !ok {
+				t.Errorf("类别 %q 没有对应的退出码——`categoryCodes` 里要写清它属于哪个码",
+					e.category)
+				continue
+			}
+			if !seenCat[e.category] {
+				seenCat[e.category] = true
+				byCode[code] = append(byCode[code], e.category)
+			}
 		}
 	}
 	if empty > 0 {
 		t.Errorf("有 %d 个 source 类条目没写 category——它归哪一类，正是这条判据要查的东西", empty)
 	}
-	if len(categories) == 0 {
+	if len(byCode) == 0 {
 		t.Fatal("没有任何 source 类条目——这条判据没有可核对的对象")
 	}
-	var cats []string
-	for c := range categories {
-		cats = append(cats, c)
+	var codes []int
+	for code := range byCode {
+		codes = append(codes, code)
 	}
-	sort.Strings(cats)
-	for _, cat := range cats {
-		if !strings.Contains(row.sources, cat) {
-			t.Errorf("码 1 有一类来源是 %q（源码里真实存在），而 observability.md 的码 1 "+
-				"那一行没有写到它——\n读文档的人会以为这类失败与我无关：\n%s", cat, row.sources)
+	sort.Ints(codes)
+	for _, code := range codes {
+		row, ok := obs[code]
+		if !ok {
+			t.Errorf("observability.md 里没有码 %d 那一行——这条判据没有可核对的对象", code)
+			continue
+		}
+		cats := byCode[code]
+		sort.Strings(cats)
+		for _, cat := range cats {
+			if !strings.Contains(row.sources, cat) {
+				t.Errorf("码 %d 有一类来源是 %q（源码里真实存在），而 observability.md 的码 %d "+
+					"那一行没有写到它——\n读文档的人会以为这类失败与我无关：\n%s",
+					code, cat, code, row.sources)
+			}
 		}
 	}
 	if sources < 5 {
 		t.Errorf("只登记了 %d 个 source——实测远不止这些，这条判据的范围缩了", sources)
 	}
 
-	t.Logf("exit code 1: %d site(s) in %d function(s) · %d source function(s) · %d categor(y|ies) [%s]",
-		total, len(sites), sources, len(cats), strings.Join(cats, " / "))
+	t.Logf("exit codes: %d site(s) in %d function(s) · %d source function(s) · codes %v",
+		total, len(sites), sources, codes)
 }
 
-// exitOneSitesFromSource 扫出**能让进程以 1 退出**的站点，键为 `文件 :: 所在函数`，
+// exitCodeSitesFromSource 扫出**能让进程以 1 退出**的站点，键为 `文件 :: 所在函数`，
 // 值是**该函数里的站点数**（登记表按同数目条目写）。
 //
 // 扫两个地方：`cmd/ngm`（CLI 自己）与 `internal`（库层里构造错误或直接设码的地方）。
 // 跳过测试文件与 testdata；**跳过纯注释行**——注释里提到 `CodeRefDrift` 不是站点
 // （`root.go` 那条 panic 从前就是只在注释里提了一句，而代码本身写的是字面量 1）。
-func exitOneSitesFromSource(t *testing.T) map[string]int {
+func exitCodeSitesFromSource(t *testing.T) map[string][]int {
 	t.Helper()
-	out := map[string]int{}
+	out := map[string][]int{}
 
 	scanRoot := func(root string) {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -309,7 +379,7 @@ func exitOneSitesFromSource(t *testing.T) map[string]int {
 				return nil
 			}
 			lines := strings.Split(string(src), "\n")
-			for _, m := range reExitOneSite.FindAllStringSubmatchIndex(string(src), -1) {
+			for _, m := range reExitCodeSite.FindAllStringSubmatchIndex(string(src), -1) {
 				pos := fset.Position(token.Pos(m[0] + 1))
 				if pos.Line < 1 || pos.Line > len(lines) {
 					continue
@@ -328,7 +398,15 @@ func exitOneSitesFromSource(t *testing.T) map[string]int {
 						break
 					}
 				}
-				out[repoRelative(t, path)+" :: "+fn]++
+				// 这一处提的是哪个码：`CodeInternal` ⇒ 6，其余（`CodeRefDrift`
+				// 与字面量 `return 1` / `exit = 1`）⇒ 1。
+				matched := string(src[m[0]:m[1]])
+				code := 1
+				if strings.Contains(matched, "CodeInternal") {
+					code = 6
+				}
+				key := repoRelative(t, path) + " :: " + fn
+				out[key] = append(out[key], code)
 			}
 			return nil
 		})
@@ -340,6 +418,19 @@ func exitOneSitesFromSource(t *testing.T) map[string]int {
 	scanRoot(".")
 	scanRoot("../../internal")
 	return out
+}
+
+// intsEqual 比较两个**已排序**的 int 切片（用来对账"这一组站点退的是哪些码"）。
+func intsEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // repoRelative 把扫描时用的路径归一成"仓库根起算"的样子，登记表按它写。
