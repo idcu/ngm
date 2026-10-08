@@ -133,6 +133,13 @@ var netCoverageSources = map[string]netSource{
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
 		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
 	},
+	"TestV61BrokenPipeIsIntentNotFailure": {
+		what: "管道被对端关闭（`ngm verify | head`）是用户的意图，不是失败",
+		why: "它的覆盖集是**探针量出来的三种情形**（人读+对端关闭 · 人读+一般写失败 · " +
+			"JSON+对端关闭）——第三种是**有意的不对称**，写成断言是为了让它可查；" +
+			"「对端关闭」的判定本身由本机的探针量出（Windows 给的是 232/ERROR_NO_DATA， " +
+			"而 `errors.Is(err, syscall.EPIPE)` 在那里是 false）",
+	},
 	"TestV60TheHumanChannelTreatsWriteFailureTheSameWay": {
 		what: "两条通道对「写不出去」判法一致：人读路径也退 6",
 		why: "它的覆盖集是**探针逐一量过的六个场景**（verify · why · outdated · tree · engines · " +
