@@ -187,6 +187,14 @@ var exitCodeElsewhere = []exitCase{
 	// 指向本地替身、`integrations add <tool>` 只需一个已安装的项目）。
 	{cmd: "audit", code: 6, why: "TestV62TheRemainingGapCommandsAreMeasuredForCodeSix/audit"},
 	{cmd: "integrations", code: 6, why: "TestV62TheRemainingGapCommandsAreMeasuredForCodeSix/integrations"},
+	// v0.63：最后四个（也是 v0.62 判成"到不了"的那四个）搬进实测。
+	// v0.62 把它们的失败读成"钩子是死的"，真相是那次的夹具**少了一行**
+	// `isolateUserEnv`——命令读的是真实 HOME，于是没有 `run:fake-engine` 授权。
+	// 补上之后四个都退 6（见 v0.63 复盘的第一节）。
+	{cmd: "build", code: 6, why: "TestV63EngineCommandsAreMeasuredForCodeSix/build"},
+	{cmd: "typecheck", code: 6, why: "TestV63EngineCommandsAreMeasuredForCodeSix/typecheck"},
+	{cmd: "css", code: 6, why: "TestV63EngineCommandsAreMeasuredForCodeSix/css"},
+	{cmd: "transform", code: 6, why: "TestV63EngineCommandsAreMeasuredForCodeSix/transform"},
 	{cmd: "verify", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/verify"},
 	{cmd: "why", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/why"},
 	{cmd: "outdated", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/outdated"},
@@ -279,26 +287,17 @@ var exitCodeGaps = map[string][]int{
 	//        于是先退 4（离线取数失败），到不了钩子那一步。
 	"update": {1, 2, 5},
 
-	// v0.59 新增的码 6（内部失败 · ADR-026）。可测量的那些已由
-	// `TestV22StdoutWriteFailureIsMeasured` 与
-	// `TestV62TheRemainingGapCommandsAreMeasuredForCodeSix` 覆盖
-	// （verify · why · outdated · tree · engines · **audit** · **integrations**，
-	// 见上面那张 elsewhere 表）；下面这四个**本轮到不了**，原因逐条写明：
+	// v0.59 给码 6 立了"声明了就要能测"，v0.62 把 7 个命令搬进实测，
+	// v0.63 把最后四个也搬完——**码 6 已无缺口**（上表里 9 条 elsewhere 覆盖全部
+	// 声明过 6 的命令）。
 	//
-	//   build / typecheck / css / transform —— 夹具**已经备好**（`m6Catalog` 把假引擎
-	//     登记进对应能力类别），但命令跑到执行引擎那一步被**权限层**拒：
-	//     `ConfigInvalid: permission denied: run:fake-engine`。
-	//     而本以为是接线的那个钩子**是死的**：`testutils.AllowEngines` 的注释说
-	//     "供写入配置的注入实现读取"，可 **`AllowedEngines()` 在整个仓库里没有消费者**
-	//     （v0.62 量到：只有它自己的定义与另一个测试的调用）。⇒ **可做**：
-	//     要么让那个钩子真的生效（写进隔离 home 的 `permissions.allow`），要么删掉它。
+	// 这里留一段给"缺口表"本身的使用者：它是**未测量的声明**的住处，
+	// 而"未测量的原因"必须**量过**——v0.59 曾写过 6 条原因，v0.62 一试发现
+	// 两条彻底错、四条只对一半；v0.63 又发现 v0.62 那四条里有一条是**误判**
+	// （把"夹具少一行"读成了"钩子是死的"，见上表 v0.63 那段注释与 v0.63 复盘）。
 	//
-	// 记在这里而不是默默略过，正是这张表存在的理由：**测不到也要具名**——
-	// 而"具名"在 v0.62 之后更进一步：原因是**量出来的**，不是猜的。
-	"build":     {6},
-	"typecheck": {6},
-	"css":       {6},
-	"transform": {6},
+	// **一个钩子看起来没人用，先量它到底有没有人用**——`AllowedEngines()` 的消费者
+	// 在 `testenv_test.go` 的 `init()` 里（`testutils.WriteUserConfig` 的注入实现）。
 }
 
 // TestV21UsageExitCodeSectionsAreWellFormed 固定：**每个命令都写下了自己的退出码**，

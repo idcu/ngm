@@ -133,12 +133,27 @@ var netCoverageSources = map[string]netSource{
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
 		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
 	},
+	"TestV63MilestoneTablesListEveryVersionExactlyOnce": {
+		what: "逐版表：每个版本恰好一行、升序、连续到最新",
+		why: "版本集**派生**自 `docs/development/` 的复盘文件名（与 v0.58 同源）；" +
+			"「哪些文档算逐版表」由**扫描活文档**决定——任何一份活文档只要其版本行够得到最新版本，" +
+			"就必须在 `milestoneTableStartsAt` 里声明起点（没声明即红，新表不会漏网）；" +
+			"起点之前的行不归它管（roadmap 之类）。四张表的起点都是量出来的现状",
+	},
+	"TestV63EngineCommandsAreMeasuredForCodeSix": {
+		what: "最后四个命令（build · typecheck · css · transform）的码 6 搬进实测",
+		why: "它的覆盖集是**探针试出来的四个场景**，不是任何表或运行时集合——" +
+			"而「到不了」与「到得了」的差别只在三件事是否凑齐（`AllowEngines` 声明权限、" +
+			"`isolateUserEnv` 换 HOME、`m6Catalog` 登记引擎），v0.62 正是把「少了一件」" +
+			"读成了「钩子坏了」",
+	},
 	"TestV62TheRemainingGapCommandsAreMeasuredForCodeSix": {
 		what: "缺口表里能兑现的兑现：audit 与 integrations 的码 6 搬进实测",
 		why: "它的覆盖集是**两个具体的命令场景**（audit 用 `v3AuditProject` 的本地 OSV 替身、" +
-			"integrations 用已安装项目 + 真实工具名）；两者都由**探针试出来的**——" +
-			"而另外四个命令**试过之后仍到不了**（权限层拒 `run:fake-engine`，" +
-			"而那个本该接线的钩子没有消费者），原因记在 `exitCodeGaps` 里",
+			"integrations 用已安装项目 + 真实工具名）；两者都由**探针试出来的**。" +
+			"（v0.62 时它还想管 build/typecheck/css/transform 四个，当时判成\"到不了\"；" +
+			"v0.63 翻了这个判断——少的是夹具里的一行 `isolateUserEnv`，" +
+			"那四个现在由 `TestV63EngineCommandsAreMeasuredForCodeSix` 覆盖）",
 	},
 	"TestV61BrokenPipeIsIntentNotFailure": {
 		what: "管道被对端关闭（`ngm verify | head`）是用户的意图，不是失败",

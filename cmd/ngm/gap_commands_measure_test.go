@@ -4,23 +4,24 @@ import (
 	"testing"
 )
 
-// v0.62：**把缺口表里能兑现的兑现，并量出剩下四个为什么还兑现不了**。
+// v0.62：**把缺口表里能兑现的兑现**。
 //
 // v0.59 给码 6 立了"声明了就要能测"的规矩，当时只能测到 5 个命令，
-// 另 6 个写进了 `exitCodeGaps` 并逐条写明原因。这一版把那 6 个**逐个试过去**：
+// 另 6 个写进了 `exitCodeGaps` 并逐条写明原因。这一版把那 6 个**逐个试过去**，
+// 两个当场兑现（夹具本来就现成）：
 //
-//	✅ audit        —— 夹具现成：`v3AuditProject` 把 OSV 指向**本地替身**
+//	✅ audit        —— `v3AuditProject` 把 OSV 指向**本地替身**
 //	                   （`NGM_OSV_URL` 注入 ⇒ 不依赖公网），`audit --json` 就能到写报告那一步。
-//	✅ integrations —— 条件也不苛刻：一个**已安装**的项目（`ngm.mappings.json` 由 install 生成）
+//	✅ integrations —— 一个**已安装**的项目（`ngm.mappings.json` 由 install 生成）
 //	                   + 一个**真实存在**的工具名（`vite` / `esbuild` / `webpack` / `deno`）。
-//	❌ build / typecheck / css / transform
-//	                 —— 夹具**也现成**（`m6Catalog` 把假引擎登记进对应能力类别），
-//	                   但命令跑到执行引擎那一步被**权限层**拒：
-//	                   `ConfigInvalid: permission denied: run:fake-engine`。
-//	                   而本以为接线的那个钩子**是死的**：
-//	                   `testutils.AllowEngines` 的注释说"供写入配置的注入实现读取"，
-//	                   可 `AllowedEngines()` **在整个仓库里没有消费者**（这一版量到）。
-//	                   ⇒ 记在缺口表里（原因已从"猜的"换成"量出来的"），见候选。
+//
+// 另四个（build / typecheck / css / transform）当时**判成"到不了"**，理由写的是
+// "权限层拒 + 那个钩子是死的"。**v0.63 把那个判断翻了过来**：
+// 钩子是通的（消费者在 `testenv_test.go` 的 `init()` 里），
+// 真正的差别是**夹具里少了一行 `isolateUserEnv`**——命令读的是真实 HOME，
+// 于是没有 `run:fake-engine` 授权。补上之后四个也退 6，
+// 于是它们在 v0.63 有了自己的测试（`TestV63EngineCommandsAreMeasuredForCodeSix`），
+// 本文件从此只管 audit 与 integrations。
 //
 // 每个用例都用 v0.59 那套手法：给 `dispatch` 传一个**永远写失败的 writer**，
 // 命令算完结论、写报告时失败 ⇒ 退 **6**。
