@@ -22,6 +22,13 @@ import (
 //
 // 这也是 v0.28 那条原则（"建议沿包装链找第一句非空的"）在**报告**这一侧的同一句话：
 // 最贴近成因的那一层最知道该怎么办，**这个函数猜不出来**。
+// operationalCasePrefix 是这一族的**命名前缀**（v0.56）。
+//
+// 用它把"哪些用例属于这一族"从**夹具表**派生出来，而不是靠我记：
+// 从前这张表只能查"悬挂键"（登记了、表里没有 ⇒ 红），
+// 而**漏因查不出来**——新增第四种成因时，判据自己看不见自己少了一条。
+const operationalCasePrefix = "verify/检查未能完成（"
+
 var operationalCauses = []struct {
 	caseName string
 	// marker 必须出现在**这一成因**的行动行里：
@@ -39,6 +46,44 @@ var operationalCauses = []struct {
 func TestV35OperationalFailuresAdviseTheirOwnCause(t *testing.T) {
 	testutils.AllowEngines(t, "fake-engine")
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
+
+	// 先对账**成员集**：一族有几个成员，由夹具表的命名说了算（v0.56）。
+	//
+	// 两个方向都要查：
+	//   · 派生 ⊆ 登记 —— 多了成因却没登记 ⇒ 红（这是**漏因**，从前查不出来）
+	//   · 登记 ⊆ 派生 —— 登记指向空气 ⇒ 红
+	var derived []string
+	for i := range reportCases {
+		if strings.HasPrefix(reportCases[i].name, operationalCasePrefix) {
+			derived = append(derived, reportCases[i].name)
+		}
+	}
+	if len(derived) == 0 {
+		t.Fatalf("夹具表里没有任何用例以 %q 开头——这条判据的范围缩到零了", operationalCasePrefix)
+	}
+	registered := map[string]bool{}
+	for _, oc := range operationalCauses {
+		registered[oc.caseName] = true
+	}
+	for _, name := range derived {
+		if !registered[name] {
+			t.Errorf("夹具表里的 %q 属于这一族（名字以 %q 开头），这里却没有它的 marker——"+
+				"**新增了一种成因，而这条判据还只查旧的那几条**：给它写一条 marker，"+
+				"说明这一成因的建议必须点名什么", name, operationalCasePrefix)
+		}
+	}
+	for _, oc := range operationalCauses {
+		ok := false
+		for _, name := range derived {
+			if name == oc.caseName {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Errorf("登记里的 %q 不在夹具表的这一族里——登记指向空气", oc.caseName)
+		}
+	}
 
 	advice := map[string]string{} // 用例名 → 它拿到的那句建议
 

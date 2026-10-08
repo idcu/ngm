@@ -185,6 +185,58 @@ var exitCodeElsewhere = []exitCase{
 	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},
 }
 
+// TestV56RegisteredPointersResolve 要求上表里的**指针指到真东西**（v0.56）。
+//
+// 那张表的语义是"这个码由**别处的专属测试**测量"，而它只写了三串字符串：
+// `TestV22DenoIsMissing/verify` 之类。那些子测试若被改名或删掉，
+// **没有任何判据会红**：V22 继续认为"码 5 已经被测量了"，而实际上没有人在测它。
+//
+// 这是 v0.52 那条"登记看着空气"的**第二次现形**——那次查的是测试函数名
+// （v0.53 立的判据），这次是**子测试名**：同一条纪律，指针指到哪里就要核到哪里。
+//
+// 判据从**源码**取：指针形如 `<测试函数>/<子测试>`，
+// 就在本目录的 `_test.go` 里找那个测试函数，并要求它里面有 `t.Run("<子测试>"`。
+func TestV56RegisteredPointersResolve(t *testing.T) {
+	if len(exitCodeElsewhere) == 0 {
+		t.Fatal("这张表是空的——没有可核对的指针")
+	}
+
+	files := map[string]string{}
+	for _, f := range testFilesInThisDir(t) {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[filepath.Base(f)] = string(body)
+	}
+
+	for _, c := range exitCodeElsewhere {
+		fn, sub, ok := strings.Cut(c.why, "/")
+		if !ok {
+			t.Errorf("%s 的指针 %q 不是 `<测试函数>/<子测试>` 的形状——"+
+				"这条判据没法核对它，而核对不了就是没有查", c.cmd, c.why)
+			continue
+		}
+
+		owner, body := "", ""
+		for name, text := range files {
+			if strings.Contains(text, "func "+fn+"(") {
+				owner, body = name, text
+				break
+			}
+		}
+		if owner == "" {
+			t.Errorf("%s 的指针指向 %q，而本目录里**没有**这个测试函数——登记指向空气", c.cmd, fn)
+			continue
+		}
+		if !strings.Contains(body, `t.Run("`+sub+`"`) {
+			t.Errorf("%s 的指针说码 %d 由 %s 测量，而 %s 里**没有**那个子测试（找不到 `t.Run(%q`）——"+
+				"它若被删改，V22 会继续以为这个码测得着", c.cmd, c.code, c.why, owner, sub)
+		}
+	}
+	t.Logf("registered pointers: %d pointer(s) resolve to a real subtest", len(exitCodeElsewhere))
+}
+
 // exitCodeGaps 是**已知还没被测量**的声明。
 //
 // 与 v0.15 的负例名单同一个套路：**名单自己会过期**。

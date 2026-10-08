@@ -41,9 +41,102 @@ var derivationEntryPoints = []string{
 	"reportCases",
 	"exitCodeMeasured",
 	"matrixArgs",
+	// v0.56 补：文档/源码两侧的派生函数名。它们与上面那些是同一类东西——
+	// 判据的覆盖集从**实现或文档**读出来，而不是从我的记忆里抄。
+	"readDoc(",                // 读一份文档（退出码契约那批）
+	"parseJSONShapeTable(",    // 解析 cli.md 的《--json 的形状》表
+	"jsonTagsOf(",             // 扫源码里的 json tag
+	"structJSONTags(",         // 从具名类型解析顶层 json tag
+	"livingDocs(",             // 活文档清单（doc 类判据的覆盖集）
+	"implementationJSONTags(", // 全仓库 json tag 集合
 }
 
 var netCoverageSources = map[string]netSource{
+	// ---- v0.56：把更早那批契约网也审一遍（v0.53 §4 的遗留）----
+	//
+	// 它们的覆盖集本来就是从实现/文档派生的，只是当年没收进这张表——
+	// 于是"它从哪来"这件事没有任何判据看着（本版普查时逐个确认过）。
+	"TestV21UsageExitCodeSectionsAreWellFormed": {
+		what:   "每条 usage 里的退出码段落格式良好，且每个声明的码都被测量过或在缺口表里",
+		source: "运行时命令表 `commands` 的 `Usage` 字段（就是实际打印的那份文本）",
+	},
+	"TestV22DeclaredCodesAreMeasuredOrKnownGaps": {
+		what:   "声明的码 ∈ 已测量 ∪ 别处测量 ∪ 已知缺口——三处都不在即红",
+		source: "`commands` × `declaredExitCodes(usage)`；三张判定表（`exitCodeMeasured`/`exitCodeElsewhere`/`exitCodeGaps`）双向对账",
+	},
+	"TestV24ExitCodeContractAgreesAcrossSources": {
+		what:   "退出码契约在四处事实源上一致（实现常量 · p0-core · observability · cli 参考）",
+		source: "`readDoc(` 读 `internal/errs/errs.go` 与三份文档，四份集合互为对账",
+	},
+	"TestV25JSONShapeTableMatchesTheImplementation": {
+		what:   "`--json` 形状表里每个字段都能在实现的 json tag 里找到",
+		source: "`parseJSONShapeTable(` 解析 cli.md 的表 × `jsonTagsOf(` 扫源码的 tag",
+	},
+	"TestV25ConfigFieldTablesMatchTheSchema": {
+		what:   "配置字段表里每个字段都能在 schema 结构体上找到",
+		source: "解析 configuration.md 的三张表 × `configSectionFiles` 映射（映射有单向守卫：文档新增一行而无映射即红）",
+	},
+	"TestV26EveryDocumentedShapeIsANamedType": {
+		what:   "文档里每一行形状都指向一个**具名类型**（反向：映射条目必须仍有文档行）",
+		source: "`parseJSONShapeTable(` × `structJSONTags(` × 映射 `jsonShapeRowTypes`（双向）",
+	},
+	"TestV26EveryFieldOfTheReportIsDocumented": {
+		what:   "报告类型的每个顶层字段都被文档点名",
+		source: "`structJSONTags(` 从源码解析 json tag",
+	},
+	"TestV27ProseJSONFieldNamesExist": {
+		what:   "散文中提到的 json 字段名在实现里存在（早期靠白名单，v0.43 已改派生）",
+		source: "`livingDocs(` 的文档 × `implementationJSONTags(` 全仓库 tag × AST 标识符集",
+	},
+	"TestV27EveryConfigFieldIsDocumented": {
+		what:   "配置结构体的字段都被 configuration.md 点名（`vendor` 与全局节**明确不做**：那里的字段是自由的）",
+		source: "`configReverseSections` 映射 + `structJSONTags(` 源码派生",
+	},
+	"TestV28UserFacingErrorsCarryAHint": {
+		what: "`cmd/ngm` 里 `errs.New/Wrap` 的空 hint 字面量必须为零",
+		why: "它的覆盖集是**文件系统**（`filepath.Glob(\"./*.go\")` + AST 扫全部非测试源码），" +
+			"不是任何表或运行时集合——这条判据的广度来自『扫目录』，没有可指的表",
+	},
+	"TestV30ErrorsThatReachTheUserAreNotSilentAndCarryAHint": {
+		what:   "每个可达的非零退出码都带着非空的成因与建议",
+		source: "`exitCodeMeasured` 的全部非零条目（该表由 V22 的声明对账兜住）",
+	},
+	"TestV30EmptyHintCeilingIsARepositoryWideRatchet": {
+		what:   "全仓库空 hint 站点数的棘轮（当前 118）",
+		source: "遍历全仓库非测试 `.go` 的 AST（`repoRoot(` 定位）",
+	},
+	"TestV32EveryFailureReportSaysWhatToDoNext": {
+		what:   "每条失败报告都说清下一步（两种行动行约定都要被走到）",
+		source: "夹具表 `reportCases`（11 条，每条带 `remedies`）",
+	},
+	"TestV33ActionLinesNameSomethingExecutable": {
+		what:   "行动行点名的东西真的存在：命令在命令表里、配置键在 schema 里",
+		source: "被扫对象是 `reportCases`；**核对锚点是派生的**——命令来自运行时 `commands`，配置键来自 `repoRoot(` + schema 文件",
+	},
+	"TestV34AdviceMatchesTheFailureShape": {
+		what:   "建议与失败的形状匹配（同一形状的所有用例都要有行动行）",
+		source: "夹具表 `reportCases` 的 `remedies`",
+	},
+	"TestV35OperationalFailuresAdviseTheirOwnCause": {
+		what:   "同一分支下不同成因的建议必须**两两不同**，且每种成因都被承认",
+		source: "夹具表 `reportCases`——v0.56 起**家族成员由命名前缀派生**（`verify/检查未能完成（…）`），两个方向都对账：多了成因没登记即红、登记指向空气即红",
+	},
+	"TestV36EveryFailingReportCarriesANextStep": {
+		what:   "扫描式核对：每份失败报告都带一行下一步",
+		source: "`exitCodeMeasured` 非零条目 ∪ `surfaceCases` 非零条目的并集",
+	},
+	"TestV39ArgumentDimensionHoldsItsContracts": {
+		what:   "无参数与垃圾参数两个维度下每个命令的通道与退出码",
+		source: "运行时 `commands` × `matrixArgs`（每命令参数表，V37 双向对账）",
+	},
+	"TestV40ArgumentSpellingHoldsItsContracts": {
+		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
+		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
+	},
+	"TestV56RegisteredPointersResolve": {
+		what:   "登记里写成指针的条目必须指到**存在的东西**（`TestX/sub` 的子测试真的在源码里）",
+		source: "源码：`testFilesInThisDir(` 找那个测试函数，再在它体内找 `t.Run(\"<子测试>\"`",
+	},
 	"TestV42EmptyValueNeverSilentlyChangesBehaviour": {
 		what:   "取值 flag 的 37 条空值语义",
 		source: "源码派生（`valueFlagPairs` → `flagsetBlocksOf`，跨文件、带声明种类）",
