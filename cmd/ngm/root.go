@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -145,10 +147,46 @@ type writeAccounting struct {
 
 func (a *writeAccounting) Write(p []byte) (int, error) {
 	n, err := a.w.Write(p)
-	if err != nil && a.err == nil {
+	// **对端关闭**不算"写不出去"（v0.61）：`ngm verify | head` 是常见用法，
+	// 用户想看的就是前几行——那不是失败，是**用户的意图**。
+	// 判据见 `isBrokenPipe`：它跨平台（Unix 的 EPIPE 与 Windows 的几个 errno）。
+	if err != nil && a.err == nil && !isBrokenPipe(err) {
 		a.err = err
 	}
 	return n, err
+}
+
+// isBrokenPipe 判断"管道对端已经关闭"这一类错误。
+//
+// 为什么要一个跨平台的判定：**本机实测**（v0.61 探针）——
+//
+//	$ 写一个读端已关闭的 os.Pipe
+//	err = write |1: The pipe is being closed.   type = *fs.PathError
+//	errors.Is(err, syscall.EPIPE) = **false**     ← Unix 的判法在 Windows 上不管用
+//	errno = 232                                   ← ERROR_NO_DATA
+//
+// 而 `syscall` 在 Windows 上只导出了 `ERROR_BROKEN_PIPE`（109），
+// `ERROR_NO_DATA`（232）与 `ERROR_PIPE_NOT_CONNECTED`（233）**没有导出常量**
+// ——所以下面那几个数是写字面量的，它们有实测出处（上面这段）。
+//
+// 非 Windows 上不做 232/233 的比较：那几个数值在 Unix 的 errno 空间里
+// 另有含义（不是管道语义），拿它们去比对会误判。
+func isBrokenPipe(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EPIPE) || errors.Is(err, io.ErrClosedPipe) {
+		return true
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	for _, e := range []syscall.Errno{109 /* ERROR_BROKEN_PIPE */, 232 /* ERROR_NO_DATA */, 233 /* ERROR_PIPE_NOT_CONNECTED */} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
 }
 
 // 顶层分发：处理 --version / --help 后取首个非 flag 元素作为子命令。
