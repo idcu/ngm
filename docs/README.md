@@ -3,10 +3,10 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.63 均已交付**，**`v0.1.0` ~ `v0.63.0` 六十三个 tag 均已打**。
+**当前状态：v0.1 ~ v0.64 均已交付**，**`v0.1.0` ~ `v0.64.0` 六十四个 tag 均已打**。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
-**"交付"与"发布"是两件事，这一页把它们分开写**：63 个 tag 里，GitHub 上有 **59 个** release，
+**"交付"与"发布"是两件事，这一页把它们分开写**：64 个 tag 里，GitHub 上有 **59 个** release，
 Gitee 上只有 **3 个**，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-05 **直接问两个源的 API** 得到的，不是本页的记忆
 （Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读）。
@@ -324,6 +324,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.61 | **管道被打断是用户的意图，不是失败**（v0.60 留下的问题）：v0.60 把写失败折算成码 6（对的），但顺手把 `ngm verify \| head` 也变成了失败 | **已交付**（[计划](./development/v0.61-plan.md) / [复盘](./development/v0.61-retrospective.md)：**先量**——本机（Windows）写一个读端已关闭的 `os.Pipe` 得到 `errno 232 / ERROR_NO_DATA`，而 `errors.Is(err, syscall.EPIPE)` 是 **false**（Unix 的判法在这里不管用）、`syscall` 也没导出那几个常量 ⇒ `isBrokenPipe` 跨平台判定（含 `runtime.GOOS` 的门）+ 记账处一处例外；判据三半：人读+对端关闭 ⇒ **0** · 对照（一般写失败）⇒ **仍是 6** · **JSON+对端关闭 ⇒ 6**（**有意的不对称**，写成断言让它可查）；牙齿恒 false / 恒 true 两个方向都红；**产品代码 1 个文件**） |
 | v0.62 | **把缺口表里能兑现的兑现**（v0.59 留下的 6 个"测不到"）：**逐个试过去**——先量夹具在不在 ⇒ 六条原因里**两条是彻底错的** | **已交付**（[计划](./development/v0.62-plan.md) / [复盘](./development/v0.62-retrospective.md)：量到 `v3AuditProject`（OSV 指向**本地替身**）与 `m6Catalog`（假引擎登记进能力类别）本来就现成 ⇒ **audit** 与 **integrations** 搬进实测（V22 的 elsewhere **8 → 10**、缺口 **9 → 7**、V56 指针 **8 → 10**）；另四个当时判成"到不了"（理由写作"权限层拒 + 钩子是死的"）——**那个判断在 v0.63 被翻案**（缺的是夹具里的一行 `isolateUserEnv` ✗，钩子一直是通的 ✓）；**产品代码 0 行改动**） |
 | v0.63 | **登记之后要核对「落地」**：一处错误结论、四张被拼坏的活表、一处插错位置的四行 | **已交付**（[计划](./development/v0.63-plan.md) / [复盘](./development/v0.63-retrospective.md)：起点是 v0.62 的一处**误判**——它说 `testutils.AllowEngines` 是死钩子（`AllowedEngines()` 全仓库没有消费者）✗，而消费者一直在 `testenv_test.go` 的 `init()` 里（`testutils.WriteUserConfig` 的注入实现，由 `isolateUserEnv` 每次换 HOME 时调用）✓；四个引擎命令失败的真因是**夹具少了 `isolateUserEnv` 一行**（命令读真实 HOME ⇒ 无 `run:fake-engine` 授权 ⇒ `permission denied`）；**处置**：① 新测试 `TestV63EngineCommandsAreMeasuredForCodeSix` 把 build · typecheck · css · transform 搬进实测（**码 6 至此无缺口**：V22 elsewhere **10 → 14**、缺口 **7 → 3**、V56 指针 **10 → 14**）＋ 更正活文档与代码注释里那条结论；② 修**四张被"插一行"手法弄坏的活表**（`docs/README.md` 倒序插四行 · v0.58~v0.61 整段消失 · 两行重复；根 `README.md` 与 `docs/development/README.md`、`project-state.md` 同病，后者还缺 v0.62/v0.63 ✗）⇒ 全部升序重建/重排/补齐；③ 新判据 `TestV63MilestoneTablesListEveryVersionExactlyOnce`：版本集从复盘文件名派生，**任何够得到最新版本的活文档都必须声明起点**（否则红），且起点之后**每个版本恰好一行、升序、连续到最新**；牙齿：删一行 ⇒ `缺 1 行`、倒序两行 ⇒ `逐版表要按版本升序`、复制一行 ⇒ `出现了两次`；**产品代码 0 行改动**（本版是更正 + 修复 + 立判据）） |
+| v0.64 | **`schemaFiles` 不再是一份要人记着的清单**（兑现 v0.56 普查那条"漏加 = 检查变松"）：三处闸门把它派生化——文档的配置文件表 × 名字在代码行里"被赋值或被 `filepath.Join` 解析" × 该文件有 json tag 字段 | **已交付**（[计划](./development/v0.64-plan.md) / [复盘](./development/v0.64-retrospective.md)：两条**反例**把形状钉死——`internal/verify/graph.go` 的 `const UpstreamFile = "ngm.json"` 是**读上游清单**的地方（没有 json tag 字段 ⇒ 不进来）、`internal/lock/schema.go` 有 11 个 json tag 字段但命名的是 `ngm.lock`（不是 `.json`、也不在配置表里 ⇒ 不进来）；读数 **3 derived**（`catalog.go` · `config.go` · `mappings/schema.go`）与手写清单逐字相同、文档侧 **4 个名字**；牙齿**双向**：清单少一条 ⇒ `却不在 schemaFiles 里：internal/config/config.go`、多一条 ⇒ `派生不出来：…zz_probe.go`；清单自己那句"这是本检查唯一需要人工维护的地方"同步改掉（**注释里说"这里靠人记着"，就是一个待办**）；**产品代码 0 行改动**） |
 
 ### 发布状态
 

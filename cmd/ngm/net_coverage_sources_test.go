@@ -133,6 +133,11 @@ var netCoverageSources = map[string]netSource{
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
 		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
 	},
+	"TestV64SchemaFilesAreDerivedFromDocsAndSource": {
+		what: "`schemaFiles` 那份手写清单必须与两处事实源对得上（文档的配置表 × 定义 schema 的源码）",
+		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
+			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
+	},
 	"TestV63MilestoneTablesListEveryVersionExactlyOnce": {
 		what: "逐版表：每个版本恰好一行、升序、连续到最新",
 		why: "版本集**派生**自 `docs/development/` 的复盘文件名（与 v0.58 同源）；" +

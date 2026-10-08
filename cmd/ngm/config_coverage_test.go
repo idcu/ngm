@@ -12,8 +12,12 @@ import (
 
 // schemaFiles 是**用户可编辑**的 schema 定义文件（相对仓库根）。
 //
-// 新增一个用户可编辑的 schema（新的配置文件）时，把它加进这里——这是本检查
-// 唯一需要人工维护的地方，而漏加的表现是"检查少了几个键"，不是误报。
+// v0.64 起它**不再是一份需要人记着的清单**：`TestV64SchemaFilesAreDerivedFromDocsAndSource`
+// 从两处事实源把它派生出来并对账（`docs/guides/configuration.md` 的配置文件表 ×
+// 真正在定义 schema 的源码），两个方向都查——漏加与陈旧都会红。
+//
+// 也就是说：从前"新增一份配置、忘加一行"的表现是**静默变松** ✗；
+// 现在那条路径是"文档加一行 ⇒ 判据红 ⇒ 清单被迫补齐" ✓。
 var schemaFiles = []string{
 	"internal/config/config.go",   // ngm.json、~/.ngm/config.json
 	"internal/mappings/schema.go", // ngm.mappings.json
