@@ -133,6 +133,13 @@ var netCoverageSources = map[string]netSource{
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
 		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
 	},
+	"TestV62TheRemainingGapCommandsAreMeasuredForCodeSix": {
+		what: "缺口表里能兑现的兑现：audit 与 integrations 的码 6 搬进实测",
+		why: "它的覆盖集是**两个具体的命令场景**（audit 用 `v3AuditProject` 的本地 OSV 替身、" +
+			"integrations 用已安装项目 + 真实工具名）；两者都由**探针试出来的**——" +
+			"而另外四个命令**试过之后仍到不了**（权限层拒 `run:fake-engine`，" +
+			"而那个本该接线的钩子没有消费者），原因记在 `exitCodeGaps` 里",
+	},
 	"TestV61BrokenPipeIsIntentNotFailure": {
 		what: "管道被对端关闭（`ngm verify | head`）是用户的意图，不是失败",
 		why: "它的覆盖集是**探针量出来的三种情形**（人读+对端关闭 · 人读+一般写失败 · " +

@@ -183,6 +183,10 @@ var exitCodeElsewhere = []exitCase{
 	// v0.59：码 6（内部失败 · ADR-026）由专属测试测量——那一组用例给 `dispatch`
 	// 传一个**永远写失败的 writer**，让命令算完结论、写报告时失败。
 	// 指针由 `TestV56RegisteredPointersResolve` 核对（它要求子测试真的存在）。
+	// v0.62：另两个命令的码 6 搬进实测（夹具本来就现成——`v3AuditProject` 把 OSV
+	// 指向本地替身、`integrations add <tool>` 只需一个已安装的项目）。
+	{cmd: "audit", code: 6, why: "TestV62TheRemainingGapCommandsAreMeasuredForCodeSix/audit"},
+	{cmd: "integrations", code: 6, why: "TestV62TheRemainingGapCommandsAreMeasuredForCodeSix/integrations"},
 	{cmd: "verify", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/verify"},
 	{cmd: "why", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/why"},
 	{cmd: "outdated", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/outdated"},
@@ -276,25 +280,25 @@ var exitCodeGaps = map[string][]int{
 	"update": {1, 2, 5},
 
 	// v0.59 新增的码 6（内部失败 · ADR-026）。可测量的那些已由
-	// `TestV22StdoutWriteFailureIsMeasured` 覆盖（verify · why · outdated · tree · engines，
-	// 见上面那张 elsewhere 表）；下面这些**本轮到不了**，原因逐条写明：
+	// `TestV22StdoutWriteFailureIsMeasured` 与
+	// `TestV62TheRemainingGapCommandsAreMeasuredForCodeSix` 覆盖
+	// （verify · why · outdated · tree · engines · **audit** · **integrations**，
+	// 见上面那张 elsewhere 表）；下面这四个**本轮到不了**，原因逐条写明：
 	//
-	//   audit —— 需要一份 OSV 结果：联网被策略拒，而 `--offline` 会先退 4
-	//            （`no cached OSV result … and network access is disabled`）。
-	//            **可做**：造一份 OSV 缓存，或在允许网络的夹具里跑。
-	//   build / typecheck / css / transform —— 需要**目录里配好**的引擎：
-	//            假引擎有二进制，但 catalog 里没声明 ⇒ 命令先退 3。
-	//            **可做**：给夹具补一份 `ngm.engines.json`。
-	//   integrations —— `add <tool>` 要先认出工具名（`unknown integration …` ⇒ 退 3）。
-	//            **可做**：用目录里真实存在的那个名字。
+	//   build / typecheck / css / transform —— 夹具**已经备好**（`m6Catalog` 把假引擎
+	//     登记进对应能力类别），但命令跑到执行引擎那一步被**权限层**拒：
+	//     `ConfigInvalid: permission denied: run:fake-engine`。
+	//     而本以为是接线的那个钩子**是死的**：`testutils.AllowEngines` 的注释说
+	//     "供写入配置的注入实现读取"，可 **`AllowedEngines()` 在整个仓库里没有消费者**
+	//     （v0.62 量到：只有它自己的定义与另一个测试的调用）。⇒ **可做**：
+	//     要么让那个钩子真的生效（写进隔离 home 的 `permissions.allow`），要么删掉它。
 	//
-	// 记在这里而不是默默略过，正是这张表存在的理由：**测不到也要具名**。
-	"audit":        {6},
-	"build":        {6},
-	"typecheck":    {6},
-	"css":          {6},
-	"transform":    {6},
-	"integrations": {6},
+	// 记在这里而不是默默略过，正是这张表存在的理由：**测不到也要具名**——
+	// 而"具名"在 v0.62 之后更进一步：原因是**量出来的**，不是猜的。
+	"build":     {6},
+	"typecheck": {6},
+	"css":       {6},
+	"transform": {6},
 }
 
 // TestV21UsageExitCodeSectionsAreWellFormed 固定：**每个命令都写下了自己的退出码**，
