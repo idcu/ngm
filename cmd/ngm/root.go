@@ -121,10 +121,56 @@ func failEarly(args []string, stdout io.Writer, msg, hint string) {
 	}
 }
 
+// writeAccounting 包住 stdout，**记住第一次写失败**（v0.60）。
+//
+// 为什么需要它：**人读路径**从前忽略写失败——`fmt.Fprintf` 的返回值被丢掉，
+// 于是"报告只写出去一半"而退出码是 **0** ✗。实测（v0.60 探针）：
+//
+//	ngm verify / why / outdated / tree（人读，stdout 永远写失败）→ exit 0 · stderr 空
+//	ngm engines list（同条件）                                    → exit 6 · write listing: …
+//
+// 也就是**同一条通道里判法不一致** ✗：engines 检查了 `tw.Flush()`，
+// 其余把错误丢了。JSON 路径则一律检查 ✓。
+//
+// 处置不走"给每个命令加检查"（那要改十几处签名与调用点），而是在**唯一入口**
+// 包一层：写失败就被记下，命令返回后由 `dispatch` 统一折算成码 6。
+// 这也顺手覆盖了 usage / --help 那类写。
+//
+// `Write` 把**真实错误**返回给调用方（而不是吞掉它）——这样本来就检查错误的
+// 命令（如 engines）仍走自己的分支，行为不变。
+type writeAccounting struct {
+	w   io.Writer
+	err error
+}
+
+func (a *writeAccounting) Write(p []byte) (int, error) {
+	n, err := a.w.Write(p)
+	if err != nil && a.err == nil {
+		a.err = err
+	}
+	return n, err
+}
+
 // 顶层分发：处理 --version / --help 后取首个非 flag 元素作为子命令。
 //
 // 退出码约定：见 errs 包与 architecture/observability.md。
+//
+// 它是个**包装**：真正的分派在 `dispatchInner`。包装做一件事——
+// 命令**本来成功**（码 0）而 stdout **写失败**时，退 **6（内部失败）**：
+// "结论有了却送不出去"（ADR-026）在人读通道上也是同一件事。
+//
+// 业务失败优先：命令自己退了非 0，就按它的码走（写不出去不改变"上游漂了"这件事）。
 func dispatch(args []string, stdout, stderr io.Writer) int {
+	acc := &writeAccounting{w: stdout}
+	code := dispatchInner(args, acc, stderr)
+	if code == 0 && acc.err != nil {
+		fmt.Fprintf(stderr, "write report: %v\n", acc.err)
+		return errs.CodeInternal.ExitCode()
+	}
+	return code
+}
+
+func dispatchInner(args []string, stdout, stderr io.Writer) int {
 	// 切分子命令
 	sub := ""
 	rest := args
