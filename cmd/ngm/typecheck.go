@@ -40,6 +40,7 @@ EXIT CODES:
   1  the engine ran and reported problems
   3  configuration error
   5  no usable engine (none declared, or not installed)
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // runTypecheck 处理 `ngm typecheck`。
@@ -150,6 +151,7 @@ EXIT CODES:
   1  the engine ran and failed
   3  configuration error (missing input, unknown engine name, more than one input)
   5  no usable engine
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // runCSS 处理 `ngm css`。
@@ -235,7 +237,7 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if _, werr := stdout.Write(res.Code); werr != nil {
 		fmt.Fprintf(stderr, "write css: %v\n", werr)
-		return 1
+		return errs.CodeInternal.ExitCode()
 	}
 	return 0
 }

@@ -65,6 +65,7 @@ EXIT CODES:
   4  Git or network failure (including --offline with a cold mirror)
   5  --sandbox was requested, some dependency provides verify.js, and Deno is
      missing or too old — ngm does not run such a script outside a sandbox
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 
 driftKind in --json: expected | unexpected | critical
 `
@@ -168,7 +169,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		}
 		if _, werr := stdout.Write(data); werr != nil {
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 		return finishVerify(ctx, env, pf, lf,
 			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)

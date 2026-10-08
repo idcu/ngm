@@ -35,6 +35,7 @@ EXIT CODES:
   1  the engine ran and failed (its own stderr is preserved)
   3  configuration error (no entry, unknown engine name)
   5  no usable engine (not installed, or a dry-run stub)
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // runBuild 处理 `ngm build`。
@@ -123,7 +124,7 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	} else {
 		if _, werr := stdout.Write(res.Code); werr != nil {
 			fmt.Fprintf(stderr, "write bundle: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 	}
 	return 0

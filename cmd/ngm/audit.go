@@ -37,6 +37,7 @@ EXIT CODES:
   3  configuration or lock error (including a --hook path that does not exist)
   4  OSV network failure and no usable cache
   5  --hook was given (or the sandbox was requested) and Deno is missing
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 
 IMPORTANT — read the coverage note in every report. A clean result means
 "no known entry for this commit in OSV.dev", NOT "proven safe": zero-day
@@ -135,7 +136,7 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		}
 		if _, werr := stdout.Write(data); werr != nil {
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 		// jsonMode 一并传下去：hook 的横幅与它自己的 stdout 只能走 stderr，
 		// 否则 stdout 不再是单个 JSON 文档（下面那份标着 "CI should use this"）。

@@ -125,7 +125,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 
 ## 全局约定
 
-- **退出码**：0 成功 / 1 策略失败**或进程内部失败**（后者含引擎运行失败 · panic · "结论算出来了却写不出去"）/ 2 完整性失败 / 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用；完整定义见[可观测性](../architecture/observability.md)
+- **退出码**：0 成功 / 1 策略失败（含引擎运行失败 · 漏洞超阈值 · 审计钩子否决）/ 2 完整性失败 / 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用 / 6 **内部失败**（panic · "结论算出来了却写不出去"）；完整定义见[可观测性](../architecture/observability.md) 与 [ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)
 - **配置文件**：`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json` / `~/.ngm/config.json`，见[配置详解](./configuration.md)
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。

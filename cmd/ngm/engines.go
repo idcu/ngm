@@ -36,6 +36,7 @@ EXIT CODES:
   0  ok
   3  the catalog is malformed
   5  an engine in the catalog is not usable (missing, or an unimplemented adapter)
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // engineRow 是 `ngm engines list` 的一行（也是 --json 的元素）。
@@ -133,7 +134,7 @@ func runEnginesList(ec *engineContext, jsonOut bool, stdout, stderr io.Writer) i
 	}
 	if err := tw.Flush(); err != nil {
 		fmt.Fprintf(stderr, "write listing: %v\n", err)
-		return 1
+		return errs.CodeInternal.ExitCode()
 	}
 
 	if len(rows) == 0 {
@@ -373,11 +374,11 @@ func writeJSON(stdout, stderr io.Writer, v any) int {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		fmt.Fprintf(stderr, "marshal json: %v\n", err)
-		return 1
+		return errs.CodeInternal.ExitCode()
 	}
 	if _, werr := stdout.Write(append(data, '\n')); werr != nil {
 		fmt.Fprintf(stderr, "write json: %v\n", werr)
-		return 1
+		return errs.CodeInternal.ExitCode()
 	}
 	return 0
 }

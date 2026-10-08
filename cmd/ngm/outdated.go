@@ -31,6 +31,7 @@ HOW REFS ARE CHECKED:
 EXIT CODES:
   0  report written (this command reports; it does not gate)
   3  configuration or lock error
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 
 A dependency that could not be checked is reported as ` + "`unknown`" + `.
 That is a different conclusion from "no update found", and the report keeps
@@ -118,7 +119,7 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		}
 		if _, werr := stdout.Write(data); werr != nil {
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 		return 0
 	}

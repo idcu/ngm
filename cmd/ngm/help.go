@@ -51,6 +51,7 @@ EXIT CODES（全局约定；每个命令自己的用法里写着它**实际**会
   3  配置 / 策略 / lock 错误（含用法错误）
   4  Git 或网络失败（含 --offline 缺资源）
   5  引擎不可用（缺失，或 adapter 未实现）
+  6  内部失败（panic · 结论算出来了却写不出去 · 错误没走错误模型）
 `
 
 // versionLine 是 `ngm --version` 输出的一行，对齐 installation.md 示例：

@@ -53,6 +53,7 @@ EXIT CODES:
   1  the engine ran and failed (its own stderr is preserved)
   3  configuration error (no loader for stdin, unreadable input, unknown engine name)
   5  no usable engine (not installed, or a dry-run stub)
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // stdinReader 是子命令读取 stdin 的入口。
@@ -172,7 +173,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		body, err = io.ReadAll(stdinReader)
 		if err != nil {
 			fmt.Fprintf(stderr, "read stdin: %v\n", err)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 	} else {
 		body, err = readInputFile(ec.env.ProjectDir, input)
@@ -195,7 +196,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if strings.TrimSpace(*outfile) == "" {
 		if _, werr := stdout.Write(res.Code); werr != nil {
 			fmt.Fprintf(stderr, "write output: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 		return 0
 	}

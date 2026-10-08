@@ -25,24 +25,24 @@ const (
 	// CodeOK 表示成功（保留给需要返回 Code 的内部接口；退出码 0 不通过本类型表达）。
 	CodeOK Code = 0
 
-	// CodeRefDrift 1：策略失败**或进程内部失败**。**它现在有五个来源**（v0.57 实测）：
+	// CodeRefDrift 1：**策略失败**。**它有四个来源**（v0.57 从源码派生、v0.59 复核）：
 	//
 	//   - 策略漂移：verify 非预期漂移（tag 被移动 / 分支历史被改写）——名字的来源；
 	//   - 引擎运行了但失败（`typecheck` / `typedecl` / `build` / `transform` / `css`
 	//     的退出码 1 都走这里，见 internal/adapter/engine.go）；
 	//   - 漏洞超阈值：audit 的发现与 `tree --osv`；
-	//   - 审计钩子否决或超时（`--hook`）；
-	//   - **内部失败**：`runWithRecovery` 捕获的 panic，以及"结论已经算出来、
-	//     却说不出去"（写 stdout 失败 / JSON 编码失败 / 读 stdin 失败）。
-	//     这一类**不是策略问题**，却与策略失败共用一个数字。
+	//   - 审计钩子否决或超时（`--hook`）。
 	//
-	// 这份清单**由判据看着**：`TestV57ExitOneSourcesAreRegistered` 从源码派生
-	// "谁能让进程以 1 退出"，每个站点都要登记，每个类别都要在
-	// docs/architecture/observability.md 的码 1 那一行里被写到。
+	// **第五类搬走了**：panic 与"结论算出来了却说不出去"（13 处站点）原先是第五类，
+	// v0.59 按 ADR-026 给了它们自己的数字——`CodeInternal = 6`。
+	// 理由是它们该做的事不同：策略漂移要人看，写不出去重跑可能就好。
+	//
+	// 这份清单**由判据看着**：`TestV57ExitCodeSourcesAreRegistered` 从源码派生
+	// "谁能让进程以 1（或 6）退出"，每个站点都要登记，每个类别都要在
+	// docs/architecture/observability.md 与 docs/modules/p0-core.md 里被写到。
 	//
 	// 与事实不符的注释是"读数说谎"的一种——它不会让任何测试变红。这条注释此前
-	// 说过"三个来源"，而 v0.57 数出来是五类、二十多个站点（v0.22 也为同一件事
-	// 修过一次：那次是"一处未提"）。
+	// 说过"三个来源"（v0.22 修过一次"一处未提"），v0.57 又数出五类、二十多个站点。
 	//
 	// 已知代价：String() 只有一个名字，于是那 5 个命令打印的错误前缀是
 	// `RefDrift: …`，读起来像"引用漂移"。是否改名见 v0.22 复盘的候选（改动
@@ -56,6 +56,14 @@ const (
 	CodeGitFetch Code = 4
 	// CodeEngineNotFound 5：引擎不可用。
 	CodeEngineNotFound Code = 5
+	// CodeInternal 6：**内部失败**——ngm 自己没走完（panic），
+	// 或"结论已经算出来、却送不出去"（写 stdout 失败 / JSON 编码失败 / 读 stdin 失败）。
+	//
+	// v0.57 量出这一类与"策略失败"共用了码 1（13 处站点），
+	// 而它们该做的事不同：策略漂移要人看，写不出去重跑可能就好——
+	// CI 无法用一个数字区分"上游漂了"与"我写不出去"。
+	// v0.59 按 ADR-026 把它分出来（码 1 的四类策略来源一个也没搬）。
+	CodeInternal Code = 6
 )
 
 // ExitCode 返回对应全局退出码。Code 与退出码一一对应。
@@ -76,6 +84,8 @@ func (c Code) String() string {
 		return "GitFetch"
 	case CodeEngineNotFound:
 		return "EngineNotFound"
+	case CodeInternal:
+		return "InternalFailure"
 	default:
 		return "OK"
 	}
@@ -174,7 +184,12 @@ func WrapUnlessHinted(code Code, msg, fallbackHint string, cause error) *NgmErro
 	return Wrap(code, msg, fallbackHint, cause)
 }
 
-// ExitCode 从 error 中取出退出码；非 NgmError 返回 1（通用失败）。
+// ExitCode 从 error 中取出退出码；非 NgmError 返回 **6（内部失败）**。
+//
+// 兜底为什么是 6 而不是 1（v0.59 · ADR-026）：够到这里的错误**没有走 ngm 的错误模型**
+// ——不是策略漂移、不是完整性、不是配置、不是网络、不是引擎不可用。
+// 它是"ngm 自己没把它说清楚"，与"结论算出来了却说不出去""panic"是同一类。
+// 从前它在 1 里，于是 CI 会把"有错误逃过了错误模型"读成"上游漂移"。
 //
 // 约定：调用方在 main 末尾用
 //
@@ -187,7 +202,7 @@ func ExitCode(err error) int {
 	if errors.As(err, &ne) {
 		return ne.Code.ExitCode()
 	}
-	return 1
+	return CodeInternal.ExitCode()
 }
 
 // FormatHuman 输出人类可读的错误文本，hint 单独成行，便于复制。

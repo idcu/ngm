@@ -377,7 +377,7 @@ func runWithRecovery(fn func() int) (exit int) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "ngm: internal panic: %v\n", r)
-			exit = 1
+			exit = errs.CodeInternal.ExitCode()
 		}
 	}()
 	return fn()

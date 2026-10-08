@@ -23,11 +23,12 @@
 | 退出码 | 语义 | 典型来源 |
 |--------|------|---------|
 | `0` | 成功（verify 的"仅预期更新"也归此） | 所有命令 |
-| `1` | 策略失败**或进程内部失败** | **策略漂移**：verify 非预期漂移（`expected` 之外都算；`why` / `outdated` 走同一出口）；**引擎运行失败**：adapter 引擎跑起来了但失败（引擎自己的退出码保留在消息与 `--json` 里，不透传）；**漏洞超阈值**：audit 存在超阈值漏洞、`tree --osv` 查到漏洞；**审计钩子否决或超时**（`--hook`）；**内部失败**：`runWithRecovery` 捕获的 panic，以及"结论已经算出来、却说不出去"（写 stdout 失败 / JSON 编码失败 / 读 stdin 失败）。**这一类不是策略问题**——来源分类由 `TestV57ExitOneSourcesAreRegistered` 从源码派生核对（见 v0.57 复盘） |
+| `1` | 策略失败 | **策略漂移**：verify 非预期漂移（`expected` 之外都算；`why` / `outdated` 走同一出口）；**引擎运行失败**：adapter 引擎跑起来了但失败（引擎自己的退出码保留在消息与 `--json` 里，不透传）；**漏洞超阈值**：audit 存在超阈值漏洞、`tree --osv` 查到漏洞；**审计钩子否决或超时**（`--hook`）。来源分类由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生核对（v0.57 立、v0.59 扩到两个码） |
 | `2` | 完整性失败 | verify digest 重放不匹配 |
 | `3` | 配置/策略/lock 错误 | schema 非法、lock 损坏、frozen 与声明不一致 |
 | `4` | Git/网络失败 | fetch / ls-remote 失败；`--offline` 下资源缺失 |
 | `5` | 引擎不可用 | adapter 找不到外部引擎 |
+| `6` | 内部失败 | **内部失败**的具体来源：`runWithRecovery` 捕获的 panic；"结论有了却送不出去"——写 stdout 失败 / JSON 编码失败 / 读 stdin 失败（原先它们与策略失败共用码 1）；以及够到 `errs.ExitCode` 兜底的、**没走错误模型**的错误。**与策略失败分开的理由**：策略漂移要人看，写不出去重跑可能就好——CI 需要用一个数字区分这两种事（[ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)）。分类同样由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生核对 |
 
 `ngm verify --json` 输出的 `driftKind`（`expected` / `unexpected` / `critical`）用于区分"预期更新"与"非预期漂移"。
 

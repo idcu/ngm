@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/idcu/ngm/internal/config"
+	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/lock"
 	"github.com/idcu/ngm/internal/observability"
 	"github.com/idcu/ngm/internal/resolve"
@@ -51,6 +52,7 @@ EXIT CODES:
   1  a vulnerability was found (only with --osv)
   3  configuration or lock error
   4  Git or network failure (including --offline with a cold mirror)
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // runTree 处理 `ngm tree`。
@@ -160,7 +162,7 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		if _, werr := stdout.Write(data); werr != nil {
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 		return exit
 	}

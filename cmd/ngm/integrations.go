@@ -34,6 +34,7 @@ WHAT THIS WILL NOT DO:
 EXIT CODES:
   0  generated, or already up to date
   3  configuration error, or a file ngm will not overwrite
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // runIntegrations 处理 `ngm integrations <subcommand>`。
@@ -162,11 +163,11 @@ func writeIntegrationsJSON(stdout, stderr io.Writer, tool string, dryRun bool, o
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		fmt.Fprintf(stderr, "encode report: %v\n", err)
-		return 1
+		return errs.CodeInternal.ExitCode()
 	}
 	if _, werr := stdout.Write(append(data, '\n')); werr != nil {
 		fmt.Fprintf(stderr, "write report: %v\n", werr)
-		return 1
+		return errs.CodeInternal.ExitCode()
 	}
 	return code
 }

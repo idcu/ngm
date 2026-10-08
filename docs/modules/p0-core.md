@@ -96,17 +96,20 @@ type NgmError struct {
 
 type ErrorCode int
 
-// 1-5 与全局退出码约定对齐（见 architecture/observability.md）
+// 1-6 与全局退出码约定对齐（见 architecture/observability.md 与 ADR-026）
 const (
-    // 1 策略失败：**四种来源**——verify 非预期漂移 · adapter 引擎运行失败 ·
-    // audit 超阈值漏洞 · audit 钩子否决。一个数字只有一个默认名，因此后三种
-    // 用 NgmError.Label 显式给出贴切的显示名（EngineFailed / AuditHook），
-    // 数值契约不变（v0.23）。
+    // 1 策略失败：**四种来源**——**策略漂移**（verify 非预期漂移）· **引擎运行失败** ·
+    // **漏洞超阈值**（audit 的发现与 tree --osv）· **审计钩子否决或超时**。一个数字
+    // 只有一个默认名，因此后三种用 NgmError.Label 显式给出贴切的显示名
+    //（EngineFailed / AuditHook），数值契约不变（v0.23）。
+    //
+    // 第五类"内部失败"在 v0.59 按 ADR-026 **分了出去**，成了下面的 ErrInternal（6）。
     ErrRefDrift ErrorCode = iota + 1
     ErrDigestMismatch                // 2 完整性失败（digest 重放不匹配）
     ErrConfigInvalid                 // 3 配置/策略/lock 错误
     ErrGitFetch                      // 4 Git/网络失败
     ErrEngineNotFound                // 5 引擎不可用
+    ErrInternal                      // 6 内部失败（panic / 结论有了却送不出去 / 错误没走错误模型）
 )
 ```
 

@@ -38,6 +38,7 @@ OUTPUT:
 EXIT CODES:
   0  the dependency is in the graph
   3  configuration error, or the dependency is not in the graph
+	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
 // runWhy 处理 `ngm why`。
@@ -116,7 +117,7 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		if _, werr := stdout.Write(data); werr != nil {
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return 1
+			return errs.CodeInternal.ExitCode()
 		}
 		return 0
 	}
