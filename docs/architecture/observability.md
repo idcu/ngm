@@ -23,7 +23,7 @@
 | 退出码 | 语义 | 典型来源 |
 |--------|------|---------|
 | `0` | 成功（verify 的"仅预期更新"也归此） | 所有命令 |
-| `1` | 策略失败 | verify 非预期漂移；adapter 引擎运行失败（引擎自己的退出码保留在消息与 `--json` 里，不透传）；audit 存在超阈值漏洞；audit 钩子否决或超时（`--hook`） |
+| `1` | 策略失败**或进程内部失败** | **策略漂移**：verify 非预期漂移（`expected` 之外都算；`why` / `outdated` 走同一出口）；**引擎运行失败**：adapter 引擎跑起来了但失败（引擎自己的退出码保留在消息与 `--json` 里，不透传）；**漏洞超阈值**：audit 存在超阈值漏洞、`tree --osv` 查到漏洞；**审计钩子否决或超时**（`--hook`）；**内部失败**：`runWithRecovery` 捕获的 panic，以及"结论已经算出来、却说不出去"（写 stdout 失败 / JSON 编码失败 / 读 stdin 失败）。**这一类不是策略问题**——来源分类由 `TestV57ExitOneSourcesAreRegistered` 从源码派生核对（见 v0.57 复盘） |
 | `2` | 完整性失败 | verify digest 重放不匹配 |
 | `3` | 配置/策略/lock 错误 | schema 非法、lock 损坏、frozen 与声明不一致 |
 | `4` | Git/网络失败 | fetch / ls-remote 失败；`--offline` 下资源缺失 |

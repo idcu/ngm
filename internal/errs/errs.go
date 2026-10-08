@@ -25,15 +25,24 @@ const (
 	// CodeOK 表示成功（保留给需要返回 Code 的内部接口；退出码 0 不通过本类型表达）。
 	CodeOK Code = 0
 
-	// CodeRefDrift 1：策略失败。**它现在有三个来源**：
+	// CodeRefDrift 1：策略失败**或进程内部失败**。**它现在有五个来源**（v0.57 实测）：
 	//
-	//   - verify 非预期漂移（tag 被移动 / 分支历史被改写）——名字的来源；
-	//   - audit 超阈值漏洞；
-	//   - **引擎运行了但失败**（`typecheck` / `typedecl` / `build` / `transform` / `css`
-	//     的退出码 1 都走这里，见 internal/adapter/engine.go）。
+	//   - 策略漂移：verify 非预期漂移（tag 被移动 / 分支历史被改写）——名字的来源；
+	//   - 引擎运行了但失败（`typecheck` / `typedecl` / `build` / `transform` / `css`
+	//     的退出码 1 都走这里，见 internal/adapter/engine.go）；
+	//   - 漏洞超阈值：audit 的发现与 `tree --osv`；
+	//   - 审计钩子否决或超时（`--hook`）；
+	//   - **内部失败**：`runWithRecovery` 捕获的 panic，以及"结论已经算出来、
+	//     却说不出去"（写 stdout 失败 / JSON 编码失败 / 读 stdin 失败）。
+	//     这一类**不是策略问题**，却与策略失败共用一个数字。
 	//
-	// 第三种用途为 v0.22 实测所确认，而此前这段注释**一处未提**——注释与事实不符
-	// 是"读数说谎"的一种：它不会让任何测试变红。
+	// 这份清单**由判据看着**：`TestV57ExitOneSourcesAreRegistered` 从源码派生
+	// "谁能让进程以 1 退出"，每个站点都要登记，每个类别都要在
+	// docs/architecture/observability.md 的码 1 那一行里被写到。
+	//
+	// 与事实不符的注释是"读数说谎"的一种——它不会让任何测试变红。这条注释此前
+	// 说过"三个来源"，而 v0.57 数出来是五类、二十多个站点（v0.22 也为同一件事
+	// 修过一次：那次是"一处未提"）。
 	//
 	// 已知代价：String() 只有一个名字，于是那 5 个命令打印的错误前缀是
 	// `RefDrift: …`，读起来像"引用漂移"。是否改名见 v0.22 复盘的候选（改动

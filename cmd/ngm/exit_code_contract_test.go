@@ -106,17 +106,16 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 		t.Errorf("docs/guides/cli.md's summary lists %d exit codes, the contract defines 6", len(cli))
 	}
 
-	// 五：**码 1 的来源必须是"全部"**。它是唯一一个被四种情形共用的数字，
+	// 五：**码 1 的来源必须是"全部"**。它是唯一一个被五类情形共用的数字，
 	// 而漏掉任何一处都会让读文档的人以为"这个码与我无关"——v0.23 就是栽在这儿。
 	//
-	// 这份关键词表**自己会过期**：哪天真出现第五种来源，加进这里的同时
-	// 也必须把它写进 observability.md；反之若某个词从文档里消失，这一条会红。
-	for _, kw := range []string{"漂移", "引擎", "漏洞", "钩子"} {
-		if !strings.Contains(obs[1].sources, kw) {
-			t.Errorf("exit code 1 has four sources in the code, but its row in observability.md "+
-				"does not mention %q:\n%s", kw, obs[1].sources)
-		}
-	}
+	// 这一条在 **v0.57 搬去了 `TestV57ExitOneSourcesAreRegistered`**。
+	// 从前的写法是一张**手写关键词表**（漂移/引擎/漏洞/钩子）**单向**核对文档：
+	// 文档少一个词会红，而**代码新增第五种来源不会红**——它自己的注释也承认
+	// "哪天真出现第五种来源，加进这里的同时也必须写进文档"，也就是靠人记得。
+	//
+	// 现在：来源由**源码派生**（谁能让进程以 1 退出）、双向对账，
+	// 类别名由那条判据要求出现在这一行里。同一件事只留一份判据。
 
 	t.Logf("exit-code contract: %d impl codes · %d spec codes · %d table rows · %d summary entries",
 		len(impl), len(p0), len(obs), len(cli))

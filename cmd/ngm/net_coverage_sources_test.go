@@ -133,6 +133,12 @@ var netCoverageSources = map[string]netSource{
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
 		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
 	},
+	"TestV57ExitOneSourcesAreRegistered": {
+		what: "码 1 的来源：谁能让进程以 1 退出 · 每一处归哪一类 · 每类都要写进文档",
+		why: "它的覆盖集是**源码自己**——`filepath.WalkDir` 走 `cmd/ngm` 与 `internal`、" +
+			"用 `go/parser` 求出每处站点所在的函数；没有任何一张可指的表或运行时集合，" +
+			"广度来自『扫源码树』（与 `TestV28…` 那条同一种形态）",
+	},
 	"TestV56RegisteredPointersResolve": {
 		what:   "登记里写成指针的条目必须指到**存在的东西**（`TestX/sub` 的子测试真的在源码里）",
 		source: "源码：`testFilesInThisDir(` 找那个测试函数，再在它体内找 `t.Run(\"<子测试>\"`",
