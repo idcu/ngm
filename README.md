@@ -24,10 +24,10 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **55 of 60** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| GitHub | **56 of 60** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
 | Gitee | **3 of 60** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
 
-New versions are released by the tag push itself, and that path has now worked fifty-one times
+New versions are released by the tag push itself, and that path has now worked fifty-two times
 (`v0.9.0` … `v0.29.0`) — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
 **Back-filling those fifty-seven historical artifacts is deferred by decision (2026-10-04)** — not
