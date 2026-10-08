@@ -133,6 +133,13 @@ var netCoverageSources = map[string]netSource{
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
 		source: "运行时 `commands` × `matrixArgs`；跳过项必须公开记入日志并有下限守卫",
 	},
+	"TestV60TheHumanChannelTreatsWriteFailureTheSameWay": {
+		what: "两条通道对「写不出去」判法一致：人读路径也退 6",
+		why: "它的覆盖集是**探针逐一量过的六个场景**（verify · why · outdated · tree · engines · " +
+			"`--help`），每个都配一条对照（正常 stdout ⇒ 仍退 0）——" +
+			"而「所有命令」那一侧由 `dispatch` 里的**唯一一处包装**覆盖（不是逐命令加检查），" +
+			"所以这张网不需要从命令表派生；它要证明的是「一致性」本身",
+	},
 	"TestV58PublishedReadingsAgreeWithTheirSource": {
 		what: "散文里的发布读数：版本总数 · 最新版本 · GitHub/Gitee 数 · 缺口数 · 成功次数",
 		source: "文件系统派生已交付版本数（`docs/development/` 的复盘与计划文件数，两者交叉核对）" +

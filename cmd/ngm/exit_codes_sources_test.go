@@ -163,6 +163,12 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 	// 写 stdout 失败 / 读 stdin 失败 / JSON 编码失败。它们与"策略失败"是两件事，
 	// 却共用同一个数字；而文档的语义列只写"策略失败"，
 	// 读文档的人因此会以为码 1 一定是策略问题。
+	"cmd/ngm/root.go :: dispatch": {{
+		role: roleSource, category: catInternal,
+		why: "**人读通道的写失败**（v0.60）：`dispatch` 是唯一入口，包装里记账 stdout——" +
+			"命令本来成功（码 0）而写失败 ⇒ 码 6。从前人读路径忽略写失败（`fmt.Fprintf` " +
+			"的返回值被丢掉），于是「报告写了一半却报成功」✗；JSON 路径一直检查 ✓",
+	}},
 	"cmd/ngm/root.go :: runWithRecovery": {{
 		role: roleSource, category: catInternal,
 		why: "**捕获 panic** ⇒ `exit = 1`（这一处连 `CodeRefDrift` 都不提，只写了字面量 1——" +

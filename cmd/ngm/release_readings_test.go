@@ -428,7 +428,9 @@ func enNumber(s string) (int, bool) {
 		"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
 		"twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
 		"seventeen": 17, "eighteen": 18, "nineteen": 19}
-	tens := map[string]int{"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50}
+	tens := map[string]int{"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+		// `sixty` 是 v0.60 那个版本数（六十）教它补上的：判据的解析器也会不够用。
+		"sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
 	if n, ok := ones[s]; ok {
 		return n, true
 	}
