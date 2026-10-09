@@ -38,19 +38,26 @@ func TestV39ArgumentDimensionHoldsItsContracts(t *testing.T) {
 	zeroCells := []string{}
 	runs := 0
 
+	if len(argumentDimensions) < 2 {
+		t.Fatalf("参数维度只剩 %d 个——这条判据的范围缩了", len(argumentDimensions))
+	}
+	for _, d := range argumentDimensions {
+		// 契约要在读数里露面：`-v` 时看得到"这一轴现在主张什么"。
+		t.Logf("参数维度 %s：%s", d.name, d.wants)
+	}
 	for _, spec := range commands {
-		for _, sh := range []string{"no-args", "junk-arg"} {
+		for _, sh := range argumentDimensions {
 			runs++
-			t.Run(spec.Name+"/"+sh, func(t *testing.T) {
+			t.Run(spec.Name+"/"+sh.name, func(t *testing.T) {
 				isolateUserEnv(t)
 				args := []string{spec.Name}
-				if sh == "junk-arg" {
+				if sh.name == "junk-arg" {
 					args = append(args, matrixArgs[spec.Name]...)
 					args = append(args, "ZZ-JUNK-ARG")
 				}
 				if !globalCommands[spec.Name] {
 					dir := filepath.Join(t.TempDir(), "nope")
-					if sh == "junk-arg" {
+					if sh.name == "junk-arg" {
 						// 合法项目：见文件头那条测量设计上的教训。
 						dir = newProject(t)
 					}
@@ -65,11 +72,11 @@ func TestV39ArgumentDimensionHoldsItsContracts(t *testing.T) {
 				switch {
 				case code == 0:
 					counts["exit-0"]++
-					zeroCells = append(zeroCells, spec.Name+"/"+sh)
-					if _, ok := exitZeroOnArguments[spec.Name+"/"+sh]; !ok {
+					zeroCells = append(zeroCells, spec.Name+"/"+sh.name)
+					if _, ok := exitZeroOnArguments[spec.Name+"/"+sh.name]; !ok {
 						t.Errorf("this invocation exited 0 (a %s invocation) and nothing here says why — "+
 							"for `junk-arg` a zero would mean **an argument nobody understands was ignored**",
-							sh)
+							sh.name)
 					}
 				case strings.TrimSpace(text) == "":
 					counts["silent"]++
@@ -128,6 +135,23 @@ func TestV39ArgumentDimensionHoldsItsContracts(t *testing.T) {
 	}
 	t.Logf("argument dimension: %d runs over %d commands × 2 shapes → %v (registered zeros: %d)",
 		runs, len(commands), counts, len(exitZeroOnArguments))
+}
+
+// argumentDimensions 是**参数维度**这一轴（v0.65 从循环里提出来）。
+//
+// 从前它写作 `for _, sh := range []string{"no-args", "junk-arg"}`——一列藏在循环里的
+// 字面量：看不出它是一根**轴**，也没有"新增一个维度要带什么"的位置。提出来之后，
+// 每个维度必须自带一句**契约**（`wants`），而判据的其它部分按名字引用它。
+//
+// 这条守卫能保证的是"**加维度时你必须写下它要什么**"；
+// 它**保证不了**"新维度一定会被正确检查"——那是具体断言的事。
+// （更强的"新增即红"在 V37 那边：那边每一列都会与自己以外的列对签名，见 `shapeEquivalents`。）
+var argumentDimensions = []struct {
+	name  string
+	wants string
+}{
+	{"no-args", "非零 + 良构的用法文本（或带建议的错误）——它告诉你怎么敲"},
+	{"junk-arg", "那个多余参数必须**被看见**：静默忽略是这一族里最坏的结果"},
 }
 
 // exitZeroOnArguments 登记"退了 0"的参数形状。

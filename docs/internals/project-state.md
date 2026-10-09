@@ -120,6 +120,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.62** | **把缺口表里能兑现的兑现**（并量到一个**死钩子**——那个结论在 v0.63 被翻案） | 补 v0.59 缺口表与 v0.61 候选 2。**先量夹具，再动手**：`v3AuditProject`（OSV 指向本地替身）与 `m6Catalog`（假引擎登记进能力类别）**本来就现成** ⇒ v0.59 那六条原因里两条是彻底错的。**结果**：✅ audit 与 integrations 搬进实测（V22 elsewhere **8 → 10**、缺口 **9 → 7**、V56 指针 **8 → 10**）；❌ build/typecheck/css/transform 当时判成"到不了"，理由写作"权限层拒 + 那个本该接线的钩子没有消费者"——**v0.63 把那个判断翻了过来**：钩子是**通的**（消费者在 `testenv_test.go` 的 `init()` 里），缺的是夹具里的一行 `isolateUserEnv`（命令读的是真实 HOME，于是没有 `run:fake-engine` 授权）。**产品代码 0 行改动**。一条洞察写进复盘：**"具名"不够，还要"量过"**——v0.59 的理由是猜的，一试就错两条 |
 | **v0.63** | **登记之后要核对"落地"**：一处错误结论、两张被拼坏的活表、一处插错位置的四行 | 起点是 v0.62 的一处**误判**：它说 `testutils.AllowEngines` 是死钩子（`AllowedEngines()` 全仓库没有消费者）✗——真相是消费者在 `testenv_test.go` 的 `init()` 里（`testutils.WriteUserConfig` 的注入实现，由 `isolateUserEnv` 每次换 HOME 时调用）✓；四个引擎命令失败的真因是**夹具少了 `isolateUserEnv`**（命令读真实 HOME ⇒ 无授权 ⇒ `permission denied: run:fake-engine`）。**处置**：① 新测试 `TestV63EngineCommandsAreMeasuredForCodeSix` 把 build · typecheck · css · transform 搬进实测（**码 6 至此无缺口**：V22 elsewhere **10 → 14**、缺口 **7 → 3**、V56 指针 **10 → 14**）＋ 改正活文档与代码注释里的错误结论；② 修**两张被登记手法弄坏的活表**——`docs/README.md` 的逐版表在 v0.55~v0.62 段**倒序插了四行**、v0.58~v0.61 **整段消失**（散文被并进邻居）、还多出两行重复 ✗；根 `README.md` 与 `docs/development/README.md`、`docs/internals/project-state.md` **同病**（后者还把 v0.58~v0.61 四行插错位置、并缺 v0.62/v0.63 ✗）⇒ 全部按升序重建/重排/补齐；③ 新判据 `TestV63MilestoneTablesListEveryVersionExactlyOnce`：版本集从复盘文件名派生，每张**声明的**逐版表要求"**起点..最新**恰好各一行、无重复、升序"，并且"行里够得到最新版本的文档**必须**有声明"（未声明即红）；④ 另记一处过程事实：**project-state 里那行 v0.62 从未落地**（上一轮的登记编辑报 MISS 后我只补了 v0.60/v0.61 ✗，而没有任何判据看着"某文档是否缺了自己的行"）——本版补上并由 ③ 兜住。牙齿：删一行 ⇒ 红（`缺了 1 行`）· 倒序两行 ⇒ 红（`逐版表要按版本升序`）· 重复一行 ⇒ 红。**产品代码 0 行改动**（本版是"更正 + 修复 + 立判据"）；一条一般的话：**登记的动作发生了，不等于登记的结果落地了** |
 | **v0.64** | **`schemaFiles` 不再是一份要人记着的清单** | 补 v0.63 候选 1（v0.56 普查留到现在）。起点是那张清单自己的注释："新增一个用户可编辑的 schema 时把它加进这里——这是本检查**唯一需要人工维护**的地方，而漏加的表现是**检查少了几个键**，不是误报" ✗ ⇒ **检查可以静默变松**，正是本项目一直在杀的那类缺陷（v0.45 按文件名找源码 · v0.46 覆盖集从哪来 · v0.57 来源按行为派生）。处置：`TestV64SchemaFilesAreDerivedFromDocsAndSource` 三处闸门派生——① 文档侧读 `docs/guides/configuration.md` 的**配置文件表**（首格是反引号包着的 `.json` 名 ⇒ 认出 4 个名字）；② 代码侧要求名字出现在**代码行**（跳过纯注释行 ⇒ v0.57 那课）里且是 `X = "…"` 或 `filepath.Join(…, "…")`（**定义方要解析路径**，消费者只是提到）；③ 该文件至少有一个带 json tag 的字段（它确实在定义 schema）。**两条反例把形状钉死**：`internal/verify/graph.go` 的 `const UpstreamFile = "ngm.json"`（名字对，但那是**读**上游清单的地方 ⇒ 闸门③拦住）、`internal/lock/schema.go`（11 个 tag，但命名 `ngm.lock` ⇒ 闸门①②拦住）。读数 **3 derived**（`internal/adapter/catalog.go` · `internal/config/config.go` · `internal/mappings/schema.go`）与手写清单逐字相同；**两个方向**都对账（漏加 ⇒ `却不在 schemaFiles 里：…`、陈旧 ⇒ `派生不出来：…`）。牙齿双向各实测一次。那条注释同步改掉：**注释里说"这里靠人记着"，就是一个待办**。已知边界写进代码注释：`filepath.Join` 参数若跨行书写，闸门②看不见——那时判据会走"少了一份"的分支红一次（比静默变松好）。**产品代码 0 行改动**（改的是判据文件与它自己的注释） |
+| **v0.65** | **矩阵的每一列都要有自己的证据** | 补 v0.64 候选 1（v0.56 普查留到现在）。起点是两处"只有**全局**下限"：V37（21 命令 × 8 配置错误形状）只数 `error-text ≥ 40`——那回答"矩阵整体还在动吗"，回答不了"**这一列**还在动吗" ✗；V39 的两个参数维度写作 `for _, sh := range []string{"no-args","junk-arg"}`——一列藏在循环里的字面量 ✗。**处置**：① 形状提成命名轴 `configErrorShapes`（并写清它是一根轴、为什么要提出来）；② 每一列两道断言——**至少一格走到配置层**（不是全退 0 / 全用法 / 全静默）、**签名不与其他列相同**（签名 = 每格的"通道 + 整份归一化输出"；等价只能在 `shapeEquivalents` 里具名说明，空 why 等于没登记）；③ 维度提成 `argumentDimensions`，每个维度自带一句契约（`-v` 时打印）+ 计数下限守卫。**本版主要发现**：守卫第一次运行报的不是新噪声，而是**既有的两列**——`manifest-with-an-unknown-runtime` 与 `manifest-with-a-dependency-without-a-name` **逐格输出完全相同** ✗；查下去是夹具**缺必填字段**（`validate.go` 要 `name` 且 `version`，两条都没写 `version`）⇒ 它们都停在更早的 `version is required` 上，**谁都没有测到名字里写的缺陷** ⇒ 处置是**修夹具**并把这条教训写进夹具注释。签名的两个设计细节都被实测逼出来：**首行太浅**（五种"清单有问题"的形状首行都是 `ConfigInvalid: invalid <path>ngm.json` ⇒ 改整份输出）、**不能留临时路径**（v0.43 那课 ⇒ 用 `normalizeRunPaths`）。牙齿两道的强弱**如实记**：等价那半**真的抓到了东西** ✓；"至少一格走到配置层"那半对"半坏"夹具恒真 ⚠️（换成合法项目时先响的是 exit-0 登记那条断言）——不做"两条并排写、看起来一样强"的假对称。两处登记同步补全（V37 提形状轴、V39 提维度轴）。**产品代码 0 行改动**；一条一般的话：**形状好看 ≠ 真的在查**，而"守卫的第一批猎物通常是新来的"不成立——**先拿它照一遍现状** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -184,6 +185,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **`v0.62.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-08 12:33 UTC 已发布） | ❌ 待上传 |
 | **`v0.63.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-08 16:43 UTC 已发布） | ❌ 待上传 |
 | **`v0.64.0`** | ✅ | ✅ **7 个**（tag 推送触发，2026-10-08 23:06 UTC 已发布） | ❌ 待上传 |
+| **`v0.65.0`** | ⏳ **随本次推送** | ⏳ 随本次推送 | ❌ 待上传 |
 
 > **上一版这一栏把 `v0.1.0` 算进了"Gitee 也可取到"**——它不在那里。本页此前从
 > [补发记录](../development/README.md#补发记录2026-10-02gitee-侧)（只有 v0.2.0/v0.3.0/v0.4.0 三条）
@@ -239,7 +241,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.57.0` 的 **Gitee 发行版（61 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.57.0` 的 **Gitee 发行版（62 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -311,7 +313,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 
 ```bash
 # 方式一：预编译二进制（推荐）
-#   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
+#   最新可取（GitHub）：v0.65.0 —— 六个平台 + SHA256SUMS
 #   Gitee 侧目前只到 v0.4.0（15 个版本缺附件，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm

@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.64 delivered in source**, and all sixty-four tags `v0.1.0` … `v0.64.0` exist.
+Status: **v0.1 … v0.65 delivered in source**, and all sixty-five tags `v0.1.0` … `v0.65.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -24,13 +24,13 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **60 of 64** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | **3 of 64** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
+| GitHub | **60 of 65** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 65** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
 
 New versions are released by the tag push itself, and that path has now worked fifty-six times
 (`v0.9.0` … `v0.29.0`) — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those sixty-one historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those sixty-two historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -274,6 +274,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.62 | paying down the gap list, and then finding out that one of its own conclusions was wrong: the fixtures for `audit` and `integrations` had been in the test suite all along, so both moved into the measured set; the other four were reported as failing at the permission layer "because the hook is dead". v0.63 overturned that — the hook was wired, and what the fixture lacked was one call to isolate the user environment (the commands were reading the real home, hence no authorisation). Registering an action is not the same as the action landing | delivered · released |
 | v0.63 | registering an action is not the same as the action landing: this version overturns one of its predecessor's own conclusions (the "dead hook" was wired all along — the consumer sits in `testenv_test.go`'s `init()`), so the four engine commands moved into the measured set once the fixture gained the one line it lacked (isolating the user environment). It also found, and repaired, four living documents whose per-version tables had been scrambled by the very act of registering a row — rows inserted in reverse, a whole range losing its row framing, one range descending, one row never landing at all — and added the missing judgement: the version set is derived from the retrospective filenames, any document reaching the newest version must declare where its table starts, and after that start every version appears exactly once, in ascending order, up to the latest | delivered · released |
 | v0.64 | a hand-maintained list becomes a derived one: `schemaFiles` (the schema files a coverage check scans) carried its own confession — "add it here when you add a schema; forgetting makes the check *looser*, silently". Three gates now derive it: the config-file table in `configuration.md`, the name appearing on a **code line** as an assignment or a `filepath.Join` argument (the definer resolves the path; a consumer only mentions it), and the file actually declaring json-tagged fields. Two counterexamples fix the shape: `verify/graph.go` names `ngm.json` in a const but is a *reader* of an upstream manifest (no tags), and `lock/schema.go` has eleven tags but names `ngm.lock` (not a `.json`, not in the doc's table). Derived set equals the hand-written three, and both directions are asserted — a missing entry and a stale entry each turn it red | delivered · released |
+| v0.65 | every column of the matrix has to carry its own evidence: V37's eight config-error shapes and V39's two argument dimensions were hoisted out of the function body into named axes, and each column now has to (a) reach the configuration layer at least once and (b) differ from every other column — the signature being the per-cell channel plus the *whole normalised* output, with equivalence allowed only as a named registration. The guard's first run caught two **existing** columns: two fixtures produced byte-identical output for every command, because both stopped at an earlier validation ("version is required") — they were not testing the defect their names claimed. The fix was to repair the fixtures, not to register an equivalence | delivered · released |
 
 ---
 

@@ -126,8 +126,9 @@ var netCoverageSources = map[string]netSource{
 		source: "`exitCodeMeasured` 非零条目 ∪ `surfaceCases` 非零条目的并集",
 	},
 	"TestV39ArgumentDimensionHoldsItsContracts": {
-		what:   "无参数与垃圾参数两个维度下每个命令的通道与退出码",
-		source: "运行时 `commands` × `matrixArgs`（每命令参数表，V37 双向对账）",
+		what: "无参数与垃圾参数两个维度下每个命令的通道与退出码",
+		source: "运行时 `commands` × `matrixArgs`（每命令参数表，V37 双向对账）× " +
+			"`argumentDimensions`（v0.65 提成命名变量，每个维度自带一句契约）",
 	},
 	"TestV40ArgumentSpellingHoldsItsContracts": {
 		what:   "参数拼法（顺序 · `--` · 重复）在真实命令表上保持一致",
@@ -235,9 +236,10 @@ var netCoverageSources = map[string]netSource{
 			"所以它所在的文件里没有（也不需要）派生入口",
 	},
 	"TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel": {
-		what:   "21 个命令 × 8 种参数形状 × 配置错误通道",
-		source: "运行时命令表（`commands`）+ 夹具输入表（`matrixArgs`）",
-		why:    "`matrixArgs` 是**夹具输入**：它给每个命令一份'语法上够用'的参数，不是覆盖集",
+		what: "21 个命令 × 8 种参数形状 × 配置错误通道",
+		source: "运行时命令表（`commands`）+ 夹具输入表（`matrixArgs`）+ 配置形状轴（`configErrorShapes`，v0.65 提成命名变量）；" +
+			"每一列还要求自己的**证据**（至少一格走到配置层，且签名不与其他列相同——等价要写进 `shapeEquivalents`）",
+		why: "`matrixArgs` 是**夹具输入**：它给每个命令一份'语法上够用'的参数，不是覆盖集",
 	},
 	"TestV31EveryReachableFailurePathExplainsItself": {
 		what:   "按失败路径组织的错误面（23 条）",

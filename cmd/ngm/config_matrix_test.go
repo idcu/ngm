@@ -46,47 +46,34 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 		}
 	}
 
-	shapes := []struct {
-		name string
-		dir  func(t *testing.T) string
-	}{
-		{"dir-missing", func(t *testing.T) string { return filepath.Join(t.TempDir(), "nope") }},
-		{"no-manifest", func(t *testing.T) string { return t.TempDir() }},
-		{"manifest-broken-json", func(t *testing.T) string { return manifestDir(t, "{") }},
-		{"manifest-without-a-name", func(t *testing.T) string {
-			return manifestDir(t, `{"runtime":"node"}`)
-		}},
-		{"manifest-with-an-unknown-runtime", func(t *testing.T) string {
-			return manifestDir(t, `{"name":"github.com:x/app","runtime":"cobol"}`)
-		}},
-		{"manifest-with-a-dependency-without-a-name", func(t *testing.T) string {
-			return manifestDir(t, `{"name":"github.com:x/app","runtime":"node",`+
-				`"dependencies":[{"ref":"v1","refType":"tag"}]}`)
-		}},
-		{"manifest-with-a-mistyped-dependencies-field", func(t *testing.T) string {
-			return manifestDir(t, `{"name":"github.com:x/app","runtime":"node","dependencies":"nope"}`)
-		}},
-		{"lock-is-broken-json", func(t *testing.T) string {
-			// 这一条需要一个**合法项目**再加一个坏锁（夹具仍然很便宜：不起 git）。
-			p := newProject(t)
-			writeSurfaceFile(t, p, "ngm.lock", "{")
-			return p
-		}},
-	}
+	shapes := configErrorShapes
 
 	counts := map[string]int{}
 	oks := []string{}
 	okByCmd := map[string]int{}
 	runs := 0
+	// v0.65：**每一列（形状）都要有自己的证据**。
+	//
+	// 从前这张网只数**全局**下限（`error-text ≥ 40`），于是"某一列其实什么都没测到"
+	// 是看不见的 ✗：新增一个形状、而它的夹具其实合法（或与另一列等价），
+	// 矩阵照样绿、覆盖照样是"8 形状 × N 命令"那么好看。
+	// 现在每一格都记下"通道 + 第一行"，按列比较：
+	//
+	//	① 这一列必须至少有一格真的**走到配置层**（不是全退 0 / 全用法）；
+	//	② 这一列的签名**不能与另一列完全相同**（那样它只是噪声）。
+	shapeSig := map[string][]string{}
 
 	for _, spec := range commands {
 		for _, sh := range shapes {
 			runs++
 			t.Run(spec.Name+"/"+sh.name, func(t *testing.T) {
-				isolateUserEnv(t)
+				home := isolateUserEnv(t)
 				args := append([]string{spec.Name}, matrixArgs[spec.Name]...)
+				paths := []string{home}
 				if !globalCommands[spec.Name] {
-					args = append(args, "--dir="+sh.dir(t))
+					dir := sh.dir(t)
+					paths = append(paths, dir)
+					args = append(args, "--dir="+dir)
 				}
 
 				var out, errb bytes.Buffer
@@ -94,8 +81,10 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 				stderr, text := errb.String(), out.String()+errb.String()
 				body := reportBody(text)
 
+				var class string
 				switch {
 				case strings.Contains(text, "USAGE:"):
+					class = "usage"
 					// 注意读的是**未截断**的 `text`：`reportBody` 恰恰会在 "USAGE:" 处截断，
 					// 于是用它去找用法文本永远找不到——初版正是这么写的，
 					// 这一格只能掉进"其它"桶里被兜住（判据的另一条腿替它报了警）。
@@ -104,28 +93,40 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 						"either the argument table cannot reach it, or it stopped accepting --dir:\n%s",
 						firstLine(text))
 				case code == 0:
+					class = "ok"
 					counts["ok"]++
 					oks = append(oks, spec.Name+"/"+sh.name)
 					okByCmd[spec.Name]++
 				case strings.TrimSpace(text) == "":
+					class = "silent"
 					counts["silent"]++
 					t.Errorf("exited %d without saying anything — a silent failure is the hardest kind to debug", code)
 				case reErrPrefix.MatchString(stderr):
+					class = "error"
 					counts["error-text"]++
 					if !strings.Contains(stderr, "hint:") {
 						t.Errorf("this error gives no next step:\n%s", stderr)
 					}
 				case strings.Contains(body, failMark):
+					class = "report"
 					counts["report"]++
 					if len(reActionLine.FindAllString(body, -1)) == 0 {
 						t.Errorf("this failing report lists items (`%s`) but says nothing about what to do next:\n%s",
 							failMark, text)
 					}
 				default:
+					class = "unclassified"
 					counts["unclassified"]++
 					t.Errorf("this output fits none of the known channels (error text / report / usage / silent) — "+
 						"a new channel is a decision someone has to make consciously:\n%s", firstLine(text))
 				}
+				// 签名里**不能有这一轮自己造出来的路径**（v0.43 那条教训，v0.51 收成一个 helper）。
+				// 签名用的是**整份归一化文本**，不是首行：实测首行太浅——
+				// 五种"清单有问题"的形状首行都是同一句 `invalid <path>ngm.json`，
+				// 区分它们的内容在后面几行（或 hint 行）。
+				sigCell := spec.Name + "=" + class + "|" +
+					strings.TrimSpace(normalizeRunPaths(t, text, paths...))
+				shapeSig[sh.name] = append(shapeSig[sh.name], sigCell)
 			})
 		}
 	}
@@ -139,6 +140,49 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 	}
 	if counts["unclassified"] != 0 {
 		t.Fatalf("%d run(s) fell outside every known channel (%v)", counts["unclassified"], counts)
+	}
+
+	// v0.65：**每一列（形状）都要有自己的证据**。
+	//
+	// 上面那些是**全局**下限（`error-text ≥ 40`）——它们回答"矩阵整体还在动吗"，
+	// 回答不了"**这一列**还在动吗"：新增一个形状、而它的夹具其实合法（或与另一列等价），
+	// 矩阵照样绿，覆盖照样是"8 形状 × N 命令"那么好看 ✗。
+	// 于是按列比较（签名 = 每格的"通道 + 第一行"，路径已归一化）：
+	//
+	//	① 这一列至少要有一格真的**走到配置层**（不是全退 0 / 全用法 / 全静默）；
+	//	② 这一列的签名不能与另一列**完全相同**——那样它只是噪声。
+	{
+		seen := map[string]string{} // 签名 → 第一个用它的形状
+		for _, sh := range shapes {
+			sig := shapeSig[sh.name]
+			if len(sig) == 0 {
+				t.Errorf("形状 %q 没有任何一格可比较——矩阵根本没跑它", sh.name)
+				continue
+			}
+			reached := 0
+			for _, cell := range sig {
+				if strings.Contains(cell, "=error|") || strings.Contains(cell, "=report|") {
+					reached++
+				}
+			}
+			if reached == 0 {
+				t.Errorf("形状 %q 没有任何命令在它上面走到配置层（全退 0 / 全用法 / 全静默）——"+
+					"这一列没在测东西：夹具可能其实合法，或者参数表够不到它", sh.name)
+			}
+			key := strings.Join(sig, "\n")
+			if other, dup := seen[key]; dup {
+				// 出口只有两个：改夹具让这一列落到别的分支上，或者在 shapeEquivalents
+				// 里写下"为什么两列必须都在"。**没有"忍着"这个选项**——它会静默地把噪声
+				// 算成覆盖。
+				if why, ok := shapeEquivalents[sh.name]; ok && why != "" {
+					continue
+				}
+				t.Errorf("形状 %q 与 %q 的**每一格**输出都完全相同——对这张网的判据"+
+					"（通道 + 下一步）而言它们是同一列：要么改夹具让它落在别的分支上，"+
+					"要么在 shapeEquivalents 里写下为什么两列必须都在", sh.name, other)
+			}
+			seen[key] = sh.name
+		}
 	}
 
 	// 退 0 的格子**不受任何通道契约约束**——若它们悄悄攒起来，
@@ -196,6 +240,57 @@ func manifestDir(t *testing.T, body string) string {
 	}
 	return d
 }
+
+// configErrorShapes 是**配置错误形状**这一轴（v0.65 从测试函数里提出来）。
+//
+// 提出来有两个理由：
+//
+//  1. 它是一根**轴**——"命令 × 形状"那张矩阵的一半。藏在函数体里时，
+//     它既不能被别的判据引用，也看不出自己需要哪条守卫；
+//  2. v0.65 给它加了守卫（见测试里的 shapeSig 段）：每一列必须有**自己的证据**——
+//     至少要有一格走到配置层，且签名不能与另一列完全相同。
+//     于是"新增一个形状而它其实什么都没测到"会红，而不是**静默地把覆盖数字撑大**。
+var configErrorShapes = []struct {
+	name string
+	dir  func(t *testing.T) string
+}{
+	{"dir-missing", func(t *testing.T) string { return filepath.Join(t.TempDir(), "nope") }},
+	{"no-manifest", func(t *testing.T) string { return t.TempDir() }},
+	{"manifest-broken-json", func(t *testing.T) string { return manifestDir(t, "{") }},
+	{"manifest-without-a-name", func(t *testing.T) string {
+		return manifestDir(t, `{"runtime":"node"}`)
+	}},
+	// 注意这两条都写全了**必填字段**（name + version）：v0.65 的按列守卫发现它们
+	// 从前都停在更早的一处校验上（`version is required`）——两条夹具的输出**逐格相同**，
+	// 也就是说它们谁都没有测到名字里写的那个缺陷 ✗。夹具缺字段时，失败会发生在**别处**，
+	// 而矩阵照样绿：这正是"每一列都要有自己的证据"存在的理由。
+	{"manifest-with-an-unknown-runtime", func(t *testing.T) string {
+		return manifestDir(t, `{"name":"github.com:x/app","version":"1.0.0","runtime":"cobol"}`)
+	}},
+	{"manifest-with-a-dependency-without-a-name", func(t *testing.T) string {
+		return manifestDir(t, `{"name":"github.com:x/app","version":"1.0.0","runtime":"node",`+
+			`"dependencies":[{"ref":"v1","refType":"tag"}]}`)
+	}},
+	{"manifest-with-a-mistyped-dependencies-field", func(t *testing.T) string {
+		return manifestDir(t, `{"name":"github.com:x/app","runtime":"node","dependencies":"nope"}`)
+	}},
+	{"lock-is-broken-json", func(t *testing.T) string {
+		// 这一条需要一个**合法项目**再加一个坏锁（夹具仍然很便宜：不起 git）。
+		p := newProject(t)
+		writeSurfaceFile(t, p, "ngm.lock", "{")
+		return p
+	}},
+}
+
+// shapeEquivalents 是**具名等价**：某一列与另一列逐格相同时，为什么它还得在。
+//
+// 目前**为空**——v0.65 立这条守卫时它当场抓出两列等价（`manifest-with-an-unknown-runtime`
+// 与 `manifest-with-a-dependency-without-a-name`），而那两列的真相是**夹具少了必填字段**：
+// 它们都停在更早的 `version is required` 上，谁都没有测到名字里写的缺陷 ✗。
+// 处置是**修夹具**，不是登记等价——这个出口留给"两列确实各有前置条件"那种情形。
+//
+// 每条都必须写 why（空串等于没登记）。
+var shapeEquivalents = map[string]string{}
 
 // matrixArgs 给每个命令一份"语法上够用"的参数，好让它走到**配置层**。
 //
