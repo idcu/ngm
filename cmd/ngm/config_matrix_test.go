@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,11 +123,11 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 						"a new channel is a decision someone has to make consciously:\n%s", firstLine(text))
 				}
 				// 签名里**不能有这一轮自己造出来的路径**（v0.43 那条教训，v0.51 收成一个 helper）。
-				// 签名用的是**整份归一化文本**，不是首行：实测首行太浅——
-				// 五种"清单有问题"的形状首行都是同一句 `invalid <path>ngm.json`，
-				// 区分它们的内容在后面几行（或 hint 行）。
-				sigCell := spec.Name + "=" + class + "|" +
-					strings.TrimSpace(normalizeRunPaths(t, text, paths...))
+				// 签名 = 这张网**自己承诺的可分辨面**（通道 · 退出码 · hint · 行动行），
+				// 不是输出全文：全文里有平台相关的写法（文件系统错误文本、路径形态），
+				// v0.65 的第一版正是用全文比较，于是在 ubuntu / macos 上把两列判成了等价 ✗
+				// （本机 Windows 不红）——而那三个 job 一红，事情就说不清了。
+				sigCell := spec.Name + "=" + outcomeSignature(t, normalizeRunPaths(t, text, paths...), class, code)
 				shapeSig[sh.name] = append(shapeSig[sh.name], sigCell)
 			})
 		}
@@ -161,7 +163,7 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 			}
 			reached := 0
 			for _, cell := range sig {
-				if strings.Contains(cell, "=error|") || strings.Contains(cell, "=report|") {
+				if reReachedConfigLayer.MatchString(cell) {
 					reached++
 				}
 			}
@@ -174,7 +176,12 @@ func TestV37EveryCommandUnderEveryConfigErrorUsesItsChannel(t *testing.T) {
 				// 出口只有两个：改夹具让这一列落到别的分支上，或者在 shapeEquivalents
 				// 里写下"为什么两列必须都在"。**没有"忍着"这个选项**——它会静默地把噪声
 				// 算成覆盖。
+				//
+				// 登记按**两个方向**认（哪一列先被遍历到不该决定这条登记有没有生效）。
 				if why, ok := shapeEquivalents[sh.name]; ok && why != "" {
+					continue
+				}
+				if why, ok := shapeEquivalents[other]; ok && why != "" {
 					continue
 				}
 				t.Errorf("形状 %q 与 %q 的**每一格**输出都完全相同——对这张网的判据"+
@@ -282,6 +289,32 @@ var configErrorShapes = []struct {
 	}},
 }
 
+// outcomeSignature 把一个决策节点压成这张网**自己承诺的可分辨面**：
+//
+//	通道（错误文本 / 报告 / 用法 / 静默） · 退出码 · `hint:` 行 · 行动行
+//
+// **不含消息全文**：全文里有平台相关的写法（文件系统错误文本、路径形态、大小写），
+// 拿它当签名会在一个平台上判出"等价"、在另一个平台上不判 ✗——而跨平台的红
+// 最难查（日志要管理员权限，本机又复现不出来）。
+//
+// 这正是这张网对用户的承诺本身："通道 + 下一步"。两列在这四项上完全一致时，
+// 用户看不出区别，判据也看不出区别——那时该做的是修夹具，或者在
+// `shapeEquivalents` 里写下为什么两列必须都在。
+func outcomeSignature(t *testing.T, text, class string, code int) string {
+	t.Helper()
+	hint, action := "", ""
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "hint:") {
+			hint = strings.TrimSpace(line)
+			break
+		}
+	}
+	if m := reActionLine.FindString(text); m != "" {
+		action = m
+	}
+	return strconv.Itoa(code) + "/" + class + "|" + hint + "|" + action
+}
+
 // shapeEquivalents 是**具名等价**：某一列与另一列逐格相同时，为什么它还得在。
 //
 // 目前**为空**——v0.65 立这条守卫时它当场抓出两列等价（`manifest-with-an-unknown-runtime`
@@ -290,7 +323,26 @@ var configErrorShapes = []struct {
 // 处置是**修夹具**，不是登记等价——这个出口留给"两列确实各有前置条件"那种情形。
 //
 // 每条都必须写 why（空串等于没登记）。
-var shapeEquivalents = map[string]string{}
+//
+// 第一条（v0.65，把签名从"输出全文"改成"通道 + 退出码 + hint + 行动行"之后才现形）：
+// `no-manifest` 与 `dir-missing` 落在**同一个 not-found 分支**上——对一个用户来说，
+// "目录不存在"与"目录在、清单不在"给出的是同一句话与同一个下一步 ✓。
+// 保留两者是为了钉住前置条件（前者还顺带说明"目录里什么都没有"也是一种合法起点），
+// 因此这是一条**具名等价**，而不是噪声。
+var shapeEquivalents = map[string]string{
+	"no-manifest": "与 `dir-missing` 同落在 not-found 分支（同一句错误 + 同一个下一步）；" +
+		"保留它是为了钉住另一个前置条件：目录存在、但里面没有 ngm.json",
+	"manifest-with-a-mistyped-dependencies-field": "与 `manifest-broken-json` 同落在**解码失败**分支" +
+		"（同一句错误 + 同一个下一步）；两个形状各钉一种解码失败：语法坏 vs 类型不匹配",
+}
+
+// reReachedConfigLayer 从签名格里认"这一格真的走到了配置层"。
+//
+// 签名格的形状是 `<命令>=<退出码>/<通道>|…`（见 outcomeSignature）——
+// 用正则而不是字符串包含：v0.65 的第一版写成 `strings.Contains(cell, "=error|")`，
+// 而格式一换成 `<码>/<通道>` 它就再也匹配不上，于是**每一列都被报成"没在测东西"** ✗
+// （形状变了、判据没跟上——本项目的常见坑之一）。
+var reReachedConfigLayer = regexp.MustCompile(`=\d+/(error|report)\|`)
 
 // matrixArgs 给每个命令一份"语法上够用"的参数，好让它走到**配置层**。
 //
