@@ -139,6 +139,12 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV71AdrIndexCoversEveryAdrFile": {
+		what: "ADR 索引必须与 `docs/adr/` 的文件集双向对账：每文件恰好一行、链接存在、3 列、编号连续",
+		why: "v0.70 修掉的缺陷就是这条判据的缺席——ADR-025 的行缺失、ADR-024 重复、" +
+			"ADR-026 的行与之粘连，挂了数版没有任何东西变红；索引行靠手抄，而手抄必然漂移",
+		source: "文件集来自 `docs/adr/adr-*.md`（`os.ReadDir(`）；索引行来自 `docs/adr/README.md` 的表格（`readDoc(`）",
+	},
 	"TestV63MilestoneTablesListEveryVersionExactlyOnce": {
 		what: "逐版表：每个版本恰好一行、升序、连续到最新",
 		why: "版本集**派生**自 `docs/development/` 的复盘文件名（与 v0.58 同源）；" +

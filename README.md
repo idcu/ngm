@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.70 delivered in source**, and all seventy tags `v0.1.0` … `v0.70.0` exist.
+Status: **v0.1 … v0.71 delivered in source**, and all seventy-one tags `v0.1.0` … `v0.71.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -24,13 +24,13 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **60 of 70** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | **3 of 70** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
+| GitHub | **60 of 71** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 71** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
 
 New versions are released by the tag push itself, and that path has now worked fifty-six times
 (`v0.9.0` … `v0.29.0`) — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those sixty-seven historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those sixty-eight historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -310,6 +310,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.68 | taking out the four redundant spawns: the install path used to spend **six** git subprocesses per dependency on the digest — computing it once, re-computing it inside `Put`, and then `Put`'s own `ls-tree` + `cat-file` — while a cross-layer diamond (A→C and A→B→C) re-resolved C entirely, including a real fetch. This version introduces `git.ArchiveMaterial` (entries + contents + manifest records + digest, computed once) with `BuildArchive` reduced to a thin wrapper over it, so the optimised path and the old path cannot compute differently; `Put` accepts the material optionally (**0 spawns**) and still verifies the two identity fields (commit and digest), while `installFromLock` deliberately keeps re-computing — what gets saved is duplicated *work*, not duplicated *checking*; and `ResolveGraph` now reconciles against `seen` before resolving. Every claim is asserted with counters, not stopwatches: `Put(±material)` 0/2 spawns, `install(fresh, one dependency)` 10 → 6, and the diamond's leaf resolved once instead of twice | delivered · released |
 | v0.69 | opening the one market that pays for provability: `ngm sbom` exports the lock as **CycloneDX 1.5** (default) or **SPDX 2.3** — every dependency with its commit, its `archiveDigest` and a git purl. It reads the lock only (no network, no re-resolution, no writes), and its determinism is deliberate: the exporter sorts components itself, the SPDX document namespace is derived from a content hash rather than a random UUID, and the timestamp is the single non-deterministic field the way `resolvedAt` is in the lock. It refuses to guess: licences and copyright are `NOASSERTION` and `filesAnalyzed` is false — inventing a file list to satisfy a schema is the most common way an SBOM ends up lying. The most informative part of the version is what the existing contract nets did to a new command without being asked: the config matrix failed on "argument table has 21 entries but there are 22 commands", the exit-code ledger demanded evidence for all three declared codes, the code-source registry claimed the new "could not write the report" exit, and the docs net demanded usage text and a command-table row | delivered · released |
 | v0.70 | attaching the predicate layer without inventing a signing system: `ngm attest` exports the lock as an **unsigned** in-toto Statement v1 whose predicate is SLSA provenance v1 — subjects are git purls carrying each dependency's `archiveDigest`, external parameters are the byte-level sha256 of `ngm.json` and `ngm.lock`, and materials are the pinned commits. ADR-027 answers what/who/verify up front: signing stays with the user or CI (`cosign attest-blob`), because a signature proves *who said it*, never *whether it is true*. Determinism comes first — there is no timestamp and the invocation id is the lock's own hash, so two exports of one lock are byte-identical and can be diffed before signing. The digest-scope annotation states in the data itself that the hash is over the canonical manifest, not the tarball | delivered · released |
+| v0.71 | retiring the hand-copied ADR index: a new net (`TestV71AdrIndexCoversEveryAdrFile`) reconciles `docs/adr/README.md` against the actual `docs/adr/adr-*.md` set in both directions — exactly one row per file, every link resolves, exactly three columns per row, and gapless numbering (the discipline: superseded, never deleted). This is the direct payoff of the defect fixed in v0.70 (a missing row, a duplicate row and a fused row that had survived unnoticed for several releases). The tooth was tested by duplicating a row: the net went red naming the file and the count. Product code: zero lines; ADR-027 also gained a runnable CI snippet for the attest → cosign → verify path | delivered · released |
 
 ---
 

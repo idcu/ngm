@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.70 均已交付**；**`v0.1.0` ~ `v0.70.0` 七十个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.71 均已交付**；**`v0.1.0` ~ `v0.71.0` 七十一个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -112,6 +112,7 @@
 > | v0.68 | [计划](./v0.68-plan.md) | [复盘](./v0.68-retrospective.md) | **把重复的那 4 个 spawn 拿掉**（评估第 2 层）：修复前 install 的 digest 阶段每依赖 **6 个 git 子进程**（自己算一遍 + `Put` 内部再算一遍 + `Put` 自己的 `ls-tree`/`cat-file`——同一份 (mirror, commit) 的树与内容读两遍）；跨层菱形（A→C 且 A→B→C）里 C 被完整重复解析（含一次真实 fetch）。处置：`git.ArchiveMaterial`（条目 + 内容 + 清单记录 + digest，一次算出）+ `BuildArchive` 退化为它的薄包装（**不允许两条路径各算各的**）；`Put` 接受可选材料（`json:"-"`）时 0 spawn、不带材料时 **4 → 2**，且**仍核对 Commit/Digest 身份字段**；`installFromLock` **刻意保留重算**（那是"lock 声明值 vs 实际内容"的唯一检测）；`ResolveGraph` 改为**先与 `seen` 对账再解析**（来源合并与冲突检测仍在原处发生）。判据全是**计数器不是秒表**（`git.SpawnCount`）：`Put(±material)` **0 / 2** · `install(fresh,1)` **10 → 6** · 菱形叶子解析 **2 → 1**（`RequiredBy` 两条来源不丢）。**产品代码 4 个文件**；一条一般的话：**省掉的是重复的劳动，不是重复的检查** | |
 > | v0.69 | [计划](./v0.69-plan.md) | [复盘](./v0.69-retrospective.md) | **打开唯一愿意付钱的市场：SBOM 导出**（评估第 3 层）：新增 `ngm sbom`——从 `ngm.lock` 导出 **CycloneDX 1.5**（默认）/ **SPDX 2.3**，每个依赖带 commit、`archiveDigest`（规范化清单哈希，ADR-008，SPDX 的 comment 里写明**不是 tarball 哈希**）与 git purl（子路径进 `#subpath` 段）。**只读 lock**：不触网、不重解析、不写项目。**确定性**：组件顺序由导出器自己排序（不信任调用方）· SPDX 的 `documentNamespace` 由内容哈希派生（不是随机 UUID——同一份 lock 必须导同一个命名空间）· **时间戳是唯一非确定字段**。**不猜**：许可证/版权 `NOASSERTION`、`filesAnalyzed: false`（"编一份文件清单只为过 schema"是 SBOM 最常见的失真来源）。**本版最有信息量的部分是四张既有契约网对"新命令"的接管**：V37 的配置矩阵当场 Fatal（"参数表 21 项，命令 22 个"）· V22 要求 0/3/6 三个码各给实测或登记（6 走 `TestV22StdoutWriteFailureIsMeasured/sbom` 指针）· V57 登记新的"写不出去"出口 · V19/V15 要求用法文本与命令表——**一个命令要"完整地存在"，这四问一个都不能少**。**产品代码新增 5 个文件 + 4 处登记**；一条一般的话：**能翻译的先翻译，要设计的先设计**（同一层里的 attestation 因此明确留待 ADR） | |
 > | v0.70 | [计划](./v0.70-plan.md) | [复盘](./v0.70-retrospective.md) | **接一层谓词：attestation（不做签名）**（评估第 3 层第二条）：新增 `ngm attest` + [ADR-027](../adr/adr-027-attestation.md)。形态：**单个** in-toto Statement v1（多 subject，谓词 SLSA provenance v1）——subject = 依赖的 git purl + `archiveDigest`（注解 `ngm/digest-scope` 写明它是**清单**哈希、不是 tarball 的）；外部参数 = `ngm.json`/`ngm.lock` 的**字节** sha256；materials = commit（`gitCommit`）+ 声明的 ref。**未签名是刻意的**：签名证明"谁说的"、不证明"说的是真的"（ADR-014 的论证不变），用 `cosign attest-blob` 在 CI 里现场签。**确定性优先**：无时间戳、`invocationId` = lock 的哈希——比规范建议的"唯一 id"多换到一条性质（两处字节可比对），代价与理由写进 ADR。搬移：lock → 导出条目的映射进 `internal/sbom/entries.go`（`FromLock`/`Sort`），两种出口共用同一处规则。**10 组断言** + 四张网登记；顺手修复 ADR 索引的既有缺陷（一行缺失/一行重复/一行粘连）。一条一般的话：**规范的建议不是不可以偏离，但必须写清换到了什么** | |
+> | v0.71 | [计划](./v0.71-plan.md) | [复盘](./v0.71-retrospective.md) | **让 ADR 索引不再靠手抄**（v0.70 复盘候选 1）：新增判据 `TestV71AdrIndexCoversEveryAdrFile`——文件集（`docs/adr/adr-*.md`，`os.ReadDir` 派生）× 索引行（`docs/adr/README.md` 表格）双向对账：每文件恰好一行（缺失/重复各自的消息）· 链接必须存在 · 每行 3 列（"两行粘成一格"最先坏的就是列数）· 编号连续（纪律是"被取代也不删除"，缺口只该来自文件丢失）。**牙齿实测**：复制 ADR-027 行 ⇒ 红并点名；恢复 ⇒ 绿。**产品代码 0 行**；ADR-027 补 CI 消费路径（候选 3）。**流程纪律从本版起：交付即提交、提交即打 tag**——一个提交一个 tag，不再积批。一条一般的话：**守卫的价值由它的失败证明，不由它的通过证明** | |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -570,7 +571,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > [v0.6 复盘 §5.4](./v0.6-retrospective.md)。
 4. **把这 7 个文件从 GitHub release 上传到 Gitee 发行版**（在 Gitee 无 API token 时，这是最短且最稳的路径）。
    上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
-   **（2026-10-04：本步对历史版本暂缓——缺 67 个；新版本发布时仍然照做，恢复信号见本文开头。）**
+   **（2026-10-04：本步对历史版本暂缓——缺 68 个；新版本发布时仍然照做，恢复信号见本文开头。）**
 5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）
 6. **读一次 Gitee 侧的状态**（**v0.12 追加**）——它此前**没有读数**，而"两个源都可取到"
    那句错话正是从这条空白里长出来的：
@@ -595,7 +596,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > 那会让 CI 多出一类与代码无关的噪音。**触发条件**：补发恢复后，
    > 或它在 CI 上被证明稳定（例如接一个只读的 Gitee token）。
 
-   > ⚠️ **暂缓期间它报"缺 67 个"是预期的**（见本文开头）：这个读数的用途不是催办，
+   > ⚠️ **暂缓期间它报"缺 68 个"是预期的**（见本文开头）：这个读数的用途不是催办，
    > 而是让"两个源到底有什么"永远有一个不需要信任谁的答案。
 
 > **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/upload-gitee-assets.ps1`）：

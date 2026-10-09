@@ -95,6 +95,25 @@ cosign verify-blob-attestation --type slsaprovenance \
 **在 CI 里现场生成并签**（而不是提交后再签）时，签名者的时间戳与身份正好补上
 语句刻意不写的两样东西：何时、谁。
 
+一条可跑的 CI 路径（GitHub Actions 节选；具体 flag 以你所用 cosign 版本的文档为准）：
+
+```yaml
+- name: vendor + attest + sign
+  run: |
+    ngm install
+    ngm attest --out=ngm.attestation.json
+    cosign attest-blob --yes --type slsaprovenance \
+      --predicate ngm.attestation.json ngm.lock
+```
+
+两个值得说破的点：
+
+- `ngm attest` 是**确定性**的：同一份 lock 在本地与 CI 里导出的语句**逐字节相同**——
+  所以"我先在本地看一遍要签什么"与"CI 里实际签了什么"可以 diff，签名前没有惊喜；
+- 签名之后，这份 blob attestation 的**归属与时间**由签名者（及其透明日志）提供，
+  消费方用 `cosign verify-blob-attestation` 加上**自己的**身份策略来验——
+  ngm 在这条链里的责任到"把要签的事实算准、写全"为止，到此为止是刻意的。
+
 ### 3. 验什么 —— 与 `ngm verify` 正交，互不替代
 
 | | `ngm verify` | 本 ADR 的语句 + 签名 |
