@@ -19,7 +19,6 @@ package sbom
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -132,15 +131,8 @@ func Build(project Project, entries []Entry, opts Options) ([]byte, error) {
 			"supported formats: "+formatList())
 	}
 	// 排序必须在这里做，而不是信任调用方：两种格式的**所有** ID/引用
-	// 都派生自顺序，顺序不确定 ⇒ 整份文档不确定。
-	sorted := make([]Entry, len(entries))
-	copy(sorted, entries)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i].Slug != sorted[j].Slug {
-			return sorted[i].Slug < sorted[j].Slug
-		}
-		return sorted[i].SubPath < sorted[j].SubPath
-	})
+	// 都派生自顺序，顺序不确定 ⇒ 整份文档不确定（实现在 Sort，v0.70 起两处共用）。
+	sorted := Sort(entries)
 
 	var doc any
 	switch opts.Format {

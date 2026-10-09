@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.65 delivered in source**, and all sixty-five tags `v0.1.0` … `v0.65.0` exist.
+Status: **v0.1 … v0.70 delivered in source**, and all seventy tags `v0.1.0` … `v0.70.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -24,13 +24,13 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **60 of 65** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | **3 of 65** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
+| GitHub | **60 of 70** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 70** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
 
 New versions are released by the tag push itself, and that path has now worked fifty-six times
 (`v0.9.0` … `v0.29.0`) — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those sixty-two historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those sixty-seven historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -59,6 +59,36 @@ mechanical "declared but not wired" config check.
 
 See [`docs/development/`](./docs/development/) for the per-version plans and retrospectives —
 including the performance targets that were **not** met at first (`verify` at 100 dependencies).
+
+---
+
+## Why ngm — and when you should not use it
+
+**The strongest argument for ngm did not come from us.** On 2026-01-26 Koi Security disclosed
+**PackageGate**: six zero-days across npm / pnpm / vlt / Bun. The npm one was exactly this —
+**a malicious `.npmrc` inside a Git dependency can override the git binary path, achieving code
+execution even with `--ignore-scripts`**. pnpm fixed it in 2 weeks, vlt in 8 days, Bun in 3.
+**npm closed the report as "works as expected"** — *"users are responsible for reviewing the
+packages they install"*.
+
+npm's own threat model — *a Git dependency is an under-estimated attack surface* — is ngm's product
+thesis. This exact path cannot exist here, and each row is checkable against the code:
+
+| The attack needs | ngm provides |
+|---|---|
+| the dependency's `.npmrc` to be **interpreted as configuration** | ngm parses no npm configuration, anywhere. A `.npmrc` inside a dependency is just a file: it goes into the `archiveDigest`, it is vendored, it is never interpreted |
+| a script inside the dependency to run on install | postinstall hooks are **denied by default**; when explicitly allowed they run only inside a Deno sandbox (no network, no run, writes never granted) |
+| the dependency to change *which git* runs | `git` is launched from exactly one place, gated by the `run:git` permission; no config key can replace the binary |
+
+Run [`scripts/packagegate-demo.sh`](./scripts/packagegate-demo.sh) to watch it yourself — the demo
+asserts; it does not ask you to trust a table.
+
+**When you should use ngm**: your dependencies are Git repositories — private forks, upstreams you
+must trace to a commit, audit deliverables that need reproducible content — and you want the lock
+file to be a *proof* rather than a *cache key*.
+**When you should not**: you only consume packages from a registry. pnpm / npm / Yarn / Bun serve
+that case better, and ngm deliberately does not manage registry packages. The full honest version
+(both directions) is in [`docs/README.md`](./docs/README.md#诚实版劣势与边界).
 
 ---
 
@@ -275,6 +305,11 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.63 | registering an action is not the same as the action landing: this version overturns one of its predecessor's own conclusions (the "dead hook" was wired all along — the consumer sits in `testenv_test.go`'s `init()`), so the four engine commands moved into the measured set once the fixture gained the one line it lacked (isolating the user environment). It also found, and repaired, four living documents whose per-version tables had been scrambled by the very act of registering a row — rows inserted in reverse, a whole range losing its row framing, one range descending, one row never landing at all — and added the missing judgement: the version set is derived from the retrospective filenames, any document reaching the newest version must declare where its table starts, and after that start every version appears exactly once, in ascending order, up to the latest | delivered · released |
 | v0.64 | a hand-maintained list becomes a derived one: `schemaFiles` (the schema files a coverage check scans) carried its own confession — "add it here when you add a schema; forgetting makes the check *looser*, silently". Three gates now derive it: the config-file table in `configuration.md`, the name appearing on a **code line** as an assignment or a `filepath.Join` argument (the definer resolves the path; a consumer only mentions it), and the file actually declaring json-tagged fields. Two counterexamples fix the shape: `verify/graph.go` names `ngm.json` in a const but is a *reader* of an upstream manifest (no tags), and `lock/schema.go` has eleven tags but names `ngm.lock` (not a `.json`, not in the doc's table). Derived set equals the hand-written three, and both directions are asserted — a missing entry and a stale entry each turn it red | delivered · released |
 | v0.65 | every column of the matrix has to carry its own evidence: V37's eight config-error shapes and V39's two argument dimensions were hoisted out of the function body into named axes, and each column now has to (a) reach the configuration layer at least once and (b) differ from every other column — the signature being the per-cell channel plus the *whole normalised* output, with equivalence allowed only as a named registration. The guard's first run caught two **existing** columns: two fixtures produced byte-identical output for every command, because both stopped at an earlier validation ("version is required") — they were not testing the defect their names claimed. The fix was to repair the fixtures, not to register an equivalence | delivered · released |
+| v0.66 | closing the holes that undermined the promises: this version's scope comes from an external line-by-line assessment rather than a candidate list, so for the first time the input is *defects that exist* rather than *capabilities that are missing*. All five P1s are fixed — the graph-resolution `ls-remote` now goes through the `run:git` gate (asserted by exit code **and** a spawn count of zero), symlink targets and manifest paths are checked for escapes before materialisation (reported as critical by `verify`, and the pre-check runs *before* the old tree is cleaned), short commits are expanded via `rev-parse` inside the mirror so what gets locked is what can be read back, the `write:` namespace gets honesty instead of a dead `CheckWrite` (deleted, with the two places that state the verdict aligned), and `internal/verify` gets its first in-package tests (exit-code precedence, aggregation, advice selection, meta comparison, escaping symlinks). P2/P3 in the same files: a path `@` is no longer stripped as userinfo (it used to resolve to a *different repository*); the OSV client gets a 30s timeout and a severity parser that understands the real schema without ever dropping an advisory; `mergeProject` returns a copy; global-mode mappings stop failing their own validation; `store prune` gains an age guard and refuses `--older-than=0`; and the shallow check's boundary is now *stated* in the summary line. `AssertNoSecrets` is finally wired in, `FetchMirrorTags` is gone, install fetches only when it must (asserted with a FETCH_HEAD probe), and install/update grow `--json`. A probe run during the version found one more pre-existing gap — the empty `--dir=` rejection carried no error envelope — now fixed | delivered · released |
+| v0.67 | playing the PackageGate card: in January 2026 Koi Security disclosed **PackageGate** — six zero-days across npm / pnpm / vlt / Bun, where npm's entry was exactly *"a malicious `.npmrc` inside a Git dependency can override the git binary path, achieving code execution even with `--ignore-scripts`"* — and npm closed the report as "works as expected". That is the strongest external validation this project's thesis has ever received, and no page here mentioned it. This version writes it down in the competitive analysis (with the three checkable reasons the path cannot exist in ngm: zero mentions of `.npmrc` in the codebase, postinstall denied by default and sandboxed otherwise, a single git construction point behind the `run:git` gate), adds a "why you should use ngm — and when you should not" section to both READMEs, and ships a runnable comparison demo (`scripts/packagegate-demo.sh`, with a Windows entry point that delegates to the same implementation). The demo's fixture only writes marker files — it is a comparison, not an attack — and its ngm-side assertions all pass; the npm side is observation-only, because npm builds differ (this machine's npm refuses git-typed dependencies outright with `EALLOWGIT`). The tooth: breaking the fixture turns the assertion red and exits 1 | delivered · released |
+| v0.68 | taking out the four redundant spawns: the install path used to spend **six** git subprocesses per dependency on the digest — computing it once, re-computing it inside `Put`, and then `Put`'s own `ls-tree` + `cat-file` — while a cross-layer diamond (A→C and A→B→C) re-resolved C entirely, including a real fetch. This version introduces `git.ArchiveMaterial` (entries + contents + manifest records + digest, computed once) with `BuildArchive` reduced to a thin wrapper over it, so the optimised path and the old path cannot compute differently; `Put` accepts the material optionally (**0 spawns**) and still verifies the two identity fields (commit and digest), while `installFromLock` deliberately keeps re-computing — what gets saved is duplicated *work*, not duplicated *checking*; and `ResolveGraph` now reconciles against `seen` before resolving. Every claim is asserted with counters, not stopwatches: `Put(±material)` 0/2 spawns, `install(fresh, one dependency)` 10 → 6, and the diamond's leaf resolved once instead of twice | delivered · released |
+| v0.69 | opening the one market that pays for provability: `ngm sbom` exports the lock as **CycloneDX 1.5** (default) or **SPDX 2.3** — every dependency with its commit, its `archiveDigest` and a git purl. It reads the lock only (no network, no re-resolution, no writes), and its determinism is deliberate: the exporter sorts components itself, the SPDX document namespace is derived from a content hash rather than a random UUID, and the timestamp is the single non-deterministic field the way `resolvedAt` is in the lock. It refuses to guess: licences and copyright are `NOASSERTION` and `filesAnalyzed` is false — inventing a file list to satisfy a schema is the most common way an SBOM ends up lying. The most informative part of the version is what the existing contract nets did to a new command without being asked: the config matrix failed on "argument table has 21 entries but there are 22 commands", the exit-code ledger demanded evidence for all three declared codes, the code-source registry claimed the new "could not write the report" exit, and the docs net demanded usage text and a command-table row | delivered · released |
+| v0.70 | attaching the predicate layer without inventing a signing system: `ngm attest` exports the lock as an **unsigned** in-toto Statement v1 whose predicate is SLSA provenance v1 — subjects are git purls carrying each dependency's `archiveDigest`, external parameters are the byte-level sha256 of `ngm.json` and `ngm.lock`, and materials are the pinned commits. ADR-027 answers what/who/verify up front: signing stays with the user or CI (`cosign attest-blob`), because a signature proves *who said it*, never *whether it is true*. Determinism comes first — there is no timestamp and the invocation id is the lock's own hash, so two exports of one lock are byte-identical and can be diffed before signing. The digest-scope annotation states in the data itself that the hash is over the canonical manifest, not the tarball | delivered · released |
 
 ---
 

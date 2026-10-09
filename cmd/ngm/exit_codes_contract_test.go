@@ -118,6 +118,8 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "integrations", code: 0, args: []string{"add", "vite"}, setup: setupDep},
 	// v0.69：sbom 读 lock 导出（CycloneDX / SPDX）——有 lock 的项目即可成功。
 	{cmd: "sbom", code: 0, args: nil, setup: setupDep},
+	// v0.70：attest 读同一份 lock 导出 in-toto / SLSA 语句。
+	{cmd: "attest", code: 0, args: nil, setup: setupDep},
 
 	// ---- 1：策略失败（非预期漂移 / 引擎运行失败 / 超阈值漏洞）----
 	{cmd: "verify", code: 1, args: nil, setup: setupDrift},
@@ -158,6 +160,7 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "config", code: 3, args: []string{"validate", "--zz-nope"}, setup: setupMissing},
 	{cmd: "engines", code: 3, args: []string{"list", "--zz-nope"}, setup: setupMissing},
 	{cmd: "sbom", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
+	{cmd: "attest", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 
 	// ---- 4：Git 或网络失败（含 --offline 且资源不在本地）----
 	{cmd: "install", code: 4, args: []string{"--offline"}, setup: setupCold},
@@ -204,6 +207,7 @@ var exitCodeElsewhere = []exitCase{
 	{cmd: "tree", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/tree"},
 	{cmd: "engines", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/engines"},
 	{cmd: "sbom", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/sbom"},
+	{cmd: "attest", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/attest"},
 	{cmd: "verify", code: 5, why: "TestV22DenoIsMissing/verify"},
 	{cmd: "install", code: 5, why: "TestV22DenoIsMissing/install"},
 	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},

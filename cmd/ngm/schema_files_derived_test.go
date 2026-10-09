@@ -126,8 +126,8 @@ var reJSONTagField = regexp.MustCompile("(?m)^\\s*[A-Z][A-Za-z0-9]*\\s+\\S.*?jso
 // 两种形态（都要**跳过纯注释行**——注释里提名字不算：`config.go` 的注释里
 // 写着 `// ProjectFile 是项目根目录的 ngm.json。`，那不是定义）：
 //
-//	X = "ngm.json"                    —— 名字常量（catalog.go / mappings/schema.go）
-//	filepath.Join(…, "ngm.json")      —— 解析路径（config.go 的两处）
+//	X = "ngm.json"                    —— 名字常量（catalog.go / mappings/schema.go / config.go 的 FileName）
+//	filepath.Join(…, "ngm.json")      —— 解析路径（cmd/ngm/env.go 的 ManifestPath 等）
 //
 // 已知边界：`filepath.Join` 的参数若跨行书写，这里看不见——那时判据会走"少了一份"的
 // 分支红一次，作者照它说的把名字写成常量即可（比静默变松好）。

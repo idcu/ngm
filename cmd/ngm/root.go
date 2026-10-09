@@ -58,6 +58,7 @@ var commands = []*commandSpec{
 	{Name: "config", Run: runConfig, Usage: configUsage},
 	{Name: "engines", Run: runEngines, Usage: enginesUsage},
 	{Name: "sbom", Run: runSbom, Usage: sbomUsage},
+	{Name: "attest", Run: runAttest, Usage: attestUsage},
 }
 
 // rootFlags 是根级**唯一**接受的 token（v0.55 立成一张表）。

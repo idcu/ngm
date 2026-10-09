@@ -61,6 +61,10 @@ func TestV22StdoutWriteFailureIsMeasured(t *testing.T) {
 	t.Run("sbom", func(t *testing.T) {
 		measureInternalFailure(t, "sbom", "--dir="+p)
 	})
+	// v0.70：attest 同理（语句算完了，stdout 写不出去）。
+	t.Run("attest", func(t *testing.T) {
+		measureInternalFailure(t, "attest", "--dir="+p)
+	})
 }
 
 // measureInternalFailure 跑一次"写不出去"的命令并要求它退 **6**。

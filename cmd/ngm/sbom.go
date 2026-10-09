@@ -10,7 +10,6 @@ import (
 
 	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
 	"github.com/idcu/ngm/internal/sbom"
 	"github.com/idcu/ngm/internal/version"
 )
@@ -89,7 +88,7 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			"run `ngm install` to resolve dependencies and create the lock"))
 	}
 
-	entries, err := sbomEntries(lf)
+	entries, err := sbom.FromLock(lf)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
@@ -123,30 +122,4 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return errs.CodeInternal.ExitCode()
 	}
 	return 0
-}
-
-// sbomEntries 把 lock 条目映射为 SBOM 条目。
-//
-// canonical 由 slug 归一化而来（`github:x/dep` → `github.com/x/dep`）：
-// purl 与 vcs URL 都需要它，而 lock 里存的只有 slug 与 vendorPath——
-// 后者的根可能与 canonical 不同（global vendor 模式），因此**不用**它推导。
-func sbomEntries(lf *lock.File) ([]sbom.Entry, error) {
-	out := make([]sbom.Entry, 0, len(lf.Dependencies))
-	for i := range lf.Dependencies {
-		d := &lf.Dependencies[i]
-		repo, err := resolve.ParseSlug(d.Name)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sbom.Entry{
-			Slug:      d.Name,
-			Ref:       d.Ref,
-			RefType:   d.RefType,
-			Commit:    d.Commit,
-			Digest:    d.ArchiveDigest,
-			Canonical: repo.String(),
-			SubPath:   d.SubPath,
-		})
-	}
-	return out, nil
 }

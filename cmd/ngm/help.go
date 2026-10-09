@@ -40,6 +40,7 @@ COMMANDS:
   config         配置管理
   engines        引擎管理
   sbom           导出 SBOM（CycloneDX / SPDX，v0.69）
+  attest         导出 in-toto / SLSA v1 语句（未签名，v0.70）
 
 FLAGS:
   --version      输出版本信息（含 git 短哈希与构建时间）

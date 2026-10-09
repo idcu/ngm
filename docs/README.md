@@ -3,10 +3,10 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.65 均已交付**，**`v0.1.0` ~ `v0.65.0` 六十五个 tag 均已打**。
+**当前状态：v0.1 ~ v0.70 均已交付**，**`v0.1.0` ~ `v0.70.0` 七十个 tag 均已打**。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
-**"交付"与"发布"是两件事，这一页把它们分开写**：65 个 tag 里，GitHub 上有 **60 个** release，
+**"交付"与"发布"是两件事，这一页把它们分开写**：70 个 tag 里，GitHub 上有 **60 个** release，
 Gitee 上只有 **3 个**，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-05 **直接问两个源的 API** 得到的，不是本页的记忆
 （Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读）。
@@ -229,6 +229,14 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 
 ### 你可能想用 ngm 的理由
 
+- **你的威胁模型被对手官方"背书"了**（2026-10-09 补）：2026-01 的
+  [PackageGate](./COMPETITIVE-ANALYSIS.md) 披露 npm / pnpm / vlt / Bun 共 6 个零日，
+  其中 **npm 那一条正是"Git 依赖里的恶意 `.npmrc` 覆盖 git 二进制路径 →
+  绕过 `--ignore-scripts` 实现 RCE"**——而 npm 的处置是 **"works as expected"**。
+  这条具体路径在 ngm 上**由构造不可能**：不解析 `.npmrc`（它只是一个被 vendor 的普通文件）·
+  依赖脚本默认不执行 · git 只有一个构造点且受 `run:git` 门禁。
+  [`scripts/packagegate-demo.sh`](../scripts/packagegate-demo.sh) 会**自己断言**地跑给你看
+  （细节与"这不等于免疫全部风险"的边界见[竞品对比](./COMPETITIVE-ANALYSIS.md)）。
 - **Git 依赖需要可证明**：私有 fork、上游 commit 追溯、跨团队可信组件协作
 - **vendor 需要可审计**：离线交付、审计或镜像场景
 - **供应链策略需要统一**（v0.2）：不想在 Git URL、lockfile、校验脚本、SBOM、OSV 之间来回拼接
@@ -326,6 +334,11 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.63 | **登记之后要核对「落地」**：一处错误结论、四张被拼坏的活表、一处插错位置的四行 | **已交付**（[计划](./development/v0.63-plan.md) / [复盘](./development/v0.63-retrospective.md)：起点是 v0.62 的一处**误判**——它说 `testutils.AllowEngines` 是死钩子（`AllowedEngines()` 全仓库没有消费者）✗，而消费者一直在 `testenv_test.go` 的 `init()` 里（`testutils.WriteUserConfig` 的注入实现，由 `isolateUserEnv` 每次换 HOME 时调用）✓；四个引擎命令失败的真因是**夹具少了 `isolateUserEnv` 一行**（命令读真实 HOME ⇒ 无 `run:fake-engine` 授权 ⇒ `permission denied`）；**处置**：① 新测试 `TestV63EngineCommandsAreMeasuredForCodeSix` 把 build · typecheck · css · transform 搬进实测（**码 6 至此无缺口**：V22 elsewhere **10 → 14**、缺口 **7 → 3**、V56 指针 **10 → 14**）＋ 更正活文档与代码注释里那条结论；② 修**四张被"插一行"手法弄坏的活表**（`docs/README.md` 倒序插四行 · v0.58~v0.61 整段消失 · 两行重复；根 `README.md` 与 `docs/development/README.md`、`project-state.md` 同病，后者还缺 v0.62/v0.63 ✗）⇒ 全部升序重建/重排/补齐；③ 新判据 `TestV63MilestoneTablesListEveryVersionExactlyOnce`：版本集从复盘文件名派生，**任何够得到最新版本的活文档都必须声明起点**（否则红），且起点之后**每个版本恰好一行、升序、连续到最新**；牙齿：删一行 ⇒ `缺 1 行`、倒序两行 ⇒ `逐版表要按版本升序`、复制一行 ⇒ `出现了两次`；**产品代码 0 行改动**（本版是更正 + 修复 + 立判据）） |
 | v0.64 | **`schemaFiles` 不再是一份要人记着的清单**（兑现 v0.56 普查那条"漏加 = 检查变松"）：三处闸门把它派生化——文档的配置文件表 × 名字在代码行里"被赋值或被 `filepath.Join` 解析" × 该文件有 json tag 字段 | **已交付**（[计划](./development/v0.64-plan.md) / [复盘](./development/v0.64-retrospective.md)：两条**反例**把形状钉死——`internal/verify/graph.go` 的 `const UpstreamFile = "ngm.json"` 是**读上游清单**的地方（没有 json tag 字段 ⇒ 不进来）、`internal/lock/schema.go` 有 11 个 json tag 字段但命名的是 `ngm.lock`（不是 `.json`、也不在配置表里 ⇒ 不进来）；读数 **3 derived**（`catalog.go` · `config.go` · `mappings/schema.go`）与手写清单逐字相同、文档侧 **4 个名字**；牙齿**双向**：清单少一条 ⇒ `却不在 schemaFiles 里：internal/config/config.go`、多一条 ⇒ `派生不出来：…zz_probe.go`；清单自己那句"这是本检查唯一需要人工维护的地方"同步改掉（**注释里说"这里靠人记着"，就是一个待办**）；**产品代码 0 行改动**） |
 | v0.65 | **矩阵的每一列都要有自己的证据**（兑现 v0.56 普查那条"只有计数下限"）：V37 的 8 个形状提成命名的轴 `configErrorShapes`、V39 的 2 个维度提成 `argumentDimensions`（每个维度自带一句契约） | **已交付**（[计划](./development/v0.65-plan.md) / [复盘](./development/v0.65-retrospective.md)：每列两道断言——① 至少一格**走到配置层** ② 签名（通道 + **整份归一化**输出）**不与其他列相同**（等价只能具名写进 `shapeEquivalents`）；**守卫第一次运行就抓到两列既有的噪声** ✗：`manifest-with-an-unknown-runtime` 与 `manifest-with-a-dependency-without-a-name` **逐格输出完全相同**——真相是夹具**缺必填字段**（`version`），两条都停在更早的 `version is required` 上，**谁都没有测到名字里写的缺陷** ⇒ 处置是**修夹具**（不是登记等价）；签名的两个细节被实测逼出来（**首行太浅**：五种形状首行都是同一句 ⇒ 改整份输出；**不能留临时路径** ⇒ 用 `normalizeRunPaths`）；牙齿如实记两道的强弱：等价那半**真的抓到了东西** ✓，而"至少一格走到配置层"那半对"半坏"夹具恒真（写进注释与复盘，不假装更强）；**产品代码 0 行改动**） |
+| v0.66 | **把动摇承诺的洞补上**（承诺修复版）：范围的事实源是一份[外部逐行评估](internals/assessment-2026-10-09.md)——五条 P1 全部修掉（门禁绕过 · symlink 逃逸 · lock 三连 · `write:` 装饰性 · `internal/verify` 零单测），同一批文件里的 P2/P3 一并收掉 | **已交付**（[计划](./development/v0.66-plan.md) / [复盘](./development/v0.66-retrospective.md)：图解析的 `ls-remote` 补上 `run:git` 门禁（断言 = 报错 **+ spawn 计数为 0**）；symlink 目标与清单 path 落地前预检、verify 报 critical、**预检在清理旧内容之前**；短 commit 在 mirror 里 `rev-parse` 补齐（写进 lock 的必须读得回来）；`write:` 选**诚实化**（删死代码 + 两处裁决对齐，理由写进复盘）；`internal/verify` 首次有包内单测（退出码优先级 / 聚合 / 建议 / meta / 逃逸 critical）；P2：路径里的 `@` 不再被当 userinfo（它此前能解析到**另一个仓库**）· OSV 客户端 30s 超时 + severity 三形态兼容（真实响应不再整体 decode 失败）· `mergeProject` 返回副本 · global 模式 mappings 不再被自己判 fatal · `Prune` 加年龄门槛 · `--older-than=0` 拒绝 · **浅校验的边界写进汇总行**；P3：`AssertNoSecrets` 接线 · `FetchMirrorTags` 删除 · install 按需取物（FETCH_HEAD 探针）· **install / update 有 `--json`**（含 `verification.drifts[].remediation`，与人读同源）；**探针自查又抓到一处既有缺口**（`--dir=` 空值的拒绝路径没有信封）并修掉；产品代码 20 个文件） |
+| v0.67 | **把 PackageGate 这张牌打出去**：2026-01 的 PackageGate 披露（npm 的 Git 依赖 `.npmrc` 覆盖 git 二进制 → 绕过 `--ignore-scripts` 的 RCE；npm 以 "works as expected" 关闭）是对项目假设的**最强验证**，而此前没有任何一页文档提到它 | **已交付**（[计划](./development/v0.67-plan.md) / [复盘](./development/v0.67-retrospective.md)：竞品对比补 PackageGate 一节（"这条路径在 ngm 上由构造不可能"的三点逐条可核对：零处提到 `.npmrc` · postinstall 默认 deny + 沙箱 · git 唯一构造点）；中英 README 各补"为什么你应该用"（以它开头，两个方向都在）；**可执行的对照 demo** `scripts/packagegate-demo.sh`（fixture 的 payload 只写标记文件；ngm 侧 5 条断言全绿、npm 侧只观察不断言；牙齿 = 破坏 fixture ⇒ 断言红 + exit 1）。**产品代码 0 行**；一条洞察：**"我有这个证据，但没有把它变成别人的证据"**——29 个"0 行改动"版本里，这一版的性质与那些不同 |
+| v0.68 | **把重复的那 4 个 spawn 拿掉**（评估第 2 层）：install 的 digest 阶段每依赖 6 个 git 子进程（自己算一遍 + `Put` 内部再算一遍 + 它的 tree 与 cat-file），跨层菱形（A→C 且 A→B→C）里 C 被完整重复解析（含一次真实 fetch） | **已交付**（[计划](./development/v0.68-plan.md) / [复盘](./development/v0.68-retrospective.md)：新增 `git.ArchiveMaterial`（条目 + 内容 + 清单记录 + digest，一次算出），`BuildArchive` 退化成它的薄包装——**不允许"优化路径"与"老路径"各算各的**；`Put` 接受可选材料（`json:"-"`）时 **0 spawn**、不带材料时 **4 → 2**，且**仍核对 Commit/Digest 两个身份字段**；`installFromLock` 的"lock 声明值 vs 实际内容"校验**刻意保留重算**——省掉的是重复的劳动，不是重复的检查；`ResolveGraph` 改为**先与 `seen` 对账再解析**。判据全是计数器不是秒表：`Put(±material)` 0 / 2 · `install(fresh,1)` **10 → 6** · 菱形叶子解析 **2 → 1**（来源信息不丢，两条 RequiredBy 仍合并） |
+| v0.69 | **打开唯一愿意付钱的市场：SBOM 导出**（评估第 3 层）：新增 `ngm sbom`——从 `ngm.lock` 导出 CycloneDX 1.5（默认）/ SPDX 2.3，每个依赖带 commit、`archiveDigest` 与 git purl | **已交付**（[计划](./development/v0.69-plan.md) / [复盘](./development/v0.69-retrospective.md)：**只读 lock**——不触网、不重解析、不写项目；确定性纪律——组件顺序由导出器自己排序、SPDX 的 `documentNamespace` 由内容哈希派生（不是随机 UUID）、**时间戳是唯一非确定字段**（与 lock 的 `resolvedAt` 同一处理）；**不猜**——许可证/版权 `NOASSERTION`、`filesAnalyzed: false`（编文件清单只为过 schema 是 SBOM 最常见的失真）。**四张既有契约网自动接管新命令**（这是本版最有信息量的部分）：V37 的矩阵"参数表 21 项 ≠ 命令 22 个"直接 Fatal · V22 的三条码声明各要实测或登记 · V57 要登记新的"写不出去"出口 · V19/V15 要用法文本与命令表。`--out=` 空值与"没给"等价（v0.42 不变量） |
+| v0.70 | **接一层谓词：attestation（不做签名）**（评估第 3 层第二条）：新增 `ngm attest`——从 `ngm.lock` 导出**未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）：subject = 每个依赖的 git purl + `archiveDigest`（注解写明它是清单哈希、不是 tarball 的）、输入 = `ngm.json` / `ngm.lock` 的**字节** sha256、materials = 每个依赖的 commit | **已交付**（[计划](./development/v0.70-plan.md) / [复盘](./development/v0.70-retrospective.md)：先立 [ADR-027](./adr/adr-027-attestation.md)——"签什么/谁签/验什么"三问写死，**签名仍归用户/CI**（`cosign attest-blob`；ADR-014 拒绝的是自造签名体系，不是标准谓词）。**确定性优先**：语句里没有时间戳，`invocationId` = lock 的哈希（不是随机 UUID）——同一份 lock 导出同一份字节，签名前可逐字节比对。**哈希语义写进数据**（`ngm/digest-scope` 注解：清单哈希、不是 tarball 哈希）。复用 sbom 的输入视图（`FromLock`/`Sort` 搬进 `internal/sbom`——规则不写在第二个地方）。四张契约网照例接管新命令。顺带修掉 ADR 索引里挂了数版的缺陷（ADR-025 行缺失、ADR-024 行重复、ADR-026 行粘连） |
 
 ### 发布状态
 

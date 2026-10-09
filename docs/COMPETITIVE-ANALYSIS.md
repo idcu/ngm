@@ -199,6 +199,14 @@ SLSA v1.2 定义四级：
 ADR-014已就"自证文件签名"做过决定（不做），若将来要接，
 最省事的形状是给 manifest 加一层 SLSA 谓词，而不是自造一套。
 
+> ✅ **已接上（v0.70，[ADR-027](./adr/adr-027-attestation.md)）**：`ngm attest` 把 lock 导出为
+> **未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）——subject 是每个依赖的
+> purl + `archiveDigest`，输入是 `ngm.json` / `ngm.lock` 的字节哈希，materials 是每个依赖的
+> commit。**签名仍不归 ngm**：用你自己的标准工具（`cosign attest-blob`）在 CI 里现场签，
+> 也就是"内容侧的 L2"——ngm 负责把要签的事实算准、写全，签名者负责"谁说的"。
+> 与 npm 的 L3 仍然**互补而非竞争**：npm 证明"这个发布物是谁构建的"，
+> ngm 证明"这份内容就是锁定的那个 commit"。
+
 ---
 
 ## ngm 的真实差异化

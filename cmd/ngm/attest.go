@@ -1,0 +1,139 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/idcu/ngm/internal/attest"
+	"github.com/idcu/ngm/internal/digest"
+	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/sbom"
+	"github.com/idcu/ngm/internal/version"
+)
+
+const attestUsage = `ngm attest — emit an in-toto / SLSA v1 statement for ngm.lock
+
+USAGE:
+  ngm attest [--out=<file>] [--dir=<dir>]
+
+FLAGS:
+  --out   write the statement to this file instead of stdout
+  --dir   project directory containing ngm.lock (default: .)
+
+WHAT IT EMITS:
+  One in-toto Statement v1 whose predicate is SLSA provenance v1, binding every
+  pinned dependency to its archiveDigest and to the git commit it came from:
+    subject    each git purl, sha256 = the canonical archive manifest (ADR-008)
+    inputs     sha256 of ngm.json and of ngm.lock as committed
+    materials  the pinned commit (gitCommit), plus the ref ngm.json declared
+  It reads the lock only: no network, no re-resolution, no writes to the project.
+  Same lock, same bytes - there is deliberately no timestamp and no random run id.
+
+WHAT IT DOES NOT CLAIM:
+  It is unsigned, and ngm does not invent a signing system (ADR-014): sign it with
+  your own tooling (e.g. cosign attest-blob) so the claim becomes attributable.
+  It also does not claim who built upstream, nor reproducibility, nor licences.
+  See docs/adr/adr-027-attestation.md.
+
+EXIT CODES:
+  0  the statement was written
+  3  configuration error (no ngm.json, no ngm.lock, unwritable --out)
+  6  internal failure (the statement could not be written to stdout)
+`
+
+// runAttest 处理 `ngm attest`（v0.70）。
+//
+// 定位（评估报告第 3 层第二条）：SBOM 是"清单"，attestation 是"可被签名的声明"。
+// 两者读同一份输入（ngm.lock），产出同一批事实的两种标准形态——
+// 本命令只多两样东西：in-toto 的信封，与"输入钉在字节上"的哈希。
+func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("attest", stderr)
+	dirFlag := fs.String("dir", ".", "project directory")
+	outFlag := fs.String("out", "", "write to this file instead of stdout")
+	fs.Usage = func() { fmt.Fprint(stderr, attestUsage) }
+
+	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+		{Name: "dir"}, {Name: "out"},
+	})); err != nil {
+		return 3
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprint(stderr, attestUsage)
+		return 3
+	}
+
+	env, err := newProjectEnv(*dirFlag)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	// ngm.json 是外部参数之一（它的哈希要写进语句），因此必须在场——
+	// 与 sbom 同口径：空目录不是一个 ngm 项目，早失败比导出一份无主文档好。
+	if _, err := env.ReadManifest(); err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+
+	lf, err := lock.Read(env.LockPath())
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	if lf == nil {
+		return runErr(ctx, stdout, stderr, errs.New(
+			errs.CodeConfigInvalid,
+			"no ngm.lock found at "+env.LockPath(),
+			"run `ngm install` to resolve dependencies and create the lock"))
+	}
+
+	// 输入的哈希 = **提交进 Git 的那份文件字节**（不是重新序列化后的规范形态）：
+	// 外部参数要钉的是"你审过的那份文件"，重新序列化会掩盖手工编辑。
+	manifestBytes, rerr := os.ReadFile(env.ManifestPath())
+	if rerr != nil {
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			"read "+env.ManifestPath(), "check that the file is readable", rerr))
+	}
+	lockBytes, rerr := os.ReadFile(env.LockPath())
+	if rerr != nil {
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			"read "+env.LockPath(), "check that the file is readable", rerr))
+	}
+
+	entries, err := sbom.FromLock(lf)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+
+	data, err := attest.Build(entries, attest.Options{
+		ToolVersion:    version.Version,
+		ManifestDigest: fileHexDigest(manifestBytes),
+		LockDigest:     fileHexDigest(lockBytes),
+	})
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+
+	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout（v0.42 的不变量）。
+	if out := strings.TrimSpace(*outFlag); out != "" {
+		if werr := os.WriteFile(out, data, 0o644); werr != nil {
+			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+				"write the attestation to "+out,
+				"check that the target directory exists and is writable", werr))
+		}
+		fmt.Fprintf(stdout, "wrote %s (%d subject(s), SLSA provenance v1)\n", out, len(entries))
+		return 0
+	}
+
+	if _, werr := stdout.Write(data); werr != nil {
+		fmt.Fprintf(stderr, "write report: %v\n", werr)
+		return errs.CodeInternal.ExitCode()
+	}
+	return 0
+}
+
+// fileHexDigest 返回字节的裸 sha256 hex——
+// digest.HashBytes 就是裸 hex（in-toto 的 digest 映射里算法名已经是键）。
+func fileHexDigest(b []byte) string {
+	return digest.HashBytes(b)
+}

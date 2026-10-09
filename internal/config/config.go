@@ -28,6 +28,12 @@ import (
 // 注意：本常量同时也是配置文件中的 "schemaVersion" 字段。当前仅 v1。
 const SchemaVersion = 1
 
+// FileName 是项目清单的文件名（用户可编辑，必须提交进 Git）。
+//
+// v0.70 把它从字面量提成常量：`internal/attest` 要在语句的
+// `externalParameters` 里写这个名字，而"名字写在第二个地方"迟早会漂移。
+const FileName = "ngm.json"
+
 // Runtime 宿主运行时（见 guides/configuration.md）。
 type Runtime string
 
@@ -236,7 +242,7 @@ func Load(projectDir, homeDir string) (*Resolved, error) {
 
 	var project *ProjectFile
 	if projectDir != "" {
-		p, err := readProjectFile(filepath.Join(projectDir, "ngm.json"))
+		p, err := readProjectFile(filepath.Join(projectDir, FileName))
 		if err != nil {
 			return nil, err
 		}

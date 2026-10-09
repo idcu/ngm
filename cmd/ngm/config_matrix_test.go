@@ -371,6 +371,7 @@ var matrixArgs = map[string][]string{
 	"config":       {"validate"},
 	"engines":      {"list"},
 	"sbom":         {},
+	"attest":       {},
 }
 
 // globalCommands 是不接受 `--dir` 的命令：它们操作的是 `~/.ngm`（缓存、内容存储），

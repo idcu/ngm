@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.65 均已交付**；**`v0.1.0` ~ `v0.65.0` 六十五个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.70 均已交付**；**`v0.1.0` ~ `v0.70.0` 七十个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -107,6 +107,11 @@
 > | v0.63 | [计划](./v0.63-plan.md) | [复盘](./v0.63-retrospective.md) | **登记之后要核对「落地」**：这一版更正了 v0.62 自己的一处**错误结论**（"`AllowEngines` 是死钩子" ✗——消费者一直在 `testenv_test.go` 的 `init()` 里，四个引擎命令失败的真因只是夹具少了 `isolateUserEnv` 一行），并把它们搬进实测（**码 6 至此无缺口**：V22 elsewhere **10 → 14**、缺口 **7 → 3**）；顺带量出并修好**四张被"插一行"手法弄坏的活表**（倒序插入 · 整段丢失 · 重复行 · 插错位置，其中 `project-state.md` 还缺 v0.62 那一行）⇒ 全部升序重建/重排/补齐；补上结构那半张判据 `TestV63MilestoneTablesListEveryVersionExactlyOnce`（版本集从复盘文件名派生；**任何够得到最新版本的活文档都必须声明起点**；起点之后每个版本**恰好一行、升序、连续到最新**）。牙齿：删一行 / 倒序两行 / 复制一行三种形态都红。**产品代码 0 行改动**。一条一般的话：**登记的动作发生了，不等于登记的结果落地了** |
 > | v0.64 | [计划](./v0.64-plan.md) | [复盘](./v0.64-retrospective.md) | **`schemaFiles` 不再是一份要人记着的清单**：那张清单的注释自己承认"漏加的表现是**检查少了几个键**，不是误报" ✗——也就是**检查可以静默变松**。三处闸门把它派生化（文档的配置文件表 × 名字在代码行里被赋值或被 `filepath.Join` 解析 × 该文件真的有 json tag 字段），两条反例把形状钉死（`verify/graph.go` 名字对但位置是"读上游清单" ⇒ 没有 tag；`lock/schema.go` 形状对但名字是 `ngm.lock` ⇒ 不在表里）。读数 **3 derived** 与手写清单逐字相同；牙齿**双向**（少一条 / 多一条各报一句）；来源表 **39 → 40 张**。**产品代码 0 行改动**。一条教训：**凡是"我记着"的地方，都要问一句"那它错了谁会红"** | |
 > | v0.65 | [计划](./v0.65-plan.md) | [复盘](./v0.65-retrospective.md) | **矩阵的每一列都要有自己的证据**：V37 从前只数**全局**下限（`error-text ≥ 40`）——它回答"矩阵整体还在动吗"，回答不了"**这一列**还在动吗"；V39 的两个维度写作循环里的字面量 ✗。处置：形状与维度各提成命名轴（`configErrorShapes` / `argumentDimensions`），每一列加两道断言（走到配置层 + 签名不与其他列相同；等价必须具名登记）。**守卫第一次运行就抓到两列旧的噪声** ✗：两条夹具都停在更早的 `version is required` 上（缺必填字段），所以**谁都没测到名字里写的缺陷** ⇒ 修夹具。签名的两个细节都由实测定形（首行不够分辨 ⇒ 整份输出；不能含临时路径 ⇒ `normalizeRunPaths`）。牙齿两道的强弱如实写：等价那半抓到东西 ✓、"走到配置层"那半对半坏夹具恒真 ⚠️。**产品代码 0 行改动** | |
+> | v0.66 | [计划](./v0.66-plan.md) | [复盘](./v0.66-retrospective.md) | **把动摇承诺的洞补上**（承诺修复版）：范围的**事实源不是候选表，而是一份外部逐行评估**（[assessment-2026-10-09](../internals/assessment-2026-10-09.md)）——它列的是"代码里的错"，不是"缺失的能力"。P1 五条：图解析的 `ls-remote` 绕过 `run:git` 门禁 ⇒ 补 `Policy` 透传（断言 = 报错 + **spawn 计数为 0**）· symlink 目标与清单 path 无逃逸校验 ⇒ 落地前预检（**在清理旧内容之前**）+ verify 报 critical · lock 三连（写前 `Validate` · 短 commit 在 mirror 里补齐 · 临时文件 0644）· `write:` 是装饰性的 ⇒ **诚实化**（删死代码、两处裁决对齐；为什么不做真施加写进复盘）· `internal/verify` 零包内单测 ⇒ 首组包内测试。P2/P3：路径里的 `@` 不再被当 userinfo（此前能解析到另一个仓库）· OSV 30s 超时 + severity 三形态（真实响应不再整体 decode 失败）· `mergeProject` 返回副本 · global 模式 mappings 不再被自己判 fatal · `Prune` 年龄门槛 · `--older-than=0` 拒绝 · 浅校验的边界**写进汇总行** · `AssertNoSecrets` 接线 · `FetchMirrorTags` 删除 · install 按需取物（FETCH_HEAD 探针）· **install / update 的 `--json`**（`verification.drifts[].remediation` 与人读同源）。**探针自查又抓到一处既有缺口**（`--dir=` 空值的拒绝没有信封）并修掉。**产品代码 20 个文件** | |
+> | v0.67 | [计划](./v0.67-plan.md) | [复盘](./v0.67-retrospective.md) | **把 PackageGate 这张牌打出去**：2026-01 的 PackageGate 披露（npm / pnpm / vlt / Bun 共 6 个零日；npm 那一条正是"Git 依赖里的恶意 `.npmrc` 覆盖 git 二进制路径 → 绕过 `--ignore-scripts`"，而 npm 以 "works as expected" 关闭）是对项目假设的**最强外部验证**，此前没有任何一页提到它。三处交付：① 竞品对比补 PackageGate 一节（"这条路径在 ngm 上由构造不可能"的**三点逐条可核对**：全仓库零处提到 `.npmrc` · postinstall 默认 deny + 沙箱 · git 唯一构造点 + `run:git` 门禁）；② 中英 README 各补"为什么你应该用"（以它开头；该用与不该用两个方向都在）；③ **可执行的对照 demo** `scripts/packagegate-demo.sh`（`.ps1` 转调同一实现）——fixture 的 payload 只写标记文件（对照而非攻击），ngm 侧 5 条断言全绿、npm 侧**只观察不断言**（版本行为不同，硬断言会是假证据；本机 npm 直接 `EALLOWGIT` 拒装 git 类型依赖）。**牙齿**：破坏 fixture（`.npmrc` 改名）⇒ 断言红 + exit 1。**产品代码 0 行**；一条洞察：**"我有这个证据，但没有把它变成别人的证据"**——29 个"0 行改动"版本里，这一版是为**用户**做的 | |
+> | v0.68 | [计划](./v0.68-plan.md) | [复盘](./v0.68-retrospective.md) | **把重复的那 4 个 spawn 拿掉**（评估第 2 层）：修复前 install 的 digest 阶段每依赖 **6 个 git 子进程**（自己算一遍 + `Put` 内部再算一遍 + `Put` 自己的 `ls-tree`/`cat-file`——同一份 (mirror, commit) 的树与内容读两遍）；跨层菱形（A→C 且 A→B→C）里 C 被完整重复解析（含一次真实 fetch）。处置：`git.ArchiveMaterial`（条目 + 内容 + 清单记录 + digest，一次算出）+ `BuildArchive` 退化为它的薄包装（**不允许两条路径各算各的**）；`Put` 接受可选材料（`json:"-"`）时 0 spawn、不带材料时 **4 → 2**，且**仍核对 Commit/Digest 身份字段**；`installFromLock` **刻意保留重算**（那是"lock 声明值 vs 实际内容"的唯一检测）；`ResolveGraph` 改为**先与 `seen` 对账再解析**（来源合并与冲突检测仍在原处发生）。判据全是**计数器不是秒表**（`git.SpawnCount`）：`Put(±material)` **0 / 2** · `install(fresh,1)` **10 → 6** · 菱形叶子解析 **2 → 1**（`RequiredBy` 两条来源不丢）。**产品代码 4 个文件**；一条一般的话：**省掉的是重复的劳动，不是重复的检查** | |
+> | v0.69 | [计划](./v0.69-plan.md) | [复盘](./v0.69-retrospective.md) | **打开唯一愿意付钱的市场：SBOM 导出**（评估第 3 层）：新增 `ngm sbom`——从 `ngm.lock` 导出 **CycloneDX 1.5**（默认）/ **SPDX 2.3**，每个依赖带 commit、`archiveDigest`（规范化清单哈希，ADR-008，SPDX 的 comment 里写明**不是 tarball 哈希**）与 git purl（子路径进 `#subpath` 段）。**只读 lock**：不触网、不重解析、不写项目。**确定性**：组件顺序由导出器自己排序（不信任调用方）· SPDX 的 `documentNamespace` 由内容哈希派生（不是随机 UUID——同一份 lock 必须导同一个命名空间）· **时间戳是唯一非确定字段**。**不猜**：许可证/版权 `NOASSERTION`、`filesAnalyzed: false`（"编一份文件清单只为过 schema"是 SBOM 最常见的失真来源）。**本版最有信息量的部分是四张既有契约网对"新命令"的接管**：V37 的配置矩阵当场 Fatal（"参数表 21 项，命令 22 个"）· V22 要求 0/3/6 三个码各给实测或登记（6 走 `TestV22StdoutWriteFailureIsMeasured/sbom` 指针）· V57 登记新的"写不出去"出口 · V19/V15 要求用法文本与命令表——**一个命令要"完整地存在"，这四问一个都不能少**。**产品代码新增 5 个文件 + 4 处登记**；一条一般的话：**能翻译的先翻译，要设计的先设计**（同一层里的 attestation 因此明确留待 ADR） | |
+> | v0.70 | [计划](./v0.70-plan.md) | [复盘](./v0.70-retrospective.md) | **接一层谓词：attestation（不做签名）**（评估第 3 层第二条）：新增 `ngm attest` + [ADR-027](../adr/adr-027-attestation.md)。形态：**单个** in-toto Statement v1（多 subject，谓词 SLSA provenance v1）——subject = 依赖的 git purl + `archiveDigest`（注解 `ngm/digest-scope` 写明它是**清单**哈希、不是 tarball 的）；外部参数 = `ngm.json`/`ngm.lock` 的**字节** sha256；materials = commit（`gitCommit`）+ 声明的 ref。**未签名是刻意的**：签名证明"谁说的"、不证明"说的是真的"（ADR-014 的论证不变），用 `cosign attest-blob` 在 CI 里现场签。**确定性优先**：无时间戳、`invocationId` = lock 的哈希——比规范建议的"唯一 id"多换到一条性质（两处字节可比对），代价与理由写进 ADR。搬移：lock → 导出条目的映射进 `internal/sbom/entries.go`（`FromLock`/`Sort`），两种出口共用同一处规则。**10 组断言** + 四张网登记；顺手修复 ADR 索引的既有缺陷（一行缺失/一行重复/一行粘连）。一条一般的话：**规范的建议不是不可以偏离，但必须写清换到了什么** | |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -565,7 +570,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > [v0.6 复盘 §5.4](./v0.6-retrospective.md)。
 4. **把这 7 个文件从 GitHub release 上传到 Gitee 发行版**（在 Gitee 无 API token 时，这是最短且最稳的路径）。
    上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
-   **（2026-10-04：本步对历史版本暂缓——缺 62 个；新版本发布时仍然照做，恢复信号见本文开头。）**
+   **（2026-10-04：本步对历史版本暂缓——缺 67 个；新版本发布时仍然照做，恢复信号见本文开头。）**
 5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）
 6. **读一次 Gitee 侧的状态**（**v0.12 追加**）——它此前**没有读数**，而"两个源都可取到"
    那句错话正是从这条空白里长出来的：
@@ -590,7 +595,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > 那会让 CI 多出一类与代码无关的噪音。**触发条件**：补发恢复后，
    > 或它在 CI 上被证明稳定（例如接一个只读的 Gitee token）。
 
-   > ⚠️ **暂缓期间它报"缺 62 个"是预期的**（见本文开头）：这个读数的用途不是催办，
+   > ⚠️ **暂缓期间它报"缺 67 个"是预期的**（见本文开头）：这个读数的用途不是催办，
    > 而是让"两个源到底有什么"永远有一个不需要信任谁的答案。
 
 > **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/upload-gitee-assets.ps1`）：
