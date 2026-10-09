@@ -39,6 +39,7 @@ COMMANDS:
   store          内容寻址 store 的占用报告与回收（残骸 + 无人引用的 blob，见 ADR-018/023）
   config         配置管理
   engines        引擎管理
+  sbom           导出 SBOM（CycloneDX / SPDX，v0.69）
 
 FLAGS:
   --version      输出版本信息（含 git 短哈希与构建时间）

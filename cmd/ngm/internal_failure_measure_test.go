@@ -57,6 +57,10 @@ func TestV22StdoutWriteFailureIsMeasured(t *testing.T) {
 	t.Run("engines", func(t *testing.T) {
 		measureInternalFailure(t, "engines", "list", "--dir="+p)
 	})
+	// v0.69：sbom 的导出也走同一条"算完了却写不出去"的路径。
+	t.Run("sbom", func(t *testing.T) {
+		measureInternalFailure(t, "sbom", "--dir="+p)
+	})
 }
 
 // measureInternalFailure 跑一次"写不出去"的命令并要求它退 **6**。
