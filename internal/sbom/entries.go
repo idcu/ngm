@@ -34,9 +34,55 @@ func FromLock(lf *lock.File) ([]Entry, error) {
 			Digest:    d.ArchiveDigest,
 			Canonical: repo.String(),
 			SubPath:   d.SubPath,
+			// v0.73：直接边随条目一起进导出层（依赖段的唯一来源）。
+			RequiredBy: d.RequiredBy,
 		})
 	}
 	return out, nil
+}
+
+// edgeIndex 把条目的直接边整理成"根的孩子"与"父 → 子们"两张表（v0.73，ADR-028）。
+//
+// 依赖段只有一个来源——lock 的 requiredBy。顺序在这里归一（排序 + 去重），
+// 因此同一份 lock 导出同一份字节，**哪怕 lock 被人手改过顺序**
+// （Validate 只保证引用存在，不保证顺序）。
+//
+// 根标记用 lock.RootRequirer：项目本身不是一个 Git 包，它在导出里的位置是
+// "文档的根"，而不是一个组件。
+//
+// 两张表都存**条目 Key**（`name` 或 `name#subPath`），不是 purl：purl 是
+// CycloneDX 的引用方式、SPDXID 是 SPDX 的，边本身与格式无关——
+// 一份边、两种映射，才不会出现两棵树。
+func edgeIndex(entries []Entry) (root []string, children map[string][]string) {
+	known := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		known[e.Key()] = true
+	}
+	children = map[string][]string{}
+	for _, e := range entries {
+		seen := map[string]bool{}
+		for _, from := range e.RequiredBy {
+			if seen[from] {
+				continue
+			}
+			seen[from] = true
+			if from == lock.RootRequirer {
+				root = append(root, e.Key())
+				continue
+			}
+			// 幽灵边由 lock.Validate 拒绝在**读取时**；这里只是防御性跳过——
+			// 导出层不该在"已经读进来的 lock"上再判一次错（也不该静默编一条边出来）。
+			if !known[from] {
+				continue
+			}
+			children[from] = append(children[from], e.Key())
+		}
+	}
+	sort.Strings(root)
+	for k := range children {
+		sort.Strings(children[k])
+	}
+	return root, children
 }
 
 // Sort 返回按 (slug, subPath) 排序的副本——"同一份 lock 导出两次字节相同"

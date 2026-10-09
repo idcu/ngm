@@ -150,7 +150,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
 | `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked`（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
-| `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `subPath`（monorepo 子路径，无则省略） · `locked` · `paths` · `rootDeclared`（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
+| `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `subPath`（monorepo 子路径，无则省略） · `locked` · `paths` · `rootDeclared` · `source`（图从哪来：读 ngm.lock 时为 lock（未启动 git 子进程）；lock 里没有图、退回重新解析时为 resolved）（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
 | `ngm outdated --json` | 对象：`offline` · `entries` · `dependencies` · `updates` · `stale` | ✗ |
 | `ngm install --json` | 对象：`version` · `command` · `offline` · `dependencies` · `count` · `fromStore`（verifyOnLock 开启时另有 `verification`：`exitCode` · `drifts`——元素键 `name` · `driftKind` · `remediation` · `error`）（`dependencies` 元素键：`name` · `ref` · `refType` · `subPath` · `commit` · `archiveDigest` · `vendorPath` · `source`——`source` 是 `resolved` / `store` / `fetched`） | ✗ |
 | `ngm update --json` | 对象：`version` · `command` · `offline` · `dependencies` · `count` · `fromStore` · `verification`（与 install 命令同一形状；`dependencies` 覆盖**整张图**，而不只是被点名的条目） | ✗ |

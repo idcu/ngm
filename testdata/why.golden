@@ -6,3 +6,5 @@ github:snap/leaf@v1 (tag) → <sha>
 
 锁定：<sha> (<time>)
 archiveDigest: sha256:7f69fa5497bee3a6342b807b9b65014422143ea7ecc65e69526f6fa5f0c96f24
+
+来源：ngm.lock（未重新解析：0 次 git 子进程）

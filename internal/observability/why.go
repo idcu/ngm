@@ -38,6 +38,66 @@ type WhyReport struct {
 	PathsLimit int `json:"pathsLimit,omitempty"`
 
 	Locked *LockedInfo `json:"locked,omitempty"`
+
+	// Source 说明这份报告的图从哪来（v0.73，ADR-028）。
+	//
+	// 它必须被说出来：`why` 的两条路径差了一个量级（读 lock = 0 次 git 子进程、
+	// 离线可用；重新解析 = 一串子进程且离线不可用），而"静默回退"是这个项目
+	// 最忌讳的失败形态——用户有权知道自己此刻在哪条路径上。
+	Source string `json:"source"`
+}
+
+// 图来源的两种取值（WhyReport.Source）。
+const (
+	// WhySourceLock：图来自 ngm.lock（未重新解析）。
+	WhySourceLock = "lock"
+	// WhySourceResolved：lock 里没有图，退回重新解析上游清单。
+	WhySourceResolved = "resolved"
+)
+
+// GraphFromLock 用 lock 里的边重建依赖图（v0.73，ADR-028）。
+//
+// 为什么值得存在：`ngm why` 此前为了回答"它从哪来"要跑一次完整图解析
+// （EnsureMirror / ls-remote……一串 git 子进程，且离线不可用），而答案早就
+// 写在解析结果里——只是从来没有存下来。
+//
+// 契约（与 resolve.ResolveGraph 同一形状，因此 FindPaths / BuildTree 都能直接吃）：
+//
+//	Key          = 条目的身份（name 或 name#subPath）
+//	RequiredBy   = **直接引用者**的 Key（根声明处翻译成 resolve.RootMarker）
+//	RootDeclared = requiredBy 里含根标记
+//
+// 它**不含** Repo / MirrorPath / Depth（那些只有解析才有）——只读图的使用者不需要它们，
+// 因此这份图不能用去解析或落地内容；谁要用，谁就得自己先说清。
+func GraphFromLock(lf *lock.File) *resolve.Graph {
+	g := &resolve.Graph{}
+	if lf == nil {
+		return g
+	}
+	for i := range lf.Dependencies {
+		d := &lf.Dependencies[i]
+		root := false
+		requirers := make([]string, 0, len(d.RequiredBy))
+		for _, from := range d.RequiredBy {
+			if from == lock.RootRequirer {
+				root = true
+				requirers = append(requirers, resolve.RootMarker)
+				continue
+			}
+			requirers = append(requirers, from)
+		}
+		g.Nodes = append(g.Nodes, &resolve.Node{
+			Key:          d.Key(),
+			Name:         d.Name,
+			Ref:          d.Ref,
+			RefType:      resolve.RefType(d.RefType),
+			Commit:       d.Commit,
+			SubPath:      d.SubPath,
+			RootDeclared: root,
+			RequiredBy:   requirers,
+		})
+	}
+	return g
 }
 
 // LockedInfo 是 lock 中关于该依赖的记录。
@@ -247,6 +307,24 @@ func (r *WhyReport) Render(w io.Writer) {
 	if r.Locked != nil {
 		fmt.Fprintf(w, "\n锁定：%s (%s)\n", git.ShortSHA(r.Locked.Commit), r.Locked.ResolvedAt)
 		fmt.Fprintf(w, "archiveDigest: %s\n", r.Locked.ArchiveDigest)
+	}
+	// 图从哪来：必须写在报告里（两条路径的代价差一个量级，且不许静默回退）。
+	fmt.Fprintf(w, "\n来源：%s\n", whySourceText(r.Source))
+}
+
+// whySourceText 把 WhyReport.Source 说成一句人能读的话。
+//
+// "lock" 那一句刻意带上"0 次 git 子进程"——它是这个版本真正交付的东西，
+// 而用户只有看见它才知道自己省下了什么（以及新 lock 与旧 lock 的区别在哪）。
+func whySourceText(source string) string {
+	switch source {
+	case WhySourceLock:
+		return "ngm.lock（未重新解析：0 次 git 子进程）"
+	case WhySourceResolved:
+		return "重新解析上游清单（lock 里没有依赖图）"
+	default:
+		// 未知来源也**不许沉默**：报告宁可说"未知"，也不装作没这回事。
+		return "未知（" + source + "）"
 	}
 }
 

@@ -9,7 +9,10 @@
       "commit": "def456abc7890123def456abc7890123def456ab",
       "archiveDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "resolvedAt": "2026-09-29T10:00:00Z",
-      "vendorPath": "github.com/org/logger"
+      "vendorPath": "github.com/org/logger",
+      "requiredBy": [
+        "github:org/utils"
+      ]
     },
     {
       "name": "github:org/utils",
@@ -18,7 +21,10 @@
       "commit": "abc123def4567890abcdef1234567890abcdef12",
       "archiveDigest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
       "resolvedAt": "2026-09-29T10:00:00Z",
-      "vendorPath": "github.com/org/utils"
+      "vendorPath": "github.com/org/utils",
+      "requiredBy": [
+        "(root)"
+      ]
     }
   ]
 }

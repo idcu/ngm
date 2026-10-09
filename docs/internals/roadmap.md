@@ -1,8 +1,8 @@
 # 路线图
 
-> ngm 的产品路线。**v0.1 ~ v0.72 均已交付**（证据见各版[复盘](../development/)与计划）。
-> **七十二个 tag 全部已打**；发布则是另一回事，2026-10-05 直接问过两个源的 API：
-> GitHub 有 72 个里的 60 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
+> ngm 的产品路线。**v0.1 ~ v0.73 均已交付**（证据见各版[复盘](../development/)与计划）。
+> **七十三个 tag 全部已打**；发布则是另一回事，2026-10-05 直接问过两个源的 API：
+> GitHub 有 73 个里的 60 个（各 7 个资产），Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
 > Gitee 侧现在有读数可复跑：`bash scripts/check-gitee-release-status.sh`
 > （Windows 入口 `.ps1` 转调同一个实现；**故意不进 CI**，理由见发布清单第 6 步）。
@@ -313,7 +313,7 @@ v0.10 把检查推到最外圈之后，**剩下的事几乎全是"等决策"**�
 | 自研 transformer（兜底） | subprocess 有不可接受短板 |
 | 远程构建缓存 | 企业级需求；**须先回答 [ADR-013](../adr/adr-013-remote-adapter.md) 的第 2 问**（把源码送出本机后，产物如何被本地证明） |
 | ~~SBOM 导出（SPDX/CycloneDX）~~ | ✅ **已交付（v0.69）**；依赖关系段随 [ADR-028](../adr/adr-028-dependency-graph-in-lock.md)（v0.73） |
-| 传递依赖图形进 lock | **已裁决（[ADR-028](../adr/adr-028-dependency-graph-in-lock.md)）**：v0.73 实现——`why` 离线 0 spawn、SBOM 依赖关系段、lock 新增恒在的 `requiredBy` |
+| ~~传递依赖图形进 lock~~ | ✅ **已交付（v0.73）**：lock 新增恒在的 `requiredBy`；`why` 离线 **0 spawn**、SBOM 增依赖关系段（[ADR-028](../adr/adr-028-dependency-graph-in-lock.md)） |
 
 ---
 

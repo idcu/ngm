@@ -87,6 +87,17 @@ type Entry struct {
 	Canonical string
 	// SubPath 是 monorepo 子路径（可空）。
 	SubPath string
+	// RequiredBy 是**直接引用者**的身份（v0.73，ADR-028）：`name` 或 `name#subPath`，
+	// 项目直接声明时为 `lock.RootRequirer`。空 = 这份 lock 里没有图（导出端据此省略依赖段）。
+	RequiredBy []string
+}
+
+// Key 是该条目的身份（`name` 或 `name#subPath`），与 lock / resolve 同一口径。
+func (e Entry) Key() string {
+	if e.SubPath != "" {
+		return e.Slug + "#" + e.SubPath
+	}
+	return e.Slug
 }
 
 // Puri 返回该依赖的 purl（purl-spec 的 git 类型）。

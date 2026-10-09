@@ -29,6 +29,11 @@ OUTPUT:
   The paths from ngm.json to the dependency. A dependency pulled in by several
   parents shows several paths - that is the point of the question.
 
+  Since v0.73 the graph is stored in ngm.lock, so this command reads the lock and
+  answers WITHOUT touching git (no sub-processes, works offline). If the lock was
+  written by an older ngm (no graph yet), it falls back to resolving upstream
+  manifests - and the report's last line says which of the two it used.
+
   The path count can be EXPONENTIAL in a wide graph (41 nodes produced over a
   million paths in a measurement), and the graph's shape comes from the upstream
   manifests, not from this project. So at most 64 paths are enumerated by
@@ -77,9 +82,21 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
-	g, err := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), env.GraphOptions())
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	// v0.73（ADR-028）：lock 里带着依赖图时**不重新解析**——"它从哪来"的答案
+	// 早就写进 lock 了，为此再跑一串 git 子进程（且离线不可用）是纯浪费。
+	// 两条路径的代价差一个量级，因此来源必须写进报告（WhyReport.Source），
+	// 绝不静默回退：旧 lock 没有图时，用户会看到"重新解析"那一行。
+	var g *resolve.Graph
+	source := observability.WhySourceResolved
+	if lf != nil && lf.HasGraph() {
+		g = observability.GraphFromLock(lf)
+		source = observability.WhySourceLock
+	} else {
+		var rerr error
+		g, rerr = resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), env.GraphOptions())
+		if rerr != nil {
+			return runErr(ctx, stdout, stderr, rerr)
+		}
 	}
 	node, terr := observability.ResolveTarget(g, target)
 	if terr != nil {
@@ -108,6 +125,7 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		PathsTruncated: truncated,
 		PathsLimit:     limit,
 		Locked:         observability.LockedFrom(lf, node.Name, node.SubPath),
+		Source:         source,
 	}
 
 	if *jsonOut {

@@ -3,10 +3,10 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.72 均已交付**，**`v0.1.0` ~ `v0.72.0` 七十二个 tag 均已打**。
+**当前状态：v0.1 ~ v0.73 均已交付**，**`v0.1.0` ~ `v0.73.0` 七十三个 tag 均已打**。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
-**"交付"与"发布"是两件事，这一页把它们分开写**：72 个 tag 里，GitHub 上有 **60 个** release，
+**"交付"与"发布"是两件事，这一页把它们分开写**：73 个 tag 里，GitHub 上有 **60 个** release，
 Gitee 上只有 **3 个**，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-05 **直接问两个源的 API** 得到的，不是本页的记忆
 （Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读）。
@@ -341,6 +341,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.70 | **接一层谓词：attestation（不做签名）**（评估第 3 层第二条）：新增 `ngm attest`——从 `ngm.lock` 导出**未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）：subject = 每个依赖的 git purl + `archiveDigest`（注解写明它是清单哈希、不是 tarball 的）、输入 = `ngm.json` / `ngm.lock` 的**字节** sha256、materials = 每个依赖的 commit | **已交付**（[计划](./development/v0.70-plan.md) / [复盘](./development/v0.70-retrospective.md)：先立 [ADR-027](./adr/adr-027-attestation.md)——"签什么/谁签/验什么"三问写死，**签名仍归用户/CI**（`cosign attest-blob`；ADR-014 拒绝的是自造签名体系，不是标准谓词）。**确定性优先**：语句里没有时间戳，`invocationId` = lock 的哈希（不是随机 UUID）——同一份 lock 导出同一份字节，签名前可逐字节比对。**哈希语义写进数据**（`ngm/digest-scope` 注解：清单哈希、不是 tarball 哈希）。复用 sbom 的输入视图（`FromLock`/`Sort` 搬进 `internal/sbom`——规则不写在第二个地方）。四张契约网照例接管新命令。顺带修掉 ADR 索引里挂了数版的缺陷（ADR-025 行缺失、ADR-024 行重复、ADR-026 行粘连） |
 | v0.71 | **让 ADR 索引不再靠手抄**（v0.70 复盘候选 1）：新增判据 `TestV71AdrIndexCoversEveryAdrFile`——ADR 索引与 `docs/adr/` 的文件集双向对账（每文件恰好一行 · 链接存在 · 3 列 · 编号连续） | **已交付**（[计划](./development/v0.71-plan.md) / [复盘](./development/v0.71-retrospective.md)：v0.70 修掉的"索引挂了数版没人红"从此有东西会红；**牙齿实测**——复制一行 ⇒ 红并点名文件与次数，恢复 ⇒ 绿。**产品代码 0 行**；另附 ADR-027 的 CI 消费路径（候选 3）。流程纪律：**交付即提交、提交即打 tag**——本版一个提交一个 tag，不再积批） |
 | v0.72 | **裁决：依赖图形进 lock（ADR-028）+ 停止清单对账**（v0.71 复盘候选 1/3）：ADR-028 把 lock 图形的形状逐条定死——每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`）、只存**直接边**（全路径是指数的，ADR-024）、`Validate` 拒绝幽灵边、lockfileVersion **不动**（新增可选字段 + 解码器忽略未知字段是既有契约） | **已交付（裁决版，产品代码 0 行）**（[计划](./development/v0.72-plan.md) / [复盘](./development/v0.72-retrospective.md)：消费端裁决——`why` 有图 ⇒ **离线 0 spawn**、无图 ⇒ 现行为 + 注明来源；SBOM 增 CycloneDX `dependencies` / SPDX `RELATIONSHIPS`；`verify`/`tree`/`attest` 明确不变。**实现是 v0.73 的用户可见增量**（验收预告五条写进 ADR §5）。另：roadmap 新增"明确不做"小节——评估第 4 层的三张停止项逐条对账全部维持，并说清 v0.71 的判据为何不违约；勘误 v0.71 复盘对评估第 4 层的错误引用） |
+| v0.73 | **实现 ADR-028：依赖图形进 lock**（v0.72 裁决的兑现，用户可见增量）：lock 每依赖新增恒在的 `requiredBy`（直接引用者，含根标记 `(root)`，序列化时排序去重）、`Validate` 拒绝幽灵边、`HasGraph` 给唯一判据 | **已交付**（[计划](./development/v0.73-plan.md) / [复盘](./development/v0.73-retrospective.md)：**`ngm why` 读 lock 即答——实测 `git.SpawnCount() == 0`、离线可用**，旧 lock 退回重新解析且**报告明说来源**（人读末行 + `--json` 的 `source`）；SBOM 增 CycloneDX `dependencies` 与 SPDX `DEPENDS_ON`（一份边两种映射，旧 lock 整段省略）；install/update 写入。**实现时推翻了 ADR 的一处裁决并就地修订**（根边必须一起存：root wins 时只存依赖引用者会丢掉 `RootDeclared`，`why` 会少列"根 → 它"那条路径）。**14 组断言**；被 V26/V17/V02/V25 四张网接管） |
 
 ### 发布状态
 

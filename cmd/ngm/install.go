@@ -264,6 +264,10 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			ResolvedAt:    lock.FormatResolvedAt(now),
 			VendorPath:    n.Repo.MirrorRelPath(),
 			SubPath:       n.SubPath,
+			// v0.73（ADR-028）：直接边写进 lock。n.RequiredBy 是解析出的
+			// **直接引用者**节点 Key（根声明处为 "(root)"），序列化时由
+			// Marshal 归一（排序 + 去重）——同一份解析 ⇒ 同一份字节。
+			RequiredBy: n.RequiredBy,
 		})
 		items = append(items, digestNodeFromResolved(n, dg))
 		if rep != nil {

@@ -191,6 +191,8 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			ResolvedAt:    lock.FormatResolvedAt(now),
 			VendorPath:    n.Repo.MirrorRelPath(),
 			SubPath:       n.SubPath,
+			// v0.73（ADR-028）：同 installFresh——直接边写进 lock（序列化时归一）。
+			RequiredBy: n.RequiredBy,
 		})
 		// 报告覆盖**整张图**（与 lock 同一范围），而不只是被选中的条目——
 		// 与人类输出刻意不同：人读聚焦"你让我更新的那几个"，机器读要完整状态。

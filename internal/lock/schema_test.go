@@ -25,6 +25,8 @@ func sampleLock() *File {
 			ArchiveDigest: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 			ResolvedAt:    "2026-09-29T10:00:00Z",
 			VendorPath:    "github.com/org/utils",
+			// v0.73：项目本身直接声明（ADR-028 的根节点标记）
+			RequiredBy: []string{RootRequirer},
 		},
 		{
 			Name:          "github:org/logger",
@@ -34,6 +36,8 @@ func sampleLock() *File {
 			ArchiveDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			ResolvedAt:    "2026-09-29T10:00:00Z",
 			VendorPath:    "github.com/org/logger",
+			// v0.73：由 utils 引入（直接边）
+			RequiredBy: []string{"github:org/utils"},
 		},
 	}
 	f.Sort()
@@ -99,7 +103,7 @@ func TestMarshal_ExactBytes(t *testing.T) {
 	// 字段顺序（条目内）
 	entryOrder := []string{
 		`"name"`, `"ref"`, `"refType"`, `"commit"`,
-		`"archiveDigest"`, `"resolvedAt"`, `"vendorPath"`,
+		`"archiveDigest"`, `"resolvedAt"`, `"vendorPath"`, `"requiredBy"`,
 	}
 	last = -1
 	for _, key := range entryOrder {

@@ -98,7 +98,26 @@ type Dependency struct {
 	// 的"同 MAJOR 内只允许新增可选字段"规则，增加可选字段是兼容的；
 	// omitempty 保证不含子路径时的字节与 v1.0.0 示例一致。
 	SubPath string `json:"subPath,omitempty"`
+	// RequiredBy 是**直接引用者**的节点 Key（`name` 或 `name#subPath`；
+	// 项目本身直接声明时为 `(root)`，见 RootRequirer）。
+	//
+	// v0.73（[ADR-028](../docs/adr/adr-028-dependency-graph-in-lock.md)）：图写进 lock，
+	// 让 `ngm why` 不必重新解析（离线也可答）、并让 SBOM 有真正的依赖关系段。
+	//
+	// 三条纪律：
+	//  1. **只存直接边**——全路径是指数的（ADR-024），直接边可重构全部路径；
+	//  2. 字段**恒在**（没有 omitempty）：`[]` 表示"来源未知"（旧版 lock 或手改），
+	//     空数组与 nil 解码后同义，消费端一律按"图未知"处理；
+	//  3. 序列化时排序 + 去重（见 Marshal），同一份解析结果 ⇒ 同一份字节。
+	RequiredBy []string `json:"requiredBy"`
 }
+
+// RootRequirer 是 RequiredBy 里代表"项目本身直接声明"的标记。
+//
+// 刻意在本包**重新声明**而不是 import resolve：lock 是格式层，不依赖解析层
+// （与 lockKey 同一条理由）。它与 `resolve.RootMarker` 必须**同值**——
+// 这条一致性由 `TestRootRequirerMatchesResolve` 机械钉住。
+const RootRequirer = "(root)"
 
 // NewFile 创建一个空的 lock（含正确的版本字段）。
 func NewFile() *File {
@@ -146,7 +165,52 @@ func (f *File) Validate() error {
 				"lock dependencies["+strconv.Itoa(i)+"] invalid", "", err)
 		}
 	}
+	if err := f.validateEdges(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateEdges 拒绝**幽灵边**（v0.73，ADR-028）。
+//
+// lock 是依赖状态的唯一事实源，事实源里不许有悬空引用：requiredBy 指向一个
+// 不在本 lock 里的条目，只会让 `why` 少列一条路径——而"少列一条"在溯源问题里
+// 与说谎等价。缺失（空数组）则**允许**：那是"图未知"的诚实表示，由消费端降级。
+func (f *File) validateEdges() error {
+	known := f.Index()
+	for i, d := range f.Dependencies {
+		for _, from := range d.RequiredBy {
+			if from == RootRequirer {
+				continue
+			}
+			if _, ok := known[from]; ok {
+				continue
+			}
+			return errs.Wrap(errs.CodeConfigInvalid,
+				"lock dependencies["+strconv.Itoa(i)+"] invalid", "",
+				errs.New(errs.CodeConfigInvalid,
+					"`requiredBy` references "+from+", which is not in this lock (a ghost edge)",
+					"delete ngm.lock and re-run `ngm install` to regenerate the graph"))
+		}
+	}
+	return nil
+}
+
+// HasGraph 报告这份 lock 是否带有**完整**的依赖图（ADR-028）。
+//
+// 判据是**每个**条目都至少有一个引用者：图的边只有完整才可用——少一条边就会让
+// `why` 少一条路径。缺失（旧版 lock 或手改）⇒ false，消费端据此优雅降级，
+// 并且**必须**在输出里说明自己用的是哪条路径（绝不静默回退）。
+func (f *File) HasGraph() bool {
+	if f == nil {
+		return false
+	}
+	for i := range f.Dependencies {
+		if len(f.Dependencies[i].RequiredBy) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *Dependency) validate() error {
@@ -248,6 +312,11 @@ func (f *File) Index() map[string]*Dependency {
 	return out
 }
 
+// Key 返回该条目的身份（name 或 name#subPath），与 resolve 的节点 Key 同口径。
+//
+// v0.73：lock 里的边（requiredBy）引用的就是这个身份，因此它必须有**唯一定义处**。
+func (d *Dependency) Key() string { return lockKey(d.Name, d.SubPath) }
+
 // lockKey 与 resolve.DepSpec.Key 保持同一口径（name[#subPath]）。
 //
 // 刻意不 import resolve 的 Key 方法：lock 是格式层，不应依赖解析层的行为。
@@ -271,10 +340,40 @@ func (f *File) Marshal() ([]byte, error) {
 	out := *f
 	if out.Dependencies == nil {
 		out.Dependencies = []Dependency{}
+	} else {
+		// v0.73：requiredBy 在**序列化这一刻**归一（排序 + 去重），
+		// 于是"同一份解析结果 ⇒ 同一份字节"不依赖调用方是否记得排序
+		// （调用方甚至可以直接把解析器给的顺序写进来）。
+		// 顺带把 nil 变成 `[]`：输出里不许出现 `"requiredBy": null`——
+		// 那会让"空"有两种写法，而格式层只有一种"来源未知"。
+		norm := make([]Dependency, len(out.Dependencies))
+		copy(norm, out.Dependencies)
+		for i := range norm {
+			norm[i].RequiredBy = normalizeRequiredBy(norm[i].RequiredBy)
+		}
+		out.Dependencies = norm
 	}
 	data, err := json.MarshalIndent(&out, "", "  ")
 	if err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalid, "marshal ngm.lock", "", err)
 	}
 	return append(data, '\n'), nil
+}
+
+// normalizeRequiredBy 排序 + 去重，并保证返回非 nil（空 → `[]`）。
+func normalizeRequiredBy(in []string) []string {
+	if len(in) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, s := range in {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }

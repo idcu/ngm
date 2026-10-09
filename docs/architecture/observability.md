@@ -54,12 +54,17 @@ github:snap/leaf@v1 (tag) → <sha>
 
 锁定：<sha> (<time>)
 archiveDigest: sha256:<digest>
+
+来源：ngm.lock（未重新解析：0 次 git 子进程）
 ```
 
 > **这一段就是快照**（`cmd/ngm/testdata/why.golden`）：它由 `TestV02ObservabilityGolden`
 > 生成，并由 `TestV17DocOutputExamplesMatchTheGoldens` 与本页**逐行对照**。
 > 改输出就要同时改这两处。本页此前画的是**渲染器从不产生的形状**（树形方块 + `├──`），
 > 而本页开头又声明"输出即当前真实行为"——两张网里，是快照说了算。
+> 末行 `来源：` 是 v0.73 起的：依赖图写进了 lock（[ADR-028](../adr/adr-028-dependency-graph-in-lock.md)），
+> `why` 读 lock 即可回答、**不启动 git 子进程**；旧 lock 没有图时它退回重新解析，
+> 并把那一句换成"重新解析上游清单"——**回退从不懈怠到静默**。
 
 **上界（v0.17，[ADR-024](../adr/adr-024-bounded-explanations.md)）**：
 默认最多枚举 **64** 条路径。达到上界时那一行变成

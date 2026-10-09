@@ -121,7 +121,45 @@ func buildSPDX(project Project, entries []Entry, opts Options) spdxDocument {
 			RelationshipType:   "DESCRIBES",
 		})
 	}
+	// v0.73（ADR-028）：DEPENDS_ON 才是"依赖图形"；DESCRIBES 只是"文档讲了谁"。
+	//
+	// 根边从 DOCUMENT 出发：项目本身不是一个 package 元素（它没有被 DESCRIBES
+	// 之外的身份），SPDX 允许文档作为关系的主体。
+	doc.Relationships = append(doc.Relationships, spdxDependencies(entries)...)
 	return doc
+}
+
+// spdxDependencies 导出 DEPENDS_ON 关系（v0.73，ADR-028）。
+//
+// 与 CycloneDX 那份同源（edgeIndex）：两种格式的依赖图形必须一致，
+// 否则"挑一个格式看"的人会得到两棵树。旧 lock ⇒ 不追加任何关系（不编图）。
+func spdxDependencies(entries []Entry) []spdxRelation {
+	root, children := edgeIndex(entries)
+	if len(root) == 0 && len(children) == 0 {
+		return nil
+	}
+	idByKey := make(map[string]string, len(entries))
+	for _, e := range entries {
+		idByKey[e.Key()] = spdxID(e)
+	}
+	var out []spdxRelation
+	for _, k := range root {
+		out = append(out, spdxRelation{
+			SPDXElementID:      "SPDXRef-DOCUMENT",
+			RelatedSPDXElement: idByKey[k],
+			RelationshipType:   "DEPENDS_ON",
+		})
+	}
+	for _, e := range entries {
+		for _, k := range children[e.Key()] {
+			out = append(out, spdxRelation{
+				SPDXElementID:      idByKey[e.Key()],
+				RelatedSPDXElement: idByKey[k],
+				RelationshipType:   "DEPENDS_ON",
+			})
+		}
+	}
+	return out
 }
 
 // spdxID 派生一个确定且合法的 SPDXID。
