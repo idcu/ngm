@@ -236,16 +236,21 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	items := make([]digestNode, 0, len(g.Nodes))
 
 	for _, n := range g.Nodes {
-		dg, derr := git.BuildArchiveDigest(ctx, env.GitOpts, n.MirrorPath, n.Commit)
+		// v0.68：一次算出（条目 + 内容 + digest），把材料交给 Put 复用——
+		// 此前这里算一遍、Put 内部再算一遍，加 Put 自己的 tree 与 cat-file：
+		// 每个依赖 6 个 git 子进程；现在 digest 阶段只剩 2 个（ls-tree + cat-file）。
+		material, derr := git.BuildArchiveMaterial(ctx, env.GitOpts, n.MirrorPath, n.Commit)
 		if derr != nil {
 			return runErr(ctx, stdout, stderr, derr)
 		}
+		dg := material.Digest
 
 		if _, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
-			Repo:    n.Name,
-			Commit:  n.Commit,
-			Digest:  dg,
-			SubPath: n.SubPath,
+			Repo:     n.Name,
+			Commit:   n.Commit,
+			Digest:   dg,
+			SubPath:  n.SubPath,
+			Material: material,
 		}); perr != nil {
 			return runErr(ctx, stdout, stderr, perr)
 		}
@@ -375,7 +380,11 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 					"re-fetch (delete ~/.ngm/mirror/<host>/<org>/<repo>.git) or run `ngm update`"))
 		}
 
-		// Put 会重新计算 digest 并与 lock 比对，因此"lock 与内容不符"在这里被拒绝（exit 2）
+		// Put 会重新计算 digest 并与 lock 比对，因此"lock 与内容不符"在这里被拒绝（exit 2）。
+		//
+		// v0.68 刻意**不**在这里传 Material：这里的 digest 是 lock 的**声明值**，
+		// 而 Put 内部的重算**正是那条校验本身**（"这份内容真的是 lock 说的那个吗"）。
+		// 复用上面的计算结果会把它变成同义反复——省下的 spawn 不值这个价。
 		if _, perr := env.Store.Put(ctx, env.GitOpts, mirrorPath, vendor.Meta{
 			Repo:    d.Name,
 			Commit:  d.Commit,

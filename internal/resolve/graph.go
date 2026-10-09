@@ -200,12 +200,35 @@ func ResolveGraph(ctx context.Context, roots []DepSpec, opts GraphOptions) (*Gra
 			}
 		}
 
+		// 阶段 0：**先与 seen 对账，再解析**（v0.68）。
+		//
+		// 已见过的 Key 不该重新解析：它的 commit 早已确定，重复解析不产生任何
+		// 新信息——而代价是一次 `EnsureMirror`（对已存在的 mirror 就是一次**真实的
+		// git fetch**）加一次 ref 解析。跨层菱形（A→C 且 A→B→C）此前走的正是
+		// 那条路：C 被完整解析一遍，然后在并入阶段发现"早就有它了"。
+		// 复杂度因此从 O(节点) 退化成 O(边)。
+		//
+		// 来源信息（RequiredBy / Depth）**必须继续合并**——那才是这一步真正的工作；
+		// 冲突检测（root wins / 传递间冲突）也仍然在这里发生（mergeIntoExisting），
+		// 且比从前更早：既然不解析了，冲突就不会再被"解析失败"掩盖。
 		batch, err := mergeFrontier(frontier, rootSet)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := resolveBatch(ctx, batch, opts, conc); err != nil {
+		var toResolve []*Node
+		var fresh []*Node
+		for _, node := range batch {
+			if existing, ok := seen[node.Key]; ok {
+				if err := mergeIntoExisting(existing, node); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			toResolve = append(toResolve, node)
+		}
+
+		if err := resolveBatch(ctx, toResolve, opts, conc); err != nil {
 			return nil, err
 		}
 
@@ -215,8 +238,10 @@ func ResolveGraph(ctx context.Context, roots []DepSpec, opts GraphOptions) (*Gra
 		// （典型：根声明的 A 与被覆盖的 A@other，二者同层），
 		// 若边并入边展开，先展开的节点会找不到同伴节点，
 		// 从而丢失"被根声明覆盖"的记录。
-		var fresh []*Node
-		for _, node := range batch {
+		for _, node := range toResolve {
+			// mergeFrontier 已按 Key 合并同层重复，因此正常路径不会撞 seen；
+			// 保留这个分支（并继续走 mergeIntoExisting）是为了让"将来有人把
+			// 去重挪走"变成一次合并，而不是一次静默覆盖。
 			if existing, ok := seen[node.Key]; ok {
 				if err := mergeIntoExisting(existing, node); err != nil {
 					return nil, err

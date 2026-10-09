@@ -99,6 +99,37 @@ func indexByte(b []byte, c byte) int {
 	return -1
 }
 
+// ArchiveMaterial 是一次 digest 计算的**中间产物**（v0.68）。
+//
+// 为什么需要它（评估报告 P1#4 量出的路径）：重放一次 digest 的成本是两个 git
+// 子进程（`ls-tree` + `cat-file --batch`），而 install 此前把它跑了**两遍**——
+// 自己算一遍（为了写 lock），`Put` 内部再算一遍（为了校验）——再加上 `Put`
+// 自己又要一遍条目与内容：**每个依赖 6 个 spawn，其中 4 个是重复的**。
+// 把"一次算出的条目、内容与清单记录"带下去，重复的那部分就消失了。
+//
+// 安全边界（把话说清楚）：本结构是**进程内**的传递物，不是可持久化的数据。
+// 消费方（`vendor.Put`）仍然核对两个身份字段（Commit / Digest）——
+// 拼错的 Material 会被**拒绝**，而不是被静默接受
+// （"把 A 的内容写进 B 的槽位"是这个 store 最危险的失效模式）。
+type ArchiveMaterial struct {
+	// Commit 是这份材料来自的 commit（身份字段之一）。
+	Commit string
+	// Digest 是它的 archiveDigest（`sha256:<hex>`）。
+	Digest string
+	// Entries 是**已过滤且已验证**的条目（不含 tree 条目），与 Contents / Records
+	// 一一对应、顺序相同。
+	Entries []TreeEntry
+	// Contents[i] 是 Entries[i] 的原始字节。
+	Contents [][]byte
+	// Records 是清单记录（Path / Mode / BlobSHA256）——哈希已经算好，
+	// 消费方不需要也不应该重算（重算就是重复劳动；而"少算一次"不会降低任何保证，
+	// 因为 digest 本身由 Records 决定）。
+	Records []digest.Record
+}
+
+// Manifest 返回这份材料的规范清单字节流。
+func (m *ArchiveMaterial) Manifest() []byte { return digest.BuildManifest(m.Records) }
+
 // BuildArchive 从 mirror 的 repoPath 中读取 commit，产出规范化清单。
 //
 // 流程：
@@ -111,14 +142,32 @@ func indexByte(b []byte, c byte) int {
 //  5. 逐条计算 blob sha256，交给 digest.BuildManifest 排序并拼装
 //
 // 返回值是清单字节流；其 digest 用 digest.Digest 计算。
+//
+// v0.68：本函数是 `BuildArchiveMaterial` 的薄包装——两条路径的字节级行为
+// 由同一段代码保证（不允许"优化过的路径"与"老路径"各算各的）。
 func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([]byte, error) {
+	m, err := BuildArchiveMaterial(ctx, opts, repoPath, commit)
+	if err != nil {
+		return nil, err
+	}
+	return m.Manifest(), nil
+}
+
+// BuildArchiveMaterial 一次算出条目、内容、清单记录与 digest（见 ArchiveMaterial）。
+//
+// 步骤与 BuildArchive 的文档完全一致；区别只是**把中间产物留下来**供调用方复用。
+func BuildArchiveMaterial(ctx context.Context, opts Options, repoPath, commit string) (*ArchiveMaterial, error) {
 	entries, err := ListTree(ctx, opts, repoPath, commit)
 	if err != nil {
 		return nil, err
 	}
 	if len(entries) == 0 {
 		// 空 commit（无文件）是合法的：清单只有头部
-		return digest.BuildManifest(nil), nil
+		mf := digest.BuildManifest(nil)
+		return &ArchiveMaterial{
+			Commit: commit, Digest: digest.Digest(mf),
+			Entries: []TreeEntry{}, Contents: [][]byte{}, Records: []digest.Record{},
+		}, nil
 	}
 
 	// 2) 预检：拒绝不支持的模式，并收集需要读取的 blob 与清单记录。
@@ -126,6 +175,7 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 	// v0.66：blobSHAs 与 metas 在**同一个循环**里产出（两者一一对应）——
 	// 此前"跳过 tree 条目"这个过滤条件写在两个循环里各一份，改一处漏一处
 	// 会**静默产生错误的 digest**（评估报告 P3）。过滤现在只有一处定义。
+	kept := make([]TreeEntry, 0, len(entries))
 	blobSHAs := make([]string, 0, len(entries))
 	metas := make([]digest.Record, 0, len(entries))
 	for _, e := range entries {
@@ -135,6 +185,7 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 		if e.Mode == digest.ModeTree {
 			continue // -r 不应产生 tree 条目；保险起见跳过
 		}
+		kept = append(kept, e)
 		blobSHAs = append(blobSHAs, e.SHA)
 		metas = append(metas, digest.Record{Path: e.Path, Mode: e.Mode})
 	}
@@ -203,7 +254,14 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 		metas[i].BlobSHA256 = hashes[i]
 	}
 
-	return digest.BuildManifest(metas), nil
+	mf := digest.BuildManifest(metas)
+	return &ArchiveMaterial{
+		Commit:   commit,
+		Digest:   digest.Digest(mf),
+		Entries:  kept,
+		Contents: contents,
+		Records:  metas,
+	}, nil
 }
 
 // BuildArchiveDigest 是 BuildArchive 的便捷封装，直接返回 `sha256:<hex>`。

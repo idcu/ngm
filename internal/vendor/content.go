@@ -64,6 +64,13 @@ type Meta struct {
 	ManifestVersion string `json:"manifestVersion"`
 	// SubPath 是 monorepo 子路径（空表示整仓）。
 	SubPath string `json:"subPath,omitempty"`
+
+	// Material 是调用方**已经算好**的 digest 中间产物（v0.68，**不序列化**）。
+	//
+	// 非 nil 时 `Put` 跳过"重算 digest"这一步（4 个多余 spawn），直接复用它的
+	// 条目与内容——但仍核对两个身份字段（Commit / Digest），见 Put 的注释。
+	// 序列化层看不见它：`json:"-"`。
+	Material *git.ArchiveMaterial `json:"-"`
 }
 
 // MetaSchemaVersion 是 meta.json 的当前 schema 版本。
@@ -210,50 +217,45 @@ func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath
 		return PutResult{Path: s.contentDir(meta.Digest), AlreadyPresent: true}, nil
 	}
 
-	// 内容与 digest 的一致性校验（见方法文档）
-	actual, err := git.BuildArchiveDigest(ctx, opts, mirrorRepoPath, meta.Commit)
-	if err != nil {
-		return PutResult{}, err
-	}
-	if actual != meta.Digest {
-		return PutResult{}, errs.New(
-			errs.CodeDigestMismatch,
-			fmt.Sprintf("digest mismatch while populating content store: meta says %s, commit %s hashes to %s",
-				meta.Digest, git.ShortSHA(meta.Commit), actual),
-			"the lock file and the mirror disagree; run `ngm verify` to classify the drift")
-	}
-
-	// Git 权威的内容树：路径 + mode + blob sha。
-	tree, err := git.ListTree(ctx, opts, mirrorRepoPath, meta.Commit)
-	if err != nil {
-		return PutResult{}, err
-	}
-
-	// 分类。与解包时代的口径完全一致（gitlink 与未知 mode 一律拒绝——
-	// 它们无法被忠实地重放，放行就等于让 verify 对着一个假内容树通过）。
-	var shas []string
-	kept := make([]git.TreeEntry, 0, len(tree))
-	for _, e := range tree {
-		switch e.Mode {
-		case digest.ModeTree:
-			continue
-		case digest.ModeRegular, digest.ModeExecutable, digest.ModeSymlink:
-			shas = append(shas, e.SHA)
-			kept = append(kept, e)
-		case digest.ModeGitlink:
-			return PutResult{}, errs.New(errs.CodeConfigInvalid,
-				fmt.Sprintf("cannot unpack gitlink at %q: submodules are not supported in v0.1", e.Path),
-				"vendor the submodule into this repository")
-		default:
-			return PutResult{}, errs.New(errs.CodeConfigInvalid,
-				fmt.Sprintf("cannot unpack unsupported mode %q at %q", e.Mode, e.Path), "")
+	// 内容与 digest 的一致性校验（见方法文档）。
+	//
+	// v0.68：调用方**已经算好**时（`meta.Material` 非 nil）复用它——那一步
+	// 此前是 4 个多余的 spawn（digest 两遍 + tree + cat-file），而 install 的
+	// 调用方刚刚在同一 (mirror, commit) 上算过同样东西。
+	// 但身份字段**仍然核对**："调用方传对了"不是一条可依赖的假设，
+	// 而"把 A 的内容写进 B 的槽位"是这个 store 最危险的失效模式。
+	material := meta.Material
+	if material != nil {
+		if material.Commit != meta.Commit {
+			return PutResult{}, errs.New(errs.CodeDigestMismatch,
+				fmt.Sprintf("archive material is for commit %s, but meta says %s",
+					git.ShortSHA(material.Commit), git.ShortSHA(meta.Commit)),
+				"this is an internal inconsistency; re-run `ngm install`")
 		}
+		if material.Digest != meta.Digest {
+			return PutResult{}, errs.New(errs.CodeDigestMismatch,
+				fmt.Sprintf("digest mismatch while populating content store: meta says %s, the supplied material hashes to %s",
+					meta.Digest, material.Digest),
+				"the lock file and the mirror disagree; run `ngm verify` to classify the drift")
+		}
+	} else {
+		m, err := git.BuildArchiveMaterial(ctx, opts, mirrorRepoPath, meta.Commit)
+		if err != nil {
+			return PutResult{}, err
+		}
+		if m.Digest != meta.Digest {
+			return PutResult{}, errs.New(
+				errs.CodeDigestMismatch,
+				fmt.Sprintf("digest mismatch while populating content store: meta says %s, commit %s hashes to %s",
+					meta.Digest, git.ShortSHA(meta.Commit), m.Digest),
+				"the lock file and the mirror disagree; run `ngm verify` to classify the drift")
+		}
+		material = m
 	}
 
-	contents, err := git.CatFileBatch(ctx, opts, mirrorRepoPath, shas)
-	if err != nil {
-		return PutResult{}, err
-	}
+	// Git 权威的内容树：路径 + mode + blob sha（已过滤、已验证，见 ArchiveMaterial）。
+	kept := material.Entries
+	contents := material.Contents
 
 	mf := Manifest{
 		SchemaVersion:   layoutSchemaVersion,

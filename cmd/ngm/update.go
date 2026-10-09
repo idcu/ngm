@@ -163,16 +163,19 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	items := make([]digestNode, 0, len(g.Nodes))
 
 	for _, n := range g.Nodes {
-		dg, derr := git.BuildArchiveDigest(ctx, env.GitOpts, n.MirrorPath, n.Commit)
+		// v0.68：同 installFresh——一次算出、交给 Put 复用（每个依赖少 4 个 spawn）。
+		material, derr := git.BuildArchiveMaterial(ctx, env.GitOpts, n.MirrorPath, n.Commit)
 		if derr != nil {
 			return runErr(ctx, stdout, stderr, derr)
 		}
+		dg := material.Digest
 
 		putRes, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
-			Repo:    n.Name,
-			Commit:  n.Commit,
-			Digest:  dg,
-			SubPath: n.SubPath,
+			Repo:     n.Name,
+			Commit:   n.Commit,
+			Digest:   dg,
+			SubPath:  n.SubPath,
+			Material: material,
 		})
 		if perr != nil {
 			return runErr(ctx, stdout, stderr, perr)
