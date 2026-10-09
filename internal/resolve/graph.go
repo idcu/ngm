@@ -383,6 +383,11 @@ func resolveOne(ctx context.Context, n *Node, opts GraphOptions) error {
 		GitURL:   mirrorPath,
 		Protocol: opts.Protocol,
 		Secrets:  opts.Secrets,
+		// Policy 必须透传（v0.66 修）：漏掉它，图解析阶段的 `git ls-remote`
+		// 就绕过了 `run:git` 门禁——而 `reftype.go` 自己写的不变量是
+		// "ngm 里不应存在绕过门禁的 git 调用路径"。这类缺陷的形状是
+		// "配置里 deny 了 run:git，子进程照样起来"，只有逐行读才发现。
+		Policy: opts.Policy,
 	})
 	if err != nil {
 		return err

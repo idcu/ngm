@@ -307,9 +307,15 @@ func dispatchInner(args []string, stdout, stderr io.Writer) int {
 	// 最可能的来源是变量展开失败（`--dir="$PROJ"` 而 `$PROJ` 未设），而用户看到的是"成功了"。
 	// 用法文本写着 `default: .`——想用当前目录就别给这个 flag，给了空值一定是个错误。
 	if emptyDirFlag(args) {
-		fmt.Fprint(stderr, "ngm: `--dir=` was given an empty value — that is almost always an unset "+
-			"variable (`--dir=\"$PROJ\"`); pass a real path, or drop the flag to use the current directory\n\n")
+		const msg = "`--dir=` was given an empty value — that is almost always an unset " +
+			"variable (`--dir=\"$PROJ\"`); pass a real path, or drop the flag to use the current directory"
+		fmt.Fprint(stderr, "ngm: "+msg+"\n\n")
 		fmt.Fprint(stderr, spec.Usage)
+		// v0.66：这条拒绝发生在**命令行分流层**（早于命令自己的 flag 解析），
+		// 因此不在 v0.54 的信封覆盖里——实测 `ngm verify --json --dir=` 的
+		// stdout 为 0 字节。用户提了 `--json` 就必须给一份信封
+		// （v0.51 规则④：没有报告可给 ⇒ 完整的错误信封）。
+		failEarly(args, stdout, "invalid --dir", msg)
 		return 3
 	}
 
@@ -456,7 +462,11 @@ func looksLikeFlag(s string) bool {
 // 现在写下它就是错的。将来若要新增命令，直接实现 Run 即可。
 
 // runWithRecovery 捕获 Run 内部 panic，避免 CLI 留下非零退出但堆栈风暴。
-// 任何 panic 都按 errs.CodeRefDrift (1) 退出。
+// 任何 panic 都按 errs.CodeInternal (6) 退出。
+//
+// v0.66 更正：这行注释此前写着 `errs.CodeRefDrift (1)`——那是码 6 引入
+// （ADR-026）之前的说法，代码早已改用 CodeInternal，注释没有跟着改
+// （评估报告 P3：至少三处"注释与代码不符"之一）。
 func runWithRecovery(fn func() int) (exit int) {
 	defer func() {
 		if r := recover(); r != nil {

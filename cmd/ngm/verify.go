@@ -327,6 +327,17 @@ func verifySummaryLine(rep verify.Report, offline bool) string {
 	if offline {
 		out += "\nnote: --offline — refs were compared against the local mirror snapshot (stale)"
 	}
+	if !rep.Deep {
+		// v0.66：把浅校验的边界**说出来**（评估报告 P2#17）。
+		//
+		// 与 OSV 的 CoverageNote 同一形态：不写这句，"全部 ✓" 会被读成
+		// "字节级证明"——而默认模式只比结构与大小（stat 级），
+		// **等长字节篡改检不出来**（hardlink 下 vendor 与 blob 是同一 inode，
+		// 篡改同时改变两侧）。CI 默认跑 `ngm verify` 时这是最容易被误读的一句。
+		// 这条 note 不改判定、不改退出码，只把"证明到了哪一层"讲清楚。
+		out += "\nnote: structure-only (no byte hashes): same-length byte edits are " +
+			"detectable only with `ngm verify --deep`"
+	}
 	return out
 }
 

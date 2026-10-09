@@ -114,13 +114,17 @@ func TestV54EarlyFailuresAreMachineReadableToo(t *testing.T) {
 	})
 
 	// ---- ④ 对照二：命令**不接受** `--json` ⇒ stdout 仍为空（规则④那句仍然成立） ----
-	t.Run("install --json（这个命令没有 json）", func(t *testing.T) {
+	//
+	// v0.66 起 `install` / `update` **接受** `--json`（评估报告 P3 的修复），
+	// 所以这条对照换到一个仍然不接受的**写命令**（`add`）上——
+	// 这条判据检查的对象是"规则④本身"，而不是某一个特定命令。
+	t.Run("add --json（这个命令没有 json）", func(t *testing.T) {
 		isolateUserEnv(t)
 		p := newProject(t)
 		var out, errb bytes.Buffer
-		code := dispatch([]string{"install", "--json", "--dir=" + p}, &out, &errb)
+		code := dispatch([]string{"add", "github:x/dep@v1", "--ref-type=tag", "--json", "--dir=" + p}, &out, &errb)
 		if code == 0 {
-			t.Fatalf("`install --json` 竟然退 0")
+			t.Fatalf("`add --json` 竟然退 0")
 		}
 		if len(bytes.TrimSpace(out.Bytes())) != 0 {
 			t.Errorf("命令不认识这个 flag 时 stdout 仍是空的（v0.51 规则④那句没变），而现在有：\n%s",

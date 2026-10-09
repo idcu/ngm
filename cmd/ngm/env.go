@@ -186,6 +186,54 @@ func (e *projectEnv) GraphOptions() resolve.GraphOptions {
 // ManifestPath 返回 ngm.json 路径。
 func (e *projectEnv) ManifestPath() string { return filepath.Join(e.ProjectDir, "ngm.json") }
 
+// ---------- 落盘前的凭证检查（v0.66） ----------
+
+// guardNoSecrets 在写入**可提交文件**前断言内容里不含任何已知 token 字面量。
+//
+// 为什么值得有（v0.66，评估报告 P3）：`git.AssertNoSecrets` 从写下那天起就带着
+// "在写入 lock / ngm.json / 打印用户可见输出前调用"的注释，而全仓库**零调用**——
+// 一条描述着不存在的机制的注释。ngm 的设计是"认证交给 git、自己从不触碰 token"，
+// 但那是设计意图；这一步让"token 意外混进声明或 URL"这类事故在**落盘前**
+// 变成硬失败，而不是靠事后审计发现。
+//
+// 接线范围（如实记）：install / update 的 ngm.lock 与 ngm.mappings.json。
+// `add` / `init` 写的 ngm.json 目前不经过这里（内容是用户显式输入的声明，
+// 且那两个命令没有构造 projectEnv）——那一天需要时从这里接。
+//
+// 命中时只说"检测到"，绝不回显 secret 本身（由 AssertNoSecrets 保证）。
+func guardNoSecrets(data []byte, secrets []string, what string) error {
+	if len(secrets) == 0 {
+		return nil
+	}
+	if hit := git.AssertNoSecrets(string(data), secrets); hit != "" {
+		return errs.New(errs.CodeConfigInvalid,
+			"refusing to write "+what+": it would contain a credential literal ("+hit+")",
+			"ngm never writes tokens to project files — check the dependency URL and "+
+				"`git.tokenEnvVars`, and rotate the token if it leaked")
+	}
+	return nil
+}
+
+// writeLockChecked 是 lock.Write 的落盘前保护版。
+func writeLockChecked(env *projectEnv, lf *lock.File) error {
+	if data, merr := lf.Marshal(); merr == nil {
+		if gerr := guardNoSecrets(data, env.Secrets, "ngm.lock"); gerr != nil {
+			return gerr
+		}
+	}
+	return lock.Write(env.LockPath(), lf)
+}
+
+// writeMappingsChecked 是 mappings.Write 的落盘前保护版。
+func writeMappingsChecked(env *projectEnv, f *mappings.File) error {
+	if data, merr := f.Marshal(); merr == nil {
+		if gerr := guardNoSecrets(data, env.Secrets, mappings.FileName); gerr != nil {
+			return gerr
+		}
+	}
+	return mappings.Write(mappings.Find(env.ProjectDir), f)
+}
+
 // LockPath 返回 ngm.lock 路径。
 func (e *projectEnv) LockPath() string { return lock.Find(e.ProjectDir) }
 

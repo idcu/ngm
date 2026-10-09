@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,13 +21,15 @@ import (
 const installUsage = `ngm install — resolve dependencies and produce ngm.lock
 
 USAGE:
-  ngm install [--dir=<dir>] [--digest] [--frozen-lockfile] [--offline]
+  ngm install [--dir=<dir>] [--digest] [--frozen-lockfile] [--offline] [--json]
 
 FLAGS:
   --dir               project directory containing ngm.json (default: .)
   --digest            also print each dependency's archiveDigest
   --frozen-lockfile   never resolve a new ref and never write ngm.lock
   --offline           never touch the network
+  --json              write a machine-readable report to stdout (CI should use this);
+                      progress text and warnings then go to stderr
 
 BEHAVIOR (architecture/locking.md §更新策略):
   no ngm.lock   resolve from ngm.json → write lock → populate content store
@@ -66,14 +70,19 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	digestFlag := fs.Bool("digest", false, "also print each archiveDigest")
 	frozen := fs.Bool("frozen-lockfile", false, "never resolve a new ref or write ngm.lock")
 	offline := fs.Bool("offline", false, "never touch the network")
+	jsonOut := fs.Bool("json", false, "machine-readable report")
 	fs.Usage = func() { fmt.Fprint(stderr, installUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "dir"}, {Name: "digest", Bool: true},
 		{Name: "frozen-lockfile", Bool: true}, {Name: "offline", Bool: true},
+		{Name: "json", Bool: true},
 	})); err != nil {
+		failEarly(args, stdout, err.Error(),
+			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() > 0 {
 		fmt.Fprint(stderr, installUsage)
 		return 3
@@ -120,18 +129,28 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			"commit ngm.lock; an offline install can only materialise what the lock already pins"))
 	}
 
+	// --json 时人类文本改走 stderr（cli.md 的全局约定："机器可读输出走 stdout，
+	// 人类文本与诊断走 stderr"）——stdout 必须只含一份 JSON。
+	humanOut := stdout
+	if *jsonOut {
+		humanOut = stderr
+	}
+	rep := &writeReport{Version: writeReportVersion, Command: "install", Offline: *offline}
+
 	// 决策：lock 是否仍与 ngm.json 一致？
 	if lf != nil {
 		missing := lockManifestMismatch(lf, roots)
 		if len(missing) == 0 {
-			return installFromLock(ctx, env, pf, lf, *digestFlag, *offline, stdout, stderr)
+			code := installFromLock(ctx, env, pf, lf, *digestFlag, *offline, rep, humanOut, stderr)
+			return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
 		}
-		fmt.Fprintf(stdout,
+		fmt.Fprintf(humanOut,
 			"ngm.lock does not match ngm.json (%s); re-resolving\n",
 			strings.Join(missing, ", "))
 	}
 
-	return installFresh(ctx, env, pf, roots, *digestFlag, *offline, stdout, stderr)
+	code := installFresh(ctx, env, pf, roots, *digestFlag, *offline, rep, humanOut, stderr)
+	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
 }
 
 // materializeVendor 落地 vendor 树、写出 ngm.mappings.json，然后按策略处理安装后钩子。
@@ -155,7 +174,7 @@ func materializeVendor(
 	for _, w := range mr.Warnings {
 		fmt.Fprintf(stderr, "warning: %s\n", w)
 	}
-	if werr := mappings.Write(mappings.Find(env.ProjectDir), mr.Mappings); werr != nil {
+	if werr := writeMappingsChecked(env, mr.Mappings); werr != nil {
 		return werr
 	}
 
@@ -185,7 +204,7 @@ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
 }
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
-func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest, offline bool, stdout, stderr io.Writer) int {
+func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
@@ -242,6 +261,13 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			SubPath:       n.SubPath,
 		})
 		items = append(items, digestNodeFromResolved(n, dg))
+		if rep != nil {
+			rep.Dependencies = append(rep.Dependencies, writeReportDep{
+				Name: n.Name, Ref: n.Ref, RefType: string(n.RefType), SubPath: n.SubPath,
+				Commit: n.Commit, ArchiveDigest: dg, VendorPath: n.Repo.MirrorRelPath(),
+				Source: "resolved",
+			})
+		}
 		printResolved(stdout, n, dg, showDigest)
 	}
 
@@ -259,19 +285,19 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	}
 
 	lf.Sort()
-	if err := lock.Write(env.LockPath(), lf); err != nil {
+	if err := writeLockChecked(env, lf); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
 	fmt.Fprintf(stdout, "\ninstalled %d dependencies; wrote %s and %s\n",
 		len(lf.Dependencies), env.LockPath(), mappings.FileName)
-	return autoVerifyAfterLock(ctx, env, pf, pol, offline, stdout, stderr)
+	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr)
 }
 
 // installFromLock 尊重既有 lock：不重新解析 ref，只确保内容就绪。
 //
 // 这是 v0.1 的可复现性核心——同一 lock 在不同机器上必须安装出相同内容。
-func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest, offline bool, stdout, stderr io.Writer) int {
+func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
 	// verifyOnLock 需要策略：在这里读一次，避免走到底再解析一遍配置
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
@@ -303,6 +329,9 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		if env.Store.Has(d.ArchiveDigest) {
 			fromStore++
 			items = append(items, digestNodeFromLock(d, repo))
+			if rep != nil {
+				rep.Dependencies = append(rep.Dependencies, writeReportDepFromLock(d, "store"))
+			}
 			fmt.Fprintf(stdout, "%s@%s (%s) → %s\n", d.Name, d.Ref, d.RefType, d.Commit)
 			if showDigest {
 				fmt.Fprintf(stdout, "  archiveDigest: %s\n", d.ArchiveDigest)
@@ -310,10 +339,27 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 			continue
 		}
 
-		// 未命中：需要 mirror（已就绪时只做增量 fetch，缺失时才 clone）
-		mirrorPath, merr := ensure(ctx, repo)
-		if merr != nil {
-			return runErr(ctx, stdout, stderr, merr)
+		// 未命中：需要 mirror 与对象。**按需取物**（v0.66，评估报告 P3）：
+		// mirror 已存在且已含 lock 的 commit 时不做任何 fetch——那正是
+		// "什么都没变"的常见情形，而 ADR-010 的哲学是"对象按需才取"。
+		// 此前无条件 Ensure（已存在即增量 fetch），于是每次 install 都为一个
+		// **已经在本地成立的事实**触网。
+		//
+		// 未命中时行为不变：Ensure 负责 clone / fetch，取不到对象由下面
+		// 的 CommitExists 检查报错（"mirror 不完整或 commit 已被上游移除"）。
+		mirrorPath := env.Mirror.PathFor(repo)
+		present := false
+		if git.IsBareMirror(mirrorPath) {
+			if ok, cerr := git.CommitExists(ctx, env.GitOpts, mirrorPath, d.Commit); cerr == nil && ok {
+				present = true
+			}
+		}
+		if !present {
+			var merr error
+			mirrorPath, merr = ensure(ctx, repo)
+			if merr != nil {
+				return runErr(ctx, stdout, stderr, merr)
+			}
 		}
 
 		// lock 的 commit 必须在 mirror 中可解析
@@ -340,6 +386,9 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		}
 
 		items = append(items, digestNodeFromLock(d, repo))
+		if rep != nil {
+			rep.Dependencies = append(rep.Dependencies, writeReportDepFromLock(d, "fetched"))
+		}
 		fmt.Fprintf(stdout, "%s@%s (%s) → %s\n", d.Name, d.Ref, d.RefType, d.Commit)
 		if showDigest {
 			fmt.Fprintf(stdout, "  archiveDigest: %s\n", d.ArchiveDigest)
@@ -357,9 +406,12 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		source = fmt.Sprintf("%d from the content store, %d fetched",
 			fromStore, len(lf.Dependencies)-fromStore)
 	}
+	if rep != nil {
+		rep.FromStore = fromStore
+	}
 	fmt.Fprintf(stdout, "\ninstalled %d dependencies from %s (lock respected; %s); wrote %s\n",
 		len(lf.Dependencies), env.LockPath(), source, mappings.FileName)
-	return autoVerifyAfterLock(ctx, env, pf, pol, offline, stdout, stderr)
+	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr)
 }
 
 // printResolved 打印一条解析结果。
@@ -372,4 +424,117 @@ func printResolved(w io.Writer, n *resolve.Node, dg string, showDigest bool) {
 	if showDigest {
 		fmt.Fprintf(w, "  archiveDigest: %s\n", dg)
 	}
+}
+
+// ---------- install / update 的 --json 报告（v0.66） ----------
+//
+// 评估报告 P3："install / update 两个写命令没有 --json（CI 最需要的恰好没有
+// 机器可读输出）"。两个命令回答的是同一个问题——"这次运行把每个依赖
+// 解析/落地成了什么"——因此共用同一形状，差别只在 `command`。
+
+// writeReportVersion 是这份报告的 schema 版本（与 verify 的报告各自演进）。
+const writeReportVersion = 1
+
+// writeReport 是 `ngm install` / `ngm update` 的 --json 报告。
+type writeReport struct {
+	Version int    `json:"version"`
+	Command string `json:"command"` // install | update
+	Offline bool   `json:"offline"`
+	// Dependencies 按 name + subPath 排序（与 lock 同一口径）——结果确定、可 diff。
+	Dependencies []writeReportDep `json:"dependencies"`
+	// Count 是报告的依赖条数。
+	Count int `json:"count"`
+	// FromStore 是**内容取自 content store**（该条未触网）的条数。
+	// 它是"这次安装有多离线"的直接读数，与人类输出里那句同源。
+	FromStore int `json:"fromStore"`
+	// Verification 是 verifyOnLock 复检的结论（策略未开启时为 nil/省略）。
+	//
+	// 为什么要有它（v0.66）：install / update 在 verifyOnLock 下可能以漂移
+	// （exit 1）结束，而人读那侧会给出行动行——v0.32~v0.53 立下的"每一条失败
+	// 都要说得出下一步"契约在机器那侧此前没有落处（那时这两个命令还没有
+	// `--json`）。字段与人读**同源**：`remediation` 就是渲染 `→` 行用的那句话。
+	Verification *writeReportVerify `json:"verification,omitempty"`
+}
+
+// writeReportVerify 是 verifyOnLock 复检的机器可读形态。
+type writeReportVerify struct {
+	// ExitCode 是复检自己的退出码（0/1/2/4）——它也是进程的退出码。
+	ExitCode int `json:"exitCode"`
+	// Drifts 覆盖未通过（或未能完成）的依赖，一条一行。
+	Drifts []writeReportDrift `json:"drifts,omitempty"`
+}
+
+// writeReportDrift 是复检里一条未通过的依赖。
+type writeReportDrift struct {
+	Name        string `json:"name"`
+	DriftKind   string `json:"driftKind,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+	Err         string `json:"error,omitempty"`
+}
+
+// writeReportDep 是报告里的一条依赖。
+type writeReportDep struct {
+	Name          string `json:"name"`
+	Ref           string `json:"ref"`
+	RefType       string `json:"refType"`
+	SubPath       string `json:"subPath,omitempty"`
+	Commit        string `json:"commit"`
+	ArchiveDigest string `json:"archiveDigest"`
+	VendorPath    string `json:"vendorPath"`
+	// Source 是这一条内容的来源：
+	//
+	//	resolved  install 的 fresh 路径 / update：本次重新解析
+	//	store     content store 命中（未触网）
+	//	fetched   从 mirror 取（install 的 lock 路径）
+	Source string `json:"source"`
+}
+
+// writeReportDepFromLock 从 lock 条目构造报告行（install 的 lock 路径）。
+func writeReportDepFromLock(d *lock.Dependency, source string) writeReportDep {
+	return writeReportDep{
+		Name: d.Name, Ref: d.Ref, RefType: d.RefType, SubPath: d.SubPath,
+		Commit: d.Commit, ArchiveDigest: d.ArchiveDigest, VendorPath: d.VendorPath,
+		Source: source,
+	}
+}
+
+// Marshal 返回确定格式的 --json 字节流（与其余报告同一纪律）。
+func (r *writeReport) Marshal() ([]byte, error) {
+	out := *r
+	if out.Dependencies == nil {
+		out.Dependencies = []writeReportDep{}
+	}
+	sort.SliceStable(out.Dependencies, func(i, j int) bool {
+		if out.Dependencies[i].Name != out.Dependencies[j].Name {
+			return out.Dependencies[i].Name < out.Dependencies[j].Name
+		}
+		return out.Dependencies[i].SubPath < out.Dependencies[j].SubPath
+	})
+	data, err := json.MarshalIndent(&out, "", "  ")
+	if err != nil {
+		// 编码固定结构不该失败；真失败说明进程状态异常。
+		return nil, errs.Wrap(errs.CodeConfigInvalid, "marshal install report",
+			"re-run the command; if it persists, report it together with the output above", err)
+	}
+	return append(data, '\n'), nil
+}
+
+// emitWriteReport 在 --json 时把报告写到 stdout 并保留原有退出码。
+//
+// 退出码不变（v0.16 第②条规矩）：报告是**附加**的通道，不参与判定。
+// 人读文本此时已全部导向 stderr（见 runInstall / runUpdate）。
+func emitWriteReport(ctx context.Context, stdout, stderr io.Writer, rep *writeReport, code int, jsonOut bool) int {
+	if !jsonOut {
+		return code
+	}
+	rep.Count = len(rep.Dependencies)
+	data, merr := rep.Marshal()
+	if merr != nil {
+		return runErr(ctx, stdout, stderr, merr)
+	}
+	if _, werr := stdout.Write(data); werr != nil {
+		fmt.Fprintf(stderr, "write report: %v\n", werr)
+		return errs.CodeInternal.ExitCode()
+	}
+	return code
 }

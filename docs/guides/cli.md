@@ -41,10 +41,10 @@
 |------|------|--------|-------------|
 | `ngm init <name> [--runtime=node\|deno] [--dir=<path>] [--force]` | 初始化项目（同时生成 `src/index.ts`，不覆盖已存在的） | v0.1 | [快速上手](./quickstart.md) |
 | `ngm add <git-url>[@<ref>] --ref-type <type> [--path=<子路径>] [--dry-run]` | 添加依赖（refType 必填） | v0.1 | [依赖管理](./dependency-management.md) |
-| `ngm install [--digest]` | 解析并安装依赖（有 lock 则尊重 lock） | v0.1 | [依赖管理](./dependency-management.md) |
-| `ngm update [<dep>] [--all] [--offline] [--digest] [--store]` | 更新 ref 与锁定 | v0.1 | [依赖管理](./dependency-management.md) |
+| `ngm install [--digest] [--json]` | 解析并安装依赖（有 lock 则尊重 lock）。`--json` **v0.66**：报告每个依赖解析/落地成了什么（含 `source`: resolved / store / fetched），人类文本改走 stderr | v0.1 | [依赖管理](./dependency-management.md) |
+| `ngm update [<dep>] [--all] [--offline] [--digest] [--store] [--json]` | 更新 ref 与锁定。`--json` **v0.66**（与 install 同一形状；`dependencies` 覆盖整张图） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
-| `ngm verify [<dep>...] [--offline] [--deep] [--json] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
+| `ngm verify [<dep>...] [--offline] [--deep] [--json] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2）。**默认（不加 `--deep`）只比结构与大小**——等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode）；**要字节级保证请加 `--deep`**，汇总行也会把这条边界说出来（v0.66） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
 | `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run]` | 构建（adapter） | v0.1 | [构建](./build.md) |
 | `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（内置清单里是 `typescript` = tsc）。**需要声明**：`engines.typeCheck` 或 `--engine=typescript`——未声明是 `exit 3`，声明了但 `tsc` 未装才是 `exit 5` | [构建](./build.md) |
 | `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
@@ -130,7 +130,9 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。
 - **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
-  支持它的有 **7 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` / `integrations`。
+  支持它的有 **9 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
+  `integrations` / **`install`** / **`update`**（后两个自 v0.66 起——CI 最需要的两个写命令
+  此前恰好没有机器可读输出）。
   各命令的**顶层形状**见下一节。
 
 ---
@@ -148,6 +150,8 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked`（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
 | `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `subPath`（monorepo 子路径，无则省略） · `locked` · `paths` · `rootDeclared`（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
 | `ngm outdated --json` | 对象：`offline` · `entries` · `dependencies` · `updates` · `stale` | ✗ |
+| `ngm install --json` | 对象：`version` · `command` · `offline` · `dependencies` · `count` · `fromStore`（verifyOnLock 开启时另有 `verification`：`exitCode` · `drifts`——元素键 `name` · `driftKind` · `remediation` · `error`）（`dependencies` 元素键：`name` · `ref` · `refType` · `subPath` · `commit` · `archiveDigest` · `vendorPath` · `source`——`source` 是 `resolved` / `store` / `fetched`） | ✗ |
+| `ngm update --json` | 对象：`version` · `command` · `offline` · `dependencies` · `count` · `fromStore` · `verification`（与 install 命令同一形状；`dependencies` 覆盖**整张图**，而不只是被点名的条目） | ✗ |
 | `ngm engines list --json` | **数组**：每个元素是 `name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `builtin` · `supportedInput` · `defaultOptions` | ✗ |
 | `ngm engines info <name> --json` | **数组**：同一个元素形状（`name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `builtin` · `supportedInput` · `defaultOptions`）；同名不同 kind 会各占一行（`esbuild` 同时是 bundler 与 transformer） | ✗ |
 | `ngm engines validate --json` | 对象：`version` · `ok` · `issues` | ✗ |

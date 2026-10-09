@@ -32,6 +32,9 @@ var jsonShapeRowTypes = map[string]struct {
 	"engines list":     {"./engines.go", "engineRow"},
 	"engines info":     {"./engines.go", "engineRow"},
 	"engines validate": {"./engines.go", "enginesValidateReport"},
+	// v0.66：两个写命令的报告共用同一形状（差别在 `command` 字段）。
+	"install": {"./install.go", "writeReport"},
+	"update":  {"./install.go", "writeReport"},
 }
 
 // TestV26EveryDocumentedShapeIsANamedType 固定：**形状表里的每一行，都要有一个具名类型兜着。**

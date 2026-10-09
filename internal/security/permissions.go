@@ -132,7 +132,10 @@ func (t Tier) String() string {
 //     它只是把环境交给 git——默认拦下所有 token 会让认证在无人配置的情况下直接坏掉。
 //     这条权限的用途是**收窄**（`deny: ["env:GITHUB_TOKEN"]`），不是默认开启。
 //   - `read:` / `write:` 默认允许：读自己的项目、写 vendor 与 lock 本就是 ngm 的职能。
-//     判定已实现，施加点是写入路径与（C 组的）沙箱。
+//     两者的施加点都**只在沙箱内**（read 按依赖子树授予，write 恒不授予）——
+//     裁决与理由见 security-model.md §施加点；ngm 自身的读取与写入不加门禁
+//     （v0.66 更正：此处此前写着"施加点是写入路径与（C 组的）沙箱"，
+//     而写入路径上从来没有施加点——注释比实现说得多，是同一族债）。
 func DefaultTier(p Permission) Tier {
 	switch p.Namespace {
 	case Read, Write, Env:
@@ -232,10 +235,13 @@ func (pol *Policy) CheckNet(host string) error {
 	return pol.Check(Permission{Namespace: Net, Target: host})
 }
 
-// CheckWrite 判定"写入某个路径"（`write:<path>`）。
-func (pol *Policy) CheckWrite(path string) error {
-	return pol.Check(Permission{Namespace: Write, Target: path})
-}
+// 注：`write:` 此前有一个 `CheckWrite` 包装，但**全仓库零调用**（v0.66 评估
+// 报告 P1#4 量出）——一个从未被调用的判定函数会让读者以为"deny write 能拦住
+// ngm 的写入"。裁决（v0.5 C 组，见 security-model.md §施加点）是：
+// **`write:` 不在 ngm 自身路径上施加，仅在沙箱内（恒不授予）**。
+// 因此那层包装已删除：与其留一个装饰性的函数，不如让裁决只有一处表述。
+// 若将来出现"用户要禁掉某类写入"的真实需求，从这里重新引入——
+// 并同时补上施加点、断言与文档（enforcement_test.go 的登记表会要求这三样）。
 
 // CheckExplicit 要求某条权限**显式**出现在 `allow` 里（默认档位不算数）。
 //

@@ -24,8 +24,14 @@ import (
 
 // Mirror 管理本地裸仓库镜像（层 1）。
 //
-// 并发安全：Ensure 对同一 repo 串行化（进程内按路径加锁），避免并发 clone 同一目标。
-// 跨进程并发由 .lock 文件（M3 引入）防护。
+// 并发安全：Ensure 对同一 repo 串行化（**进程内**按路径加锁），避免并发 clone 同一目标。
+//
+// **跨进程并发没有防护**（v0.66 更正，评估报告 P2#10）：此前这里写着"跨进程
+// 并发由 .lock 文件（M3 引入）防护"，而实现里只有进程内 `sync.Mutex`，
+// 全仓库既没有 `O_EXCL` 也没有 flock——注释描述的是意图，不是现状。
+// 两个 ngm 进程同时操作同一个 mirror 时，实际存在的保护只有 git 自身的
+// 并发语义（fetch 到同一目录）。要真正防护需要引入跨进程文件锁（横跨
+// Windows / Unix 的 ADR 级决定），在那之前这里如实写明：**它还没做**。
 type Mirror struct {
 	root string
 	opts git.Options

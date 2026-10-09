@@ -215,6 +215,10 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 			why: "`write json: %v`——同一函数的第二处",
 		},
 	},
+	"cmd/ngm/install.go :: emitWriteReport": {{
+		role: roleSource, category: catInternal,
+		why: "`write report: %v`——install / update 的 `--json` 写不出去（v0.66 新增的出口）",
+	}},
 	"cmd/ngm/integrations.go :: writeIntegrationsJSON": {
 		{
 			role: roleSource, category: catInternal, why: "`encode report: %v`",

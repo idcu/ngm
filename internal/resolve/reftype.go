@@ -62,7 +62,11 @@ func ResolveRef(ctx context.Context, repo Canonical, ref string, refType RefType
 
 	switch refType {
 	case RefTypeCommit:
-		return normalizeCommitRef(ref)
+		full, err := normalizeCommitRef(ref)
+		if err != nil {
+			return "", err
+		}
+		return expandShortCommit(ctx, full, opts)
 	case RefTypeTag, RefTypeBranch:
 		return resolveNamedRef(ctx, repo, ref, refType, opts)
 	default:
@@ -92,10 +96,43 @@ type RefSpec struct {
 	Type RefType
 }
 
+// expandShortCommit 把 7~39 位短 hash 在 mirror 中补齐为完整的 40 位。
+//
+// v0.66 修（评估报告的 P2#6）：此前短 hash 被**原样**放行到 install，
+// 而 lock 的 `Validate` 要求完整 40 位 ⇒ 解析接受、写入 lock 合法、
+// 下一次读 lock 直接 exit 3，且用户无法通过正常路径修复。真实的往返不一致。
+//
+// 语义选择：
+//   - 补齐成功 → 返回完整 hash（"解析到哪个 commit 就锁哪个 commit"）
+//   - mirror 里找不到 / 前缀有歧义 → **报错**（exit 3，声明与实际不符），
+//     绝不把短 hash 交给下游。错误提前发生，且用户可以修
+//     （换 refType、或换成完整 hash）。
+//   - 没有可用的本地仓库（如纯语法校验场景）→ 原样返回：那类调用不做
+//     "对象是否存在"的判定，也不写 lock（见 ResolveRef 文档）。
+func expandShortCommit(ctx context.Context, full string, opts ResolveOptions) (string, error) {
+	if len(full) == 40 {
+		return full, nil
+	}
+	if opts.GitURL == "" {
+		return full, nil
+	}
+	if _, err := os.Stat(opts.GitURL); err != nil {
+		return full, nil
+	}
+	expanded, err := git.RevParse(ctx, git.Options{Secrets: opts.Secrets, Policy: opts.Policy}, opts.GitURL, full)
+	if err != nil {
+		return "", errs.New(
+			errs.CodeConfigInvalid,
+			fmt.Sprintf("commit %q cannot be resolved in %s", full, opts.GitURL),
+			"use a full 40-character hash, or a refType of `tag`/`branch`; "+
+				"if the commit was pushed to a ref, re-fetch the mirror once")
+	}
+	return expanded, nil
+}
+
 // normalizeCommitRef 校验 commit hash 形态并规范化为小写。
 //
-// 接受 7–40 位 hex（短 hash 在里程碑 M1.3 建立 mirror 后可被 rev-parse 补齐）。
-// M1.2 不做对象存在性验证——那需要本地 mirror（见 ResolveRef 文档）。
+// 接受 7–40 位 hex；短 hash 的**补齐**在 expandShortCommit 里做——本函数只做语法校验。
 func normalizeCommitRef(ref string) (string, error) {
 	s := strings.ToLower(strings.TrimSpace(ref))
 	if len(s) < 7 || len(s) > 40 {

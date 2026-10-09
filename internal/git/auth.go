@@ -74,7 +74,13 @@ func MergeTokenEnvVars(user map[string]string) map[string]string {
 
 // AssertNoSecrets 报告 s 中是否出现了任何 secret 字面量。
 //
-// 运行期守卫：在写入 lock / ngm.json / 打印用户可见输出前调用。
+// 运行期守卫，接线点（v0.66 更正）：`cmd/ngm` 的 `guardNoSecrets` ——
+// install / update 在写 ngm.lock 与 ngm.mappings.json **之前**各调一次
+// （`writeLockChecked` / `writeMappingsChecked`）。此前这里的注释写着
+// "在写入 lock / ngm.json / 打印用户可见输出前调用"，而函数**零调用**——
+// 注释描述的是意图，不是现实（评估报告 P3）。用户可见输出的脱敏由另一条
+// 路径负责（`redact`，见 exec.go）；ngm.json 的写入点目前不经过本函数。
+//
 // 返回第一个命中的 secret 位置（脱敏形式）便于定位；未命中返回 ""。
 func AssertNoSecrets(s string, secrets []string) string {
 	for _, sec := range secrets {

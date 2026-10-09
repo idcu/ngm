@@ -184,6 +184,11 @@ func permForMode(gitMode string) os.FileMode {
 //
 // 原子性：写临时文件 → 设权限 → rename。因此读侧**永远看不到半个 blob**；
 // 并发写同一 blob 时，rename 失败即视为"另一个进程赢了"，返回同一个名字。
+//
+// 持久性（v0.66，评估报告 P1#5）：此前全链路**无一次 fsync**——
+// "清单存在 ⇒ blob 在池里"这个核心不变式只在**顺序**层成立，持久性层不成立
+// （断电可产生"清单在、blob 空"）。现在：内容先 `Sync`（文件数据落盘），
+// rename 之后再 `fsyncDir`（目录项落盘），然后才轮到写清单。
 func (s *ContentStore) writeBlob(content []byte, gitMode string) (string, error) {
 	sha := blobKey(gitMode, content)
 
@@ -214,6 +219,13 @@ func (s *ContentStore) writeBlob(content []byte, gitMode string) (string, error)
 		cleanup()
 		return "", errs.Wrap(errs.CodeConfigInvalid, "set blob permissions", "", cherr)
 	}
+	// 内容先落盘：断电后"文件名是它的哈希"这句话必须成立，而文件名靠的是
+	// rename——所以顺序是 Sync(内容) → rename → fsyncDir(目录项)。
+	if serr := tmp.Sync(); serr != nil {
+		cleanup()
+		return "", errs.Wrap(errs.CodeConfigInvalid, "sync blob",
+			"check free disk space and filesystem health", serr)
+	}
 	if cerr := tmp.Close(); cerr != nil {
 		_ = os.Remove(name)
 		return "", errs.Wrap(errs.CodeConfigInvalid, "close temp blob", "", cerr)
@@ -225,7 +237,23 @@ func (s *ContentStore) writeBlob(content []byte, gitMode string) (string, error)
 		}
 		return "", errs.Wrap(errs.CodeConfigInvalid, "publish blob", "", rerr)
 	}
+	fsyncDir(filepath.Dir(bp))
 	return sha, nil
+}
+
+// fsyncDir 尽力把目录项变更刷盘（best-effort）。
+//
+// 为什么忽略错误：POSIX 上目录 fsync 把 rename 的**目录项**持久化；
+// Windows 上对目录句柄做 FlushFileBuffers 不受支持（会报错），
+// 而 NTFS 的 rename 走日志，语义不同。所以这里"尽力而为"——
+// 在能做的平台上把它做对，在不能做的平台上不谎报失败。
+func fsyncDir(dir string) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_ = f.Sync()
 }
 
 // publishManifest 把清单与 meta 写进 `trees/` 下的临时目录，再整体 rename 就位。
@@ -262,6 +290,9 @@ func (s *ContentStore) publishManifest(mf Manifest, meta Meta) error {
 		}
 		return errs.Wrap(errs.CodeConfigInvalid, "publish the content manifest", "", rerr)
 	}
+	// v0.66：清单的持久化要在目录项层也成立——不做这一步，断电后
+	// "trees/<digest>/ 存在"可能不成立，而它正是"这份内容在池里"的判据。
+	fsyncDir(s.treesRoot())
 
 	// 布局版本标记（幂等；供诊断与将来的兼容性判断）
 	_ = os.WriteFile(filepath.Join(s.root, layoutFile), []byte(strconv.Itoa(layoutSchemaVersion)), 0o644)

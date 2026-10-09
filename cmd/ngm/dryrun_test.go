@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/testutils"
@@ -121,6 +122,13 @@ func TestV14DryRunAndReadOnlyCommandsWriteNothing(t *testing.T) {
 	residue := filepath.Join(residueDir, ".unpack-v14dry")
 	if werr := os.WriteFile(residue, []byte("leftover\n"), 0o644); werr != nil {
 		t.Fatal(werr)
+	}
+	// v0.66：残骸必须比年龄门槛**旧**才会被清——新目录/文件是并发 install 的
+	// 活动临时现场（`Put` 的清单发布用同一个 `.unpack-` 前缀）。这里拨老 mtime，
+	// 让用例测的仍是"dry-run 会说会删、但一个字节都不动"那一半。
+	past := time.Now().Add(-2 * vendor.UnpackResidueGrace)
+	if cerr := os.Chtimes(residue, past, past); cerr != nil {
+		t.Fatal(cerr)
 	}
 
 	// home 快照（排除 cache/，理由见函数头）。

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -221,7 +222,17 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 	}
 	// `--older-than` 只在 `--orphans` 下有意义：给了却不带 `--orphans` 就是"以为它会做点什么"
 	// ——那种沉默比报错更糟（本项目对"看起来生效"的一贯态度）。
-	if !*orphans && fs.Lookup("older-than").Value.String() != (24*time.Hour).String() {
+	//
+	// v0.66：判定"用户是否显式给过"必须用 `fs.Visit`——此前比较的是 Duration 的
+	// 字符串形态，而 `--older-than=24h` 解析后与默认值归一化后完全相同，
+	// "改过"与"没改过"分不开（评估报告 P3：字符串比较 Duration 判断默认值）。
+	olderThanSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "older-than" {
+			olderThanSet = true
+		}
+	})
+	if !*orphans && olderThanSet {
 		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
 			"--older-than 只在 --orphans 下有效",
 			"加上 --orphans，或去掉 --older-than"))
@@ -252,6 +263,14 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 		}
 	}
 	fmt.Fprintf(stdout, "kept %d content tree(s) untouched\n", res.KeptTrees)
+	if res.KeptYoung > 0 {
+		// 与 --orphans 的那条同源：把"没删的那些"说出来，它是并发安装的安全阀
+		// （v0.66 起 Prune 有年龄门槛——`Put` 的临时清单目录用同一个 `.unpack-` 前缀）。
+		fmt.Fprintf(stdout,
+			"  kept %d unpack residue directory(ies) younger than %s — a concurrent install\n"+
+				"  creates them before publishing its manifest, so recent ones are never removed\n",
+			res.KeptYoung, vendor.UnpackResidueGrace)
+	}
 
 	if *orphans {
 		ores, oerr := store.PruneOrphans(*olderThan, time.Now(), *dryRun)

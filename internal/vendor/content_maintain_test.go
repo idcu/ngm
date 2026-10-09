@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/git"
@@ -288,6 +289,15 @@ func TestContentStore_PruneOnlyRemovesUnpackResidue(t *testing.T) {
 	// 一个"看起来像残骸、但前缀不对"的目录：必须被留下。
 	lookalike := filepath.Join(algDir, ".unpackX-not-a-temp")
 	if err := os.MkdirAll(lookalike, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// v0.66：残骸必须比年龄门槛**旧**才会被清（`Put` 的临时清单目录用同一个
+	// `.unpack-` 前缀，新目录是并发 install 的活动现场，见 `UnpackResidueGrace`）。
+	// 这里把 mtime 拨到门槛之外，让用例测的仍是"删除"那一半；
+	// "新的必须留下"由 `TestV66PruneKeepsYoungResidue` 专门钉住。
+	past := time.Now().Add(-2 * UnpackResidueGrace)
+	if err := os.Chtimes(residue, past, past); err != nil {
 		t.Fatal(err)
 	}
 

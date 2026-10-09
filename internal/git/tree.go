@@ -121,8 +121,13 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 		return digest.BuildManifest(nil), nil
 	}
 
-	// 2) 预检：拒绝不支持的模式，并收集需要读取的 blob
+	// 2) 预检：拒绝不支持的模式，并收集需要读取的 blob 与清单记录。
+	//
+	// v0.66：blobSHAs 与 metas 在**同一个循环**里产出（两者一一对应）——
+	// 此前"跳过 tree 条目"这个过滤条件写在两个循环里各一份，改一处漏一处
+	// 会**静默产生错误的 digest**（评估报告 P3）。过滤现在只有一处定义。
 	blobSHAs := make([]string, 0, len(entries))
+	metas := make([]digest.Record, 0, len(entries))
 	for _, e := range entries {
 		if err := validateTreeEntry(e, commit); err != nil {
 			return nil, err
@@ -131,6 +136,7 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 			continue // -r 不应产生 tree 条目；保险起见跳过
 		}
 		blobSHAs = append(blobSHAs, e.SHA)
+		metas = append(metas, digest.Record{Path: e.Path, Mode: e.Mode})
 	}
 
 	// 3) 批量读取内容
@@ -158,14 +164,6 @@ func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([
 	// 并行时"谁先返回"取决于调度，所以这里先把所有命中记下来，再按索引取最小的一条——
 	// 否则同一个仓库在不同机器上会给出不同的报错路径（本项目对确定性有明确纪律）。
 	type lfsHit struct{ path, oid string }
-
-	metas := make([]digest.Record, 0, len(blobSHAs))
-	for _, e := range entries {
-		if e.Mode == digest.ModeTree {
-			continue
-		}
-		metas = append(metas, digest.Record{Path: e.Path, Mode: e.Mode})
-	}
 
 	hashes := make([]string, len(metas))
 	hits := make([]*lfsHit, len(metas))

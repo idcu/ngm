@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/git"
@@ -63,6 +64,14 @@ func TestV07StoreAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(residue, "tree", "partial.txt"), []byte("half"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// v0.66：残骸必须比年龄门槛**旧**才会被清——新目录是并发 install 的活动
+	// 临时目录（`Put` 的清单发布用同一个 `.unpack-` 前缀），一律不动。
+	// 这条验收测试测的是"删除"那一半，所以把 mtime 拨到门槛之外；
+	// "新的必须留下"由 internal/vendor 的 `TestV66PruneKeepsYoungResidue` 钉住。
+	past := time.Now().Add(-2 * vendor.UnpackResidueGrace)
+	if err := os.Chtimes(residue, past, past); err != nil {
 		t.Fatal(err)
 	}
 

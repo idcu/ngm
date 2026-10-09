@@ -219,17 +219,26 @@ func splitURLForm(raw string, colonIdx int) (host, path string, err error) {
 	}
 	rest := raw[colonIdx+3:]
 
-	// 去掉 userinfo（user@ 或 user:pass@）
-	if at := strings.LastIndex(rest, "@"); at >= 0 {
-		rest = rest[at+1:]
-	}
-	// 现在 rest = host[:port]/path
+	// 先切 host/path，再在 host 段里剥离 userinfo（v0.66 修）。
+	//
+	// 顺序反了会误伤（评估报告 P2#9）：`LastIndex("@")` 此前作用在**整个 rest**
+	// 上，而 `@` 完全可能出现在路径里——
+	// `https://evil.example.com/a@github.com/org/repo` 会被解析成
+	// `github.com/org/repo`，即**另一个仓库**。要剥的 userinfo 只可能落在
+	// `host[:port]` 段内，因此先按第一个 `/` 切分，再在那一段里取最后一个 `@`
+	// （密码里允许出现 `@`）。
 	slash := strings.Index(rest, "/")
 	if slash <= 0 {
 		return "", "", invalidURL(raw, "missing repository path after host")
 	}
 	hostPart := rest[:slash]
 	path = rest[slash+1:]
+	if at := strings.LastIndex(hostPart, "@"); at >= 0 {
+		hostPart = hostPart[at+1:]
+	}
+	if hostPart == "" {
+		return "", "", invalidURL(raw, "missing host before the repository path")
+	}
 	if strings.Trim(path, "/") == "" {
 		return "", "", invalidURL(raw, "missing repository path after host")
 	}

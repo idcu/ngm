@@ -1,8 +1,10 @@
 package vendor
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -150,6 +152,17 @@ func (lt *LinkTree) Materialize(digest, canonicalPath, subPath string) (LinkResu
 
 	dst := filepath.Join(lt.vendorRoot, filepath.FromSlash(rel))
 
+	// v0.66：落地前安全预检——**必须在清理旧内容之前**，
+	// 否则一次被拒绝的落地会先把已有的 vendor 树删掉。
+	//
+	// 背景（评估报告 P1#2）：此前 `os.Symlink(e.LinkTarget, target)` 原样重建
+	// Git 仓库里的链接目标，且清单 path 不做逃逸校验。一个恶意/失误的上游可以
+	// 让 vendor 里出现"看起来在包里、实际指向包外"的链接——这正是这个项目
+	// 最忌讳的失败形态（"看起来正常但指向别处"）。
+	if err := validateEntryPaths(entries); err != nil {
+		return LinkResult{}, err
+	}
+
 	// vendor 是派生物：先清理，避免残留已删除的文件
 	if err := os.RemoveAll(dst); err != nil {
 		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid, "clean "+dst,
@@ -182,6 +195,81 @@ func (lt *LinkTree) Materialize(digest, canonicalPath, subPath string) (LinkResu
 		return LinkResult{}, err
 	}
 	return LinkResult{Path: dst, Mode: used, Degraded: degraded, Files: files}, nil
+}
+
+// validateEntryPaths 在落地前拒绝逃逸条目（fail-closed）。
+//
+// 两类检查：
+//
+//  1. 条目自身的 path 必须落在依赖子树内（`..` 组件、绝对路径、驱动器前缀一律拒绝）。
+//     当前内容来源（`git ls-tree` 的清单）在 Git 的路径模型下不会产生这类路径——
+//     这是**纵深防御**：v1 的目录扫描与将来的新来源不该改变这条前提。
+//  2. symlink 的**目标**必须在依赖子树内。目标字符串是文件内容（上游可控），
+//     相对目标按"链接所在目录"解析、绝对目标直接逃逸——两者都拒绝。
+//
+// 为什么拒绝而不是"跳过并警告"：跳过会让 vendor 里少一个条目而用户不知情，
+// 那正是"看起来正常但缺东西"的形态；而指向子树外的链接即使落地也是断链
+// （目标不在 vendor 里），构建工具跟随它只会读到包外文件。
+func validateEntryPaths(entries []ContentEntry) error {
+	for _, e := range entries {
+		p := path.Clean(filepath.ToSlash(e.Path))
+		if p == "." || p == ".." || strings.HasPrefix(p, "../") || looksLikeAbsPath(p) {
+			return errs.New(errs.CodeConfigInvalid,
+				"refusing to materialize an entry whose path escapes the vendor tree: "+e.Path,
+				"the manifest contains an unsafe path; re-run `ngm install` to rebuild the content store")
+		}
+		if e.Symlink && EscapesPackageTree(e.Path, e.LinkTarget) {
+			return errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("refusing to materialize symlink %s → %q: the target escapes the dependency tree",
+					e.Path, e.LinkTarget),
+				"an escaping symlink would resolve against files that are not vendored; "+
+					"fix it upstream, or pin a commit where the dependency does not contain it")
+		}
+	}
+	return nil
+}
+
+// EscapesPackageTree 报告条目路径空间中的 symlink 目标是否逃逸依赖子树。
+//
+// 输入空间：entryPath 与 target 都是清单口径的相对路径（`/` 分隔）。
+// 判定：
+//
+//	目标是绝对形态（POSIX `/…`、Windows 驱动器前缀或 UNC） → 逃逸
+//	相对目标按"链接所在目录"解析后以 `..` 开头            → 逃逸
+//
+// 为什么由 vendor 包导出：落地侧的预检（validateEntryPaths）与判定侧的
+// landing 检查（internal/verify）必须用**同一个**判据——两处各写一份，
+// 迟早在某个边界上分叉，而那种分叉的表现是"安装拒绝、verify 放行"。
+func EscapesPackageTree(entryPath, target string) bool {
+	if target == "" {
+		return false
+	}
+	if looksLikeAbsPath(target) {
+		return true
+	}
+	dir := path.Dir(path.Clean(filepath.ToSlash(entryPath)))
+	joined := path.Clean(path.Join(dir, target))
+	return joined == ".." || strings.HasPrefix(joined, "../")
+}
+
+// looksLikeAbsPath 跨平台判定"形态像绝对路径"。
+//
+// 不能只用 filepath.IsAbs：清单里的路径来自 Git（POSIX 风格），
+// 一个 `/etc/passwd` 目标在 Windows 上不是 IsAbs，却同样是逃逸。
+func looksLikeAbsPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
+		return true
+	}
+	if len(p) >= 2 && p[1] == ':' {
+		c := p[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return true
+		}
+	}
+	return false
 }
 
 // linkEntries 按条目把内容落地到 dst，返回实际使用的 mode 与文件数。

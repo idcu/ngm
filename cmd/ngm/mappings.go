@@ -95,10 +95,18 @@ func runMappingsValidate(ctx context.Context, dirFlag string, stdout, stderr io.
 		}
 	}
 
+	// `to` 的根表示（v0.66）：global 模式是绝对路径，不许再拿 ./ngm.vendor
+	// 去核对它。读不到 ngm.json 时留空——Validate 回退到协议默认根（与 local 一致）。
+	var vendorRoot string
+	if pf, perr := env.ReadManifest(); perr == nil && pf != nil {
+		vendorRoot = env.MappingsVendorRoot(pf)
+	}
+
 	findings, err := mappings.Validate(f, mappings.ValidateEnvironment{
 		ProjectDir: env.ProjectDir,
 		LockNames:  lockNames,
 		SubPaths:   subPaths,
+		VendorRoot: vendorRoot,
 	})
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)

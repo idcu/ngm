@@ -290,14 +290,36 @@ func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath
 	return PutResult{Path: s.V2Dir(meta.Digest)}, nil
 }
 
+// writeJSON 写一份 JSON 并 **fsync**（v0.66）。
+//
+// 为什么必须 sync：manifest.json / meta.json 是"这份内容在池里"的判据，
+// 而它们的就位（rename）发生在 blob 之后。不 sync 的话，断电可能留下
+// "清单文件已创建但内容为空/不完整"的形态——那与"清单不存在"不同，
+// 它会让 `Has` 为真、随后读到坏 JSON（评估报告 P1#5）。
 func writeJSON(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return errs.Wrap(errs.CodeConfigInvalid, "marshal content meta", "", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "write content meta", "", err)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return errs.Wrap(errs.CodeConfigInvalid, "write content meta",
+			"check free disk space and permissions on the content store", err)
+	}
+	if _, werr := f.Write(data); werr != nil {
+		f.Close()
+		return errs.Wrap(errs.CodeConfigInvalid, "write content meta",
+			"check free disk space on the content store", werr)
+	}
+	if serr := f.Sync(); serr != nil {
+		f.Close()
+		return errs.Wrap(errs.CodeConfigInvalid, "sync content meta",
+			"check free disk space and filesystem health", serr)
+	}
+	if cerr := f.Close(); cerr != nil {
+		return errs.Wrap(errs.CodeConfigInvalid, "close content meta",
+			"check free disk space and filesystem health", cerr)
 	}
 	return nil
 }

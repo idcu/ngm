@@ -505,6 +505,21 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 		}
 	}
 
+	// 2b) 逃逸 symlink 是 critical（v0.66）。
+	//
+	// 落地侧已经在 Materialize 前拒绝这类条目（fail-closed），但 verify 必须
+	// 独立地把它报出来：一个由**旧版本**落地的 vendor 树（或手工构造的 store）
+	// 里可能已经有逃逸链接，而"检查"是用户唯一的证据来源。
+	// 判据与落地侧同源（vendor.EscapesPackageTree）——两处各写一份，
+	// 迟早在某个边界上分叉。
+	for _, e := range storeEntries {
+		if e.Symlink && vendor.EscapesPackageTree(e.Path, e.LinkTarget) {
+			problems = append(problems, fmt.Sprintf(
+				"symlink %s escapes the dependency tree (target %q): the vendored link resolves "+
+					"against files that are not part of this dependency", e.Path, e.LinkTarget))
+		}
+	}
+
 	if opts.Deep {
 		switch {
 		case mirrorPath == "":

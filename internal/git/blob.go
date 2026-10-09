@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"strings"
 
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/errs"
@@ -49,6 +50,25 @@ func ReadFileAtCommit(ctx context.Context, opts Options, repoPath, commit, path 
 			"path "+path+" at commit "+ShortSHA(commit)+" has unsupported mode "+e.Mode,
 			"only regular files, executables and symlinks can be read as file content")
 	}
+}
+
+// RevParse 把 rev 解析为完整的 40 位 commit hash（在 repoPath 中执行）。
+//
+// 用途（v0.66）：commit 型依赖允许 7~39 位短 hash，而 lock 要求完整 40 位
+// （`isFullCommit`）——不补齐就写 lock，会让"能装"与"能再读"之间断开：
+// 短 hash 通过解析、写入 lock，下一次读 lock 直接 exit 3，且用户无法
+// 通过正常路径修复。补齐在这里做：**解析到哪个 commit 就锁哪个 commit**，
+// 短 hash 的歧义（同前缀对象）因此被 mirror 的实际对象库消解。
+//
+// 失败（对象不存在 / 歧义）由调用方分类：那是"声明与实际不符"，exit 3。
+func RevParse(ctx context.Context, opts Options, repoPath, rev string) (string, error) {
+	o := opts
+	o.Dir = repoPath
+	res, err := Run(ctx, o, "rev-parse", "--verify", rev+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
 }
 
 // CommitExists 报告某个对象是否为该仓库中可解析的 commit。

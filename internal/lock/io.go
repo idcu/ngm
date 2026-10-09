@@ -41,7 +41,18 @@ func Read(path string) (*File, error) {
 // Write 以确定性格式写回 ngm.lock（原子写）。
 //
 // 调用方应先 Sort（见 File.Marshal 的说明）。
+//
+// v0.66：写前必须 Validate。此前非法条目（例如 7 位短 commit）能被写进 lock，
+// 而 lock 是"依赖状态的唯一事实源"——写进一份自己读不回来的文件，
+// 会让下一次 install/verify 直接 exit 3，且用户无法通过正常路径修复
+// （评估报告 P2#6/#8 的贯穿路径）。拒绝在这里，说清在错误里。
 func Write(path string, f *File) error {
+	if err := f.Validate(); err != nil {
+		return errs.Wrap(errs.CodeConfigInvalid,
+			"refusing to write an invalid "+filepath.Base(path),
+			"this means the lock was built incorrectly; re-run the command that produced it, "+
+				"and report the output above if it persists", err)
+	}
 	data, err := f.Marshal()
 	if err != nil {
 		return err
@@ -66,6 +77,15 @@ func writeFileAtomic(path string, data []byte) error {
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return errs.Wrap(errs.CodeConfigInvalid, "write temp lock", "", err)
+	}
+	// v0.66：显式 0644。os.CreateTemp 建的文件是 0600，rename 之后 lock 的权限
+	// 就变成了 0600——而 ngm.lock 是要**提交进 Git、供团队共享**的文件
+	// （评估报告 P2#7）。改权限必须在 rename **之前**：rename 之后改会让
+	// 文件短暂以错误权限存在。Windows 上 Chmod 只影响只读位，无害。
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return errs.Wrap(errs.CodeConfigInvalid, "set temp lock permissions",
+			"check permissions on the project directory", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()

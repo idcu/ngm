@@ -327,9 +327,27 @@ type PruneResult struct {
 	// 用户就得自己去猜"它是不是顺手删了别的东西"。把留下来的数量写出来，
 	// 就是把安全声明放在它该在的地方。
 	KeptTrees int
+	// KeptYoung 是"是残骸、但比门槛新"所以没删的目录数（v0.66）。
+	//
+	// 它与 KeptTrees 回答的是不同的问题：KeptTrees 是"这不是残骸"，
+	// KeptYoung 是"这可能是别人的活动临时目录"。
+	KeptYoung int
 	// DryRun 为 true 表示本次没有真的删除。
 	DryRun bool
 }
+
+// UnpackResidueGrace 是残骸的年龄门槛。
+//
+// 为什么必须有（v0.66，评估报告 P2#15）：`Put` 的临时清单目录（publishManifest）
+// 就建在 `treesRoot()` 下、用**同一个** `unpackPrefix` 前缀，而 `Prune` 此前
+// **无条件** RemoveAll 所有该前缀的目录——无年龄门槛、无进程锁。
+// 并发 `install` + `store prune` 会删掉正在进行中的临时目录，install 直接失败。
+// `PruneOrphans` 有 24h 门槛，`Prune` 没有，这个不对称本身就是缺陷。
+//
+// 取 1 分钟的依据：`publishManifest` 的临时目录生命周期是"写两个 JSON +
+// 一次 rename"（毫秒级，最坏也就秒级），1 分钟已足够保守；同时它足够小，
+// 让"中断后立刻想清理"的用户不必等一整天。
+const UnpackResidueGrace = time.Minute
 
 // Prune 只清 `Put` 的解包残骸（`.unpack-*`）。
 //
@@ -338,8 +356,12 @@ type PruneResult struct {
 // 按可达性删除需要一个 ngm 没有的项目注册表，而误删会让别的项目在某天突然验不过。
 //
 // 幂等：没有残骸时 0 删除、不报错。
+//
+// 年龄门槛（v0.66）：比 `unpackResidueGrace` 新的目录一律不动——那是
+// 并发 install 的活动临时目录，不是残骸（见常量的说明）。
 func (s *ContentStore) Prune(dryRun bool) (PruneResult, error) {
 	out := PruneResult{Root: s.root, DryRun: dryRun}
+	now := time.Now()
 
 	// 残骸可能出现在**两个**目录：`Put` 的解包临时目录建在 `sha256/` 下
 	// （v2 也是——它解包时还没有布局可言），而 `trees/` 下也可能留下**发布失败**的
@@ -359,6 +381,15 @@ func (s *ContentStore) Prune(dryRun bool) (PruneResult, error) {
 			path := filepath.Join(dir, name)
 			if !strings.HasPrefix(name, unpackPrefix) {
 				out.KeptTrees++
+				continue
+			}
+			info, ierr := e.Info()
+			if ierr != nil {
+				return out, errs.Wrap(errs.CodeConfigInvalid, "stat unpack residue "+name,
+					"check permissions on the content store", ierr)
+			}
+			if now.Sub(info.ModTime()) < UnpackResidueGrace {
+				out.KeptYoung++
 				continue
 			}
 			bytes, berr := dirBytes(path)
@@ -425,10 +456,14 @@ type PruneOrphansResult struct {
 // （修好或删掉那份清单再试）——宁可什么都不做，也不做一件说不清后果的事。
 func (s *ContentStore) PruneOrphans(olderThan time.Duration, now time.Time, dryRun bool) (PruneOrphansResult, error) {
 	out := PruneOrphansResult{Root: s.root, OlderThan: olderThan, DryRun: dryRun}
-	if olderThan < 0 {
+	// 必须是**正**的（v0.66，评估报告 P2#16）：`0` 此前被允许，而它让 24h 的
+	// 安全窗完全失效——`Put` 先写 blob、后发布清单，因此池里短暂存在
+	// "已写、尚未被引用"的 blob；门槛为 0 时回收会删掉**刚写入**的那些，
+	// 即正在进行的 install 的内容。拒绝 0 与拒绝负数同等必要。
+	if olderThan <= 0 {
 		return out, errs.New(errs.CodeConfigInvalid,
-			"--older-than 不能是负数",
-			"给它一个正的时间段，例如 24h")
+			"--older-than 必须是正的时间段（0 会让安全窗失效：刚写入、尚未被清单引用的 blob 会被删掉）",
+			"给它一个正的时间段，例如 24h 或 30m")
 	}
 
 	scan, serr := s.scanManifests()

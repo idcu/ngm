@@ -43,8 +43,12 @@ const CoverageNote = "OSV.dev coverage is limited: zero-day issues are absent, a
 
 // Vuln 是一条漏洞记录（只保留 ngm 需要的字段）。
 type Vuln struct {
-	ID       string `json:"id"`
-	Summary  string `json:"summary"`
+	ID      string `json:"id"`
+	Summary string `json:"summary"`
+	// Severity 是归一化后的等级标签（LOW/MEDIUM/HIGH/CRITICAL/UNKNOWN）。
+	//
+	// 来源可以是 `database_specific.severity`、字符串形态的 `severity`，
+	// 或对象数组形态里能解析出等级的 `score`——见 pickSeverity。
 	Severity string `json:"severity"`
 	FixedIn  string `json:"fixedIn,omitempty"`
 	// Remediation 是**没有修复版本时**的"接下来做什么"（v0.50）。
@@ -180,7 +184,7 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := osvClient.Do(req)
 	if err != nil {
 		return nil, errs.Wrap(errs.CodeGitFetch,
 			"query OSV.dev for "+commit,
@@ -196,9 +200,17 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 
 	var parsed struct {
 		Vulns []struct {
-			ID       string `json:"id"`
-			Summary  string `json:"summary"`
-			Severity string `json:"severity"`
+			ID      string `json:"id"`
+			Summary string `json:"summary"`
+			// Severity 是 **RawMessage**：OSV 的实际 schema 把 `severity` 定义为
+			// 对象数组（`[{"type":"CVSS_V3","score":"CVSS:3.1/…"}]`），而
+			// `database_specific.severity` 才是常见于 feed 的等级标签（"HIGH"）。
+			// 此前这里强假设为 string ⇒ 真实响应会**整体 decode 失败**报 exit 4
+			// （评估报告 P2#12：测试用的是自造 payload，从未对真实 API 验证过）。
+			Severity         json.RawMessage `json:"severity"`
+			DatabaseSpecific struct {
+				Severity string `json:"severity"`
+			} `json:"database_specific"`
 			Affected []struct {
 				Ranges []struct {
 					Events []struct {
@@ -216,7 +228,11 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 
 	out := make([]Vuln, 0, len(parsed.Vulns))
 	for _, v := range parsed.Vulns {
-		item := Vuln{ID: v.ID, Summary: v.Summary, Severity: normalizeSeverity(v.Severity)}
+		item := Vuln{
+			ID:       v.ID,
+			Summary:  v.Summary,
+			Severity: normalizeSeverity(pickSeverity(v.Severity, v.DatabaseSpecific.Severity)),
+		}
 		// 修复版本藏在 affected[].ranges[].events[].fixed 里：取第一个非空值
 		for _, a := range v.Affected {
 			for _, r := range a.Ranges {
@@ -245,6 +261,90 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// osvClient 是带**客户端级超时**的 HTTP 客户端。
+//
+// 此前用的是 `http.DefaultClient`——它没有超时，而这条路径是审计门禁
+// （`ngm audit` / `ngm tree --osv`）：一个卡住的 HTTPS 连接会让门禁**无限挂起**
+// （评估报告 P2#12）。30s 与 git 侧实测的网络等待上界（失败由 git 自己的界终止：
+// RST ~20s / TCP ~21s，v0.18 实测）同量级；超时走既有的 CodeGitFetch 分支，
+// 提示"检查网络，或用可用缓存"。
+var osvClient = &http.Client{Timeout: 30 * time.Second}
+
+// pickSeverity 从 OSV 响应的三种形态里取出严重级别标签。
+//
+// 按可靠性排序（v0.66，评估报告 P2#12）：
+//
+//  1. `database_specific.severity`——字符串标签（GitHub / OSV feed 的常见形态）
+//  2. `severity` 本身是字符串——旧版 API 与既有测试替身的形态
+//  3. `severity` 是对象数组——现行 schema。逐个元素取 `score`：
+//     字符串且本身是等级标签 ⇒ 用它；数值 ⇒ 按 CVSS 分档映射。
+//     CVSS **向量**（`CVSS:3.1/…`）不含等级（要从向量算分需要完整公式），
+//     解析不出就留给 normalizeSeverity 归为 UNKNOWN——
+//     **绝不因为"读不懂严重级别"而丢掉整条公告**（丢公告比丢等级严重得多）。
+func pickSeverity(raw json.RawMessage, dbSpecific string) string {
+	if strings.TrimSpace(dbSpecific) != "" {
+		return dbSpecific
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return ""
+	}
+	switch trimmed[0] {
+	case '"':
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			return s
+		}
+	case '[':
+		var items []struct {
+			Type  string          `json:"type"`
+			Score json.RawMessage `json:"score"`
+		}
+		if json.Unmarshal(raw, &items) == nil {
+			for _, it := range items {
+				var s string
+				if json.Unmarshal(it.Score, &s) == nil {
+					if _, ok := severityLabel(s); ok {
+						return s
+					}
+					continue
+				}
+				var f float64
+				if json.Unmarshal(it.Score, &f) == nil {
+					return scoreToSeverity(f)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// severityLabel 报告 s 是否是 normalizeSeverity 认得的等级标签。
+func severityLabel(s string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "LOW", "MEDIUM", "MODERATE", "HIGH", "CRITICAL":
+		return s, true
+	}
+	return "", false
+}
+
+// scoreToSeverity 把 CVSS 基础分（0–10）映射为等级标签。
+// 分档依据 CVSS v3/v4 规范：0.1–3.9 LOW · 4.0–6.9 MEDIUM · 7.0–8.9 HIGH · 9.0–10.0 CRITICAL。
+func scoreToSeverity(score float64) string {
+	switch {
+	case score >= 9.0:
+		return "CRITICAL"
+	case score >= 7.0:
+		return "HIGH"
+	case score >= 4.0:
+		return "MEDIUM"
+	case score > 0:
+		return "LOW"
+	default:
+		return ""
+	}
 }
 
 // normalizeSeverity 统一严重级别的大小写（OSV 的 CVSS 与 database_specific 可能不一致）。

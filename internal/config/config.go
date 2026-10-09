@@ -182,8 +182,16 @@ type Resolved struct {
 	Global *GlobalFile
 	// Builtin 是编译进二进制的默认值
 	Builtin *BuiltinDefaults
-	// Effective 是三级合并后实际生效的配置（包含 builtin → global → project 的覆盖结果）。
-	// 当前为 Project 的合并后视图；若 Project 为 nil，则退化为 builtin。
+	// Effective 是实际生效的**项目**配置视图：builtin → project 的覆盖结果。
+	//
+	// v0.66 起它是独立副本（此前与 Project 是同一指针——见 mergeProject）。
+	// Project 为 nil 时退化为 builtin。
+	//
+	// **global 层不经过这里**（v0.66 更正，评估报告 P2#13）：`mergeGlobal` 至今
+	// 是身份函数，全局字段的实际生效点在 CLI 层——`cmd/ngm/engine.go` 与
+	// `cmd/ngm/env.go` 从 GlobalEffective 读 defaultProtocol / tokenEnvVars /
+	// permissions，再自行决定如何作用于项目视图。这处注释此前写着
+	// "包含 builtin → global → project 的覆盖结果"，描述的是意图，不是实现。
 	Effective *ProjectFile
 	// GlobalEffective 是三级合并 GlobalFile 的结果；类似 Effective。
 	GlobalEffective *GlobalFile
@@ -308,8 +316,13 @@ func decodeGlobal(r io.Reader, path string) (*GlobalFile, error) {
 
 // mergeProject 在 builtin 默认值上覆盖 project 字段。
 //
-// 设计：保留 Project 原值（除被 builtin 显式覆盖的字段），返回新 ProjectFile。
-// 当前 v0.1 仅有 vendor.linkMode / vendor.mode / runtime 三个回退项。
+// 设计：**返回一份新对象，绝不修改入参**（v0.66 修，评估报告 P2#13）。
+// 此前是原地修改：`Resolved.Effective` 与 `Resolved.Project` 因此是**同一指针**，
+// 与 `Resolved` 的文档注释（"来源"与"合并视图"是两个视图）矛盾——
+// 调用方改有效视图会悄悄改掉来源。Vendor 是指针字段，需要一层深拷贝
+// （否则 `out.Vendor` 与 `project.Vendor` 仍指向同一对象）。
+//
+// 回退项：vendor.mode / vendor.linkMode / runtime / schemaVersion。
 func mergeProject(builtin *BuiltinDefaults, project *ProjectFile) *ProjectFile {
 	if project == nil {
 		// 仅 builtin 视图：把所有字段填上以便 Effective 直接访问。
@@ -322,26 +335,29 @@ func mergeProject(builtin *BuiltinDefaults, project *ProjectFile) *ProjectFile {
 			},
 		}
 	}
-	if project.Runtime == "" {
-		project.Runtime = builtin.Runtime
+	out := *project
+	if out.Runtime == "" {
+		out.Runtime = builtin.Runtime
 	}
-	if project.SchemaVersion == 0 {
-		project.SchemaVersion = SchemaVersion
+	if out.SchemaVersion == 0 {
+		out.SchemaVersion = SchemaVersion
 	}
-	if project.Vendor == nil {
-		project.Vendor = &VendorConfig{
+	if out.Vendor == nil {
+		out.Vendor = &VendorConfig{
 			Mode:     builtin.VendorMode,
 			LinkMode: builtin.LinkMode,
 		}
 	} else {
-		if project.Vendor.Mode == "" {
-			project.Vendor.Mode = builtin.VendorMode
+		v := *out.Vendor
+		if v.Mode == "" {
+			v.Mode = builtin.VendorMode
 		}
-		if project.Vendor.LinkMode == "" {
-			project.Vendor.LinkMode = builtin.LinkMode
+		if v.LinkMode == "" {
+			v.LinkMode = builtin.LinkMode
 		}
+		out.Vendor = &v
 	}
-	return project
+	return &out
 }
 
 func mergeGlobal(g *GlobalFile) *GlobalFile {

@@ -18,7 +18,7 @@ import (
 const updateUsage = `ngm update — re-resolve dependency refs to commits
 
 USAGE:
-  ngm update [<dep>] [--all] [--dir=<dir>] [--offline] [--digest] [--store]
+  ngm update [<dep>] [--all] [--dir=<dir>] [--offline] [--digest] [--store] [--json]
 
 ARGS:
   <dep>       dependency slug (e.g. github:org/repo); repeatable
@@ -29,6 +29,8 @@ FLAGS:
   --offline   never touch the network; require a warm local mirror (exit 4 if missing)
   --digest    also compute and print the archiveDigest (ADR-008)
   --store     populate the content store with the resolved content (implies --digest)
+  --json      write a machine-readable report to stdout (CI should use this);
+              progress text and warnings then go to stderr
 
 NOTES:
   This is the *re-resolving* writer: it rewrites ngm.lock and materializes the
@@ -66,14 +68,19 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	offline := fs.Bool("offline", false, "never touch the network")
 	digestFlag := fs.Bool("digest", false, "also compute and print archiveDigest")
 	storeFlag := fs.Bool("store", false, "populate the content store (implies --digest)")
+	jsonOut := fs.Bool("json", false, "machine-readable report")
 	fs.Usage = func() { fmt.Fprint(stderr, updateUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "all", Bool: true}, {Name: "dir"}, {Name: "offline", Bool: true},
 		{Name: "digest", Bool: true}, {Name: "store", Bool: true},
+		{Name: "json", Bool: true},
 	})); err != nil {
+		failEarly(args, stdout, err.Error(),
+			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if !*all && fs.NArg() == 0 {
 		fmt.Fprint(stderr, updateUsage)
 		return 3
@@ -94,6 +101,13 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
+
+	// --json 时人类文本改走 stderr（与 install 同一约定），stdout 只留一份 JSON。
+	humanOut := stdout
+	if *jsonOut {
+		humanOut = stderr
+	}
+	rep := &writeReport{Version: writeReportVersion, Command: "update", Offline: *offline}
 
 	// 2) 选定目标（用于**输出过滤**；解析总是覆盖完整图）
 	selected, err := selectTargets(pf, fs.Args(), *all)
@@ -135,11 +149,11 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	if len(g.Nodes) == 0 {
 		lf := lock.NewFile()
-		if werr := lock.Write(env.LockPath(), lf); werr != nil {
+		if werr := writeLockChecked(env, lf); werr != nil {
 			return runErr(ctx, stdout, stderr, werr)
 		}
-		fmt.Fprintf(stdout, "no dependencies to update; wrote empty %s\n", env.LockPath())
-		return 0
+		fmt.Fprintf(humanOut, "no dependencies to update; wrote empty %s\n", env.LockPath())
+		return emitWriteReport(ctx, stdout, stderr, rep, 0, *jsonOut)
 	}
 
 	// 4) 计算 digest、落地 content store、重建 lock
@@ -175,19 +189,31 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			VendorPath:    n.Repo.MirrorRelPath(),
 			SubPath:       n.SubPath,
 		})
+		// 报告覆盖**整张图**（与 lock 同一范围），而不只是被选中的条目——
+		// 与人类输出刻意不同：人读聚焦"你让我更新的那几个"，机器读要完整状态。
+		source := "resolved"
+		if putRes.AlreadyPresent {
+			source = "store"
+			rep.FromStore++
+		}
+		rep.Dependencies = append(rep.Dependencies, writeReportDep{
+			Name: n.Name, Ref: n.Ref, RefType: string(n.RefType), SubPath: n.SubPath,
+			Commit: n.Commit, ArchiveDigest: dg, VendorPath: n.Repo.MirrorRelPath(),
+			Source: source,
+		})
 
 		// 输出只聚焦选中项（--all 时即全部）
 		if !*all && !selectedKeys[n.Key] {
 			continue
 		}
 		printed++
-		printResolved(stdout, n, dg, *digestFlag || *storeFlag)
+		printResolved(humanOut, n, dg, *digestFlag || *storeFlag)
 		if *storeFlag {
 			status := "stored"
 			if putRes.AlreadyPresent {
 				status = "already present"
 			}
-			fmt.Fprintf(stdout, "  content store: %s (%s)\n", putRes.Path, status)
+			fmt.Fprintf(humanOut, "  content store: %s (%s)\n", putRes.Path, status)
 		}
 	}
 
@@ -200,21 +226,22 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	// vendor 落地 + mappings
-	if merr := materializeVendor(ctx, env, pf, items, stdout, stderr); merr != nil {
+	if merr := materializeVendor(ctx, env, pf, items, humanOut, stderr); merr != nil {
 		return runErr(ctx, stdout, stderr, merr)
 	}
 
 	lf.Sort()
-	if werr := lock.Write(env.LockPath(), lf); werr != nil {
+	if werr := writeLockChecked(env, lf); werr != nil {
 		return runErr(ctx, stdout, stderr, werr)
 	}
 
-	fmt.Fprintf(stdout, "\nupdated %d dependency(ies); wrote %s and %s\n",
+	fmt.Fprintf(humanOut, "\nupdated %d dependency(ies); wrote %s and %s\n",
 		printed, env.LockPath(), mappings.FileName)
 	// 注：本命令曾有一个 `--concurrency` flag，其值被 `_ = maxConc` 原样丢弃
 	// （实际并发恒为 resolve.DefaultConcurrency）。v0.5 移除了它——一个接受参数却
 	// 不影响任何行为的 flag 比没有更糟：用户会以为自己调过。需要时按真实需求重新引入。
-	return autoVerifyAfterLock(ctx, env, pf, pol, *offline, stdout, stderr)
+	code := autoVerifyAfterLock(ctx, env, pf, pol, *offline, rep, humanOut, stderr)
+	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
 }
 
 // offlineEnsureMirror 返回一个"只在 mirror 已存在时才可用"的 EnsureMirror 实现。

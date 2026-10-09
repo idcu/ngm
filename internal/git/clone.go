@@ -64,16 +64,12 @@ func FetchMirror(ctx context.Context, opts Options, localPath string) error {
 	return err
 }
 
-// FetchMirrorTags 额外强制同步 tags（部分 host 对 tag 更新需要显式 --tags）。
-func FetchMirrorTags(ctx context.Context, opts Options, localPath string) error {
-	if !IsBareMirror(localPath) {
-		return errs.New(errs.CodeGitFetch, "not a valid bare mirror: "+localPath, "")
-	}
-	o := opts
-	o.Dir = localPath
-	_, err := Run(ctx, o, "fetch", "--prune", "--tags", "--quiet")
-	return err
-}
+// 注：这里此前有一个 `FetchMirrorTags`（`fetch --prune --tags`），**全仓库零调用**
+// （v0.66 评估报告 P3 量出）。它的注释说"部分 host 对 tag 更新需要显式 --tags"，
+// 而那个问题在本项目的语义下**不存在**：mirror 由 `git clone --mirror` 创建，
+// 其 `remote.origin.fetch` 是 `+refs/*:refs/*`（见 CloneMirror 的文档），
+// `git fetch --prune` 因此覆盖**全部** refs（含 tags 的更新与删除）。
+// 死代码已删除——留着它会让"tag 同步"看起来需要额外机制，而实际不需要。
 
 // IsBareMirror 校验 path 是否为一个可用的裸仓库。
 //

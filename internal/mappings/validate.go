@@ -12,6 +12,15 @@ import (
 type ValidateEnvironment struct {
 	// ProjectDir 是项目根目录（`to` 中的 `./ngm.vendor/...` 以此为基准）。
 	ProjectDir string
+	// VendorRoot 是 `to` 的根表示。
+	//
+	// local 模式为 `./ngm.vendor`（VendorRelRoot）；`vendor.mode: global` 时
+	// 是实际位置的**绝对路径**（`ToJoin` 对绝对根原样保留）。空值回退 VendorRelRoot。
+	//
+	// 为什么要有它（v0.66，评估报告 P2#14）：此前这段校验硬编码
+	// "`to` 必须以 ./ngm.vendor/ 开头"，于是 global 模式下 ngm 自己生成的
+	// mappings 文件会被 ngm 自己的校验判为 fatal——自相矛盾。
+	VendorRoot string
 	// LockNames 是 ngm.lock 中所有依赖的 name（slug，**不含** subPath）。
 	//
 	// 用 map 表示"已锁定的依赖集合"；为 nil 时跳过该维度校验
@@ -98,16 +107,24 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 			}
 		}
 
-		// 2) to 必须位于 ngm.vendor/ 下且真实存在
-		if !strings.HasPrefix(m.To, VendorRelRoot+"/") {
+		// 2) to 必须位于 vendor 根下且真实存在。
+		//
+		// v0.66：根不再硬编码为 `./ngm.vendor`——global 模式下它是绝对路径，
+		// 而 `ToJoin` 正是那样写出 `to` 的（评估报告 P2#14）。
+		vendorRoot := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(env.VendorRoot)), "/")
+		if vendorRoot == "" {
+			vendorRoot = VendorRelRoot
+		}
+		toSlash := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(m.To)), "/")
+		if !strings.HasPrefix(toSlash+"/", vendorRoot+"/") {
 			findings = append(findings, Finding{
 				From:    m.From,
-				Message: "`to` must point inside " + VendorRelRoot + "/ (got " + m.To + ")",
+				Message: "`to` must point inside " + vendorRoot + "/ (got " + m.To + ")",
 				Fatal:   true,
 			})
 			continue
 		}
-		toAbs := filepath.Join(env.ProjectDir, filepath.FromSlash(strings.TrimPrefix(m.To, "./")))
+		toAbs := resolveToAbs(env.ProjectDir, m.To)
 		toInfo, err := os.Lstat(toAbs)
 		if err != nil {
 			findings = append(findings, Finding{
@@ -184,6 +201,19 @@ func FormatFindings(findings []Finding) (string, int) {
 		}
 	}
 	return sb.String(), fatal
+}
+
+// resolveToAbs 把 `to` 解析为绝对路径。
+//
+//   - 绝对路径（POSIX `/…` 或 Windows 盘符）原样使用——global 模式的
+//     `ToJoin` 产物；filepath.Join 会把磁盘路径当普通段拼上去，不能直接 Join。
+//   - 相对路径以项目根为基准（剥掉前导 `./`）。
+func resolveToAbs(projectDir, to string) string {
+	t := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(to)), "./")
+	if filepath.IsAbs(t) || looksLikeWindowsAbs(t) {
+		return filepath.FromSlash(t)
+	}
+	return filepath.Join(projectDir, filepath.FromSlash(t))
 }
 
 // containsString 报告列表里是否有该值。

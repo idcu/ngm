@@ -36,6 +36,9 @@ var jsonShapeSourceFiles = map[string][]string{
 	"outdated":     {"../../internal/observability/*.go"},
 	"integrations": {"./integrations*.go"},
 	"engines":      {"./engines*.go"},
+	// v0.66：两个写命令的报告结构体都在 install.go（update 共用同一形状）。
+	"install": {"./install.go"},
+	"update":  {"./install.go"},
 }
 
 // configSectionFiles 把 configuration.md 的**章节**映射到实现文件的 glob。
@@ -52,10 +55,14 @@ var configSectionFiles = map[string][]string{
 
 // notAShapeKey 列出形状表里被反引号引着、但**不是字段名**的词。
 //
-// 目前只有一处：`engines info` 那行括号里举了个引擎名当例子。
+// 两处：`engines info` 行括号里举了个引擎名当例子；`install` / `update` 行里
+// 写了 `source` 字段的**取值**枚举（v0.66 起）。
 // 名单**自己会过期**——每条都必须仍出现在表里，否则测试红（v0.15 的负例名单同一套路）。
 var notAShapeKey = map[string]string{
-	"esbuild": "`engines info` 行括号里的**举例**（一个引擎名字），不是字段名",
+	"esbuild":  "`engines info` 行括号里的**举例**（一个引擎名字），不是字段名",
+	"resolved": "`install` 报告里 `source` 字段的**取值**之一，不是字段名",
+	"store":    "`install` 报告里 `source` 字段的**取值**之一，不是字段名",
+	"fetched":  "`install` 报告里 `source` 字段的**取值**之一，不是字段名",
 }
 
 var (
