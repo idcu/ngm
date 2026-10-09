@@ -35,6 +35,7 @@
 | [ADR-025](./adr-025-no-builtin-engine-defaults.md) | 引擎选择**不设**内置默认 | 已定（2026-10-04）：`typeCheck` / `typeDecl` / `css` 三个 kind **刻意不预置**；缺声明 → `exit 3`，报错点名 kind、列出目录里的候选、指向 `ngm.engines.json`；声明了但未装 → `exit 5` |
 | [ADR-026](./adr-026-exit-code-6-internal-failure.md) | 加一个退出码 **6 = 内部失败** | 已定**并已实施**（2026-10-08）：panic 与"结论有了却送不出去"（原先与策略失败共用码 1）分出来；码 1 的四类策略来源一个不动 |
 | [ADR-027](./adr-027-attestation.md) | attestation：**接一层谓词，不自造签名** | 已定**并已实施**（v0.70）：`ngm attest` 输出**未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）；确定性优先（无时间戳、`invocationId` = lock 的哈希）；签名交给用户/CI 的标准工具（cosign） |
+| [ADR-028](./adr-028-dependency-graph-in-lock.md) | 把**直接依赖边**写进 ngm.lock | 已定（2026-10-09，**v0.73 实现**）：每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`）——`why` 离线 0 spawn、SBOM 增依赖关系段；lockfileVersion 不动（可选字段 + 解码器忽略未知字段是既有契约）；**只存直接边**（全路径是指数的，ADR-024）；`verify`/`tree`/`attest` 明确不变 |
 
 ---
 

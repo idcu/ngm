@@ -127,6 +127,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.69** | **打开唯一愿意付钱的市场：SBOM 导出**（评估第 3 层） | 新增 `ngm sbom`：从 `ngm.lock` 导出 **CycloneDX 1.5**（默认）/ **SPDX 2.3**，每个依赖带 commit、`archiveDigest`（裸 hex；CycloneDX 的 properties 与 SPDX 的 comment 都写明**它是规范化清单哈希、不是 tarball 哈希**）与 git purl（`pkg:git/<host>/<path>@<commit>`，子路径进 `#subpath` 段）。**只读 lock**——不触网、不重解析、不写项目。**确定性纪律**：组件顺序由**导出器自己排序**（不信任调用方）· SPDX 的 `documentNamespace` 由内容哈希派生（不是随机 UUID——"同一份 lock 两次导出必须是同一份文档"）· **时间戳是唯一非确定字段**（与 lock 的 `resolvedAt` 同一处理）。**不猜**：许可证/版权一律 `NOASSERTION`、`filesAnalyzed: false`——编一份文件清单只为过 schema 是 SBOM 最常见的失真来源。**本版最有信息量的部分是四张既有契约网对"新命令"的接管**（没有一条是为此新写的）：V37 的配置矩阵当场 Fatal（"参数表 21 项 ≠ 命令 22 个"）· V22 要求 0/3/6 三个码各给实测或登记（6 走 `TestV22StdoutWriteFailureIsMeasured/sbom` 指针，由 V56 核对落地）· V57 登记新的"写不出去"出口 · V19/V15 要求用法文本的 EXIT CODES 与命令表行。**产品代码新增 5 个文件 + 4 处登记**；一条一般的话：**能翻译的先翻译，要设计的先设计**（同一层里的 SLSA attestation 因此明确留待 ADR，`verify` 证据化等待消费方） |
 | **v0.70** | **接一层谓词：attestation（不做签名）**（评估第 3 层第二条） | 新增 `ngm attest`，先立 [ADR-027](../adr/adr-027-attestation.md)（"签什么 / 谁签 / 验什么"三问写死）。形态：**单个** in-toto Statement v1、多 subject，谓词 SLSA provenance v1——subject = 每个依赖的 git purl + `archiveDigest` 的裸 hex（注解 `ngm/digest-scope` 写明**它是规范化清单的哈希、不是 tarball 的**）；`externalParameters` = `ngm.json` / `ngm.lock` 的**字节** sha256（不是重新序列化后的形态——那会掩盖手工编辑）；`resolvedDependencies` = `git+https://…@<commit>` + `gitCommit` digest，注解记下声明的 `refType:ref`。**签名不做**（ADR-014：签名证明"谁说的"，不证明"说的是真的"），给出 `cosign attest-blob` 的 CI 路径——签名者正好补上语句刻意不写的"何时/谁"。**确定性优先**：无时间戳、`invocationId` = lock 的哈希，同一份 lock 两次导出逐字节相同（偏离 SLSA 的"唯一 id"建议，换到"签名前可比对"，理由写进 ADR）。搬移：lock → 条目映射进 `internal/sbom/entries.go`（`FromLock`/`Sort`），两个出口共用。**10 组断言** + 四张契约网登记 + 顺手修复 ADR 索引挂了数版的缺陷（ADR-025 行缺失、ADR-024 行重复、ADR-026 行粘连）。一条一般的话：**规范的建议不是不可以偏离，但必须写清换到了什么** |
 | **v0.71** | **让 ADR 索引不再靠手抄**（v0.70 复盘候选 1） | 新增判据 `TestV71AdrIndexCoversEveryAdrFile`：文件集（`docs/adr/adr-*.md`，派生）× 索引行（`docs/adr/README.md`）双向对账——每文件恰好一行、链接存在、每行 3 列（v0.70 修掉的"粘连"最先坏在列数）、编号连续（"被取代也不删除" ⇒ 缺口只该来自文件丢失）。牙齿实测：重复行 ⇒ 红并点名文件与次数。登记进 `net_coverage_sources_test.go`（what/why/source）。**产品代码 0 行**；ADR-027 §2 补 CI 消费路径（候选 3：attest → cosign attest-blob → verify-blob-attestation，并说破"本地与 CI 逐字节相同 ⇒ 签名前可 diff"）。**流程纪律从本版起：交付即提交、提交即打 tag**。一条一般的话：**守卫的价值由它的失败证明，不由它的通过证明** |
+| **v0.72** | **裁决：依赖图形进 lock（[ADR-028](../adr/adr-028-dependency-graph-in-lock.md)）+ 停止清单对账**（v0.71 复盘候选 1/3） | ADR-028 把形状逐条定死：每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`——"缺失"唯一含义是旧 lock 图未知）、只存**直接边**（全路径是指数的，ADR-024）、身份记法与 purl 同套、`Validate` 拒绝幽灵边、lockfileVersion **不动**（新增可选字段 + 解码器忽略未知字段是既有契约，`io.go` 注释原话）。消费端裁决：`why` 有图 ⇒ **离线 0 spawn**（无图 ⇒ 现行为 + 注明来源）；SBOM 增 CycloneDX `dependencies` / SPDX `RELATIONSHIPS`（旧 lock 省略）；`verify`/`tree`/`attest` 明确不变。**实现 = v0.73 的用户可见增量**（ADR §5 预写五条验收，含 `why --offline` 的 0-spawn 判据）。另：roadmap 落"明确不做"小节（评估第 4 层三张停止项逐条对账**全部维持**，并写明 v0.71 的判据为何不违约：回应已发生的缺陷 ≠ 对假想缺陷造网）；勘误 v0.71 复盘把第 4 层误写为"协议级差距"的错误引用。**产品代码 0 行**（裁决版）；一条一般的话：**格式契约的变更先立 ADR，把临场发明提前变成明文决定** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -247,7 +248,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.71.0` 的 **Gitee 发行版（68 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.72.0` 的 **Gitee 发行版（69 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -322,7 +323,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 68 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 69 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```
