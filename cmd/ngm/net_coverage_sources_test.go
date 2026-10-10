@@ -139,6 +139,12 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV76LibraryStandardCheckerHoldsItsVerdicts": {
+		what: "库标准自检器的三种结论各钉一个场景：pass（合规夹具）· fail（注入 postinstall / 删 runtime 要点名具体判据）· skip（不是 git 仓库 ⇒ 不适用且不计入）",
+		why: "它守的是**判据自己的判据**：两次缺陷都是「跑出来才发现」的（v0.74 的 CR 转义按错模式搜索、v0.76 把 vendored 副本误判为缺 tag），" +
+			"而脚本的结论此前没有任何东西守着。需要 bash + node，缺任一时**大声跳过**（写明原因），与脚本自身缺 node 时 exit 2 的行为一致",
+		source: "判据与实现在 `scripts/check-library-standard.sh`（唯一实现）；夹具由 `writeConformingFixture` 现场造",
+	},
 	"TestV71AdrIndexCoversEveryAdrFile": {
 		what: "ADR 索引必须与 `docs/adr/` 的文件集双向对账：每文件恰好一行、链接存在、3 列、编号连续",
 		why: "v0.70 修掉的缺陷就是这条判据的缺席——ADR-025 的行缺失、ADR-024 重复、" +

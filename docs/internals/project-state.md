@@ -131,6 +131,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.73** | **实现 ADR-028：依赖图形进 lock**（v0.72 裁决的兑现，用户可见增量） | lock 每依赖新增恒在的 `requiredBy`（直接引用者，含根标记 `(root)`；Marshal 归一：排序 + 去重、nil 写成 `[]`）、`Validate` 拒绝幽灵边（点名不存在的引用者 + 给下一步）、`HasGraph` 给"图是否完整"唯一判据；`observability.GraphFromLock` 从 lock 重建图喂给既有的 `FindPaths`——**`ngm why` 实测 0 次 git 子进程、离线可用**，旧 lock 退回重新解析且**报告明说来源**（人读末行 + `--json` 的 `source`）；SBOM 增 CycloneDX `dependencies`（根 ref `ngm:root`）与 SPDX `DEPENDS_ON`（**一份边、两种映射**；旧 lock 两段都省略，不编图）；install/update 写入直接边。**实现时推翻 ADR 一处裁决并就地修订**（§2.1b：根边必须一起存——root wins 时只存依赖引用者会丢掉 `RootDeclared`，`why` 会少列"根 → 它"那条路径，属"少列一条即说谎"）。**14 组断言**（lock 5 · observability 3 · cmd 6），被 V26 / V17 / V02 / V25 四张网接管。**产品代码 9 个文件**。一条一般的话：**省掉的工作量也是增量——前提是它被量出来、并被用户看见** |
 | **v0.74** | **JS Git 库的标准（梳理 + 可执行自检）** | 把"能被 Git 依赖消费的库该长什么样"写成**一页标准 + 一个判据**：[标准页](../guides/js-git-library-standard.md)（必做 10 / 推荐 9 / 禁止 5，每条带"为什么"与"怎么验"；生态现状类标 🌐 并写明本机离线未核对，"ngm 会因此报错"的标 🔒 并给代码位置；文末有"例外"小节）；`scripts/check-library-standard.sh` + `.ps1` 转调（**22 项** = 13 必做 + 9 推荐；`--strict` / `--json`；找不到 node/bash 时明确 exit 2，不静默跳过）。三条事实源：`internal/mappings/generate.go` 的 `InferEntry` 三层入口推断 · `internal/resolve/graph.go` 的 `UpstreamFile = "ngm.json"`（写在 package.json 里的 Git 依赖只提示）· `internal/supplychain/policy.go` 的 `postInstallPolicy` 默认 deny ⇒ **ngm 不替依赖构建，入口指向的产物必须已提交**。**牙齿实测 5 条**：postinstall · .npmrc · 入口指向被 .gitignore 排除的 dist · 删 version · package.json 有 git 依赖而 ngm.json 没声明 ⇒ 各自红并点名。**产品代码 0 行**；一条一般的话：**判据也会说谎——凡是"要转义才能表达"的字符都是事故位**（CRLF 那条当场自证：脚本里 `$'\r'` 被改写成 `$'\\r'`，grep 于是按 `\r` 正则搜、`r` 字母即命中；改用 node 读字节判定，分隔符也从制表符换成 `|`） |
 | **v0.75** | **标准的第一个实现（canonical-json）+ 两处修正** | 按 v0.74 的标准写一个**真实可用**的库：`canonical-json`（确定性 JSON 序列化与哈希——"同一个值 ⇒ 同一串字节"，`JSON.stringify` 因键序敏感做不到；零依赖、免构建、仓库即产物、13 文件、**25 个测试**含"类型面双向对账"与"入口指向真实文件"、已知向量经两条独立路径确认、仓库已 `git init`+2 提交+附注 tag `v1.0.0` 待推送），过 `scripts/check-library-standard.sh --strict` **全绿**。**"照着标准做一遍"抓出标准自身两处缺陷**：① `ngm.json` 示例缺 `runtime`（`internal/config/validate.go` 的必填三件之一，照抄即错）⇒ 补示例 + 新增必做判据 `ngm-json-valid`（牙齿实测：删 runtime ⇒ `✖` + exit 1）；② LF 条款补边界（自检看工作树字节；Windows 要保持 LF 检出）。库 README 指向标准页的跨仓相对链接改成 gitee URL（相对链接只在作者机器上成立）。判据 **22 → 23 条**（12 必做常驻 + 2 条件 + 9 推荐）；**ngm 产品代码 0 行**；一条一般的话：**标准只有在被照着做一遍之后才算成立** |
+| **v0.76** | **端到端：由用户自己的库驱动 ngm** | `canonical-json`（用户自有库）推上 Gitee 后，用真实公网仓库跑完整条链：`ngm install`（`gitee:idcu/canonical-json@v1.0.0 (tag) → 9688ac0`，写 lock + mappings）· `ngm verify` `✓ match` · `ngm mappings` 命中 **`ngm.json` 第 1 层**（`main: ./src/index.js` / `types: ./src/index.d.ts`）· `ngm why` **0 次 git 子进程**（`--json` 的 `source: lock`）· `ngm tree` · `ngm sbom`（`ngm:root` → `pkg:git/gitee.com/idcu/canonical-json@9688ac0…`）· `ngm attest`（subject purl + `sha256:ca32db3e…` + `gitCommit`）。**两条只有真跑才有的证据**：在 **vendored 副本**上跑库自己的测试 **25/25 通过**（不装依赖、不构建）、全部 LF；用标准自检器扫 vendored 副本**22 项全过**（`— semver-tag 不适用`）。首次 install 被**权限系统**按设计拦下（`net:gitee.com` 既未允许也未拒绝 ⇒ 拒绝 + 指向配置的提示）；GitHub 从本机不可达（`000`），实跑走 Gitee，镜像侧未在本机核对。**缺陷（自检器）**：非 git 目录（vendored 副本/导出物）被误判为"没有 semver tag" ⇒ 新增**"不适用"结论**（`—` 显式打印、不计入任何计数、`--json` 多 `skipped` 字段）。**产品代码 0 行**；一条一般的话：**两半分别验证过，不等于拼起来能用** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -251,7 +252,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.75.0` 的 **Gitee 发行版（72 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.76.0` 的 **Gitee 发行版（73 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -326,7 +327,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 72 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 73 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```

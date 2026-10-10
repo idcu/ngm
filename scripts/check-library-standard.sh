@@ -82,6 +82,9 @@ record() { # record <level> <id> <status> <why>
 }
 pass() { record "$1" "$2" pass "$3"; }
 fail() { record "$1" "$2" fail "$3"; }
+# 不适用（例如"检查 tag"遇到没有 .git 的 vendored 副本）：**必须显式打印**，
+# 但它不进任何计数——静默跳过才是这里真正的敌人。
+skip() { record "$1" "$2" skip "$3"; }
 
 # ---- package.json -------------------------------------------------------
 PKG="$DIR/package.json"
@@ -345,7 +348,11 @@ else
 	fail should gitattributes-lf "没有 .gitattributes 的 LF 声明 —— LF 应该由仓库强制，而不是靠人记"
 fi
 
-if [ -d "$DIR/.git" ] && git -C "$DIR" tag --list 2>/dev/null | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+# tag 是 git 概念：**不是 git 仓库时不适用**（vendored 副本、导出的 tarball 都没有 .git，
+# 而"那里没有 tag"不是缺陷——v0.76 用真实 vendored 副本跑出来的误报）。
+if ! git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
+	skip should semver-tag "不是 git 仓库（vendored 副本 / 导出物）——tag 检查不适用"
+elif git -C "$DIR" tag --list 2>/dev/null | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
 	pass should semver-tag "有 semver tag"
 else
 	fail should semver-tag "没有 semver tag（tag 型依赖要求 tag 存在）"
@@ -364,15 +371,19 @@ fi
 # ---- 汇总 ---------------------------------------------------------------
 must_fail=0
 should_fail=0
+skipped=0
 while IFS='|' read -r id level status why; do
 	[ -z "$id" ] && continue
-	if [ "$status" = fail ]; then
+	case "$status" in
+	fail)
 		if [ "$level" = must ]; then
 			must_fail=$((must_fail + 1))
 		else
 			should_fail=$((should_fail + 1))
 		fi
-	fi
+		;;
+	skip) skipped=$((skipped + 1)) ;;
+	esac
 done <<EOF
 $CHECKS
 EOF
@@ -384,8 +395,8 @@ if [ "$STRICT" = 1 ] && { [ "$should_fail" -gt 0 ] || [ "$must_fail" -gt 0 ]; };
 fi
 
 if [ "$JSON_OUT" = 1 ]; then
-	printf '{"dir":"%s","ok":%s,"mustFail":%d,"shouldFail":%d,"strict":%s,"checks":[' \
-		"$DIR" "$([ $exit_code -eq 0 ] && echo true || echo false)" "$must_fail" "$should_fail" "$([ "$STRICT" = 1 ] && echo true || echo false)"
+	printf '{"dir":"%s","ok":%s,"mustFail":%d,"shouldFail":%d,"skipped":%d,"strict":%s,"checks":[' \
+		"$DIR" "$([ $exit_code -eq 0 ] && echo true || echo false)" "$must_fail" "$should_fail" "$skipped" "$([ "$STRICT" = 1 ] && echo true || echo false)"
 	first=1
 	while IFS='|' read -r id level status why; do
 		[ -z "$id" ] && continue
@@ -401,23 +412,27 @@ fi
 
 while IFS='|' read -r id level status why; do
 	[ -z "$id" ] && continue
-	if [ "$status" = pass ]; then
-		printf '  ✔ %-22s %s\n' "$id" "$why"
-	else
-		printf '  ✖ %-22s %s\n' "$id" "$why"
-	fi
+	case "$status" in
+	pass) printf '  ✔ %-22s %s\n' "$id" "$why" ;;
+	fail) printf '  ✖ %-22s %s\n' "$id" "$why" ;;
+	skip) printf '  — %-22s %s\n' "$id" "$why" ;;
+	esac
 done <<EOF
 $CHECKS
 EOF
 
 echo
+skip_note=""
+if [ "$skipped" -gt 0 ]; then
+	skip_note="（不适用 $skipped 条，见上）"
+fi
 if [ "$must_fail" -gt 0 ]; then
-	echo "必做项未通过 $must_fail 条 —— 这个库不符合标准（docs/guides/js-git-library-standard.md）"
+	echo "必做项未通过 $must_fail 条 —— 这个库不符合标准（docs/guides/js-git-library-standard.md）$skip_note"
 elif [ "$should_fail" -gt 0 ] && [ "$STRICT" = 1 ]; then
-	echo "推荐项未通过 $should_fail 条（--strict）"
+	echo "推荐项未通过 $should_fail 条（--strict）$skip_note"
 elif [ "$should_fail" -gt 0 ]; then
-	echo "必做项全部通过；推荐项未通过 $should_fail 条（不加 --strict 时不算失败）"
+	echo "必做项全部通过；推荐项未通过 $should_fail 条（不加 --strict 时不算失败）$skip_note"
 else
-	echo "全部通过 —— 这个库符合标准"
+	echo "全部通过 —— 这个库符合标准$skip_note"
 fi
 exit $exit_code
