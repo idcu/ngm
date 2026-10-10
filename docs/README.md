@@ -3,12 +3,14 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.77 均已交付**，**`v0.1.0` ~ `v0.77.0` 七十七个 tag 均已打**。
+**当前状态：v0.1 ~ v0.78 均已交付**，**`v0.1.0` ~ `v0.78.0` 七十八个 tag 均已打**。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
-**"交付"与"发布"是两件事，这一页把它们分开写**：77 个 tag 里，GitHub 上有 **60 个** release，
-Gitee 上只有 **3 个**，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
-——那张表的数字是 2026-10-05 **直接问两个源的 API** 得到的，不是本页的记忆
+**"交付"与"发布"是两件事，这一页把它们分开写**：78 个 tag 里，GitHub 上有 **60 个** release
+（它的 tag 是 65 个：`v0.1.0` … `v0.65.0`；差的 13 个是未推送的 `v0.66.0` 起，而 release 的最新
+是 `v0.64.0`——`v0.65.0` 跑过工作流但失败了 ✗），Gitee 上只有 **3 个**（`v0.2.0` · `v0.3.0` ·
+`v0.4.0`），而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
+——那张表的数字是 2026-10-10 **直接问两个源的 API** 得到的，不是本页的记忆
 （Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读）。
 
 各版计划与复盘见[开发总览](./development/README.md)；
@@ -347,6 +349,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.75 | **标准的第一个实现（canonical-json）+ 两处修正**：按 v0.74 的标准写一个**真实可用**的库——`canonical-json`（确定性 JSON 序列化与哈希；零依赖、免构建、13 个文件、**25 个测试**、仓库已 `git init`+提交+打 `v1.0.0` 待推送） | **已交付**（[计划](./development/v0.75-plan.md) / [复盘](./development/v0.75-retrospective.md)：库过 `scripts/check-library-standard.sh --strict` **全绿**。**"照着标准做一遍"抓出标准自身两处缺陷**：① `ngm.json` 示例缺 `runtime`（ngm 清单必填三件之一，照抄即错）⇒ 补示例 + 新增必做判据 `ngm-json-valid`（牙齿实测：删 runtime ⇒ 红 + exit 1）；② LF 条款补"自检看工作树字节、Windows 要保持 LF 检出"的边界。库 README 的跨仓相对链接改成 gitee URL（相对链接只在作者机器上成立）。判据 22 → **23 条**；**ngm 产品代码 0 行**；一条一般的话：**标准只有在被照着做一遍之后才算成立**） |
 | v0.76 | **端到端：由用户自己的库驱动 ngm**（v0.75 复盘候选 1）：`canonical-json` 推上 Gitee 后，install / verify / mappings / why / tree / sbom / attest 在**真实公网仓库**上全部跑通 | **已交付**（[计划](./development/v0.76-plan.md) / [复盘](./development/v0.76-retrospective.md)：`requiredBy: ["(root)"]` 第一次出现在真实依赖上 · mappings 命中 `ngm.json` **第 1 层**（`main: ./src/index.js`）· verify `✓ match` · `why` 报 **0 次 git 子进程** · sbom 有根→依赖关系段 · attest 的 subject/purl/gitCommit 齐全。**两条只有真跑才会有的证据**：在 **vendored 副本**上跑库自己的测试 **25/25 通过**（不装依赖、不构建），以及用标准自检器扫 vendored 副本**全绿**（`— semver-tag 不适用`）。首次 install 被**权限系统**按设计拦下（`net:gitee.com` 未允许 ⇒ 拒绝 + 精确提示）；GitHub 从本机不可达，实跑走 Gitee、镜像侧未在本机核对。**缺陷**：自检器把"没有 `.git` 的 vendored 副本"误判为"没有 semver tag" ⇒ 新增**"不适用"结论**（显式打印、不计入、`--json` 多 `skipped`）） |
 | v0.77 | **标准覆盖第二种形态（CJS / 带构建 / monorepo）+ `ngm add` 实跑**（v0.76 复盘候选 1/2）：把标准套到**别的包形态**上，抓到两处**误伤**——① 显式 `"type": "commonjs"` 被判"未声明 type=module"（而判据自己的措辞就是"CJS 需显式说明"）⇒ 写明的选择记为合格；② monorepo 的根被套上五条"包"的判据 ⇒ 新角色 `mono-root`（六条包专属判据记 `—`），**子包用同一支脚本逐个体检**且结论带 `packages/a/` 前缀 | **已交付**（[计划](./development/v0.77-plan.md) / [复盘](./development/v0.77-retrospective.md)：新增必做「workspaces 里每个目录都要有 package.json」（缺 ⇒ 显式失败，不跳过）· `.gitattributes`/`.gitignore` 看**仓库根**（LF 与"产物是否被忽略"是仓库级事实）· 私有根可缺 `version`。**实现时抓到一个静默丢弃**：JSON 合并读不到子包结果时 `continue`，而根因是 Windows 版 node 读不到 MSYS 临时路径（`/tmp/x` → `D:\tmp\x`）⇒ 路径过 `cygpath -w` + 读不出即变成 `child-result-unreadable` 的**必做失败**。判据 23 → **24 条**；四形态回归全绿（真实库 · vendored 副本 · CJS · monorepo）；`ngm add gitee:idcu/canonical-json@v1.0.0` → install → verify `✓ match` → `why` 0 spawn → `mappings validate` OK。**ngm 产品代码 0 行**；一条一般的话：**判据的错误分漏判与误判，后者更难发现——它看起来像"标准很严格"**） |
+| v0.78 | **monorepo 的另外两个信号 + 自检器与产品读同一份事实 + 发布读数实测**（v0.77 复盘候选 1/4）：monorepo 检测扩到三个信号——npm `workspaces` · **pnpm**（`pnpm-workspace.yaml`，而它的根**可以没有** `package.json`）· **lerna**（`lerna.json`）；根less 的 `pkg-json-exists`/`pkg-name`/`pkg-version`/`license`/`engines` 一律记为**不适用**；子包清单支持 `dir/*` 与花括号 `{a,b}/*`，**读不出的写法**（YAML 映射 / 内联对象）⇒ `workspace-manifest-unreadable` 必做失败（不许猜、也不许悄悄少体检一个子包）。**最刺眼的一条**：自检器**比产品严**——标准第 1 条推荐 `exports`，而自检器不读它，于是"照着标准做"的包被判"找不到入口"（`InferEntry` 一直读）⇒ 候选层次与 `parseExports` 逐字对齐 + 补 `index.cjs` | **已交付**（[计划](./development/v0.78-plan.md) / [复盘](./development/v0.78-retrospective.md)：又四**处**误伤（exports · 无根清单 · 花括号 glob · 根的 engines）——共同点是"判据把某一种形态当成了包的定义"；模式分隔符从逗号改**换行**（glob 里逗号是合法的，实测被切成垃圾）。判据 24 → **25 条**；六形态回归全绿；**发布读数实测**（2026-10-10 API）：GitHub **65 tag**（`v0.1.0`…`v0.65.0` 无缺口）/ **60 release**（65 − 4 从未跑过 − 1 跑失败 = 60，最新 `v0.64.0`）、Gitee **3 个**（`v0.2.0`～`v0.4.0`）——旧读数把**标签与发行版混成一列**，本版分开并写明日期与方法。一条一般的话：**标准里推荐的东西，产品必须真的读；不读，就不该推荐**） |
 
 ### 发布状态
 

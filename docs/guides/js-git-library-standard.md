@@ -158,8 +158,9 @@ Windows：
 .\scripts\check-library-standard.ps1 -Dir C:\src\my-lib
 ```
 
-判据共 **24 条**：12 条必做常驻 + 3 条条件触发（入口指向构建产物时才检查产物是否已提交；
-提供 `ngm.json` 时才检查它是否合法；monorepo 模式下才检查每个 workspace 目录）+ 9 条推荐。
+判据共 **25 条**：12 条必做常驻 + 4 条条件触发（入口指向构建产物时才检查产物是否已提交；
+提供 `ngm.json` 时才检查它是否合法；monorepo 模式下才检查每个 workspace 目录；
+`packages` 里有读不出的写法时才报 `workspace-manifest-unreadable`）+ 9 条推荐。
 单次运行打印多少行，取决于条件项是否适用。
 
 **"不适用"是第三种结论**：不是 git 仓库时（ngm 的 vendored 副本、导出的 tarball），
@@ -170,20 +171,40 @@ tag 检查显示为 `—` 并写明原因，**不计入任何计数**——不�
 把 `ngm.json` 的 `runtime` 删掉，或让入口指向被 `.gitignore` 排除的 `dist/`
 ⇒ 自检立刻红并点名那一条。它不是"建议清单"，是判据。
 
-### 5.1 形态覆盖（自检器实测过的四种形态）
+### 5.1 形态覆盖（自检器实测过的六种形态）
 
-标准只有在**别的形态**上跑过才算成立。自检器已在四种形态上验证，并因此改掉了两处误伤：
+标准只有在**别的形态**上跑过才算成立。自检器已在六种形态上验证，并因此改掉了四处误伤：
 
 | 形态 | 判据行为 |
 |------|---------|
 | 单包 · ESM · 免构建（仓库即产物） | 全绿；`dist-committed` 不触发（入口不在产物目录） |
 | 单包 · **显式 CJS** · 有构建步骤（产物已提交） | 全绿。**显式写明的 `"type": "commonjs"` 记为合格**——规范要的是"别让模块形态靠猜"，不是"必须 ESM"（v0.77 修掉的误伤：此前它被判"未声明 type=module"，而判据自己的措辞就是"CJS 需显式说明"） |
-| **monorepo**（`workspaces`） | **根不是包**：入口 / 产物 / 模块形态 / exports / 类型 / 发布范围六条一律 `—`（这里没有这个问题）；每个子包**用同一条判据**逐个体检，结论带路径前缀（`packages/a/…`）。私有根（`private: true`）可以没有 `version` |
+| monorepo · **npm**（根 `workspaces`） | **根不是包**：入口 / 产物 / 模块形态 / exports / 类型 / 发布范围 / `engines` 一律 `—`；每个子包**用同一条判据**逐个体检，结论带路径前缀（`packages/a/…`）。私有根（`private: true`）可以没有 `version` |
+| monorepo · **pnpm**（根 `pnpm-workspace.yaml`） | 同上；**根可以没有 `package.json`**（v0.78 修掉的误伤：此前"没有根清单"是必做红，而 pnpm 形态里它是合法的） |
+| monorepo · **lerna**（根 `lerna.json`） | 同上；信号来自 `lerna.json` 的 `packages`（根有清单但没有 npm `workspaces`） |
 | **vendored 副本**（ngm 的 `ngm.vendor/`、导出的 tarball） | 没有 `.git` ⇒ tag 检查 `—`；其余判据照常（实测：ngm 的 vendored 输出全绿） |
 
-两条与 monorepo 有关的"仓库级"事实：`.gitattributes`（LF 声明）与 `.gitignore`
-（决定"产物是否被忽略"）**看仓库根**——子包不必自带，也不该被要求自带。
+子包清单的三种信号（npm `workspaces` · pnpm `pnpm-workspace.yaml` 的 `packages:` ·
+lerna `lerna.json` 的 `packages`）合并且去重；写法上只读**简单形态**
+（YAML 列表 / 内联字符串数组 / JSON 数组），并支持 `dir/*` 与花括号 `{a,b}/*` 两种 glob。
+**读不出来的写法不许猜**：`packages` 里出现 YAML 映射或内联对象
+⇒ `workspace-manifest-unreadable` **必做失败**——静默少体检一个子包，比红一次坏得多。
+
+三条与 monorepo 有关的"仓库级"事实：`.gitattributes`（LF 声明）与 `.gitignore`
+（决定"产物是否被忽略"）**看仓库根**——子包不必自带，也不该被要求自带；
+子包的**入口与类型**可以从 `exports` 里读（见下）。
 **嵌套 monorepo 明确不做**：那是一个尚未被验证的形态，静默地"反正也查了"比明确不做更坏。
+
+### 5.2 自检器与产品必须读同一份事实
+
+自检器**比产品严**就是误判：一个库会为"标准推荐它做的事"而红。
+v0.78 对齐的一处：**入口推断读 `exports`**。
+
+| 入口层次 | 产品（`internal/mappings.InferEntry`） | 自检器 |
+|---------|--------------------------------------|--------|
+| ① 依赖自己的 `ngm.json` | `main` / `types` | 同 |
+| ② `package.json` | **`exports`**（字符串 / `"."` 字符串 / 条件映射，`types` → `import` / `module` / `default` / `require` 先到先得）→ 再 `main` / `types` 字段 | 同（v0.78 起逐字对齐） |
+| ③ index 约定 | `index.ts` / `index.js` / `index.mjs` / `index.cjs`（`index.d.ts`/`d.mts`/`d.cts` 作类型） | 同 |
 
 ## 6. 例外
 

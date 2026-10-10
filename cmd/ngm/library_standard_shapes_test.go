@@ -125,8 +125,10 @@ func TestV77LibraryStandardHandlesOtherPackageShapes(t *testing.T) {
 	if status, ok := findStatus(rep, "packages/a/entry-resolvable"); !ok || status != "pass" {
 		t.Errorf("子包的 entry-resolvable 应 pass 且带前缀，got %q（存在=%v）", status, ok)
 	}
+	// 根：6 条包专属（入口/产物/ESM/exports/类型/发布范围）+ engines + semver-tag；
+	// 子包各 1 条 semver-tag（v0.78 起 engines 也归"根的包专属"）。
 	if rep.Skipped <= 6 {
-		t.Errorf("skipped = %d：根应有 6 条包专属 + semver-tag，子包各 1 条 semver-tag", rep.Skipped)
+		t.Errorf("skipped = %d：根应有 7 条包专属 + semver-tag，子包各 1 条 semver-tag", rep.Skipped)
 	}
 
 	// 牙齿：workspaces 匹配到的**目录里没有 package.json** ⇒ 显式失败。

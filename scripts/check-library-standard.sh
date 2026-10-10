@@ -107,11 +107,99 @@ fail() { record "$1" "$2" fail "$3"; }
 # 但它不进任何计数——静默跳过才是这里真正的敌人。
 skip() { record "$1" "$2" skip "$3"; }
 
+# ---- monorepo 检测（v0.77 起，v0.78 扩到三种信号） ------------------------
+#
+# 三个信号合并去重：① npm —— `package.json` 的 `workspaces`；
+# ② pnpm —— `pnpm-workspace.yaml` 的 `packages:`（只读简单形态：YAML 列表或内联数组）；
+# ③ lerna —— `lerna.json` 的 `packages`。
+#
+# 检测必须在读 package.json **之前**：pnpm / lerna 的 monorepo 根**可以没有**根清单，
+# 而那种形态的根同样"不是包"（v0.78 实测补上的第二处误伤）。
+# 子进程带 `NGM_LIB_STD_CHILD=1` ⇒ 不做嵌套 monorepo 的递归（尚未验证的形态）。
+MONO_PATTERNS=""
+if [ "$ROLE" = "package" ] && [ "${NGM_LIB_STD_CHILD:-0}" != "1" ]; then
+mono_raw=$(node -e '
+		const fs = require("fs"), path = require("path");
+		const dir = process.argv[1];
+		const pats = [];
+		// unparsed 统计"看得出来是子包声明、但本工具读不出的写法"（YAML 映射形式、
+		// 内联对象等）。**读不出必须说出来**：静默丢一条 = 少体检一个子包。
+		let unparsed = 0;
+		const looksLikePattern = (s) => !/^[A-Za-z_][A-Za-z0-9_-]*\s*:/.test(s) && !/^\{.*:.*\}/.test(s);
+		// ① npm
+		try {
+			const o = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+			if (Array.isArray(o.workspaces)) pats.push(...o.workspaces.map(String));
+		} catch {}
+		// ② pnpm（只读简单形态；`!` 开头的排除项不是子包）
+		try {
+			const y = fs.readFileSync(path.join(dir, "pnpm-workspace.yaml"), "utf8");
+			let inList = false;
+			for (const raw of y.split("\n")) {
+				const line = raw.replace(/#.*$/, "").replace(/\s+$/, "");
+				if (/^packages\s*:/.test(line)) {
+					const inline = line.match(/\[(.*)\]/);
+					if (inline) {
+						for (const piece of inline[1].split(",")) {
+							const v = piece.trim().replace(/^["\x27]|["\x27]$/g, "");
+							if (!v) continue;
+							if (looksLikePattern(v)) pats.push(v); else unparsed++;
+						}
+					}
+					inList = !inline;
+					continue;
+				}
+				if (!inList) continue;
+				if (line !== "" && !/^\s/.test(line)) { inList = false; continue; }
+				const m = line.match(/^\s*-\s*(.+)$/);
+				if (m) {
+					const v = m[1].trim().replace(/^["\x27]|["\x27]$/g, "");
+					if (looksLikePattern(v)) pats.push(v); else unparsed++;
+					continue;
+				}
+				// 列表块里既不是 `- ` 也不是空行 ⇒ 是某种映射写法（读不出来）
+				if (line !== "") unparsed++;
+			}
+		} catch {}
+		// ③ lerna
+		try {
+			const o = JSON.parse(fs.readFileSync(path.join(dir, "lerna.json"), "utf8"));
+			if (Array.isArray(o.packages)) pats.push(...o.packages.map(String));
+		} catch {}
+		const uniq = [...new Set(pats.map((p) => String(p).trim()).filter((p) => p && !p.startsWith("!")))];
+		// 分隔符用**换行**而不是逗号：glob 里可以合法地出现逗号（`{a,b}`），
+		// 用它当分隔符会把一条模式切碎成两条垃圾（v0.78 实测）。
+		process.stdout.write(uniq.join("\n") + "\n#unparsed=" + unparsed + "\n");
+	' "$DIR" 2>/dev/null)
+	# 最后一行是统计（`#unparsed=N`），其余每行一条模式（分隔符用换行，见上）。
+	MONO_PATTERNS=$(printf '%s\n' "$mono_raw" | grep -v '^#unparsed=')
+	MONO_UNPARSED=$(printf '%s\n' "$mono_raw" | sed -n 's/^#unparsed=\([0-9]*\)$/\1/p')
+	[ -n "$MONO_PATTERNS" ] && ROLE="mono-root"
+
+	# 读不出来**不许猜**，也不许悄悄少体检一个子包：
+	#  ① 有 N 条 packages 写法读不出来 ⇒ 显式失败（不猜那些写法的含义）；
+	#  ② 文件在、里面也写着 packages，却一条都没解析出来 ⇒ 同上。
+	if [ "${MONO_UNPARSED:-0}" -gt 0 ] 2>/dev/null; then
+		fail must workspace-manifest-unreadable "有 $MONO_UNPARSED 条 packages 写法读不出来（标准只读简单形态：YAML 列表 / 内联字符串数组 / JSON 数组）—— 不予猜测，读不出的子包不会**偷偷**少体检"
+	fi
+	for mf in pnpm-workspace.yaml lerna.json; do
+		if [ -f "$DIR/$mf" ] && [ -z "$MONO_PATTERNS" ] && grep -q 'packages' "$DIR/$mf" 2>/dev/null; then
+			fail must workspace-manifest-unreadable "$mf 里写着 packages，但读不出子包列表（标准只读简单形态：YAML 列表 / 内联字符串数组 / JSON 数组）—— 不予猜测"
+		fi
+	done
+fi
+
 # ---- package.json -------------------------------------------------------
 PKG="$DIR/package.json"
 pkg_fields=""
 if [ ! -f "$PKG" ]; then
-	fail must pkg-json-exists "根目录没有 package.json —— 入口推断只剩 index 约定，mappings 会退化成一个目录"
+	if [ "$ROLE" = "mono-root" ]; then
+		# pnpm / lerna 的 monorepo 根可以没有根清单（npm 的 `workspaces` 则必须有——
+		# 那正是信号本身）。没有根清单 ⇒ 根不是包 ⇒ 这条判据不适用。
+		skip must pkg-json-exists "monorepo 根不是包（pnpm / lerna 形态可以没有根清单）——清单由各子包自己带"
+	else
+		fail must pkg-json-exists "根目录没有 package.json —— 入口推断只剩 index 约定，mappings 会退化成一个目录"
+	fi
 else
 	pass must pkg-json-exists "package.json 存在"
 	# node 一次性读出关心的字段（KEY=VALUE 行；值里不含换行）
@@ -123,9 +211,26 @@ else
 		const deps = Object.keys(o.dependencies || {});
 		const gitDeps = deps.filter(n => /^(git|github:|gitlab:|bitbucket:|git\+|https?:)/.test(String((o.dependencies||{})[n])));
 		const exp = o.exports;
+		// exports 的解析**逐字对齐** internal/mappings 的 parseExports（v0.78）：
+		// 字符串形式；`"."` 是字符串；`"."` 是条件映射（types → import/module/default/require 先到先得）。
+		// 自检器比产品严是误判（实测：只写 exports 的包被判"找不到入口"，而我们**推荐** exports）。
+		const parseExports = (raw) => {
+			if (typeof raw === "string") return { main: raw, types: "" };
+			if (raw === null || typeof raw !== "object") return { main: "", types: "" };
+			const target = "." in raw ? raw["."] : raw;
+			if (typeof target === "string") return { main: target, types: "" };
+			if (target === null || typeof target !== "object") return { main: "", types: "" };
+			const types = typeof target.types === "string" ? target.types : "";
+			let main = "";
+			for (const key of ["import", "module", "default", "require"]) {
+				if (typeof target[key] === "string" && target[key] !== "") { main = target[key]; break; }
+			}
+			return { main, types };
+		};
+		const expEntry = parseExports(exp);
 		const out = {
 			name: o.name || "", version: o.version || "", type: o.type || "",
-			license: o.license || "", main: o.main || "", types: o.types || "",
+			license: o.license || "", main: o.main || "", types: o.types || "", exportsMain: expEntry.main, exportsTypes: expEntry.types,
 			exportsShape: exp === undefined ? "none" : (typeof exp === "string" ? "string" : (exp["."] && typeof exp["."] === "object" ? "conditions" : "object")),
 			hasFiles: !!o.files, hasEngines: !!o.engines,
 			private: o.private === true ? "true" : "",
@@ -145,36 +250,43 @@ EOF
 	fi
 fi
 
-# ---- 角色判定：monorepo 的根不是包（v0.77） -------------------------------
-#
-# 只看一个信号：根 package.json 声明了**非空** workspaces。子包清单在这里展开
-# （只支持 `dir/*` 与显式路径两种写法——够用，且不引入 glob 库）。
-# 子进程用 `NGM_LIB_STD_CHILD=1` 标记，因此**不做嵌套 monorepo 的递归**：
-# 那是一个尚未被验证的形态，静默地"反正也查了"比明确不做更坏。
-if [ "$ROLE" = "package" ] && [ "${NGM_LIB_STD_CHILD:-0}" != "1" ] && [ -n "${P_workspaces:-}" ]; then
-	ROLE="mono-root"
+# ---- 子包清单展开（`dir/*` 与显式路径两种写法） ---------------------------
+if [ "$ROLE" = "mono-root" ] && [ -n "$MONO_PATTERNS" ]; then
 	MONO_CHILDREN=$(node -e '
 		const fs = require("fs"), path = require("path");
 		const root = process.argv[1];
-		const pats = String(process.argv[2]).split(",").filter(Boolean);
+		const pats = String(process.argv[2]).split("\n").filter(Boolean);
+		// 花括号展开（npm 与 pnpm 都支持 `{a,b}`）：一条 `{packages,apps}/*`
+		// 等于两条模式。**不展开就是误判**——它会以"目录不存在"的形式红掉。
+		const expandBraces = (p) => {
+			const m = p.match(/\{([^{}]*)\}/);
+			if (!m) return [p];
+			const out = [];
+			for (const alt of m[1].split(",")) {
+				out.push(...expandBraces(p.slice(0, m.index) + alt + p.slice(m.index + m[0].length)));
+			}
+			return out;
+		};
 		const out = [];
-		for (const p of pats) {
-			const clean = p.replace(/\/+$/, "");
-			if (clean.endsWith("/*")) {
-				const base = path.join(root, clean.slice(0, -2));
-				let names = [];
-				try {
-					names = fs.readdirSync(base, { withFileTypes: true })
-						.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-				} catch { continue; }
-				const dir = clean.slice(0, -1);
-				for (const n of names) out.push(dir + n);
-			} else {
-				out.push(clean);
+		for (const raw of pats) {
+			for (const p of expandBraces(raw)) {
+				const clean = p.replace(/\/+$/, "");
+				if (clean.endsWith("/*")) {
+					const base = path.join(root, clean.slice(0, -2));
+					let names = [];
+					try {
+						names = fs.readdirSync(base, { withFileTypes: true })
+							.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+					} catch { continue; }
+					const dir = clean.slice(0, -1);
+					for (const n of names) out.push(dir + n);
+				} else {
+					out.push(clean);
+				}
 			}
 		}
-		process.stdout.write(out.join("\n"));
-	' "$DIR" "${P_workspaces:-}" 2>/dev/null)
+		process.stdout.write([...new Set(out)].join("\n"));
+	' "$DIR" "$MONO_PATTERNS" 2>/dev/null)
 else
 	MONO_CHILDREN=""
 fi
@@ -184,13 +296,18 @@ field() { # field <name>
 	printf '%s' "${!name:-}"
 }
 
-if [ -n "${P_name:-}" ]; then
+if [ "$ROLE" = "mono-root" ] && [ ! -f "$PKG" ]; then
+	# 没有根清单的 monorepo 根（pnpm / lerna 形态）：包名与版本都归各子包。
+	skip must pkg-name "monorepo 根不是包（没有根清单）—— 包名由各子包自己带"
+elif [ -n "${P_name:-}" ]; then
 	pass must pkg-name "name = ${P_name}"
 else
 	fail must pkg-name "package.json 缺 name"
 fi
 
-if [ "$ROLE" = "mono-root" ] && [ "${P_private:-}" = "true" ] && [ -z "${P_version:-}" ]; then
+if [ "$ROLE" = "mono-root" ] && [ ! -f "$PKG" ]; then
+	skip must pkg-version "monorepo 根不是包（没有根清单）—— 版本由各子包自己带"
+elif [ "$ROLE" = "mono-root" ] && [ "${P_private:-}" = "true" ] && [ -z "${P_version:-}" ]; then
 	# 私有 monorepo 根不发布，没有 version 是正常的（v0.77：又一处"根的包专属判据"）。
 	skip must pkg-version "私有 monorepo 根（private: true）不发布，version 可缺——版本由各子包自己带"
 elif printf '%s' "${P_version:-}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
@@ -213,8 +330,13 @@ if [ -f "$DIR/ngm.json" ]; then
 	ngm_types=$(echo "$ngm_pair" | cut -d' ' -f2)
 fi
 
+# 候选顺序**逐条对齐** internal/mappings.InferEntry：
+#   ① ngm.json 的 main/types → ② package.json 的 exports（优先）/ main / types
+#   → ③ index 约定（含 .cjs——v0.78 对齐时补上的一个缺口）；
+# 层内 exports 先于 main 字段（Go 侧就是这么写的：`if main == "" { main = pj.Main }`）。
 entry_candidates=""
-for c in "$ngm_main" "$ngm_types" "${P_main:-}" "${P_types:-}" "./index.ts" "./index.js" "./index.mjs"; do
+for c in "$ngm_main" "$ngm_types" "${P_exportsMain:-}" "${P_exportsTypes:-}" \
+	"${P_main:-}" "${P_types:-}" "./index.ts" "./index.js" "./index.mjs" "./index.cjs"; do
 	[ -n "$c" ] && entry_candidates="$entry_candidates $c"
 done
 
@@ -369,7 +491,9 @@ if [ -f "$DIR/ngm.json" ]; then
 	esac
 fi
 
-if [ -n "${P_license:-}" ]; then
+if [ "$ROLE" = "mono-root" ] && [ ! -f "$PKG" ] && ! ls "$DIR" | grep -qiE '^(LICENSE|LICENCE|COPYING)'; then
+	skip must license "monorepo 根不是包（没有根清单、也没有根 LICENSE）—— 许可证由各子包自己带"
+elif [ -n "${P_license:-}" ]; then
 	pass must license "license = ${P_license}"
 elif ls "$DIR" | grep -qiE '^(LICENSE|LICENCE|COPYING)'; then
 	pass must license "根目录有 LICENSE 文件"
@@ -402,14 +526,19 @@ fi
 
 if [ "$ROLE" = "mono-root" ]; then
 	skip should types-provided "monorepo 根不是包——类型入口由各子包自己声明"
-elif [ -n "${P_types:-}" ] || [ -n "$ngm_types" ] || ls "$DIR"/*.d.ts >/dev/null 2>&1; then
+elif [ -n "${P_types:-}" ] || [ -n "${P_exportsTypes:-}" ] || [ -n "$ngm_types" ] ||
+	ls "$DIR"/*.d.ts >/dev/null 2>&1; then
 	pass should types-provided "提供了类型入口"
 else
 	fail should types-provided "没有 types 字段、也没有根级 .d.ts —— TS 消费者只能靠约定"
 fi
 
 if [ "$ROLE" = "mono-root" ]; then
-	skip should publish-scope "monorepo 根不是包（private）——发布范围由各子包自己声明"
+	if [ -f "$PKG" ]; then
+		skip should publish-scope "monorepo 根不是包（private）——发布范围由各子包自己声明"
+	else
+		skip should publish-scope "monorepo 根不是包（没有根清单）——发布范围由各子包自己声明"
+	fi
 elif [ "${P_hasFiles:-false}" = "true" ] || [ -e "$DIR/.npmignore" ]; then
 	pass should publish-scope "声明了发布范围（files 或 .npmignore）"
 else
@@ -422,7 +551,11 @@ else
 	fail should readme "没有 README.md"
 fi
 
-if [ "${P_hasEngines:-false}" = "true" ]; then
+if [ "$ROLE" = "mono-root" ]; then
+	# 根不发布 ⇒ engines（给消费者看的运行期约束）在根上没有意义（v0.78 实测：
+	# lerna 形态的根有清单、没写 engines，被当成"没做到"）。
+	skip should engines "monorepo 根不是包/不发布 —— 运行期约束由各子包自己声明"
+elif [ "${P_hasEngines:-false}" = "true" ]; then
 	pass should engines "声明了 engines"
 else
 	fail should engines "没声明 engines —— 消费者的运行期约束不可见"

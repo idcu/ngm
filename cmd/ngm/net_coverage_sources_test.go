@@ -139,6 +139,14 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV78LibraryStandardReadsOtherMonorepoSignals": {
+		what: "monorepo 的另外两个信号（pnpm / lerna）与三种连带结论：**根可以没有 package.json**（pnpm 形态，清单在 `pnpm-workspace.yaml`）⇒ 根的 `pkg-json-exists`/`pkg-name`/`pkg-version`/`license`/`engines` 记为不适用；" +
+			"**子包只写 `exports`** 时必须解析出入口与类型（与 `internal/mappings.InferEntry` 的三种写法对齐）；" +
+			"**读不出的 `packages` 写法**（YAML 映射 / 内联对象）⇒ `workspace-manifest-unreadable` 必做失败，且花括号 glob 里的逗号不许把模式切碎",
+		why: "v0.77 只认 npm `workspaces`。实测另两种形态时三件事同时暴露：pnpm 的根**合法地**没有清单（此前是必做红）· lerna 的子包清单只写在 lerna.json（整个仓库会被当成单包）· " +
+			"而最刺眼的是第三条：自检器**比产品严**——只写 `exports` 的包（正是标准推荐的第 1 条）被判「找不到入口」，而 `InferEntry` 一直读 `exports`。判据比被检对象更严，就是误判",
+		source: "判据与实现在 `scripts/check-library-standard.sh`（v0.78：检测三信号 · 新增「读不出即失败」· exports 解析逐字对齐 `parseExports`）；夹具由 `writePnpmFixture` / `writeLernaFixture` / `writeExportsOnlyChild` 现场造",
+	},
 	"TestV77LibraryStandardHandlesOtherPackageShapes": {
 		what: "库标准自检器对**其他包形态**的三种结论：CJS 优先（显式 `type=commonjs` 必须被当成「写明的选择」而不是缺陷）· monorepo（根不是包 ⇒ 包专属判据不适用；子包逐个按同一条判据体检且结论带路径前缀）· workspaces 里的目录缺 package.json（显式失败）",
 		why: "起因是**实测到的误伤**：显式 CJS 的包被判「未声明 type=module」——而判据自己的措辞就是「CJS 需显式说明」，" +
