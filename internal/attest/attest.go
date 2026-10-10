@@ -87,14 +87,14 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 	for _, e := range sorted {
 		subjects = append(subjects, subject{
 			Name:   e.Purl(),
-			Digest: map[string]string{"sha256": e.HexDigest()},
+			Digest: sha256Digest{SHA256: e.HexDigest()},
 			Annotations: map[string]string{
 				annotationDigestScope: digestScopeValue,
 			},
 		})
 		materials = append(materials, material{
 			URI:    "git+" + e.VCSURL() + "@" + e.Commit,
-			Digest: map[string]string{"gitCommit": e.Commit},
+			Digest: gitCommitDigest{GitCommit: e.Commit},
 			Annotations: map[string]string{
 				annotationDeclaredRef: e.RefType + ":" + e.Ref,
 			},
@@ -111,11 +111,11 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 				ExternalParameters: externalParameters{
 					Manifest: fileRef{
 						URI:    ManifestURI,
-						Digest: map[string]string{"sha256": opts.ManifestDigest},
+						Digest: sha256Digest{SHA256: opts.ManifestDigest},
 					},
 					Lock: fileRef{
 						URI:    LockURI,
-						Digest: map[string]string{"sha256": opts.LockDigest},
+						Digest: sha256Digest{SHA256: opts.LockDigest},
 					},
 				},
 				ResolvedDependencies: materials,
@@ -167,8 +167,22 @@ type statement struct {
 
 type subject struct {
 	Name        string            `json:"name"`
-	Digest      map[string]string `json:"digest"`
+	Digest      sha256Digest      `json:"digest"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// sha256Digest / gitCommitDigest 是 in-toto 的 digest 映射（算法名 → 值）。
+//
+// 刻意写成**单字段结构体**而不是 `map[string]string`：键是标准规定的固定集合，
+// 静态声明让"我们到底用了哪些键"成为可被静态检查的事实（v0.76：散文里点名的
+// `gitCommit` 此前只是运行时 map 的键，机器的反向判据看不见它——
+// 而"文档里点名的字段"本来就是这个 machine interface 的一部分）。
+type sha256Digest struct {
+	SHA256 string `json:"sha256"`
+}
+
+type gitCommitDigest struct {
+	GitCommit string `json:"gitCommit"`
 }
 
 type provenance struct {
@@ -188,13 +202,13 @@ type externalParameters struct {
 }
 
 type fileRef struct {
-	URI    string            `json:"uri"`
-	Digest map[string]string `json:"digest"`
+	URI    string       `json:"uri"`
+	Digest sha256Digest `json:"digest"`
 }
 
 type material struct {
 	URI         string            `json:"uri"`
-	Digest      map[string]string `json:"digest"`
+	Digest      gitCommitDigest   `json:"digest"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
