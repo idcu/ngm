@@ -69,6 +69,19 @@ if ! command -v node >/dev/null 2>&1; then
 	exit 2
 fi
 
+# win_path 把 bash 的路径翻译成 Windows 版 node 认得的路径。
+#
+# 为什么需要：Git bash 的 `mktemp` 给出的是 `/tmp/xxx` 这类 MSYS 路径，而本机的
+# `node` 是 **Windows 二进制**——它把 `/tmp/xxx` 解析成 `D:\tmp\xxx` 并报 ENOENT。
+# 两个工具链的路径不通是这台机器上反复出现的一类坑（Go 测试里 WSL 的 bash 同源）。
+win_path() { # win_path <path>
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -w "$1"
+	else
+		printf '%s' "$1"
+	fi
+}
+
 # ---- 结果收集 ------------------------------------------------------------
 # 每行：id|级别(must|should)|状态(pass|fail)|说明
 #
@@ -76,8 +89,16 @@ fi
 # `$'\\t'` 的事故（判据静默地按错的分隔符切分）。用一个**不需要转义**的字符，
 # 这类事故就没有发生的余地——与"规则只允许有一种写法"同一条理由。
 CHECKS=""
+# 角色（v0.77）：`package` = 一个包（默认）；`mono-root` = monorepo 的根（它**不是包**）。
+#
+# 为什么需要它：monorepo 的根没有入口、没有 exports、也不发布——把"包"的判据
+# 套在它头上会把一份完全合格的仓库判成红的（v0.77 实测的误伤）。根的包专属判据
+# 一律记为**不适用**：对那些问题，正确答案是"这里没有这个问题"。
+ROLE="${NGM_LIB_STD_ROLE:-package}"
+# ID 前缀：monorepo 里子包的结果必须能归属回去（`packages/a/pkg-name`）。
+ID_PREFIX=""
 record() { # record <level> <id> <status> <why>
-	CHECKS="${CHECKS}${2}|${1}|${3}|${4}
+	CHECKS="${CHECKS}${ID_PREFIX}${2}|${1}|${3}|${4}
 "
 }
 pass() { record "$1" "$2" pass "$3"; }
@@ -107,6 +128,8 @@ else
 			license: o.license || "", main: o.main || "", types: o.types || "",
 			exportsShape: exp === undefined ? "none" : (typeof exp === "string" ? "string" : (exp["."] && typeof exp["."] === "object" ? "conditions" : "object")),
 			hasFiles: !!o.files, hasEngines: !!o.engines,
+			private: o.private === true ? "true" : "",
+			workspaces: Array.isArray(o.workspaces) ? o.workspaces.join(",") : "",
 			hooks: hooks.join(","), gitDeps: gitDeps.join(",")
 		};
 		for (const [k, v] of Object.entries(out)) console.log(k + "=" + v);
@@ -122,6 +145,40 @@ EOF
 	fi
 fi
 
+# ---- 角色判定：monorepo 的根不是包（v0.77） -------------------------------
+#
+# 只看一个信号：根 package.json 声明了**非空** workspaces。子包清单在这里展开
+# （只支持 `dir/*` 与显式路径两种写法——够用，且不引入 glob 库）。
+# 子进程用 `NGM_LIB_STD_CHILD=1` 标记，因此**不做嵌套 monorepo 的递归**：
+# 那是一个尚未被验证的形态，静默地"反正也查了"比明确不做更坏。
+if [ "$ROLE" = "package" ] && [ "${NGM_LIB_STD_CHILD:-0}" != "1" ] && [ -n "${P_workspaces:-}" ]; then
+	ROLE="mono-root"
+	MONO_CHILDREN=$(node -e '
+		const fs = require("fs"), path = require("path");
+		const root = process.argv[1];
+		const pats = String(process.argv[2]).split(",").filter(Boolean);
+		const out = [];
+		for (const p of pats) {
+			const clean = p.replace(/\/+$/, "");
+			if (clean.endsWith("/*")) {
+				const base = path.join(root, clean.slice(0, -2));
+				let names = [];
+				try {
+					names = fs.readdirSync(base, { withFileTypes: true })
+						.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+				} catch { continue; }
+				const dir = clean.slice(0, -1);
+				for (const n of names) out.push(dir + n);
+			} else {
+				out.push(clean);
+			}
+		}
+		process.stdout.write(out.join("\n"));
+	' "$DIR" "${P_workspaces:-}" 2>/dev/null)
+else
+	MONO_CHILDREN=""
+fi
+
 field() { # field <name>
 	local name="P_$1"
 	printf '%s' "${!name:-}"
@@ -133,7 +190,10 @@ else
 	fail must pkg-name "package.json 缺 name"
 fi
 
-if printf '%s' "${P_version:-}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+if [ "$ROLE" = "mono-root" ] && [ "${P_private:-}" = "true" ] && [ -z "${P_version:-}" ]; then
+	# 私有 monorepo 根不发布，没有 version 是正常的（v0.77：又一处"根的包专属判据"）。
+	skip must pkg-version "私有 monorepo 根（private: true）不发布，version 可缺——版本由各子包自己带"
+elif printf '%s' "${P_version:-}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
 	pass must pkg-version "version = ${P_version}"
 else
 	fail must pkg-version "version 不是 semver（x.y.z），got 「${P_version:-<空>}」"
@@ -172,18 +232,32 @@ for c in $entry_candidates; do
 	fi
 done
 
-if [ -n "$entry_found" ]; then
+if [ "$ROLE" = "mono-root" ]; then
+	skip must entry-resolvable "monorepo 根不是包——入口由各子包自己声明（子包逐个体检，见下）"
+elif [ -n "$entry_found" ]; then
 	pass must entry-resolvable "入口 $entry_found（来自 $entry_layer，与 InferEntry 三层同口径）"
 else
 	fail must entry-resolvable "三层都没找到入口（ngm.json 的 main/types、package.json 的 exports/main、./index.ts|js）；mappings 会只剩一个目录"
 fi
 
 # 入口指向构建产物 ⇒ 产物必须被提交（ngm 不替依赖构建）
-if [ -n "$entry_found" ]; then
+if [ "$ROLE" = "mono-root" ]; then
+	skip must dist-committed "monorepo 根不是包——产物是否已提交由各子包自己承担"
+elif [ -n "$entry_found" ]; then
 	case "$entry_found" in
 	dist/* | ./dist/* | build/* | ./build/* | lib/* | ./lib/*)
+		# .gitignore 也可能写在**仓库根**（monorepo 的常态），因此两处都看。
+		ignored_in="$DIR"
 		if [ -f "$DIR/.gitignore" ] && grep -Eq '(^|/)(dist|build|lib)/?([[:space:]]|$)' "$DIR/.gitignore"; then
-			fail must dist-committed "入口指向构建产物（$entry_found），但它被 .gitignore 排除了 —— ngm 不替依赖构建（钩子默认 deny），产物必须提交"
+			ignored_in="$DIR"
+		elif [ -n "${NGM_LIB_STD_MONO_ROOT:-}" ] && [ -f "$NGM_LIB_STD_MONO_ROOT/.gitignore" ] &&
+			grep -Eq '(^|/)(dist|build|lib)/?([[:space:]]|$)' "$NGM_LIB_STD_MONO_ROOT/.gitignore"; then
+			ignored_in="$NGM_LIB_STD_MONO_ROOT（仓库根）"
+		else
+			ignored_in=""
+		fi
+		if [ -n "$ignored_in" ]; then
+			fail must dist-committed "入口指向构建产物（$entry_found），但它被 .gitignore 排除了（$ignored_in/.gitignore）—— ngm 不替依赖构建（钩子默认 deny），产物必须提交"
 		else
 			pass must dist-committed "入口指向构建产物（$entry_found）且未被 .gitignore 排除"
 		fi
@@ -304,13 +378,21 @@ else
 fi
 
 # ---- 推荐项 -------------------------------------------------------------
-if [ "${P_type:-}" = "module" ]; then
+if [ "$ROLE" = "mono-root" ]; then
+	skip should esm-first "monorepo 根不是包——模块形态由各子包自己声明"
+elif [ "${P_type:-}" = "module" ]; then
 	pass should esm-first "type=module"
+elif [ "${P_type:-}" = "commonjs" ]; then
+	# v0.77：**显式**选择 CJS 就是本条要求的那件事（原措辞写的就是"CJS 需显式说明"）。
+	# 判据不许把"已经写明的选择"判成没做到——那会让它无法被满足（实测缺陷）。
+	pass should esm-first "type=commonjs（显式选择；ESM 是默认推荐，但写明的选择被尊重）"
 else
-	fail should esm-first "未声明 type=module（ESM 是现时默认；CJS 需显式说明）"
+	fail should esm-first "未声明 type（module 或 commonjs）—— 模块形态不该靠猜"
 fi
 
-if [ "${P_exportsShape:-none}" = "conditions" ]; then
+if [ "$ROLE" = "mono-root" ]; then
+	skip should exports-conditions "monorepo 根不是包——条件导出由各子包自己声明"
+elif [ "${P_exportsShape:-none}" = "conditions" ]; then
 	pass should exports-conditions "exports 带条件导出（types/import/require）"
 elif [ "${P_exportsShape:-none}" = "string" ] || [ "${P_exportsShape:-none}" = "object" ]; then
 	pass should exports-conditions "有 exports（非条件形态；推荐 types/import/require）"
@@ -318,13 +400,17 @@ else
 	fail should exports-conditions "没有 exports —— 入口靠 main/types 猜"
 fi
 
-if [ -n "${P_types:-}" ] || [ -n "$ngm_types" ] || ls "$DIR"/*.d.ts >/dev/null 2>&1; then
+if [ "$ROLE" = "mono-root" ]; then
+	skip should types-provided "monorepo 根不是包——类型入口由各子包自己声明"
+elif [ -n "${P_types:-}" ] || [ -n "$ngm_types" ] || ls "$DIR"/*.d.ts >/dev/null 2>&1; then
 	pass should types-provided "提供了类型入口"
 else
 	fail should types-provided "没有 types 字段、也没有根级 .d.ts —— TS 消费者只能靠约定"
 fi
 
-if [ "${P_hasFiles:-false}" = "true" ] || [ -e "$DIR/.npmignore" ]; then
+if [ "$ROLE" = "mono-root" ]; then
+	skip should publish-scope "monorepo 根不是包（private）——发布范围由各子包自己声明"
+elif [ "${P_hasFiles:-false}" = "true" ] || [ -e "$DIR/.npmignore" ]; then
 	pass should publish-scope "声明了发布范围（files 或 .npmignore）"
 else
 	fail should publish-scope "没声明发布范围 —— 测试与 CI 配置会一起进消费者的 vendor 目录"
@@ -342,8 +428,15 @@ else
 	fail should engines "没声明 engines —— 消费者的运行期约束不可见"
 fi
 
-if [ -f "$DIR/.gitattributes" ] && grep -Eq 'eol=lf|text=auto' "$DIR/.gitattributes"; then
-	pass should gitattributes-lf ".gitattributes 声明了 LF"
+# LF 声明是**仓库级**的：monorepo 的子包不必自带 .gitattributes（v0.77 实测的误伤）。
+gitattr_dir="$DIR"
+[ -n "${NGM_LIB_STD_MONO_ROOT:-}" ] && gitattr_dir="$NGM_LIB_STD_MONO_ROOT"
+if [ -f "$gitattr_dir/.gitattributes" ] && grep -Eq 'eol=lf|text=auto' "$gitattr_dir/.gitattributes"; then
+	if [ "$gitattr_dir" = "$DIR" ]; then
+		pass should gitattributes-lf ".gitattributes 声明了 LF"
+	else
+		pass should gitattributes-lf ".gitattributes 声明了 LF（仓库根 $(basename "$gitattr_dir")/，子包不必自带）"
+	fi
 else
 	fail should gitattributes-lf "没有 .gitattributes 的 LF 声明 —— LF 应该由仓库强制，而不是靠人记"
 fi
@@ -366,6 +459,42 @@ if [ -n "${P_gitDeps:-}" ]; then
 	fi
 else
 	pass should git-deps-in-ngm-json "package.json 里没有 Git 依赖（无需 ngm.json 声明）"
+fi
+
+# ---- 子包（monorepo）：用**同一条判据**再跑一遍，父进程只做归属（v0.77） ----
+#
+# 子包就是普通的包，所以跑的是同一支脚本（这是"规则只允许有一种写法"的直接兑现）；
+# `NGM_LIB_STD_CHILD=1` 阻止嵌套 monorepo 的递归——那是一个尚未验证的形态，
+# 静默地"反正也查了"比明确不做更坏。结果先按父进程的输出模式存好，
+# 等父进程自己打印完再一并输出（顺序：根 → 子包）。
+CHILD_JSON_FILES=""
+CHILD_TEXT=""
+child_fail=0
+child_count=0
+if [ "$ROLE" = "mono-root" ] && [ -n "$MONO_CHILDREN" ]; then
+	child_args=""
+	[ "$STRICT" = 1 ] && child_args="--strict"
+	for rel in $MONO_CHILDREN; do
+		if [ ! -f "$DIR/$rel/package.json" ]; then
+			fail must workspace-package-json "workspaces 里的 $rel 没有 package.json —— 子包必须自成一个包"
+			child_fail=1
+			continue
+		fi
+		child_count=$((child_count + 1))
+		if [ "$JSON_OUT" = 1 ]; then
+			cf=$(mktemp)
+			if ! NGM_LIB_STD_ROLE=package NGM_LIB_STD_CHILD=1 NGM_LIB_STD_MONO_ROOT="$DIR" bash "$0" "$DIR/$rel" $child_args --json >"$cf" 2>/dev/null; then
+				child_fail=1
+			fi
+			CHILD_JSON_FILES="$CHILD_JSON_FILES $rel::$cf"
+		else
+			out=$(NGM_LIB_STD_ROLE=package NGM_LIB_STD_CHILD=1 NGM_LIB_STD_MONO_ROOT="$DIR" bash "$0" "$DIR/$rel" $child_args 2>&1) || child_fail=1
+			CHILD_TEXT="${CHILD_TEXT}=== $rel ===
+$out
+
+"
+		fi
+	done
 fi
 
 # ---- 汇总 ---------------------------------------------------------------
@@ -395,18 +524,68 @@ if [ "$STRICT" = 1 ] && { [ "$should_fail" -gt 0 ] || [ "$must_fail" -gt 0 ]; };
 fi
 
 if [ "$JSON_OUT" = 1 ]; then
-	printf '{"dir":"%s","ok":%s,"mustFail":%d,"shouldFail":%d,"skipped":%d,"strict":%s,"checks":[' \
-		"$DIR" "$([ $exit_code -eq 0 ] && echo true || echo false)" "$must_fail" "$should_fail" "$skipped" "$([ "$STRICT" = 1 ] && echo true || echo false)"
-	first=1
-	while IFS='|' read -r id level status why; do
-		[ -z "$id" ] && continue
-		[ "$first" = 1 ] || printf ','
-		first=0
-		printf '{"id":"%s","level":"%s","status":"%s","why":"%s"}' "$id" "$level" "$status" "$why"
-	done <<EOF
+	# 自己的判据先写成 JSON；有子包时由 node 合并（计数相加、id 按相对路径归属）。
+	own_json=$(mktemp)
+	{
+		printf '{"dir":"%s","ok":%s,"mustFail":%d,"shouldFail":%d,"skipped":%d,"strict":%s,"checks":[' \
+			"$DIR" "$([ $exit_code -eq 0 ] && echo true || echo false)" "$must_fail" "$should_fail" "$skipped" "$([ "$STRICT" = 1 ] && echo true || echo false)"
+		first=1
+		while IFS='|' read -r id level status why; do
+			[ -z "$id" ] && continue
+			[ "$first" = 1 ] || printf ','
+			first=0
+			printf '{"id":"%s","level":"%s","status":"%s","why":"%s"}' "$id" "$level" "$status" "$why"
+		done <<EOF
 $CHECKS
 EOF
-	printf ']}\n'
+		printf ']}\n'
+	} >"$own_json"
+
+	if [ -n "$CHILD_JSON_FILES" ]; then
+		# 交给 node 的路径必须是它认得的形态（见 win_path 的注释）。
+		child_specs=""
+		for spec in $CHILD_JSON_FILES; do
+			rel="${spec%%::*}"
+			child_specs="$child_specs $rel::$(win_path "${spec#*::}")"
+		done
+		node -e '
+			const fs = require("fs");
+			const own = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+			let broken = 0;
+			for (const spec of process.argv.slice(2)) {
+				const i = spec.indexOf("::");
+				const rel = spec.slice(0, i), file = spec.slice(i + 2);
+				let child = null;
+				try { child = JSON.parse(fs.readFileSync(file, "utf8")); } catch { child = null; }
+				if (child === null) {
+					// 读不出子包的结果**不许静默丢**：它变成一条显式的失败。
+					broken++;
+					own.checks.push({
+						id: rel + "/child-result-unreadable",
+						level: "must", status: "fail",
+						why: "子包的体检结果读不出来（临时文件路径或 JSON 有问题）—— 静默丢弃等于把没查过的当成查过了",
+					});
+					own.mustFail++;
+					own.ok = false;
+					continue;
+				}
+				for (const c of child.checks) {
+					own.checks.push({ id: rel + "/" + c.id, level: c.level, status: c.status, why: c.why });
+				}
+				own.mustFail += child.mustFail;
+				own.shouldFail += child.shouldFail;
+				own.skipped += child.skipped;
+				if (!child.ok) own.ok = false;
+			}
+			process.stdout.write(JSON.stringify(own) + "\n");
+		' "$(win_path "$own_json")" $child_specs
+	else
+		cat "$own_json"
+	fi
+
+	rm -f "$own_json"
+	for spec in $CHILD_JSON_FILES; do rm -f "${spec#*::}"; done
+	[ "$child_fail" -eq 0 ] || exit_code=1
 	exit $exit_code
 fi
 
@@ -434,5 +613,13 @@ elif [ "$should_fail" -gt 0 ]; then
 	echo "必做项全部通过；推荐项未通过 $should_fail 条（不加 --strict 时不算失败）$skip_note"
 else
 	echo "全部通过 —— 这个库符合标准$skip_note"
+fi
+
+# 子包的结果放在根之后打印（顺序：根 → 子包），并折算进退出码。
+[ "$child_fail" -eq 0 ] || exit_code=1
+if [ -n "$CHILD_TEXT" ]; then
+	printf '\n---- 子包（workspaces）：%d 个体检结果 ----\n\n' "$child_count"
+	printf '%s' "$CHILD_TEXT"
+	[ "$child_fail" -eq 0 ] || echo "子包里有未通过项 —— 合计不合格"
 fi
 exit $exit_code

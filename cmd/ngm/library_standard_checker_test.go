@@ -84,11 +84,12 @@ func TestV76LibraryStandardCheckerHoldsItsVerdicts(t *testing.T) {
 	}
 }
 
-// runChecker 跑一次自检器（--json），返回输出与退出码。
-func runChecker(t *testing.T, bash, script, dir string) (string, int) {
+// runChecker 跑一次自检器（默认加 `--json`），返回输出与退出码。
+func runChecker(t *testing.T, bash, script, dir string, extra ...string) (string, int) {
 	t.Helper()
 	// 传正斜杠路径：Git bash 认它（反斜杠在它那里是转义字符）
-	cmd := exec.Command(bash, filepath.ToSlash(script), filepath.ToSlash(dir), "--json")
+	args := append([]string{filepath.ToSlash(script), filepath.ToSlash(dir), "--json"}, extra...)
+	cmd := exec.Command(bash, args...)
 	raw, err := cmd.CombinedOutput()
 	out := string(raw)
 	if err == nil {

@@ -139,6 +139,13 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV77LibraryStandardHandlesOtherPackageShapes": {
+		what: "库标准自检器对**其他包形态**的三种结论：CJS 优先（显式 `type=commonjs` 必须被当成「写明的选择」而不是缺陷）· monorepo（根不是包 ⇒ 包专属判据不适用；子包逐个按同一条判据体检且结论带路径前缀）· workspaces 里的目录缺 package.json（显式失败）",
+		why: "起因是**实测到的误伤**：显式 CJS 的包被判「未声明 type=module」——而判据自己的措辞就是「CJS 需显式说明」，" +
+			"一个无法被满足的推荐项不是严格而是错的；monorepo 的根则被套上五条「包」的判据（入口/exports/类型/ESM/发布范围），" +
+			"而那些问题的正确答案是「这里没有这个问题」。**归属**也在这条判据里守着：子包结论不带前缀，合并后的报告说不清是谁没通过",
+		source: "判据与实现在 `scripts/check-library-standard.sh`（v0.77 新增 monorepo 模式：子包用**同一支脚本**递归执行，父进程只做归属与合并）；夹具由 `writeCJSFixture` / `writeMonorepoFixture` 现场造",
+	},
 	"TestV76LibraryStandardCheckerHoldsItsVerdicts": {
 		what: "库标准自检器的三种结论各钉一个场景：pass（合规夹具）· fail（注入 postinstall / 删 runtime 要点名具体判据）· skip（不是 git 仓库 ⇒ 不适用且不计入）",
 		why: "它守的是**判据自己的判据**：两次缺陷都是「跑出来才发现」的（v0.74 的 CR 转义按错模式搜索、v0.76 把 vendored 副本误判为缺 tag），" +

@@ -41,11 +41,13 @@ Node/npm 生态的既定事实，而**本机离线，没有联网核对最新工
 | 10 | 有 `LICENSE` 文件或 `package.json` 的 `license` 字段 | 没有许可证的 vendored 代码在法律上不可分发（合规场景的第一个红灯） |
 | 11 | 若提供 `ngm.json`，它必须**能过 ngm 自己的校验**（`schemaVersion` / `name` / `version` / `runtime`，`runtime ∈ {node, deno}`） | 同一个文件既是"上游入口声明"又可能被当项目清单用；一个自身不合法（或缺 `runtime`）的清单，会让 `ngm config validate` 在那个仓库里直接报错 🔒 |
 
+| 12 | monorepo 的 `workspaces` 里，每个目录都要有自己的 `package.json` | 子包是**独立的包**：没有清单的目录既不会被发布，也不会被 ngm 当子路径消费（自检会点名它，而不是跳过） |
+
 ### 推荐（自检会提醒）
 
 | # | 建议 | 理由 |
 |---|------|------|
-| 1 | `"type": "module"` + `exports` 条件导出（`types` / `import` / `require`）🌐 | ESM 是现时的默认；`exports` 让入口**显式**，不用靠猜 |
+| 1 | `"type": "module"`（ESM 优先）**或显式写明的 `"type": "commonjs"`** + `exports` 条件导出（`types` / `import` / `require`）🌐 | ESM 是现时的默认；但规范要的是"模块形态**别靠猜**"——写明的 CJS 选择同样合格（见 §6 的形态覆盖）。`exports` 让入口显式，不用靠猜 |
 | 2 | 提供类型：`types` 字段或随包的 `.d.ts` 🌐 | TS 消费者否则只能靠 `index.d.ts` 约定 |
 | 3 | `files` 或 `.npmignore` 声明发布范围 🌐 | 不声明会把测试、CI 配置一起带进消费者的 vendor 目录 |
 | 4 | 根目录 `README.md` | 唯一会被人读的说明 |
@@ -156,16 +158,32 @@ Windows：
 .\scripts\check-library-standard.ps1 -Dir C:\src\my-lib
 ```
 
-判据共 **23 条**：12 条必做常驻 + 2 条条件触发（入口指向构建产物时才检查产物是否已提交；
-提供 `ngm.json` 时才检查它是否合法）+ 9 条推荐。单次运行打印多少行，取决于条件项是否适用。
+判据共 **24 条**：12 条必做常驻 + 3 条条件触发（入口指向构建产物时才检查产物是否已提交；
+提供 `ngm.json` 时才检查它是否合法；monorepo 模式下才检查每个 workspace 目录）+ 9 条推荐。
+单次运行打印多少行，取决于条件项是否适用。
 
 **"不适用"是第三种结论**：不是 git 仓库时（ngm 的 vendored 副本、导出的 tarball），
 tag 检查显示为 `—` 并写明原因，**不计入任何计数**——不适用必须被打印出来，
 静默跳过才是这里真正的敌人。ngm 的 vendored 输出本身就能过这份自检（v0.76 实测）。
 
-**牙齿**：把 `package.json` 的 `version` 删掉、加一个 `postinstall` 脚本，
-或把 `ngm.json` 的 `runtime` 删掉 ⇒ 自检立刻红并点名那一条。
-它不是"建议清单"，是判据。
+**牙齿**：把 `package.json` 的 `version` 删掉、加一个 `postinstall` 脚本、
+把 `ngm.json` 的 `runtime` 删掉，或让入口指向被 `.gitignore` 排除的 `dist/`
+⇒ 自检立刻红并点名那一条。它不是"建议清单"，是判据。
+
+### 5.1 形态覆盖（自检器实测过的四种形态）
+
+标准只有在**别的形态**上跑过才算成立。自检器已在四种形态上验证，并因此改掉了两处误伤：
+
+| 形态 | 判据行为 |
+|------|---------|
+| 单包 · ESM · 免构建（仓库即产物） | 全绿；`dist-committed` 不触发（入口不在产物目录） |
+| 单包 · **显式 CJS** · 有构建步骤（产物已提交） | 全绿。**显式写明的 `"type": "commonjs"` 记为合格**——规范要的是"别让模块形态靠猜"，不是"必须 ESM"（v0.77 修掉的误伤：此前它被判"未声明 type=module"，而判据自己的措辞就是"CJS 需显式说明"） |
+| **monorepo**（`workspaces`） | **根不是包**：入口 / 产物 / 模块形态 / exports / 类型 / 发布范围六条一律 `—`（这里没有这个问题）；每个子包**用同一条判据**逐个体检，结论带路径前缀（`packages/a/…`）。私有根（`private: true`）可以没有 `version` |
+| **vendored 副本**（ngm 的 `ngm.vendor/`、导出的 tarball） | 没有 `.git` ⇒ tag 检查 `—`；其余判据照常（实测：ngm 的 vendored 输出全绿） |
+
+两条与 monorepo 有关的"仓库级"事实：`.gitattributes`（LF 声明）与 `.gitignore`
+（决定"产物是否被忽略"）**看仓库根**——子包不必自带，也不该被要求自带。
+**嵌套 monorepo 明确不做**：那是一个尚未被验证的形态，静默地"反正也查了"比明确不做更坏。
 
 ## 6. 例外
 
@@ -178,8 +196,7 @@ tag 检查显示为 `—` 并写明原因，**不计入任何计数**——不�
 
 ## 相关文档
 
-- [依赖管理](./dependency-management.md)（refType / subPath / 漂移三态）
-- [依赖管理](./dependency-management.md)（mappings 与入口推断的使用场景）
+- [依赖管理](./dependency-management.md)（refType / subPath / 漂移三态 · mappings 与入口推断的使用场景）
 - [ADR-008 archiveDigest 的定义](../adr/adr-008-archive-digest.md)（为什么 LFS/CRLF 是硬约束）
 - [ADR-009 供应链策略](../adr/adr-009-supply-chain-policy.md)（钩子默认 deny）
 - [评估报告 2026-10-09 §4.2 PackageGate](../internals/assessment-2026-10-09.md)（`.npmrc` 那条路径）

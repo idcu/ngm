@@ -1,6 +1,6 @@
 # 开发总览
 
-> **当前阶段：v0.1 ~ v0.76 均已交付**；**`v0.1.0` ~ `v0.76.0` 七十六个 tag 均已打**。
+> **当前阶段：v0.1 ~ v0.77 均已交付**；**`v0.1.0` ~ `v0.77.0` 七十七个 tag 均已打**。
 > v0.12 的主题是**把读数修准**（含文档自己的读数）：见[复盘](./v0.12-retrospective.md)；
 > v0.13 把这件事推到下一步——**把形状固化成网**（产品代码 0 行改动）：
 > 见[复盘](./v0.13-retrospective.md)；
@@ -118,6 +118,7 @@
 > | v0.74 | [计划](./v0.74-plan.md) | [复盘](./v0.74-retrospective.md) | **JS Git 库的标准（梳理 + 可执行自检）**：把"能被 Git 依赖消费的库该长什么样"写成**一页标准 + 一个判据**——[标准页](../guides/js-git-library-standard.md)（必做 10 / 推荐 9 / 禁止 5，每条带"为什么"与"怎么验"；生态现状标 🌐、ngm 会报错的标 🔒 并给代码位置）+ `scripts/check-library-standard.sh`（`.ps1` 转调；**22 项** = 13 必做 + 9 推荐；`--strict` / `--json`）。事实源三条：`InferEntry` 的三层入口推断 · 传递依赖只从上游 `ngm.json` 递归 · 安装钩子默认 deny。**牙齿实测 5 条**（postinstall / .npmrc / dist 被 gitignore / 删 version / git 依赖没进 ngm.json）各自红并点名。**产品代码 0 行**。一条一般的话：**判据也会说谎——凡是"要转义才能表达"的字符都是事故位** | |
 > | v0.75 | [计划](./v0.75-plan.md) | [复盘](./v0.75-retrospective.md) | **标准的第一个实现（canonical-json）+ 两处修正**：按标准写一个真实可用的库——确定性 JSON 序列化与哈希（零依赖、免构建、13 文件、**25 测试**、`v1.0.0` 待推送）；`--strict` **全绿**。"照着标准做一遍"抓出标准自身两处缺陷：`ngm.json` 示例缺 `runtime`（⇒ 补示例 + 新增必做判据 `ngm-json-valid`，牙齿：删 runtime ⇒ 红 + exit 1）· LF 条款补"自检看工作树字节"的边界。库 README 的跨仓相对链接改 gitee URL。判据 22 → **23 条**。一条一般的话：**标准只有在被照着做一遍之后才算成立** | |
 > | v0.76 | [计划](./v0.76-plan.md) | [复盘](./v0.76-retrospective.md) | **端到端：由用户自己的库驱动 ngm**：`canonical-json` 推上 Gitee 后，install / verify / mappings / why / tree / sbom / attest 在真实公网仓库上全部跑通——lock 的 `requiredBy: ["(root)"]`、mappings 命中 `ngm.json` 第 1 层、verify `✓ match`、`why` **0 次 git 子进程**、sbom 根→依赖边、attest 的 purl/digest/gitCommit。**vendored 副本上跑库自己的测试 25/25 通过**（不装依赖不构建）+ 标准自检器扫 vendored 副本全绿（`— semver-tag 不适用`）。首次 install 被权限系统按设计拦下。**缺陷**：自检器误判"没有 .git 的 vendored 副本缺 semver tag" ⇒ 新增**"不适用"结论**（显式打印、不计入、`--json` 多 `skipped`）。一条一般的话：**两半分别验证过，不等于拼起来能用** | |
+> | v0.77 | [计划](./v0.77-plan.md) | [复盘](./v0.77-retrospective.md) | **标准覆盖第二种形态 + `ngm add` 实跑**：CJS 优先（显式 commonjs）与 monorepo 两种 fixture 各抓出一处**误伤**——前者被判"未声明 type=module"（判据自己的措辞却是"CJS 需显式说明"）⇒ 写明的选择记为合格；后者把 monorepo 根当成包 ⇒ 新角色 `mono-root`（六条包专属判据 `—`）+ **子包用同一支脚本逐个体检**（结论带 `packages/a/` 前缀）+ 新增必做「workspaces 里每个目录都要有 package.json」+ `.gitattributes`/`.gitignore` 看仓库根 + 私有根可缺 `version`。**实现时抓到静默丢弃**：JSON 合并读不到子包结果时 `continue`（根因：Windows node 读不到 MSYS 临时路径 ⇒ `cygpath -w`；读不出即变 `child-result-unreadable` 必做失败）。判据 23 → **24 条**；四形态回归全绿；`add → install → verify ✓ match → why 0 spawn → mappings validate OK`。一条一般的话：**判据的错误分漏判与误判，后者更难发现——它看起来像"标准很严格"** | |
 >
 > 本文回答"先做什么、怎么验收"。设计与规范（做什么、为什么）的唯一事实源是：
 > [architecture/](../architecture/)、[adr/](../adr/)、[modules/](../modules/)、[guides/](../guides/)。
@@ -576,7 +577,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > [v0.6 复盘 §5.4](./v0.6-retrospective.md)。
 4. **把这 7 个文件从 GitHub release 上传到 Gitee 发行版**（在 Gitee 无 API token 时，这是最短且最稳的路径）。
    上传后附件直链即为 `https://gitee.com/idcu/ngm/releases/download/<tag>/<文件名>`
-   **（2026-10-04：本步对历史版本暂缓——缺 73 个；新版本发布时仍然照做，恢复信号见本文开头。）**
+   **（2026-10-04：本步对历史版本暂缓——缺 74 个；新版本发布时仍然照做，恢复信号见本文开头。）**
 5. 抽查一次：两个源的同一文件名 `sha256` 应完全相同（它们共用同一份 `SHA256SUMS`）
 6. **读一次 Gitee 侧的状态**（**v0.12 追加**）——它此前**没有读数**，而"两个源都可取到"
    那句错话正是从这条空白里长出来的：
@@ -601,7 +602,7 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > 那会让 CI 多出一类与代码无关的噪音。**触发条件**：补发恢复后，
    > 或它在 CI 上被证明稳定（例如接一个只读的 Gitee token）。
 
-   > ⚠️ **暂缓期间它报"缺 73 个"是预期的**（见本文开头）：这个读数的用途不是催办，
+   > ⚠️ **暂缓期间它报"缺 74 个"是预期的**（见本文开头）：这个读数的用途不是催办，
    > 而是让"两个源到底有什么"永远有一个不需要信任谁的答案。
 
 > **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/upload-gitee-assets.ps1`）：
