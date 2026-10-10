@@ -37,8 +37,9 @@ Node/npm 生态的既定事实，而**本机离线，没有联网核对最新工
 | 6 | **没有** Git LFS 指针 | ngm 对指针求哈希没有意义，直接拒绝（ADR-008）🔒 |
 | 7 | **没有**子模块（`.gitmodules` / gitlink） | gitlink 无法被忠实地重放，放行等于让 verify 对着假内容树通过 🔒 |
 | 8 | symlink 的目标**不逃逸**包目录 | 逃逸的 symlink 在读内容时会被拒绝，verify 报 critical（v0.66）🔒 |
-| 9 | 文本文件统一 **LF**（`.gitattributes` 声明 + 实际字节） | digest 对**原始字节**求哈希，CRLF 会被如实计入；混用会让同一份代码在不同机器上算出不同 digest 🔒 |
+| 9 | 文本文件统一 **LF**（`.gitattributes` 声明 + 实际字节） | digest 对**原始字节**求哈希，CRLF 会被如实计入；混用会让同一份代码在不同机器上算出不同 digest 🔒。自检看的是**工作树字节**：Windows 上请保持 LF 检出（`core.autocrlf=false`，或让 `.gitattributes` 生效），否则同一份提交在两台机器上会给出不同结论 |
 | 10 | 有 `LICENSE` 文件或 `package.json` 的 `license` 字段 | 没有许可证的 vendored 代码在法律上不可分发（合规场景的第一个红灯） |
+| 11 | 若提供 `ngm.json`，它必须**能过 ngm 自己的校验**（`schemaVersion` / `name` / `version` / `runtime`，`runtime ∈ {node, deno}`） | 同一个文件既是"上游入口声明"又可能被当项目清单用；一个自身不合法（或缺 `runtime`）的清单，会让 `ngm config validate` 在那个仓库里直接报错 🔒 |
 
 ### 推荐（自检会提醒）
 
@@ -103,8 +104,10 @@ my-lib/
 
 ```json
 {
+  "schemaVersion": 1,
   "name": "my-lib",
   "version": "1.2.3",
+  "runtime": "node",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "dependencies": [
@@ -112,6 +115,10 @@ my-lib/
   ]
 }
 ```
+
+> `name` / `version` / `runtime` 是 ngm 清单的**必填**三件（`runtime ∈ {node, deno}`，见
+> `internal/config/validate.go`）。同一个文件既是"上游入口声明"、又可能被当项目清单用，
+> 因此它必须**能过 ngm 自己的校验**——这是自检里的一条（`ngm-json-valid`）。
 
 > `ngm.json` 的 `main`/`types` **压制** `package.json`（第 1 层）。两者不一致时，
 > 入口以 `ngm.json` 为准——这是刻意的：它让"Git 依赖形态下的入口"有一个明确的说话处。
@@ -149,8 +156,12 @@ Windows：
 .\scripts\check-library-standard.ps1 -Dir C:\src\my-lib
 ```
 
-**牙齿**：把 `package.json` 的 `version` 删掉，或加一个 `postinstall` 脚本 ⇒
-自检立刻红并点名那一条。它不是"建议清单"，是判据。
+判据共 **23 条**：12 条必做常驻 + 2 条条件触发（入口指向构建产物时才检查产物是否已提交；
+提供 `ngm.json` 时才检查它是否合法）+ 9 条推荐。单次运行打印多少行，取决于条件项是否适用。
+
+**牙齿**：把 `package.json` 的 `version` 删掉、加一个 `postinstall` 脚本，
+或把 `ngm.json` 的 `runtime` 删掉 ⇒ 自检立刻红并点名那一条。
+它不是"建议清单"，是判据。
 
 ## 6. 例外
 

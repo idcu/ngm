@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.74 delivered in source**, and all seventy-four tags `v0.1.0` … `v0.74.0` exist.
+Status: **v0.1 … v0.75 delivered in source**, and all seventy-five tags `v0.1.0` … `v0.75.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -24,13 +24,13 @@ to pnpm / npm / Yarn / Bun / Deno — see
 
 | source | releases | what is missing |
 |--------|----------|-----------------|
-| GitHub | **60 of 74** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
-| Gitee | **3 of 74** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
+| GitHub | **60 of 75** | **`v0.5.0` … `v0.8.0`** — the mirror forwarded those tags without triggering `release.yml` |
+| Gitee | **3 of 75** | **`v0.1.0`**, plus `v0.5.0` … `v0.57.0` |
 
 New versions are released by the tag push itself, and that path has now worked fifty-six times
 (`v0.9.0` … `v0.29.0`) — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those seventy-one historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those seventy-two historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -314,6 +314,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.72 | deciding the lock's dependency-graph shape before writing any code: ADR-028 settles it field by field — an always-present `requiredBy` per entry (direct requirers, sorted and deduped; `[]` for the project's direct dependencies, because "missing" must mean exactly one thing: an old lock with an unknown graph), direct edges only (full paths are exponential, ADR-024), ghost-edge validation, and lockfileVersion unchanged (additive optional fields are the existing contract). Consumers are ruled too: `ngm why` goes offline with zero git spawns once the graph is present (falling back to re-resolution with the source named), SBOM grows CycloneDX `dependencies` / SPDX `RELATIONSHIPS`, and `verify` / `tree` / `attest` explicitly stay as they are. Implementation is v0.73's user-visible increment, with five acceptance items pre-written in the ADR. Also: the roadmap now reconciles the assessment's three stop-items (all upheld — including why v0.71's net was not a violation) and corrects a wrong citation in the v0.71 retro | delivered · released |
 | v0.73 | implementing ADR-028 — the user-visible increment: every lock entry now carries an always-present `requiredBy` (direct requirers, including the `(root)` marker, normalised at serialisation time), `Validate` rejects ghost edges, and `ngm why` reads the lock instead of resolving upstream manifests — asserted at **zero git sub-processes** by the spawn counter, and it says so in the report (a trailing "来源" line in text, a `source` field in `--json`). Old locks still work and fall back to re-resolution, never silently. SBOM grows a CycloneDX `dependencies` section and SPDX `DEPENDS_ON` relationships, both derived from one shared edge table, and both omitted when the lock has no graph. Implementing it overturned one clause of the ADR (root edges must be stored, or `why` loses the root → node path in the root-wins case) and the ADR was amended in place | delivered · released |
 | v0.74 | the standard for a JS library that will be consumed as a Git dependency, plus a checker that enforces it: the guide states 10 musts, 9 recommendations and 5 prohibitions, each with a reason and a way to verify, all derived from three facts in the code (the three-layer entry inference in `InferEntry`, transitive dependencies coming only from an upstream `ngm.json`, and install hooks denied by default). `scripts/check-library-standard.sh` (with a PowerShell entry point delegating to the same implementation) runs 22 checks — 13 must and 9 should, with `--strict` and `--json`. Five teeth were tested by breaking a conforming fixture (a `postinstall` hook, a `.npmrc`, an entry pointing at a git-ignored `dist/`, a missing `version`, git deps in `package.json` without `ngm.json`) and each went red naming the clause. Ecosystem claims that could not be verified offline are marked as such. Product code: zero lines | delivered · released |
+| v0.75 | the standard's first implementation: a real, usable library — `canonical-json` (deterministic JSON serialization and hashing; zero dependencies, no build step, 13 files, 25 tests, repository initialised and tagged `v1.0.0`, waiting for a push) — plus the two defects that only surfaced by following the standard: its `ngm.json` example omitted `runtime` (one of the three required fields, so copying the example produces an invalid manifest), now fixed with a new must-check `ngm-json-valid` (teeth tested: removing `runtime` turns the check red and exits 1), and the LF clause now states that the check reads the working tree, so a Windows checkout must stay LF. The library's README link to the standard was changed from a cross-repo relative path to a URL. The checker grew from 22 to 23 checks; ngm product code: zero lines | delivered · released |
 
 ---
 

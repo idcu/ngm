@@ -3,10 +3,10 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.74 均已交付**，**`v0.1.0` ~ `v0.74.0` 七十四个 tag 均已打**。
+**当前状态：v0.1 ~ v0.75 均已交付**，**`v0.1.0` ~ `v0.75.0` 七十五个 tag 均已打**。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
-**"交付"与"发布"是两件事，这一页把它们分开写**：74 个 tag 里，GitHub 上有 **60 个** release，
+**"交付"与"发布"是两件事，这一页把它们分开写**：75 个 tag 里，GitHub 上有 **60 个** release，
 Gitee 上只有 **3 个**，而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-05 **直接问两个源的 API** 得到的，不是本页的记忆
 （Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读）。
@@ -344,6 +344,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.72 | **裁决：依赖图形进 lock（ADR-028）+ 停止清单对账**（v0.71 复盘候选 1/3）：ADR-028 把 lock 图形的形状逐条定死——每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`）、只存**直接边**（全路径是指数的，ADR-024）、`Validate` 拒绝幽灵边、lockfileVersion **不动**（新增可选字段 + 解码器忽略未知字段是既有契约） | **已交付（裁决版，产品代码 0 行）**（[计划](./development/v0.72-plan.md) / [复盘](./development/v0.72-retrospective.md)：消费端裁决——`why` 有图 ⇒ **离线 0 spawn**、无图 ⇒ 现行为 + 注明来源；SBOM 增 CycloneDX `dependencies` / SPDX `RELATIONSHIPS`；`verify`/`tree`/`attest` 明确不变。**实现是 v0.73 的用户可见增量**（验收预告五条写进 ADR §5）。另：roadmap 新增"明确不做"小节——评估第 4 层的三张停止项逐条对账全部维持，并说清 v0.71 的判据为何不违约；勘误 v0.71 复盘对评估第 4 层的错误引用） |
 | v0.73 | **实现 ADR-028：依赖图形进 lock**（v0.72 裁决的兑现，用户可见增量）：lock 每依赖新增恒在的 `requiredBy`（直接引用者，含根标记 `(root)`，序列化时排序去重）、`Validate` 拒绝幽灵边、`HasGraph` 给唯一判据 | **已交付**（[计划](./development/v0.73-plan.md) / [复盘](./development/v0.73-retrospective.md)：**`ngm why` 读 lock 即答——实测 `git.SpawnCount() == 0`、离线可用**，旧 lock 退回重新解析且**报告明说来源**（人读末行 + `--json` 的 `source`）；SBOM 增 CycloneDX `dependencies` 与 SPDX `DEPENDS_ON`（一份边两种映射，旧 lock 整段省略）；install/update 写入。**实现时推翻了 ADR 的一处裁决并就地修订**（根边必须一起存：root wins 时只存依赖引用者会丢掉 `RootDeclared`，`why` 会少列"根 → 它"那条路径）。**14 组断言**；被 V26/V17/V02/V25 四张网接管） |
 | v0.74 | **JS Git 库的标准（梳理 + 可执行自检）**：把"能被 Git 依赖消费的库该长什么样"写成**一页标准 + 一个判据**——必做 10 / 推荐 9 / 禁止 5，每条带"为什么"与"怎么验"；事实源是三条代码事实（`InferEntry` 三层入口推断 · 传递依赖只从上游 `ngm.json` 递归 · 安装钩子默认 deny） | **已交付**（[计划](./development/v0.74-plan.md) / [复盘](./development/v0.74-retrospective.md)：[标准页](./guides/js-git-library-standard.md) + `scripts/check-library-standard.sh`（`.ps1` 转调同一实现，**22 项**：13 必做 + 9 推荐；`--strict` / `--json`）。**牙齿实测 5 条**：加 `postinstall` · 放 `.npmrc` · 入口指向被 `.gitignore` 排除的 `dist` · 删 `version` · package.json 有 git 依赖而 ngm.json 没声明 ⇒ 各自红并点名。诚实边界：生态现状类条目标 🌐 并写明"本机离线未联网核对"。**产品代码 0 行**；一条一般的话：**判据也会说谎——凡是"要转义才能表达"的字符都是事故位**（CRLF 那条当场自证） |
+| v0.75 | **标准的第一个实现（canonical-json）+ 两处修正**：按 v0.74 的标准写一个**真实可用**的库——`canonical-json`（确定性 JSON 序列化与哈希；零依赖、免构建、13 个文件、**25 个测试**、仓库已 `git init`+提交+打 `v1.0.0` 待推送） | **已交付**（[计划](./development/v0.75-plan.md) / [复盘](./development/v0.75-retrospective.md)：库过 `scripts/check-library-standard.sh --strict` **全绿**。**"照着标准做一遍"抓出标准自身两处缺陷**：① `ngm.json` 示例缺 `runtime`（ngm 清单必填三件之一，照抄即错）⇒ 补示例 + 新增必做判据 `ngm-json-valid`（牙齿实测：删 runtime ⇒ 红 + exit 1）；② LF 条款补"自检看工作树字节、Windows 要保持 LF 检出"的边界。库 README 的跨仓相对链接改成 gitee URL（相对链接只在作者机器上成立）。判据 22 → **23 条**；**ngm 产品代码 0 行**；一条一般的话：**标准只有在被照着做一遍之后才算成立**） |
 
 ### 发布状态
 

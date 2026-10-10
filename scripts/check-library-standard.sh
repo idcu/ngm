@@ -269,6 +269,29 @@ else
 	pass must lf-only "文本文件为 LF"
 fi
 
+# 库自带的 ngm.json（若有）必须能过 ngm 自己的校验：name/version/runtime 与 schemaVersion。
+# 为什么要有这条：同一个文件既是"上游入口声明"又可能被当项目清单用——
+# 缺 runtime 的清单会让 `ngm config validate` 在那个仓库里直接报错（v0.75 补的判据，
+# 起因是标准页自己的示例漏了 runtime，被实现时抓出来）。
+if [ -f "$DIR/ngm.json" ]; then
+	ngm_problem=$(node -e '
+		const fs = require("fs");
+		let o;
+		try { o = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("PARSE_ERROR"); process.exit(0); }
+		const errs = [];
+		if (o.schemaVersion !== undefined && o.schemaVersion !== 1) errs.push("schemaVersion 只支持 1");
+		if (typeof o.name !== "string" || o.name.trim() === "") errs.push("缺 name");
+		if (typeof o.version !== "string" || o.version.trim() === "") errs.push("缺 version");
+		if (o.runtime !== "node" && o.runtime !== "deno") errs.push("runtime 必须是 node 或 deno（当前：" + JSON.stringify(o.runtime) + "）");
+		console.log(errs.join("；"));
+	' "$DIR/ngm.json" 2>/dev/null)
+	case "$ngm_problem" in
+	"") pass must ngm-json-valid "ngm.json 能过 ngm 自己的校验（name/version/runtime 齐全）" ;;
+	PARSE_ERROR) fail must ngm-json-valid "ngm.json 不是合法 JSON" ;;
+	*) fail must ngm-json-valid "ngm.json 过不了 ngm 自己的校验：$ngm_problem" ;;
+	esac
+fi
+
 if [ -n "${P_license:-}" ]; then
 	pass must license "license = ${P_license}"
 elif ls "$DIR" | grep -qiE '^(LICENSE|LICENCE|COPYING)'; then
