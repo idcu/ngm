@@ -43,7 +43,12 @@ func TestV76LibraryStandardCheckerHoldsItsVerdicts(t *testing.T) {
 	dir := t.TempDir()
 	writeConformingFixture(t, dir)
 
-	// ---- ① 合规夹具：ok:true，唯一"不适用"是 semver-tag（夹具不是 git 仓库）
+	// ---- ① 合规夹具：ok:true，"不适用"**恰好两条**（夹具不是 git 仓库）
+	//
+	// v0.79 起是两条而不是一条：没有 `.git` 也意味着**看不到仓库级的 LF 声明**
+	// （`.gitattributes` 在仓库根，而 vendored 子路径只被复制了子目录）。
+	// 断言"恰好"而不是"至少"：这两条集合以后要长，得有人在这里写一个字
+	// —— 悄悄多一条"不适用"就是悄悄少一条判据。
 	out, code := runChecker(t, bash, script, dir)
 	if code != 0 {
 		t.Fatalf("a conforming fixture must exit 0, got %d:\n%s", code, out)
@@ -51,8 +56,13 @@ func TestV76LibraryStandardCheckerHoldsItsVerdicts(t *testing.T) {
 	if !strings.Contains(out, `"ok":true`) {
 		t.Errorf("合规夹具必须 ok:true:\n%s", out)
 	}
-	if !strings.Contains(out, `"skipped":1`) {
-		t.Errorf("不是 git 仓库时应恰好一条「不适用」（semver-tag）:\n%s", out)
+	if !strings.Contains(out, `"skipped":2`) {
+		t.Errorf("不是 git 仓库时应恰好两条「不适用」（semver-tag · gitattributes-lf）:\n%s", out)
+	}
+	for _, id := range []string{"semver-tag", "gitattributes-lf"} {
+		if !strings.Contains(out, `"id":"`+id+`"`) {
+			t.Errorf("缺 %q 这条判据（它应当存在、并记为不适用）:\n%s", id, out)
+		}
 	}
 	if strings.Contains(out, `"status":"fail"`) {
 		t.Errorf("合规夹具不该有任何 fail:\n%s", out)

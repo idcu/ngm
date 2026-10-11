@@ -182,7 +182,7 @@ tag 检查显示为 `—` 并写明原因，**不计入任何计数**——不�
 | monorepo · **npm**（根 `workspaces`） | **根不是包**：入口 / 产物 / 模块形态 / exports / 类型 / 发布范围 / `engines` 一律 `—`；每个子包**用同一条判据**逐个体检，结论带路径前缀（`packages/a/…`）。私有根（`private: true`）可以没有 `version` |
 | monorepo · **pnpm**（根 `pnpm-workspace.yaml`） | 同上；**根可以没有 `package.json`**（v0.78 修掉的误伤：此前"没有根清单"是必做红，而 pnpm 形态里它是合法的） |
 | monorepo · **lerna**（根 `lerna.json`） | 同上；信号来自 `lerna.json` 的 `packages`（根有清单但没有 npm `workspaces`） |
-| **vendored 副本**（ngm 的 `ngm.vendor/`、导出的 tarball） | 没有 `.git` ⇒ tag 检查 `—`；其余判据照常（实测：ngm 的 vendored 输出全绿） |
+| **vendored 副本 / 子路径**（ngm 的 `ngm.vendor/`、导出的 tarball、`subPath` 消费到的子包） | 没有 `.git` ⇒ **两条**记 `—`：`semver-tag`（看不到 tag）与 `gitattributes-lf`（看不到仓库级声明——它可能在仓库根，而 vendored 的只有子目录）；内容侧的 LF 仍由 `lf-only` 守（那条看文件本身）。其余判据照常 |
 
 子包清单的三种信号（npm `workspaces` · pnpm `pnpm-workspace.yaml` 的 `packages:` ·
 lerna `lerna.json` 的 `packages`）合并且去重；写法上只读**简单形态**
@@ -205,6 +205,31 @@ v0.78 对齐的一处：**入口推断读 `exports`**。
 | ① 依赖自己的 `ngm.json` | `main` / `types` | 同 |
 | ② `package.json` | **`exports`**（字符串 / `"."` 字符串 / 条件映射，`types` → `import` / `module` / `default` / `require` 先到先得）→ 再 `main` / `types` 字段 | 同（v0.78 起逐字对齐） |
 | ③ index 约定 | `index.ts` / `index.js` / `index.mjs` / `index.cjs`（`index.d.ts`/`d.mts`/`d.cts` 作类型） | 同 |
+
+### 5.3 扫你 **vendored 的产物**（`scripts/check-vendored-standard.sh`）
+
+标准的前一半是"库应该长什么样"，后一半是"**你拿到的依赖长什么样**"。
+后者由一条命令回答（v0.79；v0.76 的候选，两版落空后补上）：
+
+```bash
+scripts/check-vendored-standard.sh <project-dir> [--strict] [--json]
+# Windows: powershell -NoProfile -File scripts\check-vendored-standard.ps1 -Dir C:\src\my-app
+```
+
+它做的事只有一件：对 `ngm.mappings.json` 里的**每一个依赖**，用 §5 那支自检器
+（**同一份实现**）体检一遍，然后把结论按依赖名归属回去。
+
+三条纪律写在这里，因为它们是这条命令的全部价值：
+
+| # | 纪律 | 为什么 |
+|---|------|--------|
+| 1 | 事实源是 **`ngm.mappings.json`**，不是"遍历 `ngm.vendor/`" | mappings 是"我 vendor 了什么"的权威（ngm 生成、可校验）。遍历目录会把 prune 残留、手工塞进去的东西也算成依赖——**同一份产物，结论能飘** |
+| 2 | 结论必须**归属**回依赖名（`--json` 的 id 前缀 = `from`） | 否则"谁不合格"要人去数；而"数"正是项目里出过错的地方 |
+| 3 | 退出码 **2** 表示"没有查过"（没有 mappings / 用法不对） | **"一个依赖都没查"与"全查过且都合格"必须能分开**——否则这条命令会在最需要它的项目上安静地成功 |
+
+它扫的对象与 §5 的自检器**条数一致**（有判据对账，防止包装器少跑判据）；
+映射指向一个不存在的目录时，报 `vendored-dir-missing` 的**必做失败**，
+而不是跳过——跳过会让"删掉一个依赖的目录"看起来像"它合格"。
 
 ## 6. 例外
 

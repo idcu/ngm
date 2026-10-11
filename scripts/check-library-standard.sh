@@ -564,7 +564,14 @@ fi
 # LF 声明是**仓库级**的：monorepo 的子包不必自带 .gitattributes（v0.77 实测的误伤）。
 gitattr_dir="$DIR"
 [ -n "${NGM_LIB_STD_MONO_ROOT:-}" ] && gitattr_dir="$NGM_LIB_STD_MONO_ROOT"
-if [ -f "$gitattr_dir/.gitattributes" ] && grep -Eq 'eol=lf|text=auto' "$gitattr_dir/.gitattributes"; then
+if [ "${NGM_LIB_STD_MONO_ROOT:-}" = "" ] && [ ! -e "$DIR/.git" ]; then
+	# v0.79：**vendored 的子路径**看不到仓库级声明（`.gitattributes` 在仓库根，
+	# 而 ngm 只把那个子目录复制进来）。此前这条会**必然红**——每一个被
+	# `subPath` 消费的依赖都会红一次，为一件它无法控制的事。
+	# 与 `semver-tag` 同一条先例：看不到的事实**明说"不适用"**，而不是判它没做到；
+	# 内容侧的 LF 仍由 `lf-only` 守（那条看的是文件本身，与仓库无关）。
+	skip should gitattributes-lf "不是 git 仓库（vendored 副本 / 导出的子包）—— 看不到仓库级声明；内容侧的 LF 由 lf-only 守"
+elif [ -f "$gitattr_dir/.gitattributes" ] && grep -Eq 'eol=lf|text=auto' "$gitattr_dir/.gitattributes"; then
 	if [ "$gitattr_dir" = "$DIR" ]; then
 		pass should gitattributes-lf ".gitattributes 声明了 LF"
 	else

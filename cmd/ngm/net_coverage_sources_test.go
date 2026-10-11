@@ -139,6 +139,13 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV79VendoredScanRunsTheStandardOnEveryDependency": {
+		what: "`scripts/check-vendored-standard.sh`：对 `ngm.mappings.json` 里的**每个依赖**跑一次库标准自检——文本模式点名不合格的依赖与判据 · `--json` 的 id 带依赖名前缀且**条数与直接自检一致**（包装器不许少跑）· 映射指向不存在的目录 ⇒ `vendored-dir-missing` 必做失败 · 没有 mappings ⇒ **exit 2**（没有查过 ≠ 查过且合格）",
+		why: "评分表说了「每个依赖都要符合标准」，那就得有一条命令能对「我 vendor 了什么」整体回答合不合格——v0.76 的候选 4 连落两版，" +
+			"原因每次都是「它不属于产品代码」；它真正属于的是**标准**（产物侧的那一半）。三条纪律写进了判据：" +
+			"事实源用 mappings（遍历 `ngm.vendor/` 会把 prune 残留也算成依赖，结论会飘）· 结论必须归属回依赖名 · 包装器与自检器条数对账",
+		source: "实现在 `scripts/check-vendored-standard.sh`（+ `.ps1` 转调同一个实现，Windows 入口）；夹具由 `writeVendoredGood` / `writeVendoredBad` 现场造，与真实 vendored 副本一致（无 `.git`）",
+	},
 	"TestV78LibraryStandardReadsOtherMonorepoSignals": {
 		what: "monorepo 的另外两个信号（pnpm / lerna）与三种连带结论：**根可以没有 package.json**（pnpm 形态，清单在 `pnpm-workspace.yaml`）⇒ 根的 `pkg-json-exists`/`pkg-name`/`pkg-version`/`license`/`engines` 记为不适用；" +
 			"**子包只写 `exports`** 时必须解析出入口与类型（与 `internal/mappings.InferEntry` 的三种写法对齐）；" +
