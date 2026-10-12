@@ -139,6 +139,13 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV80NestedMonorepoIsReportedAsIncomplete": {
+		what: "**嵌套 monorepo**（子包自己也是 monorepo）的三种结论：① 一条 `nested-monorepo` 记录，点名它声明的子包模式与「约 N 个子包没有被体检」；② 它的**包专属**判据记不适用（不是必做失败），孙辈**一条判据都不出现**；③ **根能承担的判据照旧生效**（缺 README 仍要红——嵌套不是免检牌）；外加口径断言 `complete:false`（与 `ok` 互不顶替）",
+		why: "此前嵌套根掉进「它是个包」的判据里，红的是 `entry-resolvable`（「三层都没找到入口」）——**用错理由红，等于没红**：" +
+			"看报告的人会去给出入口，而那个仓库缺的不是入口。同时「已查的通过」与「符合标准」必须分得开（`complete` 字段），" +
+			"否则一次没查全的体检会被读成一次合格",
+		source: "实现在 `scripts/check-library-standard.sh`（v0.80：子模式也做 monorepo 检测、但不递归；`nested-monorepo` 记录 + 汇总口径 + `--json` 的 `complete` 字段，合并时向父级传播）；夹具由 `writeNestedMonorepoFixture` 现场造（外层 → inner → units/g1）",
+	},
 	"TestV79VendoredScanRunsTheStandardOnEveryDependency": {
 		what: "`scripts/check-vendored-standard.sh`：对 `ngm.mappings.json` 里的**每个依赖**跑一次库标准自检——文本模式点名不合格的依赖与判据 · `--json` 的 id 带依赖名前缀且**条数与直接自检一致**（包装器不许少跑）· 映射指向不存在的目录 ⇒ `vendored-dir-missing` 必做失败 · 没有 mappings ⇒ **exit 2**（没有查过 ≠ 查过且合格）",
 		why: "评分表说了「每个依赖都要符合标准」，那就得有一条命令能对「我 vendor 了什么」整体回答合不合格——v0.76 的候选 4 连落两版，" +

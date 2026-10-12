@@ -158,10 +158,16 @@ Windows：
 .\scripts\check-library-standard.ps1 -Dir C:\src\my-lib
 ```
 
-判据共 **25 条**：12 条必做常驻 + 4 条条件触发（入口指向构建产物时才检查产物是否已提交；
+判据共 **26 条**：12 条必做常驻 + 5 条条件触发（入口指向构建产物时才检查产物是否已提交；
 提供 `ngm.json` 时才检查它是否合法；monorepo 模式下才检查每个 workspace 目录；
-`packages` 里有读不出的写法时才报 `workspace-manifest-unreadable`）+ 9 条推荐。
+`packages` 里有读不出的写法时才报 `workspace-manifest-unreadable`；
+**嵌套 monorepo** 时才有 `nested-monorepo` 那条记录）+ 9 条推荐。
 单次运行打印多少行，取决于条件项是否适用。
+
+`--json` 的顶层字段：`ok`（**这次跑的判据**是否全过）· `complete`（这次体检是否**完整**——
+嵌套 monorepo 会让它为 `false`，见 §5.1）· `mustFail` / `shouldFail` / `skipped` · `checks[]`。
+`ok` 与 `complete` **互不顶替**：一次"已查的都过、但没查全"的体检是 `ok:true, complete:false`，
+而它**不是**"符合标准"。
 
 **"不适用"是第三种结论**：不是 git 仓库时（ngm 的 vendored 副本、导出的 tarball），
 tag 检查显示为 `—` 并写明原因，**不计入任何计数**——不适用必须被打印出来，
@@ -193,7 +199,14 @@ lerna `lerna.json` 的 `packages`）合并且去重；写法上只读**简单形
 三条与 monorepo 有关的"仓库级"事实：`.gitattributes`（LF 声明）与 `.gitignore`
 （决定"产物是否被忽略"）**看仓库根**——子包不必自带，也不该被要求自带；
 子包的**入口与类型**可以从 `exports` 里读（见下）。
-**嵌套 monorepo 明确不做**：那是一个尚未被验证的形态，静默地"反正也查了"比明确不做更坏。
+**嵌套 monorepo 明确不做**——但"不做"必须是**说出来**的那种不做（v0.80 起）：
+
+| 嵌套根上发生什么 | 为什么 |
+|---|---|
+| 一条 `nested-monorepo` 记录：它声明的子包模式 + "约 N 个子包**没有被体检**" | 与其假装查过，不如把没查过的说出来 |
+| 它的**包专属**判据记为不适用（**不是**必做失败） | v0.80 之前它红的是 `entry-resolvable`（"找不到入口"）——**用错理由红，等于没红**：看报告的人会去给出入口，而那个仓库缺的不是入口 |
+| **根能承担的判据照旧生效**（README / LICENSE / 无钩子 / 无 `.npmrc` …） | "嵌套形态"不是免检牌 |
+| 结论里的 `complete:false`（`--json`）；文字里那句"**这不是一次完整体检**" | "已查的都通过"与"符合标准"必须分得开 |
 
 ### 5.2 自检器与产品必须读同一份事实
 

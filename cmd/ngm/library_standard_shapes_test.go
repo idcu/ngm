@@ -31,6 +31,7 @@ type stdCheck struct {
 type stdReport struct {
 	Dir        string     `json:"dir"`
 	OK         bool       `json:"ok"`
+	Complete   bool       `json:"complete"`
 	MustFail   int        `json:"mustFail"`
 	ShouldFail int        `json:"shouldFail"`
 	Skipped    int        `json:"skipped"`

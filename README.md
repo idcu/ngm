@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.79 delivered in source**, and all seventy-nine tags `v0.1.0` … `v0.79.0` exist.
+Status: **v0.1 … v0.80 delivered in source**, and all eighty tags `v0.1.0` … `v0.80.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +26,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 79** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 79** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 80** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 80** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 14 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.79.0`).
+The 15 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.80.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those seventy-six historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those seventy-seven historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -325,6 +325,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.77 | the standard meets its second and third package shapes, and both turned out to be casualties: a package that explicitly declares `"type": "commonjs"` was failed for "not declaring type=module" — while the check's own wording says CJS must be declared — so a written-down choice is now accepted; and a monorepo root was judged against five package-only rules (entry, exports, types, ESM, publish scope) although a root is not a package. A `mono-root` role now marks those as not applicable, checks every workspace child with the same script, and prefixes child verdicts with their path. New must: every directory matched by `workspaces` needs its own `package.json`. `.gitattributes` and `.gitignore` are read at the repository root. One silent-drop bug was found while implementing it: the JSON merge skipped unreadable child results (`continue`) because Windows node cannot open MSYS temp paths — paths now go through `cygpath`, and an unreadable child becomes an explicit must-fail. The checker grew from 23 to 24 checks; `ngm add` was exercised end to end against the real library (add → install → verify match → why with zero sub-processes → mappings validate OK) | delivered · released |
 | v0.78 | monorepos come in more than one flavour, so the standard now detects three signals — npm `workspaces`, pnpm `pnpm-workspace.yaml` and lerna `lerna.json` — and a pnpm root may legitimately have **no** `package.json` at all, which used to be a must-fail. Child globs understand `dir/*` and brace `{a,b}/*`, and a `packages` entry the tool cannot read (a YAML mapping or inline object) raises `workspace-manifest-unreadable` as a must-fail instead of quietly checking one child less. The sharpest finding of the version: **the checker was stricter than the product** — the standard recommends `exports`, the checker did not read it, so a package following the standard was failed for "no entry point" while `InferEntry` had always read it. The candidate layers are now aligned with `parseExports`, `index.cjs` was added, and 25 checks are verified across six package shapes. Release readings were re-measured from both APIs on 2026-10-10 — GitHub 65 tags / 60 releases (newest `v0.64.0`), Gitee 3 — and tags and releases are now two separate columns, because the previous reading conflated them | delivered · released |
 | v0.79 | the second half of the standard becomes a command: `scripts/check-vendored-standard.sh` runs the same checker over every dependency in `ngm.mappings.json`, and attributes each verdict back to the dependency it came from. Three rules carry the value — the fact source is the mappings file rather than a walk of `ngm.vendor/` (a walk would count pruned leftovers as dependencies, so the same tree could produce a different verdict), the wrapper must run *all* the rules (a dependency's check count is reconciled against running the checker directly), and exit 2 means "nothing was checked" rather than "everything passed". A mapping that points at a missing directory is a must-fail instead of a skip. Building the second library — `jsonkit`, a monorepo whose two packages are usable on their own — surfaced one guaranteed false positive: `gitattributes-lf` must fail for every vendored subpath, because the LF declaration lives at the repository root while a subpath copy only receives the subdirectory. It is now "not applicable" for directories without `.git`, which also made the v0.76 check that demanded exactly one such verdict turn red — correctly, since that check exists to stop "not applicable" from quietly growing | delivered · released |
+| v0.80 | getting the subpath end-to-end as far as it can go without a human push meant measuring the two blockers rather than working around them: `install --offline` refuses to install without a lock (by design — "an offline install can only materialise what the lock already pins"), and the address validator deliberately rejects single-label hostnames and IP literals, which rules out a local `git daemon`. So there is no local substitute, and the product rule was **not** relaxed to make a test green. Nested monorepos stopped being reported for the wrong reason: previously the inner root failed `entry-resolvable` ("no entry point found"), which points the reader at giving the repository an entry it does not need — it is a monorepo root, and what is missing lives in its own children. Now a `nested-monorepo` record names the declared pattern and how many children were **not** checked, the package-only checks are "not applicable", no grandchild verdicts appear at all, and the checks the root *can* answer still apply — nested is not a free pass. The conclusion carries `complete:false`, kept separate from `ok`, because a partial audit must never read as conformance | delivered · released |
 
 ---
 

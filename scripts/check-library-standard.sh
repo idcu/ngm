@@ -117,7 +117,11 @@ skip() { record "$1" "$2" skip "$3"; }
 # 而那种形态的根同样"不是包"（v0.78 实测补上的第二处误伤）。
 # 子进程带 `NGM_LIB_STD_CHILD=1` ⇒ 不做嵌套 monorepo 的递归（尚未验证的形态）。
 MONO_PATTERNS=""
-if [ "$ROLE" = "package" ] && [ "${NGM_LIB_STD_CHILD:-0}" != "1" ]; then
+IS_CHILD=0
+[ "${NGM_LIB_STD_CHILD:-0}" = "1" ] && IS_CHILD=1
+# NESTED=1 表示"这次体检不完整"（检测到嵌套 monorepo，它的子包没有被体检）。
+NESTED=0
+if [ "$ROLE" = "package" ]; then
 mono_raw=$(node -e '
 		const fs = require("fs"), path = require("path");
 		const dir = process.argv[1];
@@ -175,6 +179,32 @@ mono_raw=$(node -e '
 	MONO_PATTERNS=$(printf '%s\n' "$mono_raw" | grep -v '^#unparsed=')
 	MONO_UNPARSED=$(printf '%s\n' "$mono_raw" | sed -n 's/^#unparsed=\([0-9]*\)$/\1/p')
 	[ -n "$MONO_PATTERNS" ] && ROLE="mono-root"
+
+	# v0.80：**子包自己也是 monorepo**（嵌套形态）时，此前它会掉进"它是个包"的
+	# 判据里——于是红的是 `entry-resolvable`（"找不到入口"），而真正的事实是
+	# "它是个 monorepo 根"。**用错理由红，等于没红**：看报告的人会去给出入口，
+	# 而那个仓库缺的不是入口。这里把它明说，并把它的子包数写出来（不递归 ⇒ 没体检）。
+	if [ "$IS_CHILD" = 1 ] && [ "$ROLE" = "mono-root" ]; then
+		declared=$(printf '%s' "$MONO_PATTERNS" | paste -sd' ' -)
+		nested_children=$(node -e '
+			const fs = require("fs"), path = require("path");
+			const root = process.argv[1];
+			const pats = String(process.argv[2]).split("\n").filter(Boolean);
+			let n = 0;
+			for (const p of pats) {
+				const clean = p.replace(/\/+$/, "");
+				if (!clean.endsWith("/*")) { n++; continue; }
+				try {
+					n += fs.readdirSync(path.join(root, clean.slice(0, -2)), { withFileTypes: true })
+						.filter((e) => e.isDirectory()).length;
+				} catch {}
+			}
+			process.stdout.write(String(n));
+		' "$DIR" "$MONO_PATTERNS" 2>/dev/null)
+		skip must nested-monorepo "它是 monorepo 根（声明：$declared；约 $nested_children 个子包**没有被体检**）—— 嵌套 monorepo 是**未验证的形态**，本工具不递归：与其假装查过，不如把没查过的说出来"
+		# 这一次体检**不完整**：结论句不许说"符合标准"（见汇总段）。
+		NESTED=1
+	fi
 
 	# 读不出来**不许猜**，也不许悄悄少体检一个子包：
 	#  ① 有 N 条 packages 写法读不出来 ⇒ 显式失败（不猜那些写法的含义）；
@@ -251,7 +281,7 @@ EOF
 fi
 
 # ---- 子包清单展开（`dir/*` 与显式路径两种写法） ---------------------------
-if [ "$ROLE" = "mono-root" ] && [ -n "$MONO_PATTERNS" ]; then
+if [ "$ROLE" = "mono-root" ] && [ -n "$MONO_PATTERNS" ] && [ "$IS_CHILD" = 0 ]; then
 	MONO_CHILDREN=$(node -e '
 		const fs = require("fs"), path = require("path");
 		const root = process.argv[1];
@@ -355,7 +385,11 @@ for c in $entry_candidates; do
 done
 
 if [ "$ROLE" = "mono-root" ]; then
-	skip must entry-resolvable "monorepo 根不是包——入口由各子包自己声明（子包逐个体检，见下）"
+	if [ "$IS_CHILD" = 1 ]; then
+		skip must entry-resolvable "monorepo 根不是包——入口由各子包自己声明（**嵌套形态：它的子包没有被体检**，见 nested-monorepo）"
+	else
+		skip must entry-resolvable "monorepo 根不是包——入口由各子包自己声明（子包逐个体检，见下）"
+	fi
 elif [ -n "$entry_found" ]; then
 	pass must entry-resolvable "入口 $entry_found（来自 $entry_layer，与 InferEntry 三层同口径）"
 else
@@ -667,8 +701,8 @@ if [ "$JSON_OUT" = 1 ]; then
 	# 自己的判据先写成 JSON；有子包时由 node 合并（计数相加、id 按相对路径归属）。
 	own_json=$(mktemp)
 	{
-		printf '{"dir":"%s","ok":%s,"mustFail":%d,"shouldFail":%d,"skipped":%d,"strict":%s,"checks":[' \
-			"$DIR" "$([ $exit_code -eq 0 ] && echo true || echo false)" "$must_fail" "$should_fail" "$skipped" "$([ "$STRICT" = 1 ] && echo true || echo false)"
+		printf '{"dir":"%s","ok":%s,"complete":%s,"mustFail":%d,"shouldFail":%d,"skipped":%d,"strict":%s,"checks":[' \
+			"$DIR" "$([ $exit_code -eq 0 ] && echo true || echo false)" "$([ "$NESTED" = 1 ] && echo false || echo true)" "$must_fail" "$should_fail" "$skipped" "$([ "$STRICT" = 1 ] && echo true || echo false)"
 		first=1
 		while IFS='|' read -r id level status why; do
 			[ -z "$id" ] && continue
@@ -716,6 +750,8 @@ EOF
 				own.shouldFail += child.shouldFail;
 				own.skipped += child.skipped;
 				if (!child.ok) own.ok = false;
+				// 子包"体检不完整"（嵌套 monorepo）⇒ 合并后的结论同样不完整。
+				if (child.complete === false) own.complete = false;
 			}
 			process.stdout.write(JSON.stringify(own) + "\n");
 		' "$(win_path "$own_json")" $child_specs
@@ -747,6 +783,9 @@ if [ "$skipped" -gt 0 ]; then
 fi
 if [ "$must_fail" -gt 0 ]; then
 	echo "必做项未通过 $must_fail 条 —— 这个库不符合标准（docs/guides/js-git-library-standard.md）$skip_note"
+elif [ "$NESTED" = 1 ]; then
+	# "不完整"必须与"通过"分开说：子包没查过的东西，不能算在"符合"里。
+	echo "已查的判据全部通过，**但这不是一次完整体检**：检测到嵌套 monorepo，它的子包没有被体检（见 nested-monorepo）$skip_note"
 elif [ "$should_fail" -gt 0 ] && [ "$STRICT" = 1 ]; then
 	echo "推荐项未通过 $should_fail 条（--strict）$skip_note"
 elif [ "$should_fail" -gt 0 ]; then
