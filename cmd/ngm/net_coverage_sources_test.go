@@ -139,6 +139,12 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV87EntryInferenceAgreesBetweenProductAndChecker": {
+		what: "**自检器与产品必须在同一批形态上给出同一个入口**：11 种 `package.json` 形态（`ngm.json` 第 1 层 · `exports` 字符串/`\".\"` 字符串/条件映射/无 `\".\"` 条件映射/只有 `require`/`default` 先于 `require` · `main`+`types` 字段 · `index.js` · `index.cjs` · 两侧都找不到）逐个对账——一侧取 `mappings.InferEntry`（产品真正会写进 mappings 的入口），另一侧解析自检器**自己打印的那句话**（`入口 <path>（来自 …`）",
+		why: "v0.78 抓到过「自检器比产品严」：标准第 1 条推荐 `exports`，自检器却不读它，于是照着标准做的库被判「三层都没找到入口」。" +
+			"当时的处置是**人工**逐字对齐，而下一次有人在任一侧加一层，没有任何判据会红 ⇒ 这条网把它变成机械对账（牙齿：把自检器的 exports 两层拿掉 ⇒ 四条 exports 形态立刻红）",
+		source: "产品侧 `internal/mappings.InferEntry`（+ 判据里的真实目录读器）；自检器侧 `scripts/check-library-standard.sh` 的 `entry-resolvable` 输出。已知边界写在测试注释里：自检器只打印 Main，`Types` 侧只判「有没有」",
+	},
 	"TestV86MirrorCoverageIsAMeasuredReading": {
 		what: "`scripts/check-mirror-coverage.sh`：镜像侧覆盖是**按需实测的读数**——两次请求拿 tag 数与 release 数，算出「未推送 = 已交付 − 镜像 tag」；**缺口不判失败**（读数不是门禁），只有「问不到」（HTTP 非 200 / 连不上）才 exit 3 并明说「不下结论」",
 		why: "仓库里那几处「GitHub 有 65 个 tag / 60 个 release」是写死的历史快照，而快照过期的方式很安静——「未推送数」那处**漏过两次**（v0.84 复盘）。" +

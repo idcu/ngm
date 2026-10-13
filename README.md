@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.86 delivered in source**, and all eighty-six tags `v0.1.0` … `v0.86.0` exist.
+Status: **v0.1 … v0.87 delivered in source**, and all eighty-seven tags `v0.1.0` … `v0.87.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +26,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 86** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 86** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 87** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 87** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 21 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.86.0`).
+The 22 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.87.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those eighty-three historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those eighty-four historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -332,6 +332,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.84 | making "check the working tree first" a reading rather than a gate: the release-status script now prints a **worktree state** section (uncommitted count, every uncommitted version artifact named with the note that an overwrite is unrecoverable, and in-place edits of snapshot docs called out separately) plus a **before you call it delivered** block naming the two commands to run instead of trusting memory. It is not a gate on purpose: a tree mid-development is legitimately dirty, and an always-red gate is no gate. The version also records a counter-intuitive finding — the v0.83 number collision *would* have been caught by the v0.71 ADR-index net (ADR number 028 used by two files); it did not fire because that net was not run at collection time, so the value of a net is existence times when it runs. And a decision: the git:// protocol stays refused (unauthenticated, unencrypted) — a product rule is not relaxed to make a test convenient | delivered · released |
 | v0.85 | the same reading, used two ways: the main test job (all three platforms) now asserts the worktree is **clean** after the tests — a CI checkout starts clean, so dirt can only mean a step wrote files into the repo — while the identical reading stays print-only locally, where a tree mid-development is legitimately dirty. The softness of a check is a property of its context, not of the check. A new `release-state` job runs the release-status and docs-link scripts with `fetch-depth: 0`, because the status script deliberately shouts MISSING TAG for every version when it cannot see tags, and a check that misreports is worse than no check. The unpushed-count assertion added in v0.84 got its teeth: flipping the number in either language fails with the arithmetic spelled out | delivered · released |
 | v0.86 | the mirror reading stops being a written-down snapshot and becomes something you can take on demand: `scripts/check-mirror-coverage.sh` makes two requests (tag refs + releases), reports the mirror's tag count, release count and newest release, and derives **unpushed = delivered − mirror tags**. It is a reading, not a gate — pushing is the owner's action, so a gap does not fail; only "cannot read" exits 3 while saying so out loud, which is the second application of the v0.85 lesson (one fact, two uses, chosen by context). It runs in the `release-state` CI job with `continue-on-error` for the same reason, and a local fake API (httptest) pins its three outcomes: readable, HTTP 500 → 3, unreachable → 3. The check also caught an implementation bug: counting JSON by lines reads a compact response of 65 tags as 1 | delivered · released |
+| v0.87 | "the two sides must agree" becomes a check instead of a claim: an entry-alignment net runs eleven `package.json` shapes (a `ngm.json` first layer, `exports` as a string / `"."` string / conditions / a bare condition map / `require` only / `default` before `require`, `main`+`types`, `index.js`, `index.cjs`, and the no-clue case) through the product's `InferEntry` on one side and through the checker's own printed sentence on the other, so it guards both what the report says and what the product actually uses. Teeth: removing the checker's two `exports` layers turns four of the shapes red at once. The checker deliberately does not call the product code — merging the two implementations would leave only self-attestation — and one known hole is written into the test rather than left to be discovered: the checker prints only the entry, so `types` has no mechanical reconciliation | delivered · released |
 
 ---
 
