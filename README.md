@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.88 delivered in source**, and all eighty-eight tags `v0.1.0` … `v0.88.0` exist.
+Status: **v0.1 … v0.89 delivered in source**, and all eighty-nine tags `v0.1.0` … `v0.89.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +26,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 88** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 88** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 89** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 89** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 23 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.88.0`).
+The 24 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.89.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those eighty-five historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those eighty-six historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -334,6 +334,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.86 | the mirror reading stops being a written-down snapshot and becomes something you can take on demand: `scripts/check-mirror-coverage.sh` makes two requests (tag refs + releases), reports the mirror's tag count, release count and newest release, and derives **unpushed = delivered − mirror tags**. It is a reading, not a gate — pushing is the owner's action, so a gap does not fail; only "cannot read" exits 3 while saying so out loud, which is the second application of the v0.85 lesson (one fact, two uses, chosen by context). It runs in the `release-state` CI job with `continue-on-error` for the same reason, and a local fake API (httptest) pins its three outcomes: readable, HTTP 500 → 3, unreachable → 3. The check also caught an implementation bug: counting JSON by lines reads a compact response of 65 tags as 1 | delivered · released |
 | v0.87 | "the two sides must agree" becomes a check instead of a claim: an entry-alignment net runs eleven `package.json` shapes (a `ngm.json` first layer, `exports` as a string / `"."` string / conditions / a bare condition map / `require` only / `default` before `require`, `main`+`types`, `index.js`, `index.cjs`, and the no-clue case) through the product's `InferEntry` on one side and through the checker's own printed sentence on the other, so it guards both what the report says and what the product actually uses. Teeth: removing the checker's two `exports` layers turns four of the shapes red at once. The checker deliberately does not call the product code — merging the two implementations would leave only self-attestation — and one known hole is written into the test rather than left to be discovered: the checker prints only the entry, so `types` has no mechanical reconciliation | delivered · released |
 | v0.88 | three things that were stated but not guarded became guards. The checker now decides the entry **by declaration** (same as `InferEntry`) with `rel_path` mirrored character for character, stops accepting any root `.d.ts` as a types entry, and splits "is there an entry" from "is the declared file actually there" (new must `entry-file-exists`); the alignment net grew to 15 shapes × (entry + types), closing the known hole v0.87 wrote down. A new net that parses every `scripts/*.ps1` with PowerShell's own parser immediately found two shipped Windows entry points that **could not be parsed at all** — without a BOM, PowerShell 5.1 decodes UTF-8 as ANSI, and a Chinese lead byte swallows the following newline, merging code into the previous line (measured: 0 errors as UTF-8, 3 as ANSI; four of the nine files already had the BOM, so the convention was right and five had drifted). Both wrappers were repaired and actually run. Readings now land on the CI job summary page, where a source that cannot be read says so instead of disappearing | delivered · released |
+| v0.89 | the disease behind v0.88's two unparseable `.ps1` files was not those files but the state of *nothing running them*. Every artifact under `scripts/` (19 of them) is now accounted for: a run-or-explain net follows the reference closure (tests → workflows → other scripts) and anything it cannot reach must be listed with a reason, keys included only if they exist on disk; every `.sh` passes `bash -n` (symmetric with v0.88's PowerShell parse net); every `scripts/<file>` named by a workflow must exist; and `packagegate-demo.sh` is actually run — the test requires its own `0 failed` line rather than a quiet exit 0. The sweep also found two entry points that no document even mentioned, and the convention is now written down: the `.ps1` twin only delegates, the `.sh` is the single implementation | delivered · released |
 
 ---
 

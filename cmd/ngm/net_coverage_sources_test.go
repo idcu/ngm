@@ -139,6 +139,28 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV89ScriptsArtifactsAreEitherRunOrExplained": {
+		what: "**交付脚本必须「被谁跑」说得清**：`scripts/*.sh|*.ps1` 要么能沿着「判据 / 工作流 / 其它脚本」的引用链走到某处（**传递闭包**：A 被某条判据跑、A 的正文提到 B ⇒ B 也算覆盖），要么在 `explainedNotAutomated` 里写明为什么跑不了；登记表里出现已不存在的文件也红；新增脚本而两样都没有 ⇒ 红",
+		why: "v0.88 抓到的那两个 `.ps1` 是交付给 Windows 用户的入口，却在仓库里躺了很久**根本不能被解析**——它们为什么没人发现？因为**没有任何东西在跑它们**（Go 侧只有一个判据读了它的文本，用来对齐 Find-Bash 顺序）：「读过」与「跑过」差了整整一个层次。" +
+			"这条网把「没人跑」变成必须显式登记的事实。记账口径写在判据注释里：按**引用**记账，是筛子不是证明（它让「从没被提到」不可能悄悄发生；「真的跑过一次」由各脚本自己的判据守着）",
+		source: "判据在 `cmd/ngm/v089_artifacts_test.go`；牙齿：往 `scripts/` 放一个没人跑、也没登记的新脚本 ⇒ 红并点名它，删掉 ⇒ 绿",
+	},
+	"TestV89PackageGateDemoRuns": {
+		what:   "`scripts/packagegate-demo.sh` 在判据里**真的跑一次**，并要求它自己报出结论（`… passed, 0 failed`）——不接受「跑完没报错」",
+		why:    "它是 `docs/COMPETITIVE-ANALYSIS.md` 里那套对照的**证据生成器**（demo 的断言只写在它里面），而此前它只被文档与 `.ps1` 入口提到——正是 v0.88 教训里的那一类「只被读过、从没被跑过」。它不碰网络（全部在本地合成目录里做），适合进全量测试",
+		source: "判据在 `cmd/ngm/v089_packagegate_demo_test.go`；实现在 `scripts/packagegate-demo.sh`（`.ps1` 转调同一个实现）",
+	},
+	"TestV89WorkflowReferencesExistingScripts": {
+		what: "**工作流里点名的脚本必须真的在**：扫 `.github/workflows/*.yml` 里所有 `scripts/<file>` 形式的引用，逐个查磁盘（去重后报）",
+		why: "守的是一类很安静的腐烂：CI 里写着 `bash scripts/xxx.sh`，而那个文件被改名或删掉——直到下一次有人推 tag / 开 PR 才会发现，而本仓库镜像最后一次推送是 `v0.65.0`，这条路可能几个月没人走（" +
+			"v0.88 已经吃过一次同类的亏：只被读取、从未被执行的东西会烂）",
+		source: "判据在 `cmd/ngm/v089_artifacts_test.go`；牙齿：往 ci.yml 里塞一个指向不存在脚本的步骤 ⇒ 红并点名它（去重），恢复 ⇒ 绿",
+	},
+	"TestV89ShellScriptsParse": {
+		what:   "`scripts/*.sh` 全部过 `bash -n`（只解析、不执行，因此不需要夹具也不碰网络）——与 v0.88 的 `.ps1` 解析网对称：交付物最低限度的两种语言，各有一条网",
+		why:    "v0.88 的教训反过来用在 `.sh` 上：解析失败是最容易被忽略的坏法（没人跑就没人知道）。实测 10 个 `.sh` 当时都过——这条网守的是**下一次**",
+		source: "判据在 `cmd/ngm/v089_artifacts_test.go`",
+	},
 	"TestV88PowerShellScriptsParse": {
 		what: "`scripts/*.ps1` 必须能被 **PowerShell 自己的解析器**解析；含非 ASCII 的必须带 UTF-8 BOM（否则 PowerShell 5.1 按 ANSI 解码 UTF-8 文本，中文在 GBK 下的前导字节会**把换行一起吃掉**）",
 		why: "写这条网时它当场抓到两个**交付给 Windows 用户的入口脚本根本不能被解析**：`check-library-standard.ps1` 与 `packagegate-demo.ps1`（按 UTF-8 解码 0 错、按 ANSI 3 错——" +
