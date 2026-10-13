@@ -140,6 +140,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.82** | **把上一版记下的六条欠账做掉** | ① subPath 规则统一：此前 `config.validateDepPath` 与 `resolve.validateDepSubPath` **两份实现不一致**（前者认两种分隔符、后者只认 `/`），于是 `#path=..\..\x` 能过校验；统一到 `resolve.ValidateSubPath` 一处，并给**上游声明的 `path`** 加同一套校验（此前原样透传，最终会流到 `os.RemoveAll(dst)`，至今无害只是巧合性防护）② 原子写统一到 `internal/atomicfile`：三份 `writeFileAtomic` 里只有 lock 那份有 v0.66 的 `Chmod(0644)` ⇒ **`ngm.json` 与 `ngm.mappings.json` 写出后是 0600**（与 lock 同一个病，在另外两个文件上还活着）；`sbom`/`attest` 的 `--out` 改走原子写（此前裸 `os.WriteFile`，中断会留下截断文件）③ `attest` 改为**读一次两用**（`lock.Parse`）：此前解析与哈希是两次 `os.ReadFile`，对要被签名的证据不该存在④ JSON 出口关掉 HTML 转义（被签名的字节必须与字段原文一致）⑤ SPDX `documentNamespace` 覆盖 `archiveDigest`（此前只哈希 purl，于是内容不同的两份文档会共享命名空间）⑥ purl subpath 百分号编码。**产品代码 8 个文件**；过程中另发现三条，其中一条是**我自己的判据在 Windows 上恒绿却什么也没看**（已补平台无关的源码级判据）。一条一般的话：**规则被复制了，于是修复也只修到其中一份** |
 | **v0.83** | **收下回环（ADR-029）+ 坏配置不再静默退化** | [ADR-029](../adr/adr-029-loopback-addresses.md)：`localhost` / `127.0.0.1` 收下，其余单标签主机名照旧拒绝；边界写进 ADR（`[::1]` / 端口 / `git://` 协议 / `net:` 门禁不动）；更正 v0.80 的"IP 字面量被拒"（实测一直允许）。**坏配置**：`newProjectEnv` 的错误被吞 ⇒ 协议静默退回 https、`tokenEnvVars` 丢失（脱敏漏掉 ⇒ token 可能进日志）；改为 exit 3 + 点名文件与字段，配置不存在仍照常。判据：`internal/resolve/loopback_test.go`（2 条）· `cmd/ngm/v083_config_failure_test.go`（1 条）+ 登记。⚠️ **事故**：开工没对状态 ⇒ 覆盖并行线的两份未跟踪文件 ⇒ 如实重建（证据边界标明）；教训：**开工先对状态** |
 | **v0.84** | **把「开工先对状态」变成读数（不是门禁）** | scripts/check-release-status.sh 新增两节：**worktree state**（未提交计数 · **未提交的版本工件逐个点名** + 「被覆盖就永久丢失」 · 就地改快照单独一句）· **before you call it delivered**（该跑的两条命令）。判据 `TestV84WorktreeStateNamesUncommittedVersionArtifacts`（合成仓库四侧：干净不点名 / 未提交被点名 / 提交后消失 / 就地改快照）。**反直觉复核**：v0.83 的撞号本会被 v0.71 的 ADR 索引网抓到，没红是因为**收口时没跑它** ⇒ 判据价值 = 写了没有 × 什么时候跑。拍板：**不放宽 git:// 协议**；顺带补掉漏读的「未推送数」并在读数网里加断言 |
+| **v0.85** | **同一处读数，两种用法：CI 里它是门禁** | `ci.yml`：主测试 job（三平台）+1 步——测试后断言工作树**干净**（CI 的 checkout 干净 ⇒ 脏 = 有步骤往仓库里写了东西）；本地收口脚本里同一读数**只打印**（开发中途本就该脏）⇒ **判据的软硬是语境的属性**。新 job `release-state`：`check-release-status.sh` + `check-docs-links.sh`，**`fetch-depth: 0`**（脚本看不见 tag 会把每版判成 MISSING TAG——会误报的门禁比没有更坏）。牙齿：v0.84 的「未推送数」断言中英两处各改错一次都红并报出算术。**产品代码 0 行** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -260,7 +261,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.84.0` 的 **Gitee 发行版（81 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.85.0` 的 **Gitee 发行版（82 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -335,7 +336,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 81 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 82 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```

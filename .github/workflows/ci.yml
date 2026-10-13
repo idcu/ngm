@@ -54,6 +54,44 @@ jobs:
         # 一个可判别的"有没有失败"不该被一个与平台相关的时长上限误伤。
         run: go test -count=1 -timeout 40m ./...
 
+      # 测试跑完，仓库必须还是干净的（v0.85）。
+      #
+      # 为什么这里是**门禁**而收口脚本里只是读数：CI 上的 checkout 是干净的，
+      # 所以"出现未跟踪/被修改的文件"只可能来自一个原因——**有个步骤往仓库里写了东西**
+      # （测试写 fixture 落到仓库、脚本生成产物忘了删…）。本地不是这样：
+      # 开发中途工作树本来就该是脏的，那里恒红的门禁等于没有门禁（v0.84 复盘）。
+      #
+      # 这条与上面那节是**同一个事实的两种用法**：同一处读数，语境决定它是不是硬门禁。
+      - name: worktree must stay clean (a clean checkout means something wrote files)
+        shell: bash
+        run: |
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "::error::the checkout is no longer clean — something wrote files into the repo"
+            echo "$dirty"
+            exit 1
+          fi
+          echo "worktree: clean"
+
+  # 收口状态（v0.85）：tag ↔ 复盘、文档链接。
+  #
+  # 为什么单独一个 job：`check-release-status.sh` 要看见**全部 tag**，
+  # 而默认 checkout 是 `fetch-depth: 1`（看不见）——那会让脚本把每个版本都判成
+  # "MISSING TAG"并吵闹。宁可慢一点、把 tag 取全，也不要一条会误报的门禁。
+  release-state:
+    name: release state + docs links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: release status (tag ↔ retrospective)
+        run: bash scripts/check-release-status.sh
+
+      - name: docs links
+        run: bash scripts/check-docs-links.sh
+
   # 格式与行尾门禁。
   #
   # 两条独立防线：

@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.84 delivered in source**, and all eighty-four tags `v0.1.0` … `v0.84.0` exist.
+Status: **v0.1 … v0.85 delivered in source**, and all eighty-five tags `v0.1.0` … `v0.85.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +26,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 84** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 84** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 85** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 85** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 19 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.84.0`).
+The 20 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.85.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those eighty-one historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those eighty-two historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -330,6 +330,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.82 | closing the six items v0.81 had logged as known-unfixed. The sub-path rule existed in two inconsistent copies (one treated a backslash as a separator, the other did not, so `#path=..\..\x` passed) - unified into one predicate, and the path an *upstream* declares now gets the same check (it was passed through untouched and ends up at `os.RemoveAll(dst)`; only a coincidence kept it harmless). Atomic writes were unified into one package: of the three copies of `writeFileAtomic`, only the lock one had the v0.66 `Chmod(0644)`, so `ngm.json` and `ngm.mappings.json` were still being written as **0600** - files meant to be committed and shared. `--out` now uses the same atomic path instead of a bare write. `ngm attest` reads the lock once and uses those bytes for both parsing and hashing. JSON exports no longer HTML-escape (bytes that get signed must match the field text). The SPDX namespace now covers the digest, and purl sub-paths are percent-encoded | delivered |
 | v0.83 | loopback addresses become legal (ADR-029): `localhost` and `127.0.0.1` are accepted, other single-label hosts still are not, and every boundary is written down (`[::1]`, ports, the `git://` protocol and the `net:` gate all stay as they are). The measurement also corrected a sentence from v0.80: IP and internal-domain hosts were always allowed — only single-label names were refused, which made `https://127.0.0.1/x` legal while `https://localhost/x` was not. Along the way a silent degradation was fixed: `newProjectEnv` swallowed `config.Load` errors, so a broken config quietly reverted the protocol to https and dropped the user's declared token env vars (losing their redaction); a broken config is now exit 3 naming the file and the field, while a missing config still means defaults. This version also carries an accident, recorded in full: it started work without checking the working tree, overwriting two untracked files of a parallel line of work (no Git copy, no editor history), which have been honestly reconstructed with their evidence boundaries marked | delivered · released |
 | v0.84 | making "check the working tree first" a reading rather than a gate: the release-status script now prints a **worktree state** section (uncommitted count, every uncommitted version artifact named with the note that an overwrite is unrecoverable, and in-place edits of snapshot docs called out separately) plus a **before you call it delivered** block naming the two commands to run instead of trusting memory. It is not a gate on purpose: a tree mid-development is legitimately dirty, and an always-red gate is no gate. The version also records a counter-intuitive finding — the v0.83 number collision *would* have been caught by the v0.71 ADR-index net (ADR number 028 used by two files); it did not fire because that net was not run at collection time, so the value of a net is existence times when it runs. And a decision: the git:// protocol stays refused (unauthenticated, unencrypted) — a product rule is not relaxed to make a test convenient | delivered · released |
+| v0.85 | the same reading, used two ways: the main test job (all three platforms) now asserts the worktree is **clean** after the tests — a CI checkout starts clean, so dirt can only mean a step wrote files into the repo — while the identical reading stays print-only locally, where a tree mid-development is legitimately dirty. The softness of a check is a property of its context, not of the check. A new `release-state` job runs the release-status and docs-link scripts with `fetch-depth: 0`, because the status script deliberately shouts MISSING TAG for every version when it cannot see tags, and a check that misreports is worse than no check. The unpushed-count assertion added in v0.84 got its teeth: flipping the number in either language fails with the arithmetic spelled out | delivered · released |
 
 ---
 
