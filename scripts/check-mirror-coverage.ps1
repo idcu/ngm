@@ -1,4 +1,4 @@
-# scripts/check-mirror-coverage.ps1 —— 镜像覆盖读数的 Windows 入口。
+﻿# scripts/check-mirror-coverage.ps1 —— 镜像覆盖读数的 Windows 入口。
 #
 # **唯一实现是 scripts/check-mirror-coverage.sh**；本文件只是转调它
 # （与 check-library-standard.ps1 同一条纪律：要跑的东西只允许有一种写法——

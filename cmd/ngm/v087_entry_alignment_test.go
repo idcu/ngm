@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/idcu/ngm/internal/mappings"
@@ -23,7 +24,74 @@ import (
 // 已知边界：自检器只打印 **Main**，`Types` 侧只判"有没有"（`types-provided`），
 // 所以这条网对账的是 Main；Types 的逐字一致没有机械判据（写在这里而不是留给猜）。
 
-var reEntry = regexp.MustCompile(`入口 (\S+)（来自`)
+var (
+	reEntry = regexp.MustCompile(`入口 (\S+)（来自`)
+	reTypes = regexp.MustCompile(`类型入口 (\S+)（来自`)
+)
+
+// checkerEntryOf 读出某条判据报告的入口路径；判据判"没有"（fail）时返回空串。
+func checkerEntryOf(t *testing.T, rep stdReport, out, id string, re *regexp.Regexp) string {
+	t.Helper()
+	status, found := findStatus(rep, id)
+	if !found {
+		t.Fatalf("自检器没报 %s：\n%s", id, out)
+	}
+	switch status {
+	case "pass":
+		m := re.FindStringSubmatch(whyOf(rep, id))
+		if m == nil {
+			t.Fatalf("%s 说通过了，但报告里读不出口径（措辞变了？）：%q", id, whyOf(rep, id))
+		}
+		return m[1]
+	case "fail":
+		return ""
+	case "skip":
+		t.Fatalf("%s 是 skip（包形态下不该是这种）：%q", id, whyOf(rep, id))
+	}
+	return ""
+}
+
+// v0.88：**"有没有入口"与"入口文件在不在"是两条判据**——各自都要能单独红。
+//
+// v0.88 之前它们是混在一起的（"第一个存在的候选"）：一个"声明了但文件不在"的包，
+// 产品会用那个路径、自检器说"找不到入口"——两边都说了话，却说不清到底哪里不对。
+// 拆开之后：有声明 ⇒ 入口判据过（与产品同口径）；文件不在 ⇒ **另一条**必做判据红。
+func TestV88DeclaredEntryMustExist(t *testing.T) {
+	bash := findBash(t)
+	script := filepath.Join(repoRoot(t), "scripts", "check-library-standard.sh")
+	dir := t.TempDir()
+	writeFileAt(t, dir, "package.json",
+		`{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./gone.js"}`)
+	writeFileAt(t, dir, "README.md", "# a\n")
+
+	out, code := runChecker(t, bash, script, dir)
+	rep := parseStdReport(t, out)
+	if status, _ := findStatus(rep, "entry-resolvable"); status != "pass" {
+		t.Errorf("声明的入口存在与否不该影响「有没有入口」：entry-resolvable = %q（产品会用声明的路径）\n%s", status, out)
+	}
+	if status, _ := findStatus(rep, "entry-file-exists"); status != "fail" {
+		t.Errorf("声明了不存在的入口 ⇒ entry-file-exists 必须红，got %q\n%s", status, out)
+	}
+	if !strings.Contains(whyOf(rep, "entry-file-exists"), "./gone.js") {
+		t.Errorf("红的理由里没点名那个路径：%q", whyOf(rep, "entry-file-exists"))
+	}
+	if code != 1 {
+		t.Errorf("必做红 ⇒ exit 1，got %d", code)
+	}
+
+	// 牙齿的另一半：把文件放进去 ⇒ 两条都过、exit 0（证明上面那次红是真的因为文件不在）。
+	writeFileAt(t, dir, "gone.js", "export const a = 1;\n")
+	out, code = runChecker(t, bash, script, dir)
+	rep = parseStdReport(t, out)
+	for _, id := range []string{"entry-resolvable", "entry-file-exists"} {
+		if status, _ := findStatus(rep, id); status != "pass" {
+			t.Errorf("补上文件之后 %s 应当通过，got %q\n%s", id, status, out)
+		}
+	}
+	if code != 0 {
+		t.Errorf("补上文件之后应当全绿，got exit %d\n%s", code, out)
+	}
+}
 
 func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 	bash := findBash(t)
@@ -80,6 +148,27 @@ func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 			"package.json": `{"name":"a","version":"1.0.0","license":"MIT"}`,
 			"index.cjs":    "module.exports = { a: 1 };\n",
 		}},
+		{"index 约定 + 旁边的 index.d.ts（Types 侧）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT"}`,
+			"index.js":     "export const a = 1;\n",
+			"index.d.ts":   "export declare const a: number;\n",
+		}},
+		{"ngm.json 只声明 types（**没有 main**）", map[string]string{
+			"ngm.json":     `{"schemaVersion":1,"name":"a","version":"1.0.0","runtime":"node","types":"./t.d.ts"}`,
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./m.js"}`,
+			"t.d.ts":       "export declare const a: number;\n",
+			"m.js":         "export const a = 1;\n",
+		}},
+		{"只有根级 foo.d.ts（**不是** index 约定 ⇒ 两侧都该没有类型入口）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT"}`,
+			"index.js":     "export const a = 1;\n",
+			"foo.d.ts":     "export declare const a: number;\n",
+		}},
+		{"ngm.json 声明了不存在的入口（两侧同口径：都照用声明）", map[string]string{
+			"ngm.json":     `{"schemaVersion":1,"name":"a","version":"1.0.0","runtime":"node","main":"./gone.js"}`,
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./m.js"}`,
+			"m.js":         "export const a = 1;\n",
+		}},
 		{"两侧都找不到入口（ngm.json 存在但没有任何入口线索）", map[string]string{
 			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT"}`,
 			"README.md":    "# a\n",
@@ -96,30 +185,20 @@ func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 			// 产品侧：真正会写进 mappings 的那个入口。
 			entry, _ := mappings.InferEntry(dirReader(dir))
 
-			// 自检器侧：解析它自己打印的那句话（`入口 <path>（来自 …`）。
+			// 自检器侧：解析它自己打印的那两句话（`入口 …` / `类型入口 …`）。
 			out, _ := runChecker(t, bash, script, dir)
 			rep := parseStdReport(t, out)
-			checkerEntry := ""
-			status, found := findStatus(rep, "entry-resolvable")
-			if !found {
-				t.Fatalf("自检器没报 entry-resolvable：\n%s", out)
-			}
-			switch status {
-			case "pass":
-				m := reEntry.FindStringSubmatch(whyOf(rep, "entry-resolvable"))
-				if m == nil {
-					t.Fatalf("判据说通过了，但报告里读不出口径（措辞变了？）：%q", whyOf(rep, "entry-resolvable"))
-				}
-				checkerEntry = m[1]
-			case "fail":
-				checkerEntry = "" // 三层都没找到
-			default:
-				t.Fatalf("entry-resolvable 的状态是 %q（包形态下不该是这种）：\n%s", status, out)
-			}
 
-			if checkerEntry != entry.Main {
-				t.Errorf("两侧入口不一致：\n  产品 InferEntry  = %q（%s）\n  自检器报告      = %q\n  形态：%s",
-					entry.Main, entry.Source, checkerEntry, sh.name)
+			checkerMain := checkerEntryOf(t, rep, out, "entry-resolvable", reEntry)
+			checkerTypes := checkerEntryOf(t, rep, out, "types-provided", reTypes)
+
+			if checkerMain != entry.Main {
+				t.Errorf("两侧**入口**不一致：\n  产品 InferEntry  = %q（%s）\n  自检器报告      = %q\n  形态：%s",
+					entry.Main, entry.Source, checkerMain, sh.name)
+			}
+			if checkerTypes != entry.Types {
+				t.Errorf("两侧**类型入口**不一致：\n  产品 InferEntry  = %q（%s）\n  自检器报告      = %q\n  形态：%s",
+					entry.Types, entry.Source, checkerTypes, sh.name)
 			}
 		})
 	}

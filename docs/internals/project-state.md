@@ -143,6 +143,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.85** | **同一处读数，两种用法：CI 里它是门禁** | `ci.yml`：主测试 job（三平台）+1 步——测试后断言工作树**干净**（CI 的 checkout 干净 ⇒ 脏 = 有步骤往仓库里写了东西）；本地收口脚本里同一读数**只打印**（开发中途本就该脏）⇒ **判据的软硬是语境的属性**。新 job `release-state`：`check-release-status.sh` + `check-docs-links.sh`，**`fetch-depth: 0`**（脚本看不见 tag 会把每版判成 MISSING TAG——会误报的门禁比没有更坏）。牙齿：v0.84 的「未推送数」断言中英两处各改错一次都红并报出算术。**产品代码 0 行** |
 | **v0.86** | **镜像覆盖从「写死的历史数字」变成「按需实测的一条命令」** | 新增 `scripts/check-mirror-coverage.sh`（+ `.ps1` 转调同一实现）：两次请求（`/git/refs/tags` + `/releases`）→ 镜像 tag 数 · release 数 · 最新 release · **UNPUSHED = 已交付 − 镜像 tag**；**读数不是门禁**（缺口不判失败；「问不到」才 exit 3 并明说「不下结论」）= v0.85 教训的第二处应用。接进 CI `release-state` job（`continue-on-error`，理由同上）。判据 `cmd/ngm/v086_mirror_coverage_test.go` 用**本地假 API**（httptest）三侧：读得到（65/60/最新 v0.64.0/UNPUSHED=已交付−65）· 500 ⇒ 3 · 连不上 ⇒ 3。顺带修一处会误读的实现：按行数 JSON 会把紧凑响应里的 65 数成 1 |
 | **v0.87** | **把「逐字对齐」从人工声称变成机械判据** | 入口对齐网 `TestV87EntryInferenceAgreesBetweenProductAndChecker`：11 种 `package.json` 形态（`ngm.json` 第 1 层 · `exports` 的六种形态 · `main`/`types` · `index.js` · `index.cjs` · 都找不到）逐个对账——一侧 `mappings.InferEntry`（判据里给了真实目录读器），另一侧解析自检器打印的 `入口 <path>（来自 …`。**牙齿**：拿掉自检器候选里的 exports 两层 ⇒ 四条 exports 形态立刻红（已复现）。**不让自检器调用产品代码**：两条实现合并成一条就只剩自证。已知缺口写进测试注释：自检器只打印 Main，`Types` 侧只判「有没有」。**产品代码 0 行** |
+| **v0.88** | **把三处「说了但没人守」的地方补上网** | ① **入口与类型**：自检器按**声明**判定（与 `InferEntry` 同口径）+ `rel_path` 逐字对齐 + `types-provided` 只认 `index.d.ts|d.mts|d.cts`（旧写法认任意根级 `.d.ts`，于是 `foo.d.ts` 那种包上两侧必然分歧）+ 新增必做 `entry-file-exists`（把「有没有入口」与「入口文件在不在」分开）；对齐网 15 种形态 ×（Main+Types）。牙齿：改回旧写法 ⇒ 网红在 `foo.d.ts` 那条，并出现「类型入口 （空）+ 有类型」的自相矛盾报告。② **`.ps1` 必须能被 PowerShell 解析**（含非 ASCII ⇒ 必须带 UTF-8 BOM）：新网当场抓到 `check-library-standard.ps1` 与 `packagegate-demo.ps1` **不可解析**——无 BOM 时 PS 5.1 按 ANSI 解码 UTF-8，中文在 GBK 下的**前导字节把换行吞掉**（实测 UTF-8 0 错 / ANSI 3 错）；9 个 `.ps1` 里本来 4 个带 BOM ⇒ 约定是 BOM，5 个漂移；补 BOM 后两个入口**实跑通过**。③ **读数进 CI job summary**（`write-readings-summary.sh` + ci.yml `if: always()`）：读不出必须写「没读成」、`--out` 是追加、永不用读数判红绿。判据 25 → **27 条**；**产品代码 0 行**；一条一般的话：**交付物也会烂在没人跑的地方** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -263,7 +264,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.87.0` 的 **Gitee 发行版（84 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.88.0` 的 **Gitee 发行版（85 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -338,7 +339,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 84 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 85 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```

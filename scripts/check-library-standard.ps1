@@ -1,4 +1,4 @@
-# scripts/check-library-standard.ps1 —— JS Git 库标准自检的 Windows 入口。
+﻿# scripts/check-library-standard.ps1 —— JS Git 库标准自检的 Windows 入口。
 #
 # **唯一实现是 scripts/check-library-standard.sh**；本文件只是转调它
 # （与 check-docs-links.ps1 同一条纪律：要检查的规则只允许有一种写法——

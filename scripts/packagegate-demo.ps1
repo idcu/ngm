@@ -1,4 +1,4 @@
-# scripts/packagegate-demo.ps1 —— PackageGate 对照 demo 的 Windows 入口。
+﻿# scripts/packagegate-demo.ps1 —— PackageGate 对照 demo 的 Windows 入口。
 #
 # **唯一实现是 scripts/packagegate-demo.sh**；本文件只是它的 Windows 入口（转调 bash）。
 #

@@ -102,6 +102,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/check-mirror-coverage.sh
 
+      # A reading that nobody reads is no reading: put both sources on the job
+      # summary page. This step never fails (a gap is not a gate); when a source
+      # cannot be read it says so in the summary instead of quietly disappearing.
+      - name: readings -> job summary (a reading, not a gate)
+        if: always()
+        run: bash scripts/write-readings-summary.sh --out "$GITHUB_STEP_SUMMARY"
+
   # 格式与行尾门禁。
   #
   # 两条独立防线：

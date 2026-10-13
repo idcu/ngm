@@ -139,6 +139,23 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV88PowerShellScriptsParse": {
+		what: "`scripts/*.ps1` 必须能被 **PowerShell 自己的解析器**解析；含非 ASCII 的必须带 UTF-8 BOM（否则 PowerShell 5.1 按 ANSI 解码 UTF-8 文本，中文在 GBK 下的前导字节会**把换行一起吃掉**）",
+		why: "写这条网时它当场抓到两个**交付给 Windows 用户的入口脚本根本不能被解析**：`check-library-standard.ps1` 与 `packagegate-demo.ps1`（按 UTF-8 解码 0 错、按 ANSI 3 错——" +
+			"错在同一处：一行注释的末尾，乱码把 LF 吞了，后面的代码被并上前一行）。它们坏得很安静：Go 侧有个判据**只读它的文本**来对齐 Find-Bash 顺序，因此从没发现它跑不了",
+		source: "判据在 `cmd/ngm/v088_powershell_scripts_test.go`（用 `[Parser]::ParseFile`，即 CI 与用户真正会遇到的那一步）；修复：给 5 个缺失的 `.ps1` 补 BOM（另外 4 个本来就有——约定其实一直是 BOM，是这 5 个漂移了）",
+	},
+	"TestV88ReadingsSummaryIsWritten": {
+		what:   "读数要放在**会被看见**的地方：`scripts/write-readings-summary.sh` 把两个源的覆盖写成 markdown（CI 用 `--out \"$GITHUB_STEP_SUMMARY\"` 贴到 job summary 页），并守两条纪律——**读不出必须写\"没读成\"**（不许静默少一块）、**`--out` 是追加**（`$GITHUB_STEP_SUMMARY` 本就是追加写的地方，截断会抹掉同 job 别的步骤）",
+		why:    "仓库不缺读数（v0.86 已把它们换成随时可再测的命令），缺的是**有人看**：埋在流水线日志里的读数与没有差不多。牙齿：把 `--api-base` 指到一个没人听的地址 ⇒ 摘要里必须出现\"这一段**没读成**\"，且段落本身仍在（消失才是要防的）",
+		source: "实现 `scripts/write-readings-summary.sh`（+ `.ps1` 转调，同一条纪律：唯一实现是 .sh）；判据在 `cmd/ngm/v088_readings_summary_test.go`（本地假 API，不碰网络）；接线在 `.github/workflows/ci.yml`（`if: always()`，永不判失败：读数 ≠ 门禁）",
+	},
+	"TestV88DeclaredEntryMustExist": {
+		what: "「有没有入口」与「入口文件在不在」是**两条判据**：`entry-resolvable` 按**声明**判定（与 `InferEntry` 同口径——声明的路径产品就会用），新增必做判据 `entry-file-exists` 才问「文件真的在仓库里吗」，并点名缺的是哪一个",
+		why: "v0.88 之前两者混在一起（\"第一个**存在**的候选\"）：一个\"声明了但文件不在\"的包，产品用那个路径、自检器说\"三层都没找到入口\"——两边都说了话，却**说不清到底哪里不对**。" +
+			"拆开之后，两种缺陷各自有一句可执行的结论。牙齿：声明 `./gone.js` ⇒ 入口判据过、存在性判据红（理由里有点名的路径）、exit 1；补上文件 ⇒ 两条都过、exit 0",
+		source: "判据在 `cmd/ngm/v087_entry_alignment_test.go`（与入口对齐网同文件：它们守的是同一件事的两半）；实现在 `scripts/check-library-standard.sh`",
+	},
 	"TestV87EntryInferenceAgreesBetweenProductAndChecker": {
 		what: "**自检器与产品必须在同一批形态上给出同一个入口**：11 种 `package.json` 形态（`ngm.json` 第 1 层 · `exports` 字符串/`\".\"` 字符串/条件映射/无 `\".\"` 条件映射/只有 `require`/`default` 先于 `require` · `main`+`types` 字段 · `index.js` · `index.cjs` · 两侧都找不到）逐个对账——一侧取 `mappings.InferEntry`（产品真正会写进 mappings 的入口），另一侧解析自检器**自己打印的那句话**（`入口 <path>（来自 …`）",
 		why: "v0.78 抓到过「自检器比产品严」：标准第 1 条推荐 `exports`，自检器却不读它，于是照着标准做的库被判「三层都没找到入口」。" +

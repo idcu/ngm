@@ -30,7 +30,8 @@ Node/npm 生态的既定事实，而**本机离线，没有联网核对最新工
 | # | 要求 | 为什么（不是"最佳实践"，是失效模式） |
 |---|------|--------------------------------|
 | 1 | 根目录有合法的 `package.json`，且含 `name` 与 `version`（`x.y.z`） | 没有它，入口推断只剩"index 约定"，mappings 会退化成一个目录 🔒 |
-| 2 | **入口可解析**：`ngm.json` 的 `main`/`types`，或 `package.json` 的 `exports`/`main`，或根 `index.ts|js` | 与 `InferEntry` 三层同口径 🔒 |
+| 2 | **入口可解析**：`ngm.json` 的 `main`/`types`，或 `package.json` 的 `exports`/`main`，或根 `index.ts|js|mjs|cjs` | 与 `InferEntry` 三层同口径（**按声明判定**，不看文件是否存在——产品就是这样）🔒 |
+| 2b | **声明的入口文件真的在仓库里**（`main` 与 `types` 各自） | 与上一条**分开**：产品会照用声明的路径，而指向不存在的东西时，引用与构建失败得比"找不到入口"更难懂（v0.88 起独立判据 `entry-file-exists`，会点名缺的是哪一个）🔒 |
 | 3 | 若入口指向构建产物（如 `dist/`），**产物必须被提交**（不在 `.gitignore` 里） | ngm **不替依赖构建**（钩子默认 deny），指向一个不存在的文件等于没有入口 🔒 |
 | 4 | **没有**安装期钩子：`preinstall` / `install` / `postinstall` / `prepare` | 它们在 ngm 下默认不执行；"靠钩子把库变得可用"的库，vendored 之后是坏的 🔒 |
 | 5 | **没有** `.npmrc` | ngm 全仓库零处读取它；而它正是 PackageGate 那条"覆盖 git 二进制路径"的载体（[竞品对比 §4.2](../COMPETITIVE-ANALYSIS.md)）🔒 |
@@ -158,7 +159,7 @@ Windows：
 .\scripts\check-library-standard.ps1 -Dir C:\src\my-lib
 ```
 
-判据共 **26 条**：12 条必做常驻 + 5 条条件触发（入口指向构建产物时才检查产物是否已提交；
+判据共 **27 条**：13 条必做常驻 + 5 条条件触发（入口指向构建产物时才检查产物是否已提交；
 提供 `ngm.json` 时才检查它是否合法；monorepo 模式下才检查每个 workspace 目录；
 `packages` 里有读不出的写法时才报 `workspace-manifest-unreadable`；
 **嵌套 monorepo** 时才有 `nested-monorepo` 那条记录）+ 9 条推荐。
@@ -211,13 +212,24 @@ lerna `lerna.json` 的 `packages`）合并且去重；写法上只读**简单形
 ### 5.2 自检器与产品必须读同一份事实
 
 自检器**比产品严**就是误判：一个库会为"标准推荐它做的事"而红。
-v0.78 对齐的一处：**入口推断读 `exports`**。
+v0.78 对齐了「入口推断读 `exports`」；v0.88 把 **`Types` 一侧也纳入**，
+并把这一致性变成**机械判据**（一条网：15 种 `package.json` 形态，两侧必须给出同一个入口与类型入口）。
 
 | 入口层次 | 产品（`internal/mappings.InferEntry`） | 自检器 |
 |---------|--------------------------------------|--------|
-| ① 依赖自己的 `ngm.json` | `main` / `types` | 同 |
+| ① 依赖自己的 `ngm.json` | `main` / `types`（任一非空即采用） | 同 |
 | ② `package.json` | **`exports`**（字符串 / `"."` 字符串 / 条件映射，`types` → `import` / `module` / `default` / `require` 先到先得）→ 再 `main` / `types` 字段 | 同（v0.78 起逐字对齐） |
-| ③ index 约定 | `index.ts` / `index.js` / `index.mjs` / `index.cjs`（`index.d.ts`/`d.mts`/`d.cts` 作类型） | 同 |
+| ③ index 约定 | `index.ts` / `index.js` / `index.mjs` / `index.cjs`（`index.d.ts` / `d.mts` / `d.cts` 作类型） | 同 |
+
+三条随之而来的口径（v0.88）：
+
+- **按声明判定**，不看文件是否存在（产品就是这样）：`entry-resolvable` 只问"有没有入口"；
+  "声明的入口文件**在不在**"是**另一条必做判据** `entry-file-exists`，它会点名缺的是哪一个。
+  两者混在一起时，一个"声明了但文件不在"的包会得到两边各说一句话、却说不清哪里不对。
+- **`types-provided` 不再接受任意根级 `.d.ts`**：Go 的第 3 层只认 `index.d.ts|d.mts|d.cts`，
+  所以 `foo.d.ts` 这种包上两侧必然分歧（一侧说"有类型"、产品说"没有"）。
+- 命令行入口与 `/t…` 无关的差异**逐字对齐** `relPath`（统一 `/`、确保带 `./` 前缀）：
+  报告里写出来的入口就是产品会用的那一个。
 
 ### 5.3 扫你 **vendored 的产物**（`scripts/check-vendored-standard.sh`）
 

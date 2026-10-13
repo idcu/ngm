@@ -360,29 +360,67 @@ if [ -f "$DIR/ngm.json" ]; then
 	ngm_types=$(echo "$ngm_pair" | cut -d' ' -f2)
 fi
 
-# 候选顺序**逐条对齐** internal/mappings.InferEntry：
-#   ① ngm.json 的 main/types → ② package.json 的 exports（优先）/ main / types
-#   → ③ index 约定（含 .cjs——v0.78 对齐时补上的一个缺口）；
-# 层内 exports 先于 main 字段（Go 侧就是这么写的：`if main == "" { main = pj.Main }`）。
-entry_candidates=""
-for c in "$ngm_main" "$ngm_types" "${P_exportsMain:-}" "${P_exportsTypes:-}" \
-	"${P_main:-}" "${P_types:-}" "./index.ts" "./index.js" "./index.mjs" "./index.cjs"; do
-	[ -n "$c" ] && entry_candidates="$entry_candidates $c"
-done
+# ---- 入口推断：逐条镜像 internal/mappings.InferEntry（v0.88） -----------------
+#
+# **按声明判定**，不看文件是否存在——Go 侧就是这样（声明即采用）。v0.88 之前这里是
+# "第一个**存在**的候选"：两者在"声明了但文件不在"的包上必然给出不同答案，而那种
+# 不一致最坏的地方是**说不清谁对**（产品会用那个路径、自检器说找不到）。现在拆成两条：
+#   entry-resolvable  = 有没有入口（**与产品同口径**）
+#   entry-file-exists = 声明的入口**是否真的在仓库里**
+#
+# 这也让 Types 侧第一次有了口径：`types-provided` 之前只判"有没有根级 .d.ts"，
+# 而 Go 的第 3 层只认 `index.d.ts|d.mts|d.cts`——两层在 `foo.d.ts` 这种包上必然分歧。
+#
+# rel_path 逐字镜像 internal/mappings.relPath：去空白、统一 `/`、确保 `./` 前缀。
+# 两侧打印的入口必须**同形**；"逐字对齐"如果只是话说得好听，这条网就没有意义。
+rel_path() {
+	p=$(printf '%s' "$1" | tr -d '\r' | tr '\\' '/' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+	[ -z "$p" ] && return 0
+	case "$p" in
+	./* | ../*) printf '%s' "$p" ;;
+	/*) printf './%s' "$(printf '%s' "$p" | sed 's|^/*||')" ;;
+	*) printf './%s' "$p" ;;
+	esac
+}
 
-entry_found=""
+ngm_main=$(rel_path "$ngm_main")
+ngm_types=$(rel_path "$ngm_types")
+P_main=$(rel_path "${P_main:-}")
+P_types=$(rel_path "${P_types:-}")
+P_exportsMain=$(rel_path "${P_exportsMain:-}")
+P_exportsTypes=$(rel_path "${P_exportsTypes:-}")
+
+entry_main=""
+entry_types=""
 entry_layer=""
-for c in $entry_candidates; do
-	p="${c#./}"
-	if [ -f "$DIR/$p" ]; then
-		entry_found="$c"
-		case "$c" in
-		"$ngm_main" | "$ngm_types") [ -n "$c" ] && entry_layer="ngm.json" ;;
-		*) [ "$c" = "./index.ts" ] || [ "$c" = "./index.js" ] || [ "$c" = "./index.mjs" ] && entry_layer="index 约定" || entry_layer="package.json" ;;
-		esac
-		break
+if [ -n "$ngm_main" ] || [ -n "$ngm_types" ]; then
+	# 第 1 层：任一非空即采用（Go 侧：两个都空才落到第 2 层）
+	entry_layer="ngm.json"
+	entry_main="$ngm_main"
+	entry_types="$ngm_types"
+elif [ -n "$P_exportsMain" ] || [ -n "$P_exportsTypes" ] || [ -n "$P_main" ] || [ -n "$P_types" ]; then
+	# 第 2 层：层内 exports 先于字段（Go 侧：`if main == "" { main = pj.Main }`）
+	entry_layer="package.json"
+	if [ -n "$P_exportsMain" ]; then entry_main="$P_exportsMain"; else entry_main="$P_main"; fi
+	if [ -n "$P_exportsTypes" ]; then entry_types="$P_exportsTypes"; else entry_types="$P_types"; fi
+else
+	# 第 3 层：index 约定——main 与 types 是**两条独立**的候选链（Go 侧就是两个循环）
+	for c in index.ts index.js index.mjs index.cjs; do
+		if [ -f "$DIR/$c" ]; then
+			entry_main="./$c"
+			entry_layer="index 约定"
+			break
+		fi
+	done
+	if [ -n "$entry_main" ]; then
+		for t in index.d.ts index.d.mts index.d.cts; do
+			if [ -f "$DIR/$t" ]; then
+				entry_types="./$t"
+				break
+			fi
+		done
 	fi
-done
+fi
 
 if [ "$ROLE" = "mono-root" ]; then
 	if [ "$IS_CHILD" = 1 ]; then
@@ -390,17 +428,37 @@ if [ "$ROLE" = "mono-root" ]; then
 	else
 		skip must entry-resolvable "monorepo 根不是包——入口由各子包自己声明（子包逐个体检，见下）"
 	fi
-elif [ -n "$entry_found" ]; then
-	pass must entry-resolvable "入口 $entry_found（来自 $entry_layer，与 InferEntry 三层同口径）"
+elif [ -n "$entry_main" ]; then
+	pass must entry-resolvable "入口 $entry_main（来自 $entry_layer，与 InferEntry 三层同口径）"
 else
-	fail must entry-resolvable "三层都没找到入口（ngm.json 的 main/types、package.json 的 exports/main、./index.ts|js）；mappings 会只剩一个目录"
+	fail must entry-resolvable "三层都没找到入口（ngm.json 的 main、package.json 的 exports/main、./index.ts|js|mjs|cjs）；mappings 会只剩一个目录"
+fi
+
+# 声明的入口**是否真的在仓库里**（与"有没有入口"分开，见上面的注释）。
+missing_declared=""
+for pair in "main:$entry_main" "types:$entry_types"; do
+	kind="${pair%%:*}"
+	path="${pair#*:}"
+	[ -z "$path" ] && continue
+	if [ ! -e "$DIR/${path#./}" ]; then
+		missing_declared="${missing_declared:+$missing_declared, }$kind $path"
+	fi
+done
+if [ "$ROLE" = "mono-root" ]; then
+	skip must entry-file-exists "monorepo 根不是包——入口文件的存在性由各子包自己承担"
+elif [ -z "$entry_main" ] && [ -z "$entry_types" ]; then
+	skip must entry-file-exists "没有可检的入口声明（见 entry-resolvable）"
+elif [ -n "$missing_declared" ]; then
+	fail must entry-file-exists "声明了但仓库里没有：$missing_declared —— 产品会照用这个路径，引用与构建会指向不存在的东西"
+else
+	pass must entry-file-exists "声明的入口都在仓库里（main ${entry_main:-—} · types ${entry_types:-—}）"
 fi
 
 # 入口指向构建产物 ⇒ 产物必须被提交（ngm 不替依赖构建）
 if [ "$ROLE" = "mono-root" ]; then
 	skip must dist-committed "monorepo 根不是包——产物是否已提交由各子包自己承担"
-elif [ -n "$entry_found" ]; then
-	case "$entry_found" in
+elif [ -n "$entry_main" ]; then
+	case "$entry_main" in
 	dist/* | ./dist/* | build/* | ./build/* | lib/* | ./lib/*)
 		# .gitignore 也可能写在**仓库根**（monorepo 的常态），因此两处都看。
 		ignored_in="$DIR"
@@ -413,9 +471,9 @@ elif [ -n "$entry_found" ]; then
 			ignored_in=""
 		fi
 		if [ -n "$ignored_in" ]; then
-			fail must dist-committed "入口指向构建产物（$entry_found），但它被 .gitignore 排除了（$ignored_in/.gitignore）—— ngm 不替依赖构建（钩子默认 deny），产物必须提交"
+			fail must dist-committed "入口指向构建产物（$entry_main），但它被 .gitignore 排除了（$ignored_in/.gitignore）—— ngm 不替依赖构建（钩子默认 deny），产物必须提交"
 		else
-			pass must dist-committed "入口指向构建产物（$entry_found）且未被 .gitignore 排除"
+			pass must dist-committed "入口指向构建产物（$entry_main）且未被 .gitignore 排除"
 		fi
 		;;
 	esac
@@ -560,11 +618,13 @@ fi
 
 if [ "$ROLE" = "mono-root" ]; then
 	skip should types-provided "monorepo 根不是包——类型入口由各子包自己声明"
-elif [ -n "${P_types:-}" ] || [ -n "${P_exportsTypes:-}" ] || [ -n "$ngm_types" ] ||
-	ls "$DIR"/*.d.ts >/dev/null 2>&1; then
-	pass should types-provided "提供了类型入口"
+elif [ -n "$entry_types" ]; then
+	# v0.88：口径与产品的 `Entry.Types` 一致，并把路径**打印出来**（对齐网逐条对账用）。
+	# 旧写法只判"有没有根级 .d.ts"——Go 的第 3 层只认 `index.d.ts|d.mts|d.cts`，
+	# 于是 `foo.d.ts` 这种包上两侧必然分歧（一侧说"有类型"，产品说"没有"）。
+	pass should types-provided "类型入口 $entry_types（来自 $entry_layer，与 InferEntry 三层同口径）"
 else
-	fail should types-provided "没有 types 字段、也没有根级 .d.ts —— TS 消费者只能靠约定"
+	fail should types-provided "没有类型入口（ngm.json 的 types、exports.types / types 字段、index.d.ts|d.mts|d.cts）—— TS 消费者只能靠约定"
 fi
 
 if [ "$ROLE" = "mono-root" ]; then
