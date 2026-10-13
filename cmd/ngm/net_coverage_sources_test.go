@@ -139,6 +139,12 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV86MirrorCoverageIsAMeasuredReading": {
+		what: "`scripts/check-mirror-coverage.sh`：镜像侧覆盖是**按需实测的读数**——两次请求拿 tag 数与 release 数，算出「未推送 = 已交付 − 镜像 tag」；**缺口不判失败**（读数不是门禁），只有「问不到」（HTTP 非 200 / 连不上）才 exit 3 并明说「不下结论」",
+		why: "仓库里那几处「GitHub 有 65 个 tag / 60 个 release」是写死的历史快照，而快照过期的方式很安静——「未推送数」那处**漏过两次**（v0.84 复盘）。" +
+			"这条命令让同一件事随时可再测；判据用**本地假 API**（httptest）喂它，因此不碰网络",
+		source: "实现在 `scripts/check-mirror-coverage.sh`（+ `.ps1` 转调同一实现）；判据在 `cmd/ngm/v086_mirror_coverage_test.go`：读得到（65 tag · 60 release · 最新 v0.64.0 · UNPUSHED = 已交付 − 65）· 假 API 回 500 ⇒ exit 3 · 连不上 ⇒ exit 3",
+	},
 	"TestV84WorktreeStateNamesUncommittedVersionArtifacts": {
 		what: "收口脚本里的**工作树状态读数**：干净 ⇒ 只计数不点名 · 出现未提交的版本工件（plan/retrospective）⇒ **点名它**并写出「没有版本保护」 · 提交之后点名消失（点名认的是「未提交」而不是「文件存在」）· 就地改一份已跟踪的快照 ⇒ 单独一句话 · 另含「收口清单」（该跑哪两条命令）",
 		why: "起因是一次真实事故：v0.83 开工时没看工作树，覆盖了并行工作线的两份**未跟踪**文件（无 Git 副本、无 IDE 历史）⇒ 只能重建。" +

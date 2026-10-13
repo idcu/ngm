@@ -92,6 +92,16 @@ jobs:
       - name: docs links
         run: bash scripts/check-docs-links.sh
 
+      # 镜像侧的**实测读数**（v0.86）：两次请求，把"tag 数 / release 数 / 未推送数"
+      # 摆在 CI 页面上。`continue-on-error`：它是**读数不是门禁**——
+      # 推送是仓库所有者的动作，缺口不该让流水线变红；而"问不到"时它会 exit 3，
+      # 那也不该把一条与本次改动无关的流水线拖红（它的输出里写着拒绝下结论）。
+      - name: mirror coverage (live reading; a gap is not a failure)
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check-mirror-coverage.sh
+
   # 格式与行尾门禁。
   #
   # 两条独立防线：
