@@ -51,6 +51,15 @@ import (
 // 修复随下一版交付。
 const neverReleased = 4
 
+// githubTagsOnTheMirror 是**实测**的 GitHub 侧 tag 数（2026-10-10 问过 API：
+// 65 个，`v0.1.0` … `v0.65.0`，无缺口）。用它核对"未推送的 tag 数"这条读数：
+//
+//	未推送 = 已交付版本数 − 镜像上的 tag 数
+//
+// v0.84 加这条判据的理由：这处**漏过两次**（v0.81 与 v0.82 都没随版本增长改它），
+// 而在此之前**没有任何判据看着它**——数字一直都在，只是没人算。
+const githubTagsOnTheMirror = 65
+
 var (
 	// 中文的**总数声明**：`五十七个 tag 均已打` / `五十七个 tag 全部已打`。
 	//
@@ -77,6 +86,14 @@ var (
 	reZhVersionC = regexp.MustCompile(`共([一二三四五六七八九十]+)个版本`)
 	// `worked forty-nine times`
 	reEnTimes = regexp.MustCompile(`worked ([a-z]+(?:-[a-z]+)?) times`)
+	// v0.84：**未推送的 tag 数**——两处写法都守着。
+	//
+	// 这一处**漏过两次**（v0.81 与并行线的 v0.82 都没随版本增长更新它），
+	// 而它此前没有任何判据看着：数字一直在，只是没人算。`githubTagsOnTheMirror`
+	// 是**实测的写死事实**（2026-10-10 问过 API：65 个 tag，`v0.1.0` … `v0.65.0` 无缺口），
+	// 与 `neverReleased` 同一条纪律：它是写清楚的事实，不是可以随手改的数。
+	reZhUnpushed = regexp.MustCompile(`差的 \*{0,2}(\d+) 个是未推送的`)
+	reEnUnpushed = regexp.MustCompile(`The (\d+) tags the mirror does not have`)
 	// `those fifty-four historical artifacts`
 	reEnArtifacts = regexp.MustCompile(`those ([a-z]+(?:-[a-z]+)?) historical artifacts`)
 	// 行内的版本号（`v0.57` 或 `v0.57.0`）——取"交付"那句话里的**最后一个**，
@@ -267,6 +284,16 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 			gaps = append(gaps, gapReading{display, n, "N historical artifacts"})
 		}
 
+		// ② 未推送的 tag 数（v0.84 新增；两处写法都收）
+		for _, m := range reZhUnpushed.FindAllStringSubmatch(proseText, -1) {
+			readings++
+			unpushed = append(unpushed, gapReading{display, mustAtoi(t, m[1]), "未推送的 N 个（中文）"})
+		}
+		for _, m := range reEnUnpushed.FindAllStringSubmatch(text, -1) {
+			readings++
+			unpushed = append(unpushed, gapReading{display, mustAtoi(t, m[1]), "unpushed N（英文）"})
+		}
+
 		// ② 成功次数 == GitHub 数 − 从未发布的 4 个（延后核对，同上）
 		for _, m := range reEnTimes.FindAllStringSubmatch(proseText, -1) {
 			n, ok := enNumber(m[1])
@@ -290,6 +317,18 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 	}
 	if deliveryLines == 0 {
 		t.Fatal("一条带版本的交付声明都没扫到——这条判据的范围缩到零了")
+	}
+
+	// ② 未推送的 tag 数 == 版本数 − 镜像上的 tag 数（v0.84 新增；这处漏过两次）
+	wantUnpushed := delivered - githubTagsOnTheMirror
+	for _, u := range unpushed {
+		if u.n != wantUnpushed {
+			t.Errorf("%s: `%s` 写着 %d，而 版本数(%d) − 镜像 tag(%d) = %d",
+				u.doc, u.kind, u.n, delivered, githubTagsOnTheMirror, wantUnpushed)
+		}
+	}
+	if len(unpushed) == 0 {
+		t.Error("一处「未推送的 tag 数」都没扫到——判据的范围缩到零了")
 	}
 
 	// ② 缺口 == 版本数 − Gitee 数（四处联动：中文那行、安装指南、状态页、开发总览）
@@ -325,8 +364,9 @@ type timesReading struct {
 }
 
 var (
-	gaps  []gapReading
-	times []timesReading
+	gaps     []gapReading
+	times    []timesReading
+	unpushed []gapReading
 )
 
 // lastVersionOnLine 取一行里**最后一个**版本号，并把 `v0.57.0` 与 `v0.57` 归一

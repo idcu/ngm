@@ -139,6 +139,12 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV84WorktreeStateNamesUncommittedVersionArtifacts": {
+		what: "收口脚本里的**工作树状态读数**：干净 ⇒ 只计数不点名 · 出现未提交的版本工件（plan/retrospective）⇒ **点名它**并写出「没有版本保护」 · 提交之后点名消失（点名认的是「未提交」而不是「文件存在」）· 就地改一份已跟踪的快照 ⇒ 单独一句话 · 另含「收口清单」（该跑哪两条命令）",
+		why: "起因是一次真实事故：v0.83 开工时没看工作树，覆盖了并行工作线的两份**未跟踪**文件（无 Git 副本、无 IDE 历史）⇒ 只能重建。" +
+			"但这个读数**不做成门禁**：开发中途工作树本来就不干净，恒红的门禁等于没有门禁——它的价值在于「每次收口都打印出来」",
+		source: "实现在 `scripts/check-release-status.sh`（v0.84 新增两节：worktree state / before you call it delivered）；判据在**合成仓库**上跑（`git init` + 一份复盘 + 一个附注 tag），不依赖本仓库状态",
+	},
 	"TestV83BrokenGlobalConfigIsRejectedNotSilentlyDegraded": {
 		what: "**坏配置必须报出来**：没有配置文件照常（默认值就是为此存在的）· 非法值（`git.defaultProtocol: sqlite`）⇒ `ConfigInvalid` 且**用户看到的文本**里点名文件与字段（`FormatHuman` 的 message + cause + hint 三段一起判）· 未知字段（typo）同样报错 · 合法配置照常（牙齿：证明不是「有配置就报错」）",
 		why: "起点是实测：把 `git.defaultProtocol` 写成非法值，命令照样跑、没有任何提示（协议被悄悄换回 https）。旧注释的理由是「读不出来时策略为 nil ⇒ 判定退化为默认档位 ⇒ 更严」——" +

@@ -115,6 +115,53 @@ has_tag() { printf '%s' "$tag_list" | awk -F'\t' -v v="$1" 'NF && $1 == v { f = 
 tag_name() { printf '%s' "$tag_list" | awk -F'\t' -v v="$1" 'NF && $1 == v { print $2; exit }'; }
 count() { printf '%s' "$1" | awk 'NF' | wc -l | tr -d ' '; }
 
+# ---------------------------------------------------------------- 工作树状态（v0.84）
+#
+# 把"开工 / 收口先看工作树"变成一处**读数**（不是门禁）。
+#
+# 起因是一次真实事故：v0.83 开工时没看工作树（`git log` 只说明最后一个提交在哪），
+# 覆盖了**并行工作线**的两份**未跟踪**文件（docs/development/v0.81-{plan,retrospective}.md）
+# ——未提交 ⇒ 没有 Git 副本、也没有 IDE 历史条目（工具直写磁盘）⇒ 只能重建。
+# 教训写在 v0.83 复盘 §1：**未提交的工作等于没有版本保护**。
+#
+# 为什么不做成失败：开发中途工作树本来就不干净（未提交是常态），
+# 一个恒红的门禁等于没有门禁。它的价值在于"每次收口都打印出来"——
+# 于是"这里还有别人没提交的东西"会被看见，而不再依赖谁的记性。
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "worktree state (read this before you touch anything):"
+  dirty_list="$(git status --porcelain)"
+  dirty_count="$(printf '%s\n' "$dirty_list" | awk 'NF' | wc -l | tr -d ' ')"
+  echo "  uncommitted (modified or untracked): $dirty_count file(s)"
+
+  # 版本工件（plan / retrospective）里**未提交**的那些：
+  # 它们是"没有版本保护"的高危文件——本行的存在理由就是那次覆盖事故。
+  uncommitted_dev="$(git status --porcelain -- "$RETRO_DIR" \
+    | awk 'NF { s = substr($0, 1, 2); p = substr($0, 4); if (s == "??" || s ~ /M/) print p }')"
+  if [ -n "$uncommitted_dev" ]; then
+    echo "  version artifacts NOT committed:"
+    printf '%s\n' "$uncommitted_dev" | awk 'NF { print "    " $0 }'
+    echo "    ^ 这些文件**没有版本保护**：被覆盖就永久丢失（v0.83 复盘 §1 的教训）。"
+    echo "      收口时先提交它们，或至少复制到仓库外再动手。"
+  fi
+
+  # 已跟踪的复盘/计划被就地修改：本项目的纪律是"复盘是快照，不随后续删改修订"。
+  edited_snapshots="$(git status --porcelain -- "$RETRO_DIR" | awk 'NF { s = substr($0, 1, 2); p = substr($0, 4); if (s ~ /M/) print p }')"
+  if [ -n "$edited_snapshots" ]; then
+    echo "  snapshot docs edited in place (expected to be immutable):"
+    printf '%s\n' "$edited_snapshots" | awk 'NF { print "    " $0 }'
+  fi
+  echo
+fi
+
+# 收口清单：本脚本只查"tag ↔ 复盘"这一件事。**其余判据必须真的跑过**——
+# v0.83 的撞号（两个文件都叫 ADR-028）本会被 v0.71 那张网抓到
+# （`ADR 编号 028 被两个文件使用`），它没有红的原因不是判据缺失，而是**收口时没跑它**。
+# 所以这里把"什么时候跑什么"打印出来，而不是留给记性。
+echo "before you call it delivered:"
+echo "  go test ./...                    # 全部判据（含 ADR 索引、读数、契约网）"
+echo "  bash scripts/check-docs-links.sh # 文档链接"
+echo
+
 # ---------------------------------------------------------------- 报告
 echo "release status (one retrospective per released version):"
 echo "  saw $tag_count release tag(s), $(count "$retro_list") retrospective(s)"
