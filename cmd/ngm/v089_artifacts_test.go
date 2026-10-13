@@ -51,12 +51,11 @@ func TestV89ScriptsArtifactsAreEitherRunOrExplained(t *testing.T) {
 var explainedNotAutomated = map[string]string{
 	// 需要凭据：CI 里没有 GITEE_TOKEN，只有人工回填历史发行版时才跑。
 	"upload-gitee-assets.ps1": "需要 GITEE_TOKEN（只在人工回填时跑）；静态部分由 v0.88 的 ps1 解析网守着",
-	// 四个 Windows 入口：它们**转调**的实现都被跑着（判据或 CI），
-	// 而"在 Windows 上真跑一次 .ps1"目前是人工的——这是 v0.90 该接进判据的对象。
-	"check-mirror-coverage.ps1":      "Windows 入口，转调 check-mirror-coverage.sh（那个 .sh 被判据与 CI 跑）；本文件由 ps1 解析网守着",
-	"check-vendored-standard.ps1":    "Windows 入口，转调 check-vendored-standard.sh（那个 .sh 被判据跑）；本文件由 ps1 解析网守着",
-	"write-readings-summary.ps1":     "Windows 入口，转调 write-readings-summary.sh（那个 .sh 被判据与 CI 跑）；本文件由 ps1 解析网守着",
-	"check-gitee-release-status.ps1": "Windows 入口，转调 check-gitee-release-status.sh（那个 .sh 被 write-readings-summary.sh 跑，而后者被判据与 CI 跑）；本文件由 ps1 解析网守着",
+	// 需要网络且没有离线模式：判断它"读得对不对"必须问 Gitee。
+	// （v0.90 把另外几个入口接进了 TestV90… 真的跑——登记表因此从 5 条缩到 2 条：
+	// 它是一张**待办清单**，不是永久豁免。这条留着的理由是它**没法**离线跑；
+	// 候选：给它加 --api-base，那样它也能被假 API 喂。）
+	"check-gitee-release-status.ps1": "该读数没有离线模式（无 --api-base），判据没法在不联网的情况下跑它；静态部分由 ps1 解析网守着",
 }
 
 // auditArtifacts 返回（既跑不到也没登记的文件，登记表里已不存在的键）。

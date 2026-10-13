@@ -10,7 +10,10 @@
 
 [CmdletBinding()]
 param(
-    [string]$Repo
+    [string]$Repo,
+    # --api-base 是实现的选项（"指一个本地假 API"，只为判据存在）——入口必须一并转发，
+    # 否则 Windows 上就**没法**用它做同样的验证（v0.90 实测到的第一处"入口吞参数"）。
+    [string]$ApiBase
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,8 +47,10 @@ if (-not (Test-Path -LiteralPath $sh)) {
     exit 2
 }
 
-$args = @()
-if ($Repo) { $args += @('--repo', $Repo) }
+# 变量名用 $shArgs（不用 $args：那是 PowerShell 的自动变量，赋值会掩盖真正的未绑定参数）。
+$shArgs = @()
+if ($Repo) { $shArgs += @('--repo', $Repo) }
+if ($ApiBase) { $shArgs += @('--api-base', $ApiBase) }
 
-& $bash $sh @args
+& $bash $sh @shArgs
 exit $LASTEXITCODE

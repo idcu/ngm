@@ -13,7 +13,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Dir,
     [switch]$Strict,
-    [switch]$Json
+    [switch]$Json,
+    # 实现支持的选项都要转发（v0.90 起有判据守着"入口不许吞参数"）：`--help` 也不例外。
+    [switch]$Help
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,9 +58,15 @@ if (-not (Test-Path -LiteralPath $Dir)) {
 # 传绝对路径（正斜杠）：bash 的 CWD 与 PowerShell 的不一致时相对路径会错位。
 $abs = ((Resolve-Path -LiteralPath $Dir).Path -replace '\\', '/')
 
-$args = @($abs)
-if ($Strict) { $args += '--strict' }
-if ($Json) { $args += '--json' }
+if ($Help) {
+    # `--help` 不需要目录：直接转给实现。
+    & $bash $sh '--help'
+    exit $LASTEXITCODE
+}
 
-& $bash $sh @args
+$shArgs = @($abs)
+if ($Strict) { $shArgs += '--strict' }
+if ($Json) { $shArgs += '--json' }
+
+& $bash $sh @shArgs
 exit $LASTEXITCODE

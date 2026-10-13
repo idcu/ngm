@@ -44,6 +44,36 @@ for r in "${roots[@]}"; do
   fi
 done
 
+# normalize_path：把 `a/b/../c` 折叠成 `a/c`——**纯字符串处理，不起子进程**。
+#
+# 为什么要有它：原来每条链接都用 `$(cd "$(dirname …)" && pwd)` 规范化，
+# 那是**一次子进程 + 一个子 shell**；docs/ 有 248 个文件、上千条链接 ⇒ 上千次 spawn，
+# 本机实测一次扫描 **133 秒**（2026-10-14，v0.90）。改成纯 bash 后同一份检查是**秒级**。
+#
+# 与原实现的差别：不做符号链接解析（`cd`+`pwd` 会解）。本检查只问"文件在不在"，
+# 而仓库里没有链接目录；已有的 `canonical-json` 事故（v0.8 §5.8）教的是
+# "别让两根实现有两套说法"，不是"必须解析符号链接"。
+normalize_path() {
+  local p="$1" out="" seg
+  local IFS=/
+  for seg in $p; do
+    case "$seg" in
+    "" | ".") continue ;;
+    "..")
+      case "$out" in
+      */*) out="${out%/*}" ;;
+      *) out="" ;;
+      esac
+      ;;
+    *) out="${out:+$out/}$seg" ;;
+    esac
+  done
+  case "$p" in
+  /*) printf '/%s' "$out" ;;
+  *) printf '%s' "$out" ;;
+  esac
+}
+
 for f in "${files[@]}"; do
   # 跳过 node_modules / vendor 等
   case "$f" in
@@ -57,6 +87,9 @@ for f in "${files[@]}"; do
   # 只处理同一行内成对的反引号（`sed` 的能力边界）；跨行的代码块由下面的事实兜住：
   # 代码块里的路径通常不是真实相对路径，真报了也一眼能看出是示例。
   cleaned="$(sed -E 's/`[^`]*`//g' "$f")"
+
+  # base 每文件算一次（原来它在**每条链接**里都算一遍，见 normalize_path 的注释）。
+  base="$(dirname "$f")"
 
   # 提取所有 [label](path) 中的 path
   while IFS= read -r line; do
@@ -82,10 +115,7 @@ for f in "${files[@]}"; do
       *) continue ;;
     esac
 
-    base="$(dirname "$f")"
-    resolved="$base/$target"
-    # 规范化 ../
-    resolved="$(cd "$(dirname "$resolved" 2>/dev/null || echo .)" 2>/dev/null && pwd)/$(basename "$resolved")" 2>/dev/null || resolved=""
+    resolved="$(normalize_path "$base/$target")"
     if [ -z "$resolved" ] || [ ! -f "$resolved" ]; then
       echo "BROKEN LINK in $f: $line"
       bad=$((bad + 1))

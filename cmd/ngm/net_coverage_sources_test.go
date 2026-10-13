@@ -139,6 +139,23 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV90PowerShellWrappersRunTheirImplementation": {
+		what:   "**入口真的跑一次**：五个 `.ps1`（`check-docs-links` · `check-vendored-standard` · `check-mirror-coverage` · `check-release-status`（v0.90 新加的入口）· `write-readings-summary`）各跑一次，且每个都有**两条断言**——① 能跑；② 用**必然失败的输入**验它的退出码与点名真的传了回来（不合格的 vendored 夹具 ⇒ exit 1 · 缺 tag 的仓库 ⇒ exit 1 · 假 API 的读数必须出现在输出里 · `-Out` 必须真的写成文件且是追加）",
+		why:    "v0.89 的登记表把「没人跑」变成必须显式登记的事实；v0.90 接着把它**变短**——登记表是待办清单，不是永久豁免（5 条 → 2 条）。只验「退出 0」的网会被一个 `exit 0` 的坏包装器骗过去，所以每个入口都用反面输入验一遍",
+		source: "判据在 `cmd/ngm/v090_ps1_wrappers_run_test.go`；假 API 与合成仓库见同文件的 `syntheticDeliveredRepo`（v0.86/v0.88 各自内联过同一段夹具）",
+	},
+	"TestV90WrapperOptionsParity": {
+		what: "**入口不许吞参数**：同名 `.ps1` 必须**带引号地转发** `.sh` 自己接受的每一个长选项（只取 `case \"$1\" in` 块里的 `--xxx` 分支，不含脚本内部调用别的工具用的选项）；没有 `.ps1` 的脚本必须在 `noWindowsEntry` 里写明原因",
+		why: "实测抓到 `check-mirror-coverage.ps1` 只声明 `-Repo`、**不转发 `--api-base`**——而那个选项存在的全部理由就是「给判据指一个本地假 API」，于是 Windows 上做不了同样的验证：「唯一实现」的纪律在这里破了（实现支持、入口不支持，两者就不是同一个东西）。" +
+			"另有两处漏了 `--help`。**第一次写这条网时它被自己的注释骗过**（查的是「文本里有没有这个名字」，而入门的注释里正解释着这个选项）——牙齿没红才发现，改成必须**带引号转发**",
+		source: "判据在 `cmd/ngm/v090_ps1_wrappers_run_test.go`；修复：mirror 入口补 `-ApiBase`，两个入口补 `-Help`，另为 `check-release-status.sh` **新增**了 Windows 入口",
+	},
+	"TestV90DocsLinksStillCatchesBrokenLinks": {
+		what: "文档链接检查的**负例**：一个临时文档树里放 4 条链接——存在的相对链接（过）· `../` 形式（过）· 子目录形式（过）· 反引号里的示例（**忽略**）· 一条真的坏链接（**红并点名**），并要求「BROKEN LINK」恰好出现一次",
+		why: "v0.90 把它的路径规范化从「每条链接一次子进程」（`cd … && pwd`）换成纯 bash 字符串处理，实测 **133.72s → 33.07s**（docs/ 有 248 个文件、上千条链接 ⇒ 原来上千次 spawn）。**加速最容易顺手改坏语义**，而改坏会伪装成「全过」：" +
+			"这条网是那次改动的对照（反引号那条语义尤其容易被顺手改掉）",
+		source: "判据在 `cmd/ngm/v090_ps1_wrappers_run_test.go`；改动在 `scripts/check-docs-links.sh` 的 `normalize_path`",
+	},
 	"TestV89ScriptsArtifactsAreEitherRunOrExplained": {
 		what: "**交付脚本必须「被谁跑」说得清**：`scripts/*.sh|*.ps1` 要么能沿着「判据 / 工作流 / 其它脚本」的引用链走到某处（**传递闭包**：A 被某条判据跑、A 的正文提到 B ⇒ B 也算覆盖），要么在 `explainedNotAutomated` 里写明为什么跑不了；登记表里出现已不存在的文件也红；新增脚本而两样都没有 ⇒ 红",
 		why: "v0.88 抓到的那两个 `.ps1` 是交付给 Windows 用户的入口，却在仓库里躺了很久**根本不能被解析**——它们为什么没人发现？因为**没有任何东西在跑它们**（Go 侧只有一个判据读了它的文本，用来对齐 Find-Bash 顺序）：「读过」与「跑过」差了整整一个层次。" +

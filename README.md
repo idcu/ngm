@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.89 delivered in source**, and all eighty-nine tags `v0.1.0` … `v0.89.0` exist.
+Status: **v0.1 … v0.90 delivered in source**, and all ninety tags `v0.1.0` … `v0.90.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +26,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 89** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 89** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 90** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 90** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 24 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.89.0`).
+The 25 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.90.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those eighty-six historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those eighty-seven historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -335,6 +335,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.87 | "the two sides must agree" becomes a check instead of a claim: an entry-alignment net runs eleven `package.json` shapes (a `ngm.json` first layer, `exports` as a string / `"."` string / conditions / a bare condition map / `require` only / `default` before `require`, `main`+`types`, `index.js`, `index.cjs`, and the no-clue case) through the product's `InferEntry` on one side and through the checker's own printed sentence on the other, so it guards both what the report says and what the product actually uses. Teeth: removing the checker's two `exports` layers turns four of the shapes red at once. The checker deliberately does not call the product code — merging the two implementations would leave only self-attestation — and one known hole is written into the test rather than left to be discovered: the checker prints only the entry, so `types` has no mechanical reconciliation | delivered · released |
 | v0.88 | three things that were stated but not guarded became guards. The checker now decides the entry **by declaration** (same as `InferEntry`) with `rel_path` mirrored character for character, stops accepting any root `.d.ts` as a types entry, and splits "is there an entry" from "is the declared file actually there" (new must `entry-file-exists`); the alignment net grew to 15 shapes × (entry + types), closing the known hole v0.87 wrote down. A new net that parses every `scripts/*.ps1` with PowerShell's own parser immediately found two shipped Windows entry points that **could not be parsed at all** — without a BOM, PowerShell 5.1 decodes UTF-8 as ANSI, and a Chinese lead byte swallows the following newline, merging code into the previous line (measured: 0 errors as UTF-8, 3 as ANSI; four of the nine files already had the BOM, so the convention was right and five had drifted). Both wrappers were repaired and actually run. Readings now land on the CI job summary page, where a source that cannot be read says so instead of disappearing | delivered · released |
 | v0.89 | the disease behind v0.88's two unparseable `.ps1` files was not those files but the state of *nothing running them*. Every artifact under `scripts/` (19 of them) is now accounted for: a run-or-explain net follows the reference closure (tests → workflows → other scripts) and anything it cannot reach must be listed with a reason, keys included only if they exist on disk; every `.sh` passes `bash -n` (symmetric with v0.88's PowerShell parse net); every `scripts/<file>` named by a workflow must exist; and `packagegate-demo.sh` is actually run — the test requires its own `0 failed` line rather than a quiet exit 0. The sweep also found two entry points that no document even mentioned, and the convention is now written down: the `.ps1` twin only delegates, the `.sh` is the single implementation | delivered · released |
+| v0.90 | the run-or-explain registry became a to-do list instead of a permanent exemption: five `.ps1` entry points are now actually run, each with a **deliberately failing input** so the test proves the exit code and the named failure survive delegation (an unqualified vendored fixture, a repo missing a tag, a fake API whose numbers must appear, an `-Out` file that must exist and be appended to) — the registry shrank from five entries to two. Wiring those in surfaced two more seam defects: two entry points swallowed parameters (`check-mirror-coverage.ps1` never forwarded `--api-base`, the one option that exists so a test can point the reading at a local fake API; two others dropped `--help`), now guarded by an option-parity net that requires **quoted forwarding** — its first version was fooled by its own explanatory comment until the teeth check turned red. And the docs link check, which every CI run pays for, measured **133.72s** because the inner loop spawned a process per link (248 files, over a thousand links); a pure-bash path normaliser brought it to **33.07s**, with a negative-case net keeping the semantics (a backticked example must stay ignored) | delivered · released |
 
 ---
 

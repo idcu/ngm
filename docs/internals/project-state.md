@@ -145,6 +145,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.87** | **把「逐字对齐」从人工声称变成机械判据** | 入口对齐网 `TestV87EntryInferenceAgreesBetweenProductAndChecker`：11 种 `package.json` 形态（`ngm.json` 第 1 层 · `exports` 的六种形态 · `main`/`types` · `index.js` · `index.cjs` · 都找不到）逐个对账——一侧 `mappings.InferEntry`（判据里给了真实目录读器），另一侧解析自检器打印的 `入口 <path>（来自 …`。**牙齿**：拿掉自检器候选里的 exports 两层 ⇒ 四条 exports 形态立刻红（已复现）。**不让自检器调用产品代码**：两条实现合并成一条就只剩自证。已知缺口写进测试注释：自检器只打印 Main，`Types` 侧只判「有没有」。**产品代码 0 行** |
 | **v0.88** | **把三处「说了但没人守」的地方补上网** | ① **入口与类型**：自检器按**声明**判定（与 `InferEntry` 同口径）+ `rel_path` 逐字对齐 + `types-provided` 只认 `index.d.ts|d.mts|d.cts`（旧写法认任意根级 `.d.ts`，于是 `foo.d.ts` 那种包上两侧必然分歧）+ 新增必做 `entry-file-exists`（把「有没有入口」与「入口文件在不在」分开）；对齐网 15 种形态 ×（Main+Types）。牙齿：改回旧写法 ⇒ 网红在 `foo.d.ts` 那条，并出现「类型入口 （空）+ 有类型」的自相矛盾报告。② **`.ps1` 必须能被 PowerShell 解析**（含非 ASCII ⇒ 必须带 UTF-8 BOM）：新网当场抓到 `check-library-standard.ps1` 与 `packagegate-demo.ps1` **不可解析**——无 BOM 时 PS 5.1 按 ANSI 解码 UTF-8，中文在 GBK 下的**前导字节把换行吞掉**（实测 UTF-8 0 错 / ANSI 3 错）；9 个 `.ps1` 里本来 4 个带 BOM ⇒ 约定是 BOM，5 个漂移；补 BOM 后两个入口**实跑通过**。③ **读数进 CI job summary**（`write-readings-summary.sh` + ci.yml `if: always()`）：读不出必须写「没读成」、`--out` 是追加、永不用读数判红绿。判据 25 → **27 条**；**产品代码 0 行**；一条一般的话：**交付物也会烂在没人跑的地方** |
 | **v0.89** | **「只被读过、从没被跑过」的同类扫尾** | 取证：`scripts/` 19 个交付物里，10 个有判据/CI 在跑、5 个只被文档提到、**2 个连文档都没提到**（`check-mirror-coverage.ps1` · `write-readings-summary.ps1`）。新增四条网：① **run-or-explain**（`TestV89ScriptsArtifactsAreEitherRunOrExplained`）——覆盖 = 判据/工作流/其它脚本的**引用闭包**（否则"只被另一个脚本调用"的会被误判），走不到 ⇒ 必须在 `explainedNotAutomated` 写明原因（只接受「缺环境/凭据」或「它是某个已被跑的实现的入口」两类），表的键必须存在；口径写明是**筛子不是证明**（按引用记账）；② `.sh` 全过 `bash -n`（与 v0.88 的 `.ps1` 解析网对称）；③ 工作流点名的 `scripts/<file>` 必须真的在（去重报）；④ `packagegate-demo.sh` **真的跑**并要求自报 `… passed, 0 failed`。牙齿：放一个没人跑也没登记的脚本 ⇒ 红并点名；工作流塞一个不存在脚本的步骤 ⇒ 红；demo 3.97s 跑通。**产品代码 0 行**；一条一般的话：**病不在那两个坏文件，在「没人跑」这种状态** |
+| **v0.90** | **登记表是待办清单，不是永久豁免** | ① `TestV90PowerShellWrappersRunTheirImplementation`：五个 `.ps1` 入口真的跑，每个都用**必然失败的输入**验「退出码 + 点名」传了回来（不合格 vendored ⇒ exit 1 · 缺 tag ⇒ exit 1 · 假 API 读数出现 · `-Out` 写成且追加）⇒ 登记表 5 → 2。② `TestV90WrapperOptionsParity`：入口必须**带引号转发**实现接受的每个长选项（-mirror 补 `-ApiBase`、两个补 `-Help`、新增 `check-release-status.ps1`）；**这条网第一版查「文本里有没有这个名字」，被入口注释里的同一名字骗过——牙齿不红才发现**（v0.89 已写明：按文本记账是筛子）。③ `TestV90DocsLinksStillCatchesBrokenLinks` + 性能：文档链接检查每次 CI 都跑，实测 **133.72s**（内层循环对**每条链接**起子进程：248 文件 / 上千链接 ⇒ 上千次 spawn）⇒ 改纯 bash 规范化 → **33.07s**；负例网（存在的 / `../` / 子目录 / 反引号示例 / 一条真坏 ⇒ 恰好 1 条）守住语义。新增判据 3 组 + 登记 3 条；**产品代码 0 行**；一条一般的话：**交接处最容易被漏掉——没人负责的地方，参数会被吞、网会撒谎、检查会慢 4 倍** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -265,7 +266,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.89.0` 的 **Gitee 发行版（86 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.90.0` 的 **Gitee 发行版（87 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -340,7 +341,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 86 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 87 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```
