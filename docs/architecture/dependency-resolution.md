@@ -51,6 +51,7 @@ ngm.lock（锁定）+ ngm.mappings.json
 | `git@github.com:org/repo.git` | `github.com/org/repo` |
 | `git://github.com/org/repo.git` | `github.com/org/repo` |
 | `github:org/repo` | `github.com/org/repo` |
+| `git://localhost/org/repo` | `localhost/org/repo`（**回环**，见 [ADR-029](../adr/adr-029-loopback-addresses.md)） |
 
 ### 认证处理
 

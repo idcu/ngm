@@ -9,6 +9,7 @@ package sbom
 import (
 	"sort"
 
+	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/lock"
 	"github.com/idcu/ngm/internal/resolve"
 )
@@ -25,6 +26,22 @@ func FromLock(lf *lock.File) ([]Entry, error) {
 		repo, err := resolve.ParseSlug(d.Name)
 		if err != nil {
 			return nil, err
+		}
+		// v0.81：digest 必须是**完整形态**才能进产物。
+		//
+		// lock 的 Validate 只校验 `sha256:` 前缀（原因见 lock.IsArchiveDigest 的注释：
+		// 被篡改的 lock 必须是 exit 2 的完整性事件，不能在读取时被判成配置错误）。
+		// 但导出层不同——这里要把 digest **写进产物**，一个空哈希会让
+		// CycloneDX 输出 `content: ""`、attestation 写出 `sha256: ""`：
+		// 结构完全合法，内容却是空的。而本包开头写着
+		// "**没有哈希的 SBOM 只是清单**"。
+		//
+		// 位置选在 FromLock：它是 SBOM 与 attestation **共用**的唯一映射处，
+		// 规则不写在第二个地方。
+		if !lock.IsArchiveDigest(d.ArchiveDigest) {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				"dependency "+d.Name+" has no usable `archiveDigest` (got "+d.ArchiveDigest+")",
+				"an SBOM without hashes is only a list; re-run `ngm install` to regenerate the digest")
 		}
 		out = append(out, Entry{
 			Slug:      d.Name,

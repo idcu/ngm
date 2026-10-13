@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/idcu/ngm/internal/atomicfile"
 	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/lock"
 	"github.com/idcu/ngm/internal/sbom"
@@ -93,13 +93,37 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
+	// v0.81：过期的 lock 必须**说出来**。
+	//
+	// 此前 sbom / attest 都只读 lock，不做 install 那道 `lockManifestMismatch`，
+	// 于是 ngm.json 改过之后照样能导出一份"看起来正常"的 SBOM——
+	// 而 attest 那份是要被**签名**的。签名之后最难被发现的正是这一类错误：
+	// 结构合法、哈希正确，描述的却是一个已经不存在的状态。
+	if stale := lockManifestMismatch(lf, toDepSpecs(pf.Dependencies)); len(stale) > 0 {
+		fmt.Fprintf(stderr,
+			"warning: ngm.lock is out of date with ngm.json (%s); "+
+				"this export describes the lock, not the manifest — run `ngm install` first\n",
+			strings.Join(stale, "; "))
+	}
+
+	// v0.81：图不完整必须**说出来**，并且不导出半张图。
+	// 旧 lock、或被手改过的 lock 会缺少某些条目的 `requiredBy`——
+	// 那时"导出一份看起来完整的依赖树"比"不导出"更糟：前者是错的事实。
+	graphComplete := lf.HasGraph()
+	if !graphComplete {
+		fmt.Fprintln(stderr,
+			"note: this lock does not carry a complete dependency graph; "+
+				"the dependency section is omitted — run `ngm install` to record it")
+	}
+
 	data, err := sbom.Build(
 		sbom.Project{Name: pf.Name, Version: pf.Version},
 		entries,
 		sbom.Options{
-			Format:      format,
-			Now:         time.Now(),
-			ToolVersion: version.Version,
+			Format:        format,
+			Now:           time.Now(),
+			ToolVersion:   version.Version,
+			GraphComplete: graphComplete,
 		})
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
@@ -108,10 +132,12 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout——
 	// v0.42 的不变量是"两者要么等价、要么失败"，不允许"都成功而结果不同"。
 	if out := strings.TrimSpace(*outFlag); out != "" {
-		if werr := os.WriteFile(out, data, 0o644); werr != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
-				"write the SBOM to "+out,
-				"check that the target directory exists and is writable", werr))
+		// v0.82：走与 lock / ngm.json / mappings 同一条原子写
+		// （[atomicfile.Write]）。此前是裸 `os.WriteFile`：写到一半被中断
+		// 会留下一个**截断的 JSON**，而它名字是对的、mtime 是新的，
+		// 看文件的人没有理由怀疑它。
+		if werr := atomicfile.Write(out, data); werr != nil {
+			return runErr(ctx, stdout, stderr, werr)
 		}
 		fmt.Fprintf(stdout, "wrote %s (%d component(s), %s)\n", out, len(entries), format)
 		return 0

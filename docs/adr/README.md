@@ -34,6 +34,7 @@
 | [ADR-024](./adr-024-bounded-explanations.md) | 解释输出**必须有界**（`why` 的路径枚举 / `tree` 的展开） | 已定**并已实施**（2026-10-04）：`why` 默认最多 **64** 条路径、`tree` 默认最多 **4096** 个条目；达到上界**必须说出来**（`pathsTruncated` / `entriesTruncated` + 文字里那句），`--all` 显式解除，退出码不变。实测：**41 个节点 → 1 048 576 条路径 / 626 MB**，而图的形状来自上游清单 |
 | [ADR-025](./adr-025-no-builtin-engine-defaults.md) | 引擎选择**不设**内置默认 | 已定（2026-10-04）：`typeCheck` / `typeDecl` / `css` 三个 kind **刻意不预置**；缺声明 → `exit 3`，报错点名 kind、列出目录里的候选、指向 `ngm.engines.json`；声明了但未装 → `exit 5` |
 | [ADR-026](./adr-026-exit-code-6-internal-failure.md) | 加一个退出码 **6 = 内部失败** | 已定**并已实施**（2026-10-08）：panic 与"结论有了却送不出去"（原先与策略失败共用码 1）分出来；码 1 的四类策略来源一个不动 |
+| [ADR-029](./adr-029-loopback-addresses.md) | 仓库地址：**收下回环**（只收 `localhost` / `127.0.0.1`） | 已定**并已实施**（v0.83；原编号 028，因与 ADR-028「直接依赖边进 lock」撞号改 029）：单标签主机名此前一律拒绝，于是"本机跑一遍"不可做，而 `127.0.0.1` 一直能用——**同一件事两种结论**。收下两个字面量、其余照旧拒绝（反笔误不受影响），报错把三条出路说清；`[::1]`、端口、`git://` 协议、`net:` 门禁**都不动**（各自的边界写进 ADR-029 §代价与边界） |
 | [ADR-027](./adr-027-attestation.md) | attestation：**接一层谓词，不自造签名** | 已定**并已实施**（v0.70）：`ngm attest` 输出**未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）；确定性优先（无时间戳、`invocationId` = lock 的哈希）；签名交给用户/CI 的标准工具（cosign） |
 | [ADR-028](./adr-028-dependency-graph-in-lock.md) | 把**直接依赖边**写进 ngm.lock | 已定（2026-10-09，**v0.73 实现**）：每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`）——`why` 离线 0 spawn、SBOM 增依赖关系段；lockfileVersion 不动（可选字段 + 解码器忽略未知字段是既有契约）；**只存直接边**（全路径是指数的，ADR-024）；`verify`/`tree`/`attest` 明确不变 |
 

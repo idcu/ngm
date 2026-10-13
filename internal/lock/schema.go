@@ -161,8 +161,19 @@ func (f *File) Validate() error {
 	}
 	for i, d := range f.Dependencies {
 		if err := d.validate(); err != nil {
+			// v0.81：把内层**点名字段**的消息带出来。
+			//
+			// 只写 "dependencies[N] invalid" 时，用户拿到的是一条**正确**的建议
+			// （hint 沿 cause 链继承下来了）却不知道是哪个字段不对——
+			// 于是只能盲试。"建议对、但不知道修哪儿"与"没有建议"相差无几。
+			// 取**裸 message** 而不是 err.Error()：后者带 `ConfigInvalid:` 前缀，
+			// 拼进来会变成"同一个码名在同一条错误上出现两次"（v0.48 修过的形态）。
+			msg := err.Error()
+			if e, ok := err.(*errs.NgmError); ok {
+				msg = e.Message
+			}
 			return errs.Wrap(errs.CodeConfigInvalid,
-				"lock dependencies["+strconv.Itoa(i)+"] invalid", "", err)
+				"lock dependencies["+strconv.Itoa(i)+"] invalid: "+msg, "", err)
 		}
 	}
 	if err := f.validateEdges(); err != nil {
@@ -232,6 +243,7 @@ func (d *Dependency) validate() error {
 			"`commit` for "+d.Name+" must be a full 40-char hex hash (got "+d.Commit+")",
 			"a partial hash is ambiguous; re-run `ngm install`")
 	}
+	// 只校验算法前缀，**不校验长度/字符集**——见下方 isArchiveDigest 的说明。
 	if !strings.HasPrefix(d.ArchiveDigest, digest.Algorithm+":") {
 		return errs.New(errs.CodeConfigInvalid,
 			"`archiveDigest` for "+d.Name+" must be "+digest.Algorithm+":<hex> (got "+d.ArchiveDigest+")",
@@ -259,6 +271,34 @@ func majorVersion(v string) int {
 //
 // lock 中的 commit 必须是完整 hash：短 hash 在不同时间可能指向不同对象
 // （对象库里新增同前缀对象时），那会破坏"不可变锚点"的语义。
+// IsArchiveDigest 校验 `sha256:<64 hex>` 的**完整形态**（导出给消费方）。
+//
+// 为什么 `Validate` 自己只校验前缀（v0.81 的决定，勿"顺手收紧"）：
+// lock 里一个**形状不对**的 digest 有两种成因——写坏了，或**被篡改**。
+// 而"被篡改"必须是**完整性失败（exit 2）**，不是配置错误（exit 3）：
+// `TestM3Acceptance/install_rejects_a_tampered_lock_digest` 钉的就是这条
+// （它把 digest 改成一个 128 位的串，要求 install 退 2 并说明 mismatch）。
+// 若在读取时按形状拒绝，同一件事就会变成 exit 3——**把一次完整性事件
+// 降级成配置问题**，那比放行更糟。
+//
+// 于是形状校验放在**消费方**：真正要把 digest 写进产物的地方
+// （`internal/sbom.FromLock`，SBOM 与 attestation 共用）必须拒绝空哈希，
+// 因为一份 `content: ""` 的 SBOM 是**结构合法、内容为空**的假证据。
+func IsArchiveDigest(s string) bool {
+	rest := strings.TrimPrefix(s, digest.Algorithm+":")
+	if len(rest) != 64 || len(s) != len(digest.Algorithm)+1+64 {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func isFullCommit(s string) bool {
 	if len(s) != 40 {
 		return false

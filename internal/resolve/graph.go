@@ -523,6 +523,21 @@ func readUpstreamDeps(ctx context.Context, node *Node, opts GraphOptions) ([]Dep
 				errs.CodeConfigInvalid,
 				fmt.Sprintf("%s: dependencies[%d] (%s) is missing `ref`", node.Name, i, d.Name), "")
 		}
+		// v0.82：上游声明的 `path` 必须过与根声明**同一套**校验。
+		//
+		// 此前 name/ref/refType 都校验了，唯独 `path` 原样透传（`SubPath: d.Path`）。
+		// 而它最终会流到 `vendor.VendorPathFor` → `Materialize` 的 `dst`，
+		// 那里第一件事就是 `os.RemoveAll(dst)`。一个含 `..` 的子路径之所以
+		// 至今没出事，只是因为 `EntriesUnder` 匹配不到条目时会先报错——
+		// 那是**巧合性防护**，不是设计：防护挂在别处的另一条判据上。
+		//
+		// 上游的 ngm.json 是**不可信输入**（任何一个 PR 都能改它）。
+		if err := ValidateSubPath(d.Path); err != nil {
+			return nil, nil, errs.Wrap(errs.CodeConfigInvalid,
+				fmt.Sprintf("%s: dependencies[%d] (%s) has an invalid `path`",
+					node.Name, i, d.Name),
+				"the upstream ngm.json must declare a repository-relative sub-path", err)
+		}
 		out = append(out, DepSpec{Name: d.Name, Ref: d.Ref, RefType: rt, SubPath: d.Path})
 	}
 	return out, nil, nil

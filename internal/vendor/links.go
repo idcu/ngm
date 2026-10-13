@@ -142,6 +142,19 @@ func (lt *LinkTree) Materialize(digest, canonicalPath, subPath string) (LinkResu
 		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid,
 			"read the content store entry list for "+digest, "", eerr)
 	}
+	// v0.81：`nil` 条目集合与"这份依赖确实是空的"必须区分开。
+	//
+	// v2 走清单，零条目返回的是**非 nil 的空切片**；只有 v1 那条
+	// "扫目录"的路径在没有内容时返回 `nil`。此前 nil 会一路走到
+	// linkEntries(nil, dst)：先 RemoveAll 再建目录，最后返回一个
+	// `Files: 0` 的 LinkResult，上层当作成功——用户得到一个空目录，
+	// 而 install 报告一切正常。空 commit 是合法的（ADR-008 明确支持），
+	// 所以这里只拦 nil，不拦空。
+	if all == nil && subPath == "" {
+		return LinkResult{}, errs.New(errs.CodeConfigInvalid,
+			"the content store entry for "+digest+" has no file listing",
+			"run `ngm install` to rebuild the content store")
+	}
 	entries := EntriesUnder(all, subPath)
 	if sub := strings.Trim(filepath.ToSlash(subPath), "/"); sub != "" && len(entries) == 0 {
 		return LinkResult{}, errs.New(
@@ -244,6 +257,18 @@ func EscapesPackageTree(entryPath, target string) bool {
 	if target == "" {
 		return false
 	}
+	// v0.81：目标字符串也必须先归到 `/` 口径。
+	//
+	// v0.66 只归一了 entryPath，于是 `..\..\..\Users\x\.ssh\id_rsa` 这类
+	// **反斜杠相对目标**绕过了整个判定：`path.Clean`/`path.Join` 只把 `/`
+	// 当分隔符，它既不以 `../` 开头、也不像绝对路径，判据返回 false。
+	// 而 Windows 的 CreateSymbolicLinkW 把 `\` 当分隔符解析——
+	// 落地后就是一个指向包外的链接。**这个洞只在 POSIX 口径下被封住了。**
+	//
+	// 代价说明（保守拒绝）：POSIX 上 `\` 是合法的文件名字符，因此
+	// `..\..\x` 在那里是一个（极罕见的）合法文件名而非逃逸。这里统一按
+	// 分隔符处理 = 宁可拒掉一个罕见合法名，也不放过一个真实逃逸。
+	target = filepath.ToSlash(target)
 	if looksLikeAbsPath(target) {
 		return true
 	}

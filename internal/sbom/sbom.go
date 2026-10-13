@@ -17,6 +17,7 @@
 package sbom
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -107,9 +108,45 @@ func (e Entry) Key() string {
 func (e Entry) Purl() string {
 	p := "pkg:git/" + e.Canonical + "@" + e.Commit
 	if e.SubPath != "" {
-		p += "#" + e.SubPath
+		// v0.82：subpath 段按 purl 规则百分号编码。
+		//
+		// subPath 是**上游可控**的字符串（它来自依赖自己的 ngm.json）。
+		// 一个含空格、`?`、`#`、`%` 的子路径会让 purl 语法失效——
+		// 而 purl 是 SBOM 与 attestation 共同的**引用键**：它一旦不合法，
+		// CycloneDX 的 bom-ref 与 SPDX 的引用就无法被工具解析。
+		// 空格在真实仓库的子目录名里并不罕见。
+		// canonical 与 commit 不需要：前者由 ParseSlug 归一、后者是 40 位 hex
+		// （且 lock.Validate 保证），都不是自由文本。
+		p += "#" + purlSubPath(e.SubPath)
 	}
 	return p
+}
+
+// purlSubPath 编码 purl 的 subpath 段：段内百分号编码，`/` 作为分隔符保留。
+func purlSubPath(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		segs[i] = percentEncode(s)
+	}
+	return strings.Join(segs, "/")
+}
+
+// percentEncode 保留 RFC 3986 的未保留字符，其余逐字节百分号编码
+// （UTF-8 多字节字符因此按字节编码——这正是 URL 编码的定义）。
+func percentEncode(s string) string {
+	const unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+		"abcdefghijklmnopqrstuvwxyz" +
+		"0123456789-._~"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if strings.IndexByte(unreserved, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteString(fmt.Sprintf("%%%02X", c))
+	}
+	return b.String()
 }
 
 // VCSURL 返回该依赖的仓库地址（由 canonical 推导，永远 https——
@@ -130,6 +167,15 @@ type Options struct {
 	Now time.Time
 	// ToolVersion 是 ngm 自身的版本（写进工具段）。
 	ToolVersion string
+	// GraphComplete 报告 lock 是否携带**完整**的依赖图形（v0.81）。
+	//
+	// 为 false 时两种格式都**整段省略**依赖边，而不是导出一份半张图。
+	// 半张图的危害在于它看起来是完整的：一份 lock 里只要有一条 `requiredBy`
+	// 缺失，`edgeIndex` 仍会为其余条目导出边，`dependencies` / `DEPENDS_ON`
+	// 照常出现且不带任何"不完整"的标记，合规读者会把它读成完整的依赖树。
+	// 这与 `why` 的口径一致（它显式报告 `Source`），也是本项目一贯的纪律：
+	// **不知道就不能说成没有，更不能说成完整**。
+	GraphComplete bool
 }
 
 // Build 把文档导出为指定格式的 JSON 字节流。
@@ -153,11 +199,22 @@ func Build(project Project, entries []Entry, opts Options) ([]byte, error) {
 		doc = buildSPDX(project, sorted, opts)
 	}
 
-	data, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
+	// v0.82：用 Encoder 并关掉 HTML 转义，与仓库其余 JSON 出口同口径
+	// （`cmd/ngm/main.go` 的错误信封：路径里的 `<` 不该变成 `\u003c`）。
+	//
+	// `json.MarshalIndent` 默认 `SetEscapeHTML(true)`，于是 `&` `<` `>`
+	// 会被写成 `\u0026` 等。确定性不受影响（所以这不是"错误"），
+	// 但 SBOM 是要给**别的工具**读的，而它的字段里有上游可控的字符串
+	// （ref、slug、子路径）。写出去的字节与字符串内容不一致，
+	// 会让下游按原文比对的实现对不上。
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalid, "encode the SBOM", "", err)
 	}
-	return append(data, '\n'), nil
+	return buf.Bytes(), nil // Encode 自带末尾单个 LF，与其余出口一致
 }
 
 func (f Format) valid() bool {

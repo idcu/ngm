@@ -139,6 +139,12 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV83BrokenGlobalConfigIsRejectedNotSilentlyDegraded": {
+		what: "**坏配置必须报出来**：没有配置文件照常（默认值就是为此存在的）· 非法值（`git.defaultProtocol: sqlite`）⇒ `ConfigInvalid` 且**用户看到的文本**里点名文件与字段（`FormatHuman` 的 message + cause + hint 三段一起判）· 未知字段（typo）同样报错 · 合法配置照常（牙齿：证明不是「有配置就报错」）",
+		why: "起点是实测：把 `git.defaultProtocol` 写成非法值，命令照样跑、没有任何提示（协议被悄悄换回 https）。旧注释的理由是「读不出来时策略为 nil ⇒ 判定退化为默认档位 ⇒ 更严」——" +
+			"那个论证只覆盖**策略**一个消费者，另外两个的退化**不是更严**：协议被换掉（报错指向网络，真因不可见）· `tokenEnvVars` 丢失用户声明的 token 变量名 ⇒ 脱敏漏掉它 ⇒ token 会被原样打进日志与报错",
+		source: "实现在 `cmd/ngm/env.go` 的 `newProjectEnv`（v0.83：`config.Load` 的错误不再被 `cerr == nil` 吞掉，改为 `WrapUnlessHinted(CodeConfigInvalid, …)`）；判据用 `isolateUserEnv` 隔离 HOME 后直接调用 `newProjectEnv`，断言读的是 `errs.FormatHuman(err)`（用户实际看到的那段）",
+	},
 	"TestV80NestedMonorepoIsReportedAsIncomplete": {
 		what: "**嵌套 monorepo**（子包自己也是 monorepo）的三种结论：① 一条 `nested-monorepo` 记录，点名它声明的子包模式与「约 N 个子包没有被体检」；② 它的**包专属**判据记不适用（不是必做失败），孙辈**一条判据都不出现**；③ **根能承担的判据照旧生效**（缺 README 仍要红——嵌套不是免检牌）；外加口径断言 `complete:false`（与 `ok` 互不顶替）",
 		why: "此前嵌套根掉进「它是个包」的判据里，红的是 `entry-resolvable`（「三层都没找到入口」）——**用错理由红，等于没红**：" +

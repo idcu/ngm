@@ -125,7 +125,11 @@ func buildSPDX(project Project, entries []Entry, opts Options) spdxDocument {
 	//
 	// 根边从 DOCUMENT 出发：项目本身不是一个 package 元素（它没有被 DESCRIBES
 	// 之外的身份），SPDX 允许文档作为关系的主体。
-	doc.Relationships = append(doc.Relationships, spdxDependencies(entries)...)
+	// v0.81：图不完整 ⇒ 不追加 DEPENDS_ON（见 Options.GraphComplete）。
+	// DESCRIBES 仍然保留——它只说"文档讲了谁"，与图形完整性无关。
+	if opts.GraphComplete {
+		doc.Relationships = append(doc.Relationships, spdxDependencies(entries)...)
+	}
 	return doc
 }
 
@@ -174,13 +178,19 @@ func spdxID(e Entry) string {
 	}
 	var b strings.Builder
 	b.WriteString("SPDXRef-Package-")
-	for _, r := range raw {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
+	// v0.81：把每个非法字节编码成 `-xx`，而不是一律压成单个 `-`。
+	//
+	// 一律压成 `-` 会让派生**不是单射**：`github:a/b#x/y` 与 `github:a/b#x-y`
+	// 得到同一个 SPDXID。两个不同组件共用一份标识时，文档立刻失效——
+	// `relationships` 里的引用再也无法消歧，而文档本身结构完全合法，
+	// 没有任何东西会报错。逐字节转义是可逆的（因此单射）。
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' {
+			b.WriteByte(c)
+			continue
 		}
+		b.WriteString(fmt.Sprintf("-%02x", c))
 	}
 	return b.String()
 }
@@ -195,7 +205,14 @@ func spdxNamespace(project Project, entries []Entry) string {
 	h := sha256.New()
 	io.WriteString(h, project.Name+"@"+project.Version+"\n")
 	for _, e := range entries {
-		io.WriteString(h, e.Purl()+"\n")
+		// v0.82：digest 也要进命名空间。
+		//
+		// 只有 purl 时，命名空间标识的是"**这批包**"而不是"**这份文档**"。
+		// purl 由 slug + commit + 子路径构成，于是两份 purl 集合相同、
+		// 内容却不同的 lock（手写 lock、或 digest 被改）会得到**同一个**
+		// documentNamespace——而 SPDX 用它标识文档实例，
+		// 工具比对时会把它们误判成同一份。
+		io.WriteString(h, e.Purl()+"\n"+e.Digest+"\n")
 	}
 	sum := hex.EncodeToString(h.Sum(nil))[:16]
 	name := project.Name

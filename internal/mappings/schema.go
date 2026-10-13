@@ -9,6 +9,8 @@ package mappings
 
 import (
 	"encoding/json"
+
+	"github.com/idcu/ngm/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"sort"
@@ -222,32 +224,12 @@ func Find(projectDir string) string {
 	return filepath.Join(projectDir, FileName)
 }
 
+// writeFileAtomic 转调 [atomicfile.Write]（v0.82：唯一实现处）。
+//
+// 与 lock / config 那两份同形；本包此前没有 Chmod，
+// 于是 `ngm.mappings.json` 写出后是 **0600**。
 func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".ngm-mappings-*.tmp")
-	if err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "create temp file in "+dir,
-			"check directory permissions", err)
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "write temp mappings", "", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "sync temp mappings", "", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "close temp mappings", "", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "replace "+path,
-			"close any editor holding the file", err)
-	}
-	return nil
+	return atomicfile.Write(path, data)
 }
 
 func itoa(n int) string {

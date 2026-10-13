@@ -106,6 +106,16 @@ func QueryOSV(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, error)
 		now = cfg.Now()
 	}
 
+	// v0.81：commit 参与缓存**路径拼接**，形态必须在入口处校验。
+	// 当前调用方传来的都是 `lock.Validate` 过的 40 位 hex，所以这条不是
+	// 可利用的漏洞——但 `QueryOSV` 是导出函数，而"靠上游不变量成立的路径拼接"
+	// 正是本项目反复记录过的那一族缺陷：换一个调用方，前提就悄悄没了。
+	if !isCommitHex(commit) {
+		return nil, errs.New(errs.CodeConfigInvalid,
+			"OSV results are keyed by a full 40-char commit hash (got "+commit+")",
+			"OSV lookups take the commit recorded in ngm.lock; re-run `ngm install`")
+	}
+
 	if cfg.CacheDir != "" && !cfg.NoCache {
 		if v, ok, cerr := readCache(cfg.CacheDir, commit, now); cerr != nil {
 			return nil, cerr
@@ -383,8 +393,26 @@ func IgnoreSeverities(vulns []Vuln, ignored []string) (kept []Vuln, ignoredCount
 	return kept, ignoredCount
 }
 
+// cachePath 返回该 commit 的缓存文件路径。
+//
+// 调用方必须先校验 commit 的形态（见 isCommitHex）：它参与**路径拼接**。
 func cachePath(dir, commit string) string {
 	return filepath.Join(dir, commit+".json")
+}
+
+// isCommitHex 判定 40 位十六进制。
+func isCommitHex(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func readCache(dir, commit string, now time.Time) ([]Vuln, bool, error) {

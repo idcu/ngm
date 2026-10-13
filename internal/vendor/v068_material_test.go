@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/git"
 )
 
@@ -92,8 +93,25 @@ func TestV68PutRejectsMismatchedMaterial(t *testing.T) {
 		_, err := store.Put(context.Background(), opts, repo.Dir, Meta{
 			Repo: "github:test/x", Commit: commit, Digest: material.Digest, Material: &bad,
 		})
-		if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
-			t.Errorf("digest 不符的 Material 必须被拒绝，got: %v", err)
+		// v0.81：断言从"消息子串"改为**退出码**。
+		//
+		// 原先钉的是 `digest mismatch` 这个字样，而 v0.81 起更靠前的一道
+		// 由内容派生的校验会先命中——它说的是"这份材料的条目算出来是 X，
+		// 却声称 Y"，比"两个字段不相等"更准确。**拒绝的事实没变，措辞变了**，
+		// 而把判据钉在措辞上会让它挡住措辞的改进。
+		// 这一族缺陷本项目记过多次：断言"说了什么"，而不是"做了什么"。
+		if err == nil {
+			t.Fatalf("digest 不符的 Material 必须被拒绝")
+		}
+		var ne *errs.NgmError
+		if e, ok := err.(*errs.NgmError); ok {
+			ne = e
+		}
+		if ne == nil {
+			t.Fatalf("拒绝应带 ngm 错误码，got %T: %v", err, err)
+		}
+		if ne.Code != errs.CodeDigestMismatch {
+			t.Errorf("码 = %v, want %v（got: %v）", ne.Code, errs.CodeDigestMismatch, err)
 		}
 	})
 }

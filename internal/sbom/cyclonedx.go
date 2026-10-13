@@ -110,7 +110,10 @@ func buildCycloneDX(project Project, entries []Entry, opts Options) cdxDocument 
 		},
 		Components: make([]cdxComponent, 0, len(entries)),
 	}
-	doc.Dependencies = cyclonedxDependencies(entries)
+	// v0.81：图不完整 ⇒ 整段省略，绝不导出半张图（见 Options.GraphComplete）。
+	if opts.GraphComplete {
+		doc.Dependencies = cyclonedxDependencies(entries)
+	}
 
 	for _, e := range entries {
 		c := cdxComponent{

@@ -14,11 +14,14 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/resolve"
 )
 
@@ -288,10 +291,29 @@ func readGlobalFile(path string) (*GlobalFile, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("open %s: %w", path, err)
+		return nil, globalConfigErr(fmt.Errorf("open %s: %w", path, err))
 	}
 	defer f.Close()
 	return decodeGlobal(f, path)
+}
+
+// globalConfigErr 把**全局配置**的错误在配置层定型（v0.84 修 v0.83 引入的提示回归）。
+//
+// 为什么不能在上层（`newProjectEnv`）统一包一层：`config.Load` 同时读
+// **项目清单**与**全局配置**，而两者该给的建议不同——
+//
+//	· 项目清单坏了 → "跑 `ngm config validate`"（TestV31 的失败面表钉着这条）
+//	· 全局配置坏了 → "改 ~/.ngm/config.json 的字段，或把它移开跑默认值"
+//
+// 上层统一包一层会把前者压成后者（v0.83 实测：TestV31 两条子测试立刻红）。
+// 规则：**一条错误在哪里定型，就在哪里**——配置文件的错误归配置层。
+func globalConfigErr(cause error) error {
+	var ngm *errs.NgmError
+	if errors.As(cause, &ngm) && strings.TrimSpace(ngm.Hint) != "" {
+		return cause // `Validate()` 的 fieldErr 已带逐字段建议，原样返回
+	}
+	return errs.New(errs.CodeConfigInvalid, cause.Error(),
+		"fix the reported field in ~/.ngm/config.json, or move the file aside to run with defaults")
 }
 
 func decodeProject(r io.Reader, path string) (*ProjectFile, error) {
@@ -312,10 +334,10 @@ func decodeGlobal(r io.Reader, path string) (*GlobalFile, error) {
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&g); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, globalConfigErr(fmt.Errorf("parse %s: %w", path, err))
 	}
 	if err := g.Validate(); err != nil {
-		return nil, err
+		return nil, globalConfigErr(err)
 	}
 	return &g, nil
 }

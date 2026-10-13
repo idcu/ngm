@@ -116,6 +116,7 @@ func slugHost(host string) string {
 //	gitlab:group/subgroup/repo           → gitlab.com/group/subgroup/repo
 //	github.com:org/repo                  → github.com/org/repo   (显式 host + 冒号)
 //	github.com/org/repo                  → github.com/org/repo   (canonical 幂等)
+//	git://localhost/org/repo             → localhost/org/repo    (回环；ADR-028，本地测试与开发)
 //
 // 所有失败都返回 *errs.NgmError（Code = CodeConfigInvalid, 退出码 3），Hint 给出可操作示例。
 func Normalize(input string) (Canonical, error) {
@@ -198,10 +199,12 @@ func splitHostPath(raw string) (host, path string, err error) {
 		return host, path, nil
 	}
 
-	// 4) 裸 canonical（含点 host + `/`），保证 Normalize 幂等
+	// 4) 裸 canonical（含点 host + `/`），保证 Normalize 幂等。
+	//    回环同样收（ADR-028）：`localhost/org/repo` 与 `git://localhost/org/repo`
+	//    指的必须是同一个仓库——不然"能不能写短形式"会变成一处需要记的例外。
 	if i := strings.Index(raw, "/"); i > 0 {
 		candidateHost := raw[:i]
-		if strings.Contains(candidateHost, ".") {
+		if strings.Contains(candidateHost, ".") || isLoopbackHost(candidateHost) {
 			return candidateHost, raw[i+1:], nil
 		}
 	}
@@ -329,10 +332,34 @@ func cleanRepoPath(path string) string {
 //
 // 规则：必须含 `.`（或命中 hostSlugs 已展开）；不得含空格 / `..`；
 // 不得以 `-` / `.` 开头或结尾。
+// isLoopbackHost 判断 host 是否是**回环**（本地测试与开发）。
+//
+// v0.81（ADR-028）：只放开这一类别，而不是"内网主机"的泛化——
+// 带点的内网主机（`git.corp.example.com`、`192.168.1.10`）**本来就允许**
+// （v0.81 复核过），此前被拒绝的只有**单标签主机名**；而单标签写法里
+// 绝大多数是笔误（`githubb:`），唯一有正当理由的是 `localhost`。
+//
+// 边界（写下来而不是留着让人猜）：**只认这两个字面量**。
+// `[::1]` 没有收——它在更早的一站（URL 形式的主机处理）就被拒，
+// 而"声称支持却根本走不到"比不收更坏；要收它得先改那一站（留给需要它的 ADR）。
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(host) {
+	case "localhost", "127.0.0.1":
+		return true
+	}
+	return false
+}
+
 func validateHost(host string) error {
+	if isLoopbackHost(host) {
+		// v0.81（ADR-028）：回环是**唯一**放开的一类单标签主机。
+		// 它换到的是"没有外网也能走完整流水线"（本地 git daemon 跑端到端），
+		// 代价是一处极小的反误输放宽——`localhost` 不是一个会写错的域名。
+		return nil
+	}
 	if !strings.Contains(host, ".") {
 		return invalidURL(host,
-			fmt.Sprintf("unknown host %q; use a short name (github/gitee/gitlab) or a full domain (e.g. gitlab.example.com)", host))
+			fmt.Sprintf("unknown host %q; use a short name (github/gitee/gitlab), a full domain (e.g. gitlab.example.com), or loopback (localhost / 127.0.0.1) for local testing", host))
 	}
 	if strings.ContainsAny(host, " \t") || strings.Contains(host, "..") {
 		return invalidURL(host, "host contains illegal characters")

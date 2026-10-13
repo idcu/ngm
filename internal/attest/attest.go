@@ -18,6 +18,7 @@
 package attest
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -130,11 +131,21 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 		},
 	}
 
-	data, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
+	// v0.82：关掉 HTML 转义（同 `internal/sbom` 与 `cmd/ngm/main.go` 的口径）。
+	//
+	// 这里的理由比 SBOM 更硬：**这份字节是要被签名的**。
+	// `json.MarshalIndent` 默认把 `&` `<` `>` 写成 `\u0026` 等，
+	// 于是"被签名的字节"与字段的原始字符串不是同一串东西。
+	// 任何人拿原始字符串去复算、或换一个不转义的编码器重编，
+	// 都会得到不同的字节 ⇒ 签名验不过，而没有任何一方做错了事。
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalid, "encode the attestation", "", err)
 	}
-	return append(data, '\n'), nil
+	return buf.Bytes(), nil // Encode 自带末尾单个 LF
 }
 
 // isHex64 判断 s 是不是 64 位十六进制（sha256 的裸形态）。

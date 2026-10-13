@@ -232,6 +232,22 @@ func (s *ContentStore) Put(ctx context.Context, opts git.Options, mirrorRepoPath
 					git.ShortSHA(material.Commit), git.ShortSHA(meta.Commit)),
 				"this is an internal inconsistency; re-run `ngm install`")
 		}
+		// v0.81：由**内容**重新派生一次 digest，而不是只比对两个字段。
+		//
+		// 只比 `material.Digest != meta.Digest` 是**同义反复**：install 那条路径
+		// 上两个值都来自同一次 BuildArchiveMaterial（`dg := material.Digest`），
+		// 于是"防止把 A 的内容写进 B 的槽位"在这条路径上退化成
+		// "调用方没拼错"——而 store 的文档明确承诺了更硬的保证。
+		//
+		// 清单字节已经在手边，重算一次是**纯 CPU**（sha256 over manifest），
+		// 不起任何 git 子进程 ⇒ v0.68 拿掉的那 4 个 spawn 不会回来。
+		// 这是唯一一处不依赖调用方诚实的内容校验。
+		if got := digest.Digest(material.Manifest()); got != material.Digest {
+			return PutResult{}, errs.New(errs.CodeDigestMismatch,
+				fmt.Sprintf("archive material is internally inconsistent: its entries hash to %s, but it claims %s",
+					got, material.Digest),
+				"this is an internal inconsistency; re-run `ngm install`")
+		}
 		if material.Digest != meta.Digest {
 			return PutResult{}, errs.New(errs.CodeDigestMismatch,
 				fmt.Sprintf("digest mismatch while populating content store: meta says %s, the supplied material hashes to %s",

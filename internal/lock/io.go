@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/idcu/ngm/internal/atomicfile"
 	"github.com/idcu/ngm/internal/errs"
 )
 
@@ -21,7 +22,19 @@ func Read(path string) (*File, error) {
 		}
 		return nil, errs.Wrap(errs.CodeConfigInvalid, "read "+path, "", err)
 	}
+	return Parse(data, path)
+}
 
+// Parse 从**已读到的字节**解析并校验 lock（v0.82）。
+//
+// 为什么需要它：`ngm attest` 要把 lock 的**原始字节哈希**写进语句
+// （外部参数钉的是"你审过的那份文件"），同时又需要解析后的结构。
+// 此前它是两次独立的 `os.ReadFile`——两次之间文件若被改动，
+// 语句里的 subject（来自第一次）与 `lock.digest`（来自第二次）
+// 会描述**两份不同的文件**。对一份要被签名的证据，这是不能接受的。
+//
+// 读一次、两用，同一份字节既被解析也被哈希，那个窗口就不存在了。
+func Parse(data []byte, path string) (*File, error) {
 	var f File
 	dec := json.NewDecoder(bytes.NewReader(data))
 	// 与 ngm.json 不同，lock 的未知字段**不报错**：按 locking.md
@@ -60,45 +73,13 @@ func Write(path string, f *File) error {
 	return writeFileAtomic(path, data)
 }
 
-// writeFileAtomic 原子写文件（同目录临时文件 + rename）。
+// writeFileAtomic 转调 [atomicfile.Write]（v0.82：唯一实现处）。
 //
-// 为何重要：lock 是"依赖状态的唯一事实源"，被中断截断的 lock 会让
-// 下一次 install 完全无法判断状态。
+// 此前本包自己有一份，与 config / mappings 那两份逐行相同、只差临时文件前缀——
+// 于是 v0.66 在这里修的 0644 权限没有传到另外两份（那里 `ngm.json`
+// 与 `ngm.mappings.json` 至今写出 0600）。规则不写在第二个地方。
 func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".ngm-lock-*.tmp")
-	if err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "create temp file in "+dir,
-			"check directory permissions", err)
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "write temp lock", "", err)
-	}
-	// v0.66：显式 0644。os.CreateTemp 建的文件是 0600，rename 之后 lock 的权限
-	// 就变成了 0600——而 ngm.lock 是要**提交进 Git、供团队共享**的文件
-	// （评估报告 P2#7）。改权限必须在 rename **之前**：rename 之后改会让
-	// 文件短暂以错误权限存在。Windows 上 Chmod 只影响只读位，无害。
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "set temp lock permissions",
-			"check permissions on the project directory", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "sync temp lock", "", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "close temp lock", "", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "replace "+path,
-			"close any editor holding the file", err)
-	}
-	return nil
+	return atomicfile.Write(path, data)
 }
 
 // LooksLikeLock 是 Read 的轻量前置检查（不做完整解析），

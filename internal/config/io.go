@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/idcu/ngm/internal/atomicfile"
 	"github.com/idcu/ngm/internal/errs"
 	"github.com/idcu/ngm/internal/resolve"
 )
@@ -81,34 +82,13 @@ func MarshalProjectFile(p *ProjectFile) ([]byte, error) {
 	return append(out, '\n'), nil
 }
 
-// writeFileAtomic 原子写文件（同目录临时文件 + rename）。
+// writeFileAtomic 转调 [atomicfile.Write]（v0.82：唯一实现处）。
+//
+// 本包此前那份没有 Chmod，于是 `ngm.json` 每次原子写之后都是 **0600**——
+// 而它是要提交进 Git、供团队共享的文件。lock 那一份在 v0.66 修过同一个问题，
+// 但规则写在两个地方，修复就不会自己传过来。
 func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".ngm-*.tmp")
-	if err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "create temp file in "+dir, "check directory permissions", err)
-	}
-	tmpName := tmp.Name()
-	defer func() {
-		// 成功路径已 rename；失败路径清理临时文件
-		_ = os.Remove(tmpName)
-	}()
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "write temp file", "", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return errs.Wrap(errs.CodeConfigInvalid, "sync temp file", "", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "close temp file", "", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return errs.Wrap(errs.CodeConfigInvalid, "replace "+path, "close any editor holding the file", err)
-	}
-	return nil
+	return atomicfile.Write(path, data)
 }
 
 // UpsertDependency 添加或更新一个依赖条目。

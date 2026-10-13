@@ -61,24 +61,43 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 	// 协议、权限与**凭证来源**都来自全局配置。因此 `secrets` 在这里还不该构造——
 	// 见下方 "读配置之后" 那一段。
 	//
-	// 配置**读不出来**时不静默放行：策略为 nil 时判定退化为"按默认档位"，
-	// 也就是 net / run 仍需显式授权——读不出配置的后果是更严，而不是更松。
+	// 配置**不存在**是正常的（Load 返回 nil 错）；而配置**坏了**必须报出来（v0.81 修）。
+	//
+	// 此前这里写的是 `if r, cerr := config.Load(...); cerr == nil { ... }`，
+	// 理由写在注释里："读不出来时策略为 nil ⇒ 判定退化为默认档位 ⇒ 更严"。
+	// 那个论证只覆盖**策略**这一个消费者，而另外两个的退化**不是更严**（实测）：
+	//
+	//	· `git.defaultProtocol` 悄悄退回 https——用户写 `sshh` 这类笔误时协议被换掉，
+	//	  而报错会指向网络（"连不上"），真因（配置根本没被采用）不可见；
+	//	· `git.tokenEnvVars` 丢掉用户声明的 token 变量名 ⇒ 脱敏集合漏掉它
+	//	  ⇒ token 会被原样打进日志与报错——正是下面 secrets 那段历史事故的形态。
+	//
+	// 所以：坏配置 = exit 3，点名文件与字段。配置是用户唯一能改的那半边，
+	// 它坏了就该由用户知道，而不是由工具替他挑一份默认值。
 	proto := resolve.ProtocolHTTPS
 	var pol *security.Policy
 	tokenEnvVars := map[string]string(nil)
-	if r, cerr := config.Load(projectDir, homeDirOrEmpty()); cerr == nil {
-		if r.GlobalEffective.Git != nil {
-			proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolHTTPS)
-			tokenEnvVars = r.GlobalEffective.Git.TokenEnvVars
-		}
-		// 权限写错必须立刻报出来：把它当成"没配"会让用户以为
-		// 自己写的 deny 已经生效，而实际上整份列表都没被采用。
-		p, perr := newPermissionPolicy(r.GlobalEffective.Permissions)
-		if perr != nil {
-			return nil, perr
-		}
-		pol = p
+
+	// **只读全局配置**（projectDir 传空）：这里关心的是协议与 token 来源，
+	// 而项目清单的错误归它自己那条既有路径（`ReadManifest`，它的建议是
+	// "跑 `ngm config validate`"——v0.83 实测：从这条路径抢着报会把它压掉）。
+	//
+	// 错误**原样向上传**：全局配置与项目清单的建议不同，各自在**配置层**定型。
+	r, cerr := config.Load("", homeDirOrEmpty())
+	if cerr != nil {
+		return nil, cerr
 	}
+	if r.GlobalEffective.Git != nil {
+		proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolHTTPS)
+		tokenEnvVars = r.GlobalEffective.Git.TokenEnvVars
+	}
+	// 权限写错必须立刻报出来：把它当成"没配"会让用户以为
+	// 自己写的 deny 已经生效，而实际上整份列表都没被采用。
+	p, perr := newPermissionPolicy(r.GlobalEffective.Permissions)
+	if perr != nil {
+		return nil, perr
+	}
+	pol = p
 	// 读配置**之后**才构造脱敏集合：它由 `git.tokenEnvVars` 决定
 	// （用户用它声明"公司这台 git 的 token 在 CORP_TOKEN 里"）。
 	//

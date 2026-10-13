@@ -91,23 +91,13 @@ func ParseAddSpec(input string) (AddSpec, error) {
 	return spec, nil
 }
 
-// validateDepSubPath 校验 monorepo 子路径（相对、无 . / ..）。
+// validateDepSubPath 校验 monorepo 子路径。
+//
+// v0.82：规则搬到 [ValidateSubPath]（唯一定义处）。此前这里只按 `/` 切分，
+// 于是 `#path=..\..\x` 能通过校验——而 Windows 上 `\` 是分隔符。
+// 两份实现不一致的问题由此消失。
 func validateDepSubPath(p string) error {
-	for _, seg := range strings.Split(p, "/") {
-		if seg == "" {
-			return errs.New(
-				errs.CodeConfigInvalid,
-				fmt.Sprintf("path %q contains an empty segment", p),
-				"remove duplicate slashes in the sub-path")
-		}
-		if seg == "." || seg == ".." {
-			return errs.New(
-				errs.CodeConfigInvalid,
-				fmt.Sprintf("path %q must not contain `.` or `..`", p),
-				"use a path relative to the repository root")
-		}
-	}
-	return nil
+	return ValidateSubPath(p)
 }
 
 // 推断规则（guides/configuration.md §"refType 为什么必填"）：

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/idcu/ngm/internal/atomicfile"
 	"github.com/idcu/ngm/internal/attest"
 	"github.com/idcu/ngm/internal/digest"
 	"github.com/idcu/ngm/internal/errs"
@@ -37,6 +38,9 @@ WHAT IT DOES NOT CLAIM:
   It is unsigned, and ngm does not invent a signing system (ADR-014): sign it with
   your own tooling (e.g. cosign attest-blob) so the claim becomes attributable.
   It also does not claim who built upstream, nor reproducibility, nor licences.
+  It does NOT cover the dependency graph: v0.73 put the edges in ngm.lock, but
+  ADR-028 §2.2 keeps them out of the statement - use 'ngm sbom' for the tree.
+  Read the same lock, the two exports cover different dimensions.
   See docs/adr/adr-027-attestation.md.
 
 EXIT CODES:
@@ -72,19 +76,13 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	// ngm.json 是外部参数之一（它的哈希要写进语句），因此必须在场——
 	// 与 sbom 同口径：空目录不是一个 ngm 项目，早失败比导出一份无主文档好。
-	if _, err := env.ReadManifest(); err != nil {
-		return runErr(ctx, stdout, stderr, err)
-	}
-
-	lf, err := lock.Read(env.LockPath())
+	//
+	// v0.81：保留读到的清单（此前丢弃返回值，只判断"在不在场"）。
+	// 只有拿着它才能问"lock 与 ngm.json 是否自洽"——而这一问对一份
+	// 要被签名的产物是必需的。
+	pf, err := env.ReadManifest()
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
-	}
-	if lf == nil {
-		return runErr(ctx, stdout, stderr, errs.New(
-			errs.CodeConfigInvalid,
-			"no ngm.lock found at "+env.LockPath(),
-			"run `ngm install` to resolve dependencies and create the lock"))
 	}
 
 	// 输入的哈希 = **提交进 Git 的那份文件字节**（不是重新序列化后的规范形态）：
@@ -96,8 +94,43 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	lockBytes, rerr := os.ReadFile(env.LockPath())
 	if rerr != nil {
+		if os.IsNotExist(rerr) {
+			return runErr(ctx, stdout, stderr, errs.New(
+				errs.CodeConfigInvalid,
+				"no ngm.lock found at "+env.LockPath(),
+				"run `ngm install` to resolve dependencies and create the lock"))
+		}
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
 			"read "+env.LockPath(), "check that the file is readable", rerr))
+	}
+
+	// v0.82：解析与哈希用**同一份字节**（lock.Parse），不再读两次。
+	//
+	// 此前是 `lock.Read(path)` 一次、`os.ReadFile(path)` 再一次。两次之间
+	// 文件若被改动，语句里的 subject（来自第一次）与 `lock.digest`
+	// （来自第二次）会描述两份不同的文件。窗口极小，但对一份**要被签名的**
+	// 证据，这属于不该存在的那一类：签名之后没有任何东西能发现它。
+	lf, err := lock.Parse(lockBytes, env.LockPath())
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	if lf == nil {
+		return runErr(ctx, stdout, stderr, errs.New(
+			errs.CodeConfigInvalid,
+			"no ngm.lock found at "+env.LockPath(),
+			"run `ngm install` to resolve dependencies and create the lock"))
+	}
+
+	// v0.81：过期的 lock 必须**说出来**，而且这里比 sbom 更要紧——
+	// 这份产物是要被**签名**的。签名之后最难被发现的正是这一类错误：
+	// 结构合法、哈希正确，描述的却是一个已经不存在的状态
+	// （ngm.json 改过、lock 没跟）。
+	if stale := lockManifestMismatch(lf, toDepSpecs(pf.Dependencies)); len(stale) > 0 {
+		fmt.Fprintf(stderr,
+			"warning: ngm.lock is out of date with ngm.json (%s); "+
+				"the statement describes the lock, not the manifest — "+
+				"run `ngm install` before signing\n",
+			strings.Join(stale, "; "))
 	}
 
 	entries, err := sbom.FromLock(lf)
@@ -116,10 +149,12 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout（v0.42 的不变量）。
 	if out := strings.TrimSpace(*outFlag); out != "" {
-		if werr := os.WriteFile(out, data, 0o644); werr != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
-				"write the attestation to "+out,
-				"check that the target directory exists and is writable", werr))
+		// v0.82：同 sbom —— 走 [atomicfile.Write] 而不是裸 os.WriteFile。
+		// 这里的理由比 sbom 更强：这份文件是要**被签名**的，
+		// 一个截断的 statement 会以正确的名字、最新的 mtime 躺在那里，
+		// 而签名工具会照常签它。
+		if werr := atomicfile.Write(out, data); werr != nil {
+			return runErr(ctx, stdout, stderr, werr)
 		}
 		fmt.Fprintf(stdout, "wrote %s (%d subject(s), SLSA provenance v1)\n", out, len(entries))
 		return 0

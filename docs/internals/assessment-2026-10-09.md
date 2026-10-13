@@ -358,7 +358,85 @@ archiveDigest = "sha256:" + hex(sha256(manifest))
 
 ---
 
+## 8. 后续落实情况（2026-10-12 复核）
+
+本报告驱动的 v0.66~v0.80 已把 Tier 0~3 做掉，随后对**新增代码**做了一次逐行复核
+（v0.81）——新代码带来了新缺陷，其中两处落在核心承诺上。
+
+| 报告里的建议 | 落实 | 版本 |
+|---|---|---|
+| Tier 0 五条 P1（Policy / symlink / lock 权限 / `write:` / verify 单测） | ✅ 全部修掉 | v0.66 |
+| Tier 1 PackageGate 这张牌 | ✅ 写进竞品对比与 README | v0.67 |
+| Tier 2 install 6 spawn → 2 | ✅ `ArchiveMaterial` 复用 | v0.68 |
+| Tier 3 SBOM 导出 | ✅ `ngm sbom`（CycloneDX / SPDX） | v0.69 |
+| Tier 3 SLSA attestation | ✅ `ngm attest`（in-toto + SLSA provenance） | v0.70 |
+| Tier 4 停止新建契约网 | ⚠️ 部分：本轮又新增了若干张网 | v0.71~0.80 |
+| Tier 5 找真实用户 | ⏳ 未推进（仍是唯一的第一优先级） | —— |
+
+### v0.81：新代码的 7 处缺陷（已修，各带牙齿判据）
+
+1. **`EscapesPackageTree` 只封了 POSIX 口径**——`target` 没做 `ToSlash`，
+   反斜杠相对目标（`..\..\..\Users\x\.ssh\id_rsa`）在 Windows 上直接逃逸。
+   v0.66 的边界表 12 个用例全绿，**没有任何一条含反斜杠**。
+2. **`archiveDigest` 只校验前缀** → `"sha256:"`（空哈希）通过校验，
+   SBOM 与 attestation 导出**结构合法但内容为空**的哈希。
+   （修在**导出层**而非 lock 读取层——见下"一处落位的取舍"。）
+3. **SBOM 会导出半张图**：`edgeIndex` 缺 `HasGraph()` 判定，
+   缺一条边的 lock 仍会导出 `dependencies` / `DEPENDS_ON`，看起来完整。
+4. **`Put(Material)` 的 digest 校验是同义反复**：两个值都来自调用方同一次计算。
+   改为由**内容**派生（`digest.Digest(material.Manifest())`，纯 CPU，spawn 不回来）。
+5. **nil 条目集合被当成空依赖** → 静默造出空 vendor 目录并报成功。
+6. **OSV 缓存路径**：commit 参与拼接前未校验形态（靠上游不变量成立）。
+7. **SPDXID 派生不是单射**：`x/y`、`x-y`、`x:y` 得到同一 ID，两个组件共用标识。
+
+附带：ADR-028 顶部结论与 §2.1b 自相矛盾（已改结论）；
+ADR-027 的重开条件 #3 已被 ADR-028 触发却未回改（已标注"已触发并裁决"）。
+
+> **这一轮的教训**：**「网绿着」不等于「网看见了什么」**。v0.66 那张专门防逃逸的网
+> 覆盖了 12 条边界却漏掉整整一个维度（分隔符的两种写法），缺陷在它下面躺了 15 个版本。
+> 新能力最容易带进来的不是 bug，是**读数在说谎**。
+
+### v0.82：做掉 v0.81 登记的六条欠账
+
+v0.81 在计划 §3 诚实登记了六条"已知未做"。v0.82 把它们全部做掉，
+并顺带发现三条——其中一条是**同一条缺陷在另外两个文件上还活着**：
+
+| 做掉的 | 发现 |
+|---|---|
+| subPath 规则统一到 `resolve.ValidateSubPath` | 此前 `config.validateDepPath`（认两种分隔符）与 `resolve.validateDepSubPath`（只认 `/`）是**两份不一致的实现** ⇒ `#path=..\..\x` 能过校验；上游声明的 `path` 此前原样透传，最终会流到 `os.RemoveAll(dst)` |
+| 原子写统一到 `internal/atomicfile` | 三份 `writeFileAtomic` 里**只有 lock 那份**有 v0.66 加的 `Chmod(0644)` ⇒ **`ngm.json` 与 `ngm.mappings.json` 写出后一直是 0600**——与 lock 同一个病 |
+| `attest` 读一次两用（`lock.Parse`） | 此前解析与哈希是两次 `os.ReadFile`，对要被签名的证据不该存在 |
+| JSON 出口关 HTML 转义 | 被签名的字节必须与字段原文一致 |
+| SPDX 命名空间覆盖 digest | 此前只哈希 purl ⇒ 内容不同的两份文档共享命名空间 |
+| purl subpath 百分号编码 | subPath 是上游可控字符串，可含空格 / `?` / `#` |
+
+> **这一轮的教训**：**规则被复制了，于是修复也只修到其中一份。**
+> v0.66 修了 lock 的 0600，另外两份没跟着好——不是因为忘了，是因为修复
+> 写在实现里而不是规则里。这与 v0.81 那条"网绿着不等于看见了什么"是同一族：
+> **可见性不等于生效**。
+>
+> 附带一条自省：v0.82 的权限判据在 Windows 上是 `t.Skip`，于是它**在本机恒绿
+> 却什么也没看**——正是 v0.81 才批评过的形态。补了一条平台无关的源码级判据
+> （权限必须在 rename 之前，带空跑保护）之后，删掉 `tmp.Chmod` 在本机也红了。
+
+### 一处落位的取舍（值得单独记）
+
+第 2 条最初修在 `lock.Validate`（`sha256:` 后必须 64 位 hex），
+`TestM3Acceptance/install_rejects_a_tampered_lock_digest` 立刻红——它把 digest
+改成一个 128 位串，要求 install 退 **2**。
+
+**同一个"形状不对"在不同层是不同的事**：
+在读取层它是配置错误（3），在内容比对层它是**完整性失败**（2），
+在导出层它是**假证据**。而"lock 被篡改"必须是 2——若在读取时按形状拒绝，
+就会把一次完整性事件降级成配置问题。
+
+最终：判据放在**导出层**（`sbom.FromLock`，两个出口共用），
+读取层仍只校验算法前缀，并用一条判据把这个决定钉住。
+
+---
+
 ## 相关文档
 
+- [v0.81 计划与复盘](../development/v0.81-plan.md)（本轮缺陷的修复记录）
 - [项目状态评估](./project-state.md)（项目自评）· [能力矩阵](./capability-matrix.md) · [指标](./metrics.md) · [路线图](./roadmap.md)
 - [竞品对比分析](../COMPETITIVE-ANALYSIS.md)
