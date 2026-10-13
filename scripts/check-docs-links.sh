@@ -44,84 +44,80 @@ for r in "${roots[@]}"; do
   fi
 done
 
-# normalize_path：把 `a/b/../c` 折叠成 `a/c`——**纯字符串处理，不起子进程**。
+# link_scan：**一个 awk 进程**做完"剥反引号 + 找链接 + 提取 target + 规范化路径"，
+# 输出 `<待检路径>\t<文件>\t<行号>\t<原文匹配>`，交给 bash 只做 `[ -f ]`（纯内建，不起子进程）。
 #
-# 为什么要有它：原来每条链接都用 `$(cd "$(dirname …)" && pwd)` 规范化，
-# 那是**一次子进程 + 一个子 shell**；docs/ 有 248 个文件、上千条链接 ⇒ 上千次 spawn，
-# 本机实测一次扫描 **133 秒**（2026-10-14，v0.90）。改成纯 bash 后同一份检查是**秒级**。
+# 为什么（v0.91）：v0.90 把每条链接一次 `cd … && pwd` 换成纯 bash 的 normalize_path，
+# 实测 133.72s → 33.07s；但 `$(normalize_path …)` **仍然每条链接 fork 一次**——
+# docs/ 有 248 个文件、上千条链接 ⇒ 剩下的 33 秒基本就是这上千次 fork。
+# 把规范化搬进 awk 之后，整条流水线只剩 1 个进程。
 #
-# 与原实现的差别：不做符号链接解析（`cd`+`pwd` 会解）。本检查只问"文件在不在"，
-# 而仓库里没有链接目录；已有的 `canonical-json` 事故（v0.8 §5.8）教的是
-# "别让两根实现有两套说法"，不是"必须解析符号链接"。
-normalize_path() {
-  local p="$1" out="" seg
-  local IFS=/
-  for seg in $p; do
-    case "$seg" in
-    "" | ".") continue ;;
-    "..")
-      case "$out" in
-      */*) out="${out%/*}" ;;
-      *) out="" ;;
-      esac
-      ;;
-    *) out="${out:+$out/}$seg" ;;
-    esac
-  done
-  case "$p" in
-  /*) printf '/%s' "$out" ;;
-  *) printf '%s' "$out" ;;
-  esac
+# 语义逐条保住（等价性用同一份夹具与旧实现对照过；负例网在 cmd/ngm/v090…）：
+#   · 只剥**成对**反引号里的内容（等价于 `sed -E 's/`[^`]*`//g'`）；
+#   · target 取"最后一个 '(' 之后、第一个 ')' 之前"——**连它的 bug 一起兼容**
+#     （`b(c).md` 会被截成 `c`；这是旧实现的既有行为，改它要单独论证）；
+#   · 跳过空 / `#` / http(s) / mailto / tel / file；去掉 `#锚点`；只查 `.md` / `.txt`；
+#   · 不做符号链接解析（旧实现用 `cd`+`pwd` 会解；本检查只问"文件在不在"）。
+link_scan() {
+  awk '
+    function normalize(p,   out, n, i, parts, seg) {
+      n = split(p, parts, "/")
+      out = ""
+      for (i = 1; i <= n; i++) {
+        seg = parts[i]
+        if (seg == "" || seg == ".") continue
+        if (seg == "..") {
+          # 退一级；已经到根就保持根（**不能**只靠 sub：out 里没有 `/` 时它不匹配，
+          # 那个 `..` 会变成空操作——v0.91 实测就是这样把 `../../docs/x` 解析错的）
+          if (out ~ /\//) sub(/\/[^\/]*$/, "", out)
+          else out = ""
+          continue
+        }
+        out = (out == "" ? seg : out "/" seg)
+      }
+      if (substr(p, 1, 1) == "/") return "/" out
+      return out
+    }
+    FILENAME ~ /(^|\/)(node_modules|vendor)\// { next }
+    {
+      line = $0
+      gsub(/`[^`]*`/, "", line)
+      rest = line
+      while (match(rest, /\[[^]]+\]\([^)]+\)/)) {
+        m = substr(rest, RSTART, RLENGTH)
+        rest = substr(rest, RSTART + RLENGTH)
+        idx = 0
+        for (i = 1; i <= length(m); i++) if (substr(m, i, 1) == "(") idx = i
+        t = substr(m, idx + 1)
+        sub(/\).*$/, "", t)
+        if (t == "" || substr(t, 1, 1) == "#") continue
+        if (t ~ /^(http|https|mailto|tel|file):/) continue
+        sub(/#.*$/, "", t)
+        if (t !~ /\.(md|txt)$/) continue
+        base = FILENAME
+        if (base ~ /\//) sub(/\/[^\/]*$/, "", base)
+        else base = ""
+        # 拼接时 base 为空**不能**产生前导 `/`：那会让相对链接被当成绝对路径
+        # （v0.91 等价性对照抓到的第二处——根目录的 README.md 正好命中）。
+        joined = (base == "" ? t : base "/" t)
+        print normalize(joined) "\t" FILENAME "\t" FNR "\t" m
+      }
+    }
+  ' "$@"
 }
 
-for f in "${files[@]}"; do
-  # 跳过 node_modules / vendor 等
-  case "$f" in
-    */node_modules/*|*/vendor/*) continue ;;
-  esac
+if [ "${#files[@]}" -eq 0 ]; then
+  echo "no files to scan"
+  exit 0
+fi
 
-  # **先剥掉行内代码**（成对反引号里的内容）：那里出现的 `[label](x.md)` 是**示例**，
-  # 不是链接。不剥掉的话，凡是要介绍"链接怎么写"的文档都会让这条检查误报——
-  # 而一个会误报的门禁会被忽略（比漏报更糟）。
-  #
-  # 只处理同一行内成对的反引号（`sed` 的能力边界）；跨行的代码块由下面的事实兜住：
-  # 代码块里的路径通常不是真实相对路径，真报了也一眼能看出是示例。
-  cleaned="$(sed -E 's/`[^`]*`//g' "$f")"
-
-  # base 每文件算一次（原来它在**每条链接**里都算一遍，见 normalize_path 的注释）。
-  base="$(dirname "$f")"
-
-  # 提取所有 [label](path) 中的 path
-  while IFS= read -r line; do
-    # 从 grep 输出 "行号:[label](target)" 中取出 target：
-    # 截到最后一个 '('，再剥掉末尾的 ')'。
-    #
-    # 这里曾经截到 '['（而非 '('），于是 label 被当成路径的一部分——
-    # 例如 [架构总览](../architecture/overview.md) 会解析为 "架构总览](../architecture/overview.md"。
-    # 缺陷一直潜伏，因为 docs/ 此前不存在、本脚本从未真正执行过；
-    # 文档并入 docs/ 后它第一次运行就红了 CI。
-    target="${line##*\(}"
-    target="${target%%)*}"
-    # 忽略带 http(s)/ / mailto: / # 的
-    case "$target" in
-      ""|"#"*) continue ;;
-      http*|https*|mailto:*|tel:*|file:*) continue ;;
-    esac
-    # 去掉锚点部分
-    target="${target%%#*}"
-    # 只校验 .md / .txt 形式（仓库内文档）
-    case "$target" in
-      *.md|*.txt) ;;
-      *) continue ;;
-    esac
-
-    resolved="$(normalize_path "$base/$target")"
-    if [ -z "$resolved" ] || [ ! -f "$resolved" ]; then
-      echo "BROKEN LINK in $f: $line"
-      bad=$((bad + 1))
-    fi
-  done < <(printf '%s\n' "$cleaned" | grep -nEo '\[[^]]+\]\([^)]+\)' 2>/dev/null || true)
-done
+while IFS=$'\t' read -r resolved f lineno match; do
+  [ -n "$resolved" ] || continue
+  if [ ! -f "$resolved" ]; then
+    echo "BROKEN LINK in $f: $lineno:$match"
+    bad=$((bad + 1))
+  fi
+done < <(link_scan "${files[@]}")
 
 if [ "$bad" -gt 0 ]; then
   echo "found $bad broken links"

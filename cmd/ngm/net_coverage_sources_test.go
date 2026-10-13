@@ -139,6 +139,18 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV91DocsLinksGoldenCases": {
+		what: "文档链接检查的**黄金用例**（20 个刁钻形态）：反引号里的示例不算链接 · 一行里两条都要看到 · `..` 一直退到根 · 根目录文件（base 为空）拼路径不能带前导 `/` · 括号出现在 label/target 里的既有行为（含**一处已知的漏检**：target 里有 `)` 时这条检查看不见它）· 子目录 · `.txt` · `vendor/` 不参与",
+		why: "v0.90 把每条链接一次 `cd … && pwd` 换成纯 bash（133.72s → 33.07s），v0.91 再把「剥反引号 + 找链接 + 提 target + 规范化」整体搬进**一个 awk 进程**（33.07s → **1.33s**，实测）。重写的凭据是当时与旧实现的**逐字对照**——但那次对照是一次性的；这条网就是它的常驻版本（写它时正好验证了：我手写的期望行号是错的、而两个实现一致——" +
+			"出问题的是我的期望，不是实现）",
+		source: "判据在 `cmd/ngm/v091_docs_links_golden_test.go`；实现在 `scripts/check-docs-links.sh`（`link_scan` 一个 awk 进程 + bash 只做 `[ -f ]`）",
+	},
+	"TestV91GiteeReadingRunsOffline": {
+		what: "Gitee 侧读数**离线可测**：对着假 API 跑三种结论——附件齐 ⇒ exit 0 且报 `OK (7 attachments …)` · 缺附件 ⇒ exit 1 且**点名**缺的是哪一个 · 请求失败 ⇒ exit 3 且写 `NOT CHECKED`（查不动既不报缺也不报成功）；并顺带跑一遍 Windows 入口，要求同一份实现的同一个结论",
+		why: "它一直在登记表里躺着，理由写的是「没有离线模式（无 --api-base）」——**那条理由是错的**：实现里一直有 `GITEE_API_BASE` 环境变量。写下理由时没人验过它，接进判据只花了两分钟。" +
+			"于是登记表只剩最后一条（`upload-gitee-assets.ps1`：真需要凭据）。夹具也顺手记下一条：假 API 要照着实现的判据造——第一版没写 `id`，三条断言全错成 MISSING（脚本的规则是「没有 id = 没有 release」）",
+		source: "判据在 `cmd/ngm/v091_gitee_offline_test.go`；实现在 `scripts/check-gitee-release-status.sh`（`GITEE_API_BASE` 早已存在）",
+	},
 	"TestV90PowerShellWrappersRunTheirImplementation": {
 		what:   "**入口真的跑一次**：五个 `.ps1`（`check-docs-links` · `check-vendored-standard` · `check-mirror-coverage` · `check-release-status`（v0.90 新加的入口）· `write-readings-summary`）各跑一次，且每个都有**两条断言**——① 能跑；② 用**必然失败的输入**验它的退出码与点名真的传了回来（不合格的 vendored 夹具 ⇒ exit 1 · 缺 tag 的仓库 ⇒ exit 1 · 假 API 的读数必须出现在输出里 · `-Out` 必须真的写成文件且是追加）",
 		why:    "v0.89 的登记表把「没人跑」变成必须显式登记的事实；v0.90 接着把它**变短**——登记表是待办清单，不是永久豁免（5 条 → 2 条）。只验「退出 0」的网会被一个 `exit 0` 的坏包装器骗过去，所以每个入口都用反面输入验一遍",
