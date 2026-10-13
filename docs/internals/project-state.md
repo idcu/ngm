@@ -147,6 +147,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.89** | **「只被读过、从没被跑过」的同类扫尾** | 取证：`scripts/` 19 个交付物里，10 个有判据/CI 在跑、5 个只被文档提到、**2 个连文档都没提到**（`check-mirror-coverage.ps1` · `write-readings-summary.ps1`）。新增四条网：① **run-or-explain**（`TestV89ScriptsArtifactsAreEitherRunOrExplained`）——覆盖 = 判据/工作流/其它脚本的**引用闭包**（否则"只被另一个脚本调用"的会被误判），走不到 ⇒ 必须在 `explainedNotAutomated` 写明原因（只接受「缺环境/凭据」或「它是某个已被跑的实现的入口」两类），表的键必须存在；口径写明是**筛子不是证明**（按引用记账）；② `.sh` 全过 `bash -n`（与 v0.88 的 `.ps1` 解析网对称）；③ 工作流点名的 `scripts/<file>` 必须真的在（去重报）；④ `packagegate-demo.sh` **真的跑**并要求自报 `… passed, 0 failed`。牙齿：放一个没人跑也没登记的脚本 ⇒ 红并点名；工作流塞一个不存在脚本的步骤 ⇒ 红；demo 3.97s 跑通。**产品代码 0 行**；一条一般的话：**病不在那两个坏文件，在「没人跑」这种状态** |
 | **v0.90** | **登记表是待办清单，不是永久豁免** | ① `TestV90PowerShellWrappersRunTheirImplementation`：五个 `.ps1` 入口真的跑，每个都用**必然失败的输入**验「退出码 + 点名」传了回来（不合格 vendored ⇒ exit 1 · 缺 tag ⇒ exit 1 · 假 API 读数出现 · `-Out` 写成且追加）⇒ 登记表 5 → 2。② `TestV90WrapperOptionsParity`：入口必须**带引号转发**实现接受的每个长选项（-mirror 补 `-ApiBase`、两个补 `-Help`、新增 `check-release-status.ps1`）；**这条网第一版查「文本里有没有这个名字」，被入口注释里的同一名字骗过——牙齿不红才发现**（v0.89 已写明：按文本记账是筛子）。③ `TestV90DocsLinksStillCatchesBrokenLinks` + 性能：文档链接检查每次 CI 都跑，实测 **133.72s**（内层循环对**每条链接**起子进程：248 文件 / 上千链接 ⇒ 上千次 spawn）⇒ 改纯 bash 规范化 → **33.07s**；负例网（存在的 / `../` / 子目录 / 反引号示例 / 一条真坏 ⇒ 恰好 1 条）守住语义。新增判据 3 组 + 登记 3 条；**产品代码 0 行**；一条一般的话：**交接处最容易被漏掉——没人负责的地方，参数会被吞、网会撒谎、检查会慢 4 倍** |
 | **v0.91** | **把第二步做完 + 登记表只剩一条** | ① `scripts/check-docs-links.sh`：v0.90 去掉每条链接的 `cd … && pwd`（133.72s → 33.07s）后，`$(normalize_path …)` **仍每条链接 fork**；改成一个 awk 进程做「剥反引号 + 找链接 + 提 target + 规范化」，bash 只做 `[ -f ]` ⇒ **1.33s**（累计 ≈100×）。**凭据是逐字对照**：git 取旧实现 + 20 例夹具 ⇒ `IDENTICAL` 才提交；**对照抓到两处自身 bug**（`..` 退到根时 `sub()` 空操作 ⇒ 路径多一层；base 为空拼出前导 `/` ⇒ 相对变绝对）。对照固化为 `TestV91DocsLinksGoldenCases`（含已知漏检：target 里有 `)` 看不见，新旧一致）。② 登记表 **2 → 1**：`TestV91GiteeReadingRunsOffline` 用假 API 断言三种结论（齐 ⇒ 0 · 缺 ⇒ 1 且点名 · 查不动 ⇒ 3 且 NOT CHECKED）+ 跑 Windows 入口；**原先写的理由是错的**（「没有离线模式」，而 `GITEE_API_BASE` 一直在）。只剩 `upload-gitee-assets.ps1`（真需凭据）。新增判据 2 组 + 登记 2 条；**产品代码 0 行**；一条一般的话：**「跑不了」的理由也会过期** |
+| **v0.92** | **关上那处已知漏检（带括号的链接）** | `[x](./b(c).md)` 合法，但旧实现「截到第一个 `)`」把它切成 `c` ⇒ 既不报也看不见（从检查里消失）。**先量**：全仓 253 个 `.md` 这类链接 0 处（变强不会引入新红）。**改法**：`link_scan` 的 destination 改平衡括号扫描（深度 0 的 `)` 才是结尾），不配平时退回旧语义。**前后对照**：同夹具旧 1 条 / 新 2 条（多的是嵌套括号且缺失），带括号且存在的不报（证明不是「见括号就报」）；真实仓库仍全过。黄金用例补两类形态 + 脚本头部规则说明。**产品代码 0 行**；一条一般的话：**漏检比误报更难发现——误报会吵，漏检只会让人安心** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -267,7 +268,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.91.0` 的 **Gitee 发行版（88 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.92.0` 的 **Gitee 发行版（89 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -342,7 +343,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 88 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 89 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```

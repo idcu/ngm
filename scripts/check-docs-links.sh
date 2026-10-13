@@ -3,7 +3,10 @@
 #
 # 规则：
 #   1. 扫描给到的根：目录递归取 `**/*.md`，文件直接取（默认 `docs README.md`）
-#   2. 匹配形如 [label](path) 的内联链接：path 若是 .md/.txt 相对路径，必须存在
+#   2. 匹配形如 [label](path) 的内联链接：path 若是 .md/.txt 相对路径，必须存在。
+#      path 里的括号按**平衡括号**解析（v0.92）：`](./b(c).md)` 的结尾是最后一个配平的
+#      `)`。旧的"截到第一个 `)`"会把它切成 `c`——既不报也看不见（一处已知漏检）。
+#      括号不配平时退回旧语义（取最后一个 `(` 之后），不把畸形写法顺手变哑。
 #   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）、**行内代码里的示例**
 #   4. CI 友好：打印每个坏链接（文件:行号）并在最后 exit 1
 #
@@ -82,14 +85,39 @@ link_scan() {
     {
       line = $0
       gsub(/`[^`]*`/, "", line)
-      rest = line
-      while (match(rest, /\[[^]]+\]\([^)]+\)/)) {
-        m = substr(rest, RSTART, RLENGTH)
-        rest = substr(rest, RSTART + RLENGTH)
-        idx = 0
-        for (i = 1; i <= length(m); i++) if (substr(m, i, 1) == "(") idx = i
-        t = substr(m, idx + 1)
-        sub(/\).*$/, "", t)
+      pos = 1
+      while (pos <= length(line) && match(substr(line, pos), /\[[^]]+\]\(/)) {
+        start = pos + RSTART - 1
+        open = start + RLENGTH - 1
+        # destination 用**平衡括号**解析（v0.92）：`](./b(c).md)` 的结尾是最后一个
+        # 配平的 `)`，而不是第一个 `)`。旧实现（左边到第一个 `)` 为止）会把它切碎成
+        # `c` ⇒ 既看不见、也报不出来——一处**已知漏检**，v0.91 写进判据注释留待论证。
+        depth = 0
+        endpos = 0
+        for (i = open + 1; i <= length(line); i++) {
+          c = substr(line, i, 1)
+          if (c == "(") depth++
+          else if (c == ")") {
+            if (depth == 0) { endpos = i; break }
+            depth--
+          }
+        }
+        if (endpos == 0) {
+          # 括号不配平 ⇒ 按 CommonMark 这不是链接。**但仍按旧语义看一眼**：
+          # 那类畸形写法以前会被报出来，把检查变强不该顺手把它变哑。
+          # （best-effort：取这一行里最后一个 `(` 之后、第一个 `)` 之前。）
+          mo = substr(line, start)
+          idx = 0
+          for (i = 1; i <= length(mo); i++) if (substr(mo, i, 1) == "(") idx = i
+          t = substr(mo, idx + 1)
+          sub(/\).*$/, "", t)
+          m = mo
+          pos = length(line) + 1
+        } else {
+          t = substr(line, open + 1, endpos - open - 1)
+          m = substr(line, start, endpos - start + 1)
+          pos = endpos + 1
+        }
         if (t == "" || substr(t, 1, 1) == "#") continue
         if (t ~ /^(http|https|mailto|tel|file):/) continue
         sub(/#.*$/, "", t)

@@ -139,8 +139,14 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV92DocsLinksResolveBalancedParens": {
+		what: "文档链接检查**看得见带括号的目标**：destination 按**平衡括号**解析（`](./b(c).md)` 的结尾是最后一个配平的 `)`），括号不配平时退回旧语义（取最后一个 `(` 之后）；黄金用例里同时有「带括号且存在」（不报）与「带括号且缺失」（报）两侧",
+		why: "这是 v0.91 亲手写下、写明「要改得单独论证」的那处**已知漏检**：旧实现把 `](./b(c).md)` 切成 `c` ⇒ **既不报也看不见**（一个会漏检的检查比没有检查更坏——它给人一种查过了的感觉）。" +
+			"动手前的取证：全仓 253 个 `.md` 里这类链接**0 处**（所以变强不会引入新红）；前后对照：同一份夹具旧实现报 1 条、新实现报 2 条（多的正是「嵌套括号且缺失」），而「带括号但存在」两侧都不报（证明不是「见括号就报」）。真实仓库仍然全过",
+		source: "判据在 `cmd/ngm/v091_docs_links_golden_test.go`（同一份黄金用例，v0.92 起含两类嵌套括号形态）；实现在 `scripts/check-docs-links.sh` 的 `link_scan`",
+	},
 	"TestV91DocsLinksGoldenCases": {
-		what: "文档链接检查的**黄金用例**（20 个刁钻形态）：反引号里的示例不算链接 · 一行里两条都要看到 · `..` 一直退到根 · 根目录文件（base 为空）拼路径不能带前导 `/` · 括号出现在 label/target 里的既有行为（含**一处已知的漏检**：target 里有 `)` 时这条检查看不见它）· 子目录 · `.txt` · `vendor/` 不参与",
+		what: "文档链接检查的**黄金用例**（20+ 个刁钻形态）：反引号里的示例不算链接 · 一行里两条都要看到 · `..` 一直退到根 · 根目录文件（base 为空）拼路径不能带前导 `/` · 括号出现在 label / target 里（**v0.92 起 target 里的括号能被正确解析**，旧实现把它切碎 ⇒ 一处已知漏检就此关上）· 子目录 · `.txt` · `vendor/` 不参与",
 		why: "v0.90 把每条链接一次 `cd … && pwd` 换成纯 bash（133.72s → 33.07s），v0.91 再把「剥反引号 + 找链接 + 提 target + 规范化」整体搬进**一个 awk 进程**（33.07s → **1.33s**，实测）。重写的凭据是当时与旧实现的**逐字对照**——但那次对照是一次性的；这条网就是它的常驻版本（写它时正好验证了：我手写的期望行号是错的、而两个实现一致——" +
 			"出问题的是我的期望，不是实现）",
 		source: "判据在 `cmd/ngm/v091_docs_links_golden_test.go`；实现在 `scripts/check-docs-links.sh`（`link_scan` 一个 awk 进程 + bash 只做 `[ -f ]`）",
