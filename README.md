@@ -4,7 +4,7 @@
 
 ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.93 delivered in source**, and all ninety-three tags `v0.1.0` … `v0.93.0` exist.
+Status: **v0.1 … v0.94 delivered in source**, and all ninety-four tags `v0.1.0` … `v0.94.0` exist.
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +26,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 93** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 93** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 94** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 94** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 28 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.93.0`).
+The 29 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.94.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those ninety historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those ninety-one historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -339,6 +339,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.91 | finishing the second step: v0.90 removed the per-link `cd … && pwd` (133.72s → 33.07s) but each link still forked a subshell for path normalisation; moving that into a single awk process left the checker at **1.33s** (≈100× versus where it started — and every CI run and full test pays it). The rewrite was authorised by a line-by-line comparison against the previous implementation over a 20-case hostile fixture (backticked examples, two links on one line, `..` climbing to the root, a root file with an empty base, anchors, external links, parentheses inside labels and targets, subdirectories, `.txt`, `vendor/`) — only `IDENTICAL` was good enough to commit, and the comparison caught two bugs of mine (`sub()` silently no-ops when the accumulator has no slash, so a second `..` did nothing; and an empty base produced a leading `/`, turning a relative link into an absolute one). That comparison is now a standing golden-case net, including one documented blind spot: a target containing `)` is invisible to the check. The run-or-explain registry shrank to a single entry — the Gitee reading turned out to be offline-testable all along (`GITEE_API_BASE` was always there), so its recorded reason had simply never been checked | delivered · released |
 | v0.92 | closing the one blind spot v0.91 wrote down and deferred: a link whose destination contains balanced parentheses — `[x](./b(c).md)` — is perfectly legal, but the old matcher stopped at the first `)`, sliced the target down to `c`, and silently skipped it, so such links were neither reported nor counted (a check that misses things is worse than no check: it makes people feel covered). Measured first: zero such links exist in the repository's 253 markdown files, so strengthening the check could not turn anything red by surprise. The destination is now scanned with a paren counter, falling back to the old reading when parens are unbalanced, and the before/after fixture shows the delta exactly — one reported broken link before, two after, while a link with parentheses that *does* exist stays unreported (proving the new parser does not simply flag anything with parens). The golden cases now carry both sides, so the closure of that blind spot has a standing witness instead of a sentence in a retrospective | delivered · released |
 | v0.93 | the same disease as v0.92, other face: the link check only looked at `.md`/`.txt` targets, so renaming `LICENSE`, moving `internal/errs/errs.go` or renaming `docs/guides/` would let documentation links rot silently. Measured first: of 2103 links, 2087 are `.md`, 13 point at **directories** and 3 at `.go` files — the last two kinds were never checked, yet all 2103 exist today (zero debt, so widening cannot turn anything red by surprise). The extension filter is gone; only targets that genuinely may be absent are skipped (`node_modules/`, `vendor/`, `ngm.vendor/`, `dist/`, `.git/`), and existence now has two grades: `.md`/`.txt` must still be a **file** (a link to a directory is not "that document is there"), everything else just has to exist, because 13 real links point at directories and `-f` would have reported them. Before/after on one fixture: two broken links reported, four after — the two additions being a missing source file and a missing directory, while targets that exist stay unreported | delivered · released |
+| v0.94 | the `subPath` end-to-end, on the books since v0.79 as "needs a monorepo remote to be pushed", became a standing check — and the premise turned out to be wrong in two ways. A local `git daemon` does work (it ran, it served, the clone succeeded) and loopback hosts were opened for exactly that in v0.83's ADR-029, but `git://` is only an address form: the fetch transports are ssh and https only (`git.defaultProtocol`, see `protocol.go`), and install rebuilt the canonical into `https://127.0.0.1/...` and tried port 443. The second half of the premise was unnecessary: the subPath contract — filtering the sub-directory, recording `path`, deriving the entry from the sub-package's own `exports` — lives in the vendor and mappings layers, so the repo's existing local-mirror facilities (a mirror holds the whole repo, which is what a monorepo really looks like) plus `--offline` exercise it end to end: init → add `#path=packages/a@v1.0.0` → update --all --offline → install --offline → verify → mappings validate. The assertions are the contract itself: only the sub-package is vendored, its sibling is nowhere, mappings point at the sub-package's exports, and a nonexistent sub-path fails at update without leaving half a vendor tree | delivered · released |
 
 ---
 

@@ -139,6 +139,13 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV94SubPathEndToEnd": {
+		what: "**`subPath` 端到端**（从 v0.79 起挂在「需要推一个 monorepo 远端库」上的那件事）：真实 monorepo（根 + `packages/a` + `packages/b`）⇒ `init → add git://…#path=packages/a@v1.0.0 → update --all --offline → install --offline → verify → mappings validate`，然后断言契约——**只有子包被 vendor**（兄弟包一个文件都不许进来）· 声明里 `path: packages/a` · mappings 指向子包自己的 `exports`（`src/index.js` + `src/index.d.ts`，且不含 `packages/b`）· 反面：不存在的子路径在 `update` 那一步明确失败且**不留半个 vendor**",
+		why: "这条链路一直被记为「等一次人工推送」。这一版把它做掉，同时纠正了前提里**两处**想当然：①「起个本机 `git daemon` 就有远端」**不成立**——`git://` 只是地址写法，抓取协议只有 ssh / https（`~/.ngm/config.json` 的 `git.defaultProtocol`，见 `internal/resolve/protocol.go`）；" +
+			"v0.83 的 ADR-029 放开回环主机是为了本机 daemon，但那一半之后还有一半：实测 install 会把 canonical 重建成 `https://127.0.0.1/…` 去连 443。②但 **subPath 的契约不在抓取那一步**——过滤子目录、写 `path`、按子包自己的 `exports` 推入口，全都发生在 vendor / mappings 层 ⇒ 用仓库既有的**本地镜像**（镜像是**整仓**，正是 monorepo 的真实形状）+ `--offline` 就能把契约走完整。" +
+			"顺带记下三条实测细节（都在测试注释里）：显式端口被设计拒绝（「ngm identifies a repository by host and path only」）· 路径至少两段（`org/repo`）· Windows 上 `git daemon` 会 exec 出 `git-daemon.exe`，只杀父进程会留下占着 9418 的残骸",
+		source: "判据在 `cmd/ngm/v094_subpath_e2e_test.go`；夹具用 `testutils.NewGitRepo` + `seedMirror`（既有的本地镜像设施），CLI 走 `dispatch`",
+	},
 	"TestV91DocsLinksGoldenCases": {
 		what: "文档链接检查的**黄金用例**（25+ 个刁钻形态）：反引号里的示例不算链接 · 一行里两条都要看到 · `..` 一直退到根 · 根目录文件（base 为空）拼路径不能带前导 `/` · 括号出现在 label / target 里（**v0.92 起 target 里的括号能被正确解析**，旧实现把它切碎 ⇒ 一处已知漏检就此关上）· **v0.93 起目标不限于 `.md`/`.txt`**（源码 / `LICENSE` / 目录都查；`.md`/`.txt` 仍要求是**文件**，其余允许目录；`vendor/` 等被忽略目录里的目标不算）· 子目录 · `.txt` · `vendor/` 不参与",
 		why: "v0.90 把每条链接一次 `cd … && pwd` 换成纯 bash（133.72s → 33.07s），v0.91 再把「剥反引号 + 找链接 + 提 target + 规范化」整体搬进**一个 awk 进程**（33.07s → **1.33s**，实测）。重写的凭据是当时与旧实现的**逐字对照**——但那次对照是一次性的；这条网就是它的常驻版本（写它时正好验证了：我手写的期望行号是错的、而两个实现一致——" +
