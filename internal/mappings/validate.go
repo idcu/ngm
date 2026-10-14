@@ -68,7 +68,7 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 		if env.LockNames != nil && !env.LockNames[m.From] {
 			findings = append(findings, Finding{
 				From: m.From,
-				Message: "is not present in " + lockFileName +
+				Message: "is not present in " + LockFileName +
 					"; run `ngm install` to refresh (or remove the stale mapping)",
 				Fatal: true,
 			})
@@ -235,11 +235,16 @@ func lockedSubpathsHint(locked []string) string {
 	return " (the lock records: " + strings.Join(locked, ", ") + ")"
 }
 
-// lockFileName 与 internal/lock 的 FileName 保持一致。
+// LockFileName 与 internal/lock 的 FileName 保持一致。
 //
-// 刻意不 import lock：mappings 是协议层，不应对解析层产生依赖；
-// 两者口径一致由 CLI 的集成测试保证。
-const lockFileName = "ngm.lock"
+// 刻意不 import lock：mappings 是协议层，不应对解析层产生依赖。
+//
+// v0.99：这里原来写着"两者口径一致由 CLI 的集成测试保证"——**那句话做不到**：
+// 常量没有导出，仓库里没有任何地方能同时看见它和 `lock.FileName`，
+// 于是"保证"只是一句话（典型的"说了但没人守"）。现在导出它，
+// 由 `TestV99LockFileNameHasOneSource`（在 cmd/ngm：那里能同时 import 两个包）
+// 把两个常量放进同一条判据里比。仍然是零依赖，只是**可对账**了。
+const LockFileName = "ngm.lock"
 
 // ErrInvalid 构造校验失败的统一错误（exit 3）。
 func ErrInvalid(summary string) error {

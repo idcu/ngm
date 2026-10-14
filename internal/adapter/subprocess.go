@@ -566,6 +566,16 @@ func buildInvocation(entry Entry, req buildRequest) (invocation, error) {
 	if err != nil {
 		return inv, err
 	}
+	// 清单里的固定前缀参数**只在这里**前置一次（v0.99）。
+	//
+	// 修之前 wasm 侧还有一份 `entryArgs`（`e.entry.Args + inv.Args`），而它调用的正是
+	// 这个函数——于是同一个引擎在 wasm 形态下会把固定参数前置**两遍**。今天不可达
+	// （`Args` 由 `command` 派生，wasm 条目的 `command` 是模块路径 ⇒ 通常为空），
+	// 但那条注释承诺的是"两者必须一致"，而代码已经不一致了。
+	//
+	// 处置按本项目的老办法：**不让两处各自正确，而是让它只剩一处**。
+	// 守这条纪律的判据在 v099_entry_args_test.go（结构性：`entry.Args` 只允许出现在
+	// 下面这几行里，且两个 `--version` 探针必须逐字相同）。
 	if len(entry.Args) > 0 {
 		inv.Args = append(append([]string{}, entry.Args...), inv.Args...)
 	}

@@ -139,6 +139,22 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV99MirroringClaimsAreAccounted": {
+		what: "**写在注释里的「两边必须一致」必须进账本**：六个人工选定的词（`逐字镜像` · `逐字对齐` · `必须一致` · `必须保持` · `两份实现` · `两条实现`）在 Go 非测试源码 + `scripts/*.sh|*.mjs` 里的每一处命中，都必须被 `claimsLedger` 里的一条登记项认领——写明**被哪条判据对账**（判据名必须真实存在，可跨包 ✓）或**为什么验不了**；两个方向都对账（未登记的命中 ⇒ 红；登记所指的措辞消失 ⇒ 红）",
+		why: "v0.97/v0.98/v0.99 一路撞到同一件事：承诺自己不会检查自己。这版当场抓到两处——`wasmEngine.entryArgs` 把 `entry.Args` 前置了两遍（注释正说着「两者必须一致」），`mappings.lockFileName` 的作者写着「由 CLI 的集成测试保证」（常量没导出 ⇒ 那句话做不到）。" +
+			"记账口径写在判据里：六词词表是显式数据；扫描范围排除 `.ps1`（按约定只转调，那份约定由 v0.90 守着）与文档；**它是筛子不是证明**——挡住「从没被登记过」这一档",
+		source: "判据在 `cmd/ngm/v099_claims_ledger_test.go`（14 处命中全部登记）。牙齿三条：新加一句未登记的承诺 ⇒ 红并点名 `file:line`；改掉登记的措辞 ⇒ 红（「登记看着空气」）；把判据名改成不存在的 ⇒ 红",
+	},
+	"TestV99SBOMFormatsDescribeTheSameGraph": {
+		what:   "**两种 SBOM 格式必须描述同一张依赖图**：同一批条目分别导出 CycloneDX 与 SPDX，把两侧的边归一成 `父名 → 子名`（各自从组件/包清单把 purl / SPDXID 映射回 slug，根统一为哨兵）后**逐条相等**；图不完整（`GraphComplete=false`）时两种格式都必须**整段省略**依赖边（v0.81 的纪律：不导出半张图），而组件/包数不受影响",
+		why:    "`internal/sbom/spdx.go` 里那句「两种格式的依赖图形必须一致，否则『挑一个格式看』的人会得到两棵树」一直是**人工承诺**：现有测试分别检查两种格式各自的内容，却从没有一条判据把两侧的边放在一起比——两份实现各自正确、合起来不一致，正是 v0.97/v0.98/v0.99 在收的那类缺口",
+		source: "判据在 `cmd/ngm/v099_sbom_graph_parity_test.go`（`FromLock` 之外的夹具直接构造 `sbom.Entry`；`lock.RootRequirer` 用同一份常量，不抄字符串）",
+	},
+	"TestV99LockFileNameHasOneSource": {
+		what:   "`mappings.LockFileName` 与 `lock.FileName` 必须是**同一个名字**：两个常量相比（并挡住「两个空串也相等」的退化情形），另加一条「它真的被用在工作里」（防止导出了却没人用的常量）",
+		why:    "`internal/mappings/validate.go` 原来写着「两者口径一致由 CLI 的集成测试保证」——**那句话做不到**：常量没导出，没有任何包能同时看见这两个名字（mappings 刻意不依赖 lock）。本版导出它，让这句承诺第一次可对账。这就是本项目一路在用的口径：**承诺要么有网，要么别写**",
+		source: "判据在 `cmd/ngm/v099_lock_filename_test.go`（放在能同时 import 两个包的目录）；产品侧改动只有一处：`lockFileName` → `LockFileName`",
+	},
 	"TestV98EntryPathsAreNormalised": {
 		what: "入口路径必须**平台无关**且与自检器的 `rel_path` 同口径（走公开入口 `mappings.InferEntry` 断言产品最终写进 mappings 的那个路径）：反斜杠无条件转 `/`（不再靠 `filepath.ToSlash`——它 Windows 转、Linux 不转）、前导斜杠**剥到不剩**（旧实现只剥一个：`//src/x.js` ⇒ `.//src/x.js`，而自检器给 `./src/x.js`）。表里 11 格：反斜杠 · `.\\src\\…` · `//` · `///` · `/abs` · 裸名 · `./` · `../` · 前后空白 · `/`",
 		why: "这是 v0.97 那条「两条实现必须一致」的对账思路用在**另一对**上：入口路径规范化有两份实现（产品 `relPath` / 自检器 `rel_path`），v0.88 靠人工「逐字镜像」，实测它们已经分了两处——" +

@@ -119,7 +119,7 @@ func (e *wasmEngine) Bundle(ctx context.Context, entry string, opts BundleOption
 	if err != nil {
 		return nil, err
 	}
-	res, err := e.run(ctx, e.entryArgs(inv), nil)
+	res, err := e.run(ctx, inv.Args, nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -141,7 +141,7 @@ func (e *wasmEngine) Transform(ctx context.Context, input []byte, opts Transform
 	if err != nil {
 		return nil, err
 	}
-	res, err := e.run(ctx, e.entryArgs(inv), stdinFor(inv, input))
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, input))
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -154,7 +154,7 @@ func (e *wasmEngine) Check(ctx context.Context, entry string, opts TypeCheckOpti
 	if err != nil {
 		return nil, err
 	}
-	res, err := e.run(ctx, e.entryArgs(inv), stdinFor(inv, nil))
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, nil))
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -186,7 +186,7 @@ func (e *wasmEngine) Compile(ctx context.Context, input []byte, opts CSSOptions)
 	if err != nil {
 		return nil, err
 	}
-	res, err := e.run(ctx, e.entryArgs(inv), stdinFor(inv, input))
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, input))
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -213,14 +213,6 @@ func (e *wasmEngine) modulePath() string {
 		return p
 	}
 	return filepath.Join(e.dir, filepath.FromSlash(p))
-}
-
-// entryArgs 把清单里的固定前缀参数拼到本次调用的参数前面。
-//
-// 与 subprocess 侧同一规则（buildInvocation 的收尾也做同样的事）：两者必须一致，
-// 否则同一个引擎在两种形态下 argv 会不同，而 ADR-011 的承诺正是"契约不变"。
-func (e *wasmEngine) entryArgs(inv invocation) []string {
-	return append(append([]string{}, e.entry.Args...), inv.Args...)
 }
 
 // writeArtifact 把模块的 stdout 落盘。
