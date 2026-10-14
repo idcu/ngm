@@ -139,6 +139,13 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV95HTTPSFetchEndToEnd": {
+		what: "**真正走 https 的 fetch 端到端**：本机 443 上跑一个 https 服务，把请求交给**真正的 `git http-backend`**（smart HTTP），证书是现场生成的自签证书；然后 `init → add https://127.0.0.1/acme/lib.git@v1.0.0 → update --all → verify`，断言——① **服务端真的收到了请求**（计数器 > 0：否则这个「端到端」可能只是从某个热的本地镜像读出来的，那它什么都没证明）· ② `ngm.lock` 钉的 commit = 上游 HEAD（ref 真被解析）· ③ mappings 生成、verify 通过",
+		why: "v0.94 把 `subPath` 契约跑通了，但那条链路走的是**本地镜像**——**fetch 这一半仍然只在真人推送过之后才被跑过**；而 v0.94 顺带查到抓取协议只有 ssh / https（`git.defaultProtocol`），所以「本机 git daemon」那条路是死的。这一版把那一半补上，**仍然不需要任何推送**。" +
+			"实测记下一条边界：`GIT_SSL_CAINFO`（OpenSSL 构建的开关）在 Git for Windows 默认的 **schannel** 后端上**被忽略**（现象：`schannel: SEC_E_UNTRUSTED_ROOT`）⇒ 本地自签证书的端到端只剩「关校验」这条路——**不能**往系统证书库装测试证书（一个测试不该动那台机器的信任根），也不能为了测试切后端。于是注释里写明：这条端到端验的是「ngm 会构造 https://host/org/repo.git、smart HTTP 能谈、ref 能解析、内容能落盘」，**不是**「TLS 链校验」" +
+			"（那一条归 git 与操作系统，不该由本测试自证）。环境前提（443 空闲、`git-http-backend` 在）用**明确失败**处理，不静默跳过",
+		source: "判据在 `cmd/ngm/v095_https_fetch_e2e_test.go`；CGI 桥与自签证书都在同文件；夹具用 `testutils.NewGitRepo`，CLI 走 `dispatch`",
+	},
 	"TestV94SubPathEndToEnd": {
 		what: "**`subPath` 端到端**（从 v0.79 起挂在「需要推一个 monorepo 远端库」上的那件事）：真实 monorepo（根 + `packages/a` + `packages/b`）⇒ `init → add git://…#path=packages/a@v1.0.0 → update --all --offline → install --offline → verify → mappings validate`，然后断言契约——**只有子包被 vendor**（兄弟包一个文件都不许进来）· 声明里 `path: packages/a` · mappings 指向子包自己的 `exports`（`src/index.js` + `src/index.d.ts`，且不含 `packages/b`）· 反面：不存在的子路径在 `update` 那一步明确失败且**不留半个 vendor**",
 		why: "这条链路一直被记为「等一次人工推送」。这一版把它做掉，同时纠正了前提里**两处**想当然：①「起个本机 `git daemon` 就有远端」**不成立**——`git://` 只是地址写法，抓取协议只有 ssh / https（`~/.ngm/config.json` 的 `git.defaultProtocol`，见 `internal/resolve/protocol.go`）；" +
