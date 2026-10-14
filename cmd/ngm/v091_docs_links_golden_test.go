@@ -35,6 +35,7 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 	writeFileAt(t, dir, "docs/sub/c.md", "# c\n")
 	writeFileAt(t, dir, "docs/note.txt", "# txt\n")
 	writeFileAt(t, dir, "docs/vendor/v.md", "# v\n")
+	writeFileAt(t, dir, "docs/data.json", "{}\n")
 	writeFileAt(t, dir, "docs/a.md", strings.Join([]string{
 		"# a",
 		"",
@@ -50,13 +51,19 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 		"两个在一行：[坏1](./x1.md) 与 [坏2](./x2.md)",               // 9、10 坏
 		"[外链](https://example.com/x.md)",                    // 不算
 		"[锚点](#local)",                                      // 不算
-		"[不是 md](./image.png)",                              // 不算
+		"[不是 md](./image.png)",                              // **坏**：v0.93 起非 .md/.txt 的目标也查（旧实现按扩展名跳过 ⇒ 看不见）
 		"[目标里有括号](./b(c).md)",                               // 好：v0.92 起这类链接才被解析（旧实现把它切成 `c` ⇒ 看不见）；目标存在
 		"[标签里有括号 (x)](./b.md)",                              // 好（括号在 label 里，不影响）
 		"[两级向上](../docs/sub/../b.md)",                       // 好（先退再进）
 		"[目标带括号且存在](./b(c).md)",                             // 好（证明新解析不是"见括号就报"）
 		"[嵌套括号但缺失](./missing(c).md)",                        // **坏**：v0.92 的**行为变更**——旧实现看不见这类链接
 		"[括号不配平](./unbalanced(b-missing.md)",                // 坏（回退路径：取最后一个 '(' 之后——与旧实现一致）
+		// —— v0.93 起目标不再限于 .md/.txt ——
+		"[数据（存在）](./data.json)",      // 好（非 md/txt 的普通文件）
+		"[子目录（存在）](./sub/)",          // 好（指向目录：13 处真实文档链接就是这个形状）
+		"[源码（不存在）](./nope.go)",       // **坏**：旧实现按扩展名跳过 ⇒ 看不见
+		"[没有的子目录](./nope-dir/)",      // **坏**：同上
+		"[第三方目录里的东西](./vendor/x.md)", // 不算（vendor/ 被忽略：本来就可能不在）
 		"",
 	}, "\n"))
 	writeFileAt(t, dir, "README.md", "# root\n\n[坏](./docs/missing-root.md)\n[好](./docs/b.md)\n")
@@ -82,10 +89,13 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 		"docs/a.md: 10:[坏（绝对根）](/nope.md)",
 		"docs/a.md: 12:[坏1](./x1.md)",
 		"docs/a.md: 12:[坏2](./x2.md)",
+		"docs/a.md: 15:[不是 md](./image.png)",
+		"docs/a.md: 20:[嵌套括号但缺失](./missing(c).md)",
+		"docs/a.md: 21:[括号不配平](./unbalanced(b-missing.md)",
+		"docs/a.md: 24:[源码（不存在）](./nope.go)",
+		"docs/a.md: 25:[没有的子目录](./nope-dir/)",
 		"docs/a.md: 8:[坏](./missing.md)",
 		"docs/a.md: 9:[坏（子目录）](./sub/nope.md)",
-		"docs/a.md: 21:[括号不配平](./unbalanced(b-missing.md)",
-		"docs/a.md: 20:[嵌套括号但缺失](./missing(c).md)",
 		"README.md: 3:[坏](./docs/missing-root.md)",
 	}
 	sort.Strings(want)
@@ -94,7 +104,7 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 		t.Errorf("黄金用例的结论变了。\n得到：\n  %s\n期望：\n  %s\n原始输出：\n%s",
 			strings.Join(broken, "\n  "), strings.Join(want, "\n  "), text)
 	}
-	if !strings.Contains(text, "found 8 broken links") {
+	if !strings.Contains(text, "found 11 broken links") {
 		t.Errorf("计数行也要对：\n%s", text)
 	}
 }

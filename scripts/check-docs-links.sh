@@ -7,7 +7,11 @@
 #      path 里的括号按**平衡括号**解析（v0.92）：`](./b(c).md)` 的结尾是最后一个配平的
 #      `)`。旧的"截到第一个 `)`"会把它切成 `c`——既不报也看不见（一处已知漏检）。
 #      括号不配平时退回旧语义（取最后一个 `(` 之后），不把畸形写法顺手变哑。
-#   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）、**行内代码里的示例**
+#   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）、**行内代码里的示例**、
+#      以及"本来就可能不在"的目标（`node_modules/` `vendor/` `ngm.vendor/` `dist/` `.git/`）。
+#      目标**不限于** `.md`/`.txt`（v0.93）：脚本、源码、`LICENSE`、目录都查——
+#      此前按扩展名过滤，导致 `.go` / 无扩展名 / 目录这三类链接（全仓 16 处）
+#      烂掉也没人知道。存在性判据分两档：`.md`/`.txt` 要求是文件，其余存在即可（目录合法）。
 #   4. CI 友好：打印每个坏链接（文件:行号）并在最后 exit 1
 #
 # 用法：scripts/check-docs-links.sh [root ...]
@@ -121,7 +125,11 @@ link_scan() {
         if (t == "" || substr(t, 1, 1) == "#") continue
         if (t ~ /^(http|https|mailto|tel|file):/) continue
         sub(/#.*$/, "", t)
-        if (t !~ /\.(md|txt)$/) continue
+        # v0.93：**不再按扩展名过滤**——链接目标是脚本、源码、`LICENSE`、目录都可以，
+        # 只要它在仓库里就该存在（此前只查 .md/.txt：把 `LICENSE` 改名、把
+        # `internal/errs/errs.go` 挪走，文档里的链接会**静默**烂掉）。
+        # 只跳过"本来就可能不在"的目标：第三方 / 生成物 / 被忽略的目录。
+        if (t ~ /(^|\/)(node_modules|vendor|ngm\.vendor|dist|\.git)\//) continue
         base = FILENAME
         if (base ~ /\//) sub(/\/[^\/]*$/, "", base)
         else base = ""
@@ -139,12 +147,25 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
+# 存在性判据分两档（v0.93）：
+#   · 目标是 `.md` / `.txt` ⇒ 必须是**文件**（指向一个目录不算"那份文档在"）；
+#   · 其余目标（目录、脚本、源码、无扩展名）⇒ 存在即可（13 处文档链接就是指向目录的）。
 while IFS=$'\t' read -r resolved f lineno match; do
   [ -n "$resolved" ] || continue
-  if [ ! -f "$resolved" ]; then
-    echo "BROKEN LINK in $f: $lineno:$match"
-    bad=$((bad + 1))
-  fi
+  case "$resolved" in
+  *.md | *.txt)
+    if [ ! -f "$resolved" ]; then
+      echo "BROKEN LINK in $f: $lineno:$match"
+      bad=$((bad + 1))
+    fi
+    ;;
+  *)
+    if [ ! -e "$resolved" ]; then
+      echo "BROKEN LINK in $f: $lineno:$match"
+      bad=$((bad + 1))
+    fi
+    ;;
+  esac
 done < <(link_scan "${files[@]}")
 
 if [ "$bad" -gt 0 ]; then
