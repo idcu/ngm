@@ -64,6 +64,11 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 		"[源码（不存在）](./nope.go)",       // **坏**：旧实现按扩展名跳过 ⇒ 看不见
 		"[没有的子目录](./nope-dir/)",      // **坏**：同上
 		"[第三方目录里的东西](./vendor/x.md)", // 不算（vendor/ 被忽略：本来就可能不在）
+		// —— v0.96 起**围栏代码块整块跳过**（块里的是示例，不是链接）——
+		"```",
+		"[块里的示例](./nope-in-fence.md)",
+		"```",
+		"[块之后仍然算](./missing-after-fence.md)", // **坏**（证明状态机真的关掉了）
 		"",
 	}, "\n"))
 	writeFileAt(t, dir, "README.md", "# root\n\n[坏](./docs/missing-root.md)\n[好](./docs/b.md)\n")
@@ -94,6 +99,7 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 		"docs/a.md: 21:[括号不配平](./unbalanced(b-missing.md)",
 		"docs/a.md: 24:[源码（不存在）](./nope.go)",
 		"docs/a.md: 25:[没有的子目录](./nope-dir/)",
+		"docs/a.md: 30:[块之后仍然算](./missing-after-fence.md)",
 		"docs/a.md: 8:[坏](./missing.md)",
 		"docs/a.md: 9:[坏（子目录）](./sub/nope.md)",
 		"README.md: 3:[坏](./docs/missing-root.md)",
@@ -104,7 +110,7 @@ func TestV91DocsLinksGoldenCases(t *testing.T) {
 		t.Errorf("黄金用例的结论变了。\n得到：\n  %s\n期望：\n  %s\n原始输出：\n%s",
 			strings.Join(broken, "\n  "), strings.Join(want, "\n  "), text)
 	}
-	if !strings.Contains(text, "found 11 broken links") {
+	if !strings.Contains(text, "found 12 broken links") {
 		t.Errorf("计数行也要对：\n%s", text)
 	}
 }

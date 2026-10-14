@@ -139,6 +139,11 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV96DocLinkCaseIsExact": {
+		what:   "**链接的大小写必须与磁盘一致**：覆盖与 `check-docs-links.sh` 同一批文件与链接（`docs/**/*.md` + 根 `README.md`；行内代码剥掉；跨仓 / 锚点 / 被忽略目录跳过；destination 按平衡括号解析），区别只在逐段核对**磁盘上的真实大小写**；牙齿用临时树（真仓库里没有不一致的链接可试）",
+		why:    "shell 那条存在性判据**平台相关**：Windows 的文件系统不区分大小写，于是 `[x](./Guides/a.md)`（磁盘上是 `guides/`）在本机**通过**、在 Linux CI 上**失败**——同一个仓库、同一份判据、两个结论，正是本项目反复吃亏的那种「看起来在检查」。先量过：全仓 2127 处仓库内链接**全部一致** ⇒ 加它不会引入新红，守的是下一次",
+		source: "判据在 `cmd/ngm/v096_link_case_test.go`（核心 `auditLinkCase` 收 root 参数，因此能用临时树上牙）；与 shell 检查的分工：存在性归 shell（快、跨平台不敏感），**大小写归这里**（Go 逐段 ReadDir）",
+	},
 	"TestV95HTTPSFetchEndToEnd": {
 		what: "**真正走 https 的 fetch 端到端**：本机 443 上跑一个 https 服务，把请求交给**真正的 `git http-backend`**（smart HTTP），证书是现场生成的自签证书；然后 `init → add https://127.0.0.1/acme/lib.git@v1.0.0 → update --all → verify`，断言——① **服务端真的收到了请求**（计数器 > 0：否则这个「端到端」可能只是从某个热的本地镜像读出来的，那它什么都没证明）· ② `ngm.lock` 钉的 commit = 上游 HEAD（ref 真被解析）· ③ mappings 生成、verify 通过",
 		why: "v0.94 把 `subPath` 契约跑通了，但那条链路走的是**本地镜像**——**fetch 这一半仍然只在真人推送过之后才被跑过**；而 v0.94 顺带查到抓取协议只有 ssh / https（`git.defaultProtocol`），所以「本机 git daemon」那条路是死的。这一版把那一半补上，**仍然不需要任何推送**。" +
@@ -154,7 +159,7 @@ var netCoverageSources = map[string]netSource{
 		source: "判据在 `cmd/ngm/v094_subpath_e2e_test.go`；夹具用 `testutils.NewGitRepo` + `seedMirror`（既有的本地镜像设施），CLI 走 `dispatch`",
 	},
 	"TestV91DocsLinksGoldenCases": {
-		what: "文档链接检查的**黄金用例**（25+ 个刁钻形态）：反引号里的示例不算链接 · 一行里两条都要看到 · `..` 一直退到根 · 根目录文件（base 为空）拼路径不能带前导 `/` · 括号出现在 label / target 里（**v0.92 起 target 里的括号能被正确解析**，旧实现把它切碎 ⇒ 一处已知漏检就此关上）· **v0.93 起目标不限于 `.md`/`.txt`**（源码 / `LICENSE` / 目录都查；`.md`/`.txt` 仍要求是**文件**，其余允许目录；`vendor/` 等被忽略目录里的目标不算）· 子目录 · `.txt` · `vendor/` 不参与",
+		what: "文档链接检查的**黄金用例**（25+ 个刁钻形态）：反引号里的示例不算链接 · **v0.96 起围栏代码块整块跳过**（块里的示例不算；块**之后**的仍然算——证明状态机真的关掉了）· 一行里两条都要看到 · `..` 一直退到根 · 根目录文件（base 为空）拼路径不能带前导 `/` · 括号出现在 label / target 里（**v0.92 起 target 里的括号能被正确解析**，旧实现把它切碎 ⇒ 一处已知漏检就此关上）· **v0.93 起目标不限于 `.md`/`.txt`**（源码 / `LICENSE` / 目录都查；`.md`/`.txt` 仍要求是**文件**，其余允许目录；`vendor/` 等被忽略目录里的目标不算）· 子目录 · `.txt` · `vendor/` 不参与",
 		why: "v0.90 把每条链接一次 `cd … && pwd` 换成纯 bash（133.72s → 33.07s），v0.91 再把「剥反引号 + 找链接 + 提 target + 规范化」整体搬进**一个 awk 进程**（33.07s → **1.33s**，实测）。重写的凭据是当时与旧实现的**逐字对照**——但那次对照是一次性的；这条网就是它的常驻版本（写它时正好验证了：我手写的期望行号是错的、而两个实现一致——" +
 			"出问题的是我的期望，不是实现）。**v0.92 在这条网上补上了原先写着的那处已知漏检**：destination 改按**平衡括号**解析（`](./b(c).md)` 的结尾是最后一个配平的 `)`），" +
 			"旧实现「截到第一个 `)`」把它切成 `c` ⇒ 既不报也看不见；动手前先量（全仓 253 个 `.md` 里这类链接 **0 处** ⇒ 变强不会引入新红），改完做前后对照（同一夹具旧报 1 条、新报 2 条；而「带括号且**存在**」两侧都不报 —— 证明不是「见括号就报」）。" +

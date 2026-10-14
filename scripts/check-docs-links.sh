@@ -7,7 +7,7 @@
 #      path 里的括号按**平衡括号**解析（v0.92）：`](./b(c).md)` 的结尾是最后一个配平的
 #      `)`。旧的"截到第一个 `)`"会把它切成 `c`——既不报也看不见（一处已知漏检）。
 #      括号不配平时退回旧语义（取最后一个 `(` 之后），不把畸形写法顺手变哑。
-#   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）、**行内代码里的示例**、
+#   3. 跳过：绝对 URL、纯锚点（#xxx）、跨仓链接（http/https）、**行内代码与围栏代码块里的示例**、
 #      以及"本来就可能不在"的目标（`node_modules/` `vendor/` `ngm.vendor/` `dist/` `.git/`）。
 #      目标**不限于** `.md`/`.txt`（v0.93）：脚本、源码、`LICENSE`、目录都查——
 #      此前按扩展名过滤，导致 `.go` / 无扩展名 / 目录这三类链接（全仓 16 处）
@@ -86,8 +86,17 @@ link_scan() {
       return out
     }
     FILENAME ~ /(^|\/)(node_modules|vendor)\// { next }
+    # **围栏代码块整块跳过**（v0.96）：块里的 `[x](./y.md)` 是示例，不是链接。
+    # 此前只剥行内反引号，边界写在文件头（"跨行的代码块由下面的事实兜住"）——
+    # 但那个"事实"当场就被自己的复盘打脸：v0.96 的复盘里演示了一条错误大小写的链接，
+    # 于是这条检查报了 3 条**示例**（一个会误报的门禁会被忽略，比漏报更糟）。
+    # 状态机很简单：``` 开、``` 关；每个文件重新开始。
     {
-      line = $0
+      if (FILENAME != prevfile) { inblock = 0; prevfile = FILENAME }
+      raw = $0
+      if (raw ~ /^[ \t]*```/) { inblock = !inblock; next }
+      if (inblock) next
+      line = raw
       gsub(/`[^`]*`/, "", line)
       pos = 1
       while (pos <= length(line) && match(substr(line, pos), /\[[^]]+\]\(/)) {
