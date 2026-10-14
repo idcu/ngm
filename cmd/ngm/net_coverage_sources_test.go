@@ -139,6 +139,19 @@ var netCoverageSources = map[string]netSource{
 		source: "文档侧读 `docs/guides/configuration.md` 的配置文件表（`readDoc(`）；" +
 			"代码侧遍历非测试 `.go`（`nonTestGoFiles(`）并复用 `fieldWithTag` 同形的 json tag 判据",
 	},
+	"TestV98EntryPathsAreNormalised": {
+		what: "入口路径必须**平台无关**且与自检器的 `rel_path` 同口径（走公开入口 `mappings.InferEntry` 断言产品最终写进 mappings 的那个路径）：反斜杠无条件转 `/`（不再靠 `filepath.ToSlash`——它 Windows 转、Linux 不转）、前导斜杠**剥到不剩**（旧实现只剥一个：`//src/x.js` ⇒ `.//src/x.js`，而自检器给 `./src/x.js`）。表里 11 格：反斜杠 · `.\\src\\…` · `//` · `///` · `/abs` · 裸名 · `./` · `../` · 前后空白 · `/`",
+		why: "这是 v0.97 那条「两条实现必须一致」的对账思路用在**另一对**上：入口路径规范化有两份实现（产品 `relPath` / 自检器 `rel_path`），v0.88 靠人工「逐字镜像」，实测它们已经分了两处——" +
+			"而两处**都在 Windows 上看不出来**（`ToSlash` 正好会转；`//` 那处由对齐网的新形态抓到）。按既定口径修产品侧（产品是契约）。**诚实边界**：反斜杠那一格在本机无法用行为分辨，它的价值在 Linux CI——" +
+			"这一点写在判据注释里，不假装本机验证过；牙齿只对 `//` 那两格有效（改回 `TrimPrefix` ⇒ 当场红）",
+		source: "判据在 `cmd/ngm/v098_entry_paths_test.go`（走公开 API，因此能进登记表；同一件事的内部单测已删，不留两份）；对齐网 `TestV87EntryInferenceAgreesBetweenProductAndChecker` 同步加了 11 个边缘形态（exports 数组/null/嵌套/空白串/`*` 模式 · main 的反斜杠/多前导斜杠/空白/裸文件名）",
+	},
+	"TestV097LinkImplementationsAgree": {
+		what: "**链接检查的两条实现必须对同一批输入给出同一批坏链接**：同一份语料（25+ 形态）上比「坏链接三元组（文件:行号:原文）」，排序后逐条相等；再在真仓库上跑一遍（两边都应当为空，且 Go 侧扫到 > 1000 处——防「范围缩了、变成空比」）",
+		why: "分工（shell 管存在性 / Go 管大小写）成立的前提是**两边一致**，而 v0.78 的原案正是「两份实现谁也没对过账」（代价是一次误判）。这条网第一次跑就抓到**两处**分歧：Go 侧漏了 v0.96 才加的围栏代码块规则；" +
+			"shell 侧把**根相对**链接（`/x`，Markdown 里相对仓库根）按文件所在目录解析（修它时又踩到「剥前导 `/` 必须在规范化之前」）。语料刻意不放括号不配平的形态——按 CommonMark 那不是链接，shell 的回退路径消息形态不同（判定相同，由 v0.91 黄金用例守着）",
+		source: "判据在 `cmd/ngm/v097_link_impl_equivalence_test.go`；Go 侧唯一的扫描实现在 `cmd/ngm/linkrefs_test.go`（v0.97 抽出来，两种判据共用）",
+	},
 	"TestV96DocLinkCaseIsExact": {
 		what:   "**链接的大小写必须与磁盘一致**：覆盖与 `check-docs-links.sh` 同一批文件与链接（`docs/**/*.md` + 根 `README.md`；行内代码剥掉；跨仓 / 锚点 / 被忽略目录跳过；destination 按平衡括号解析），区别只在逐段核对**磁盘上的真实大小写**；牙齿用临时树（真仓库里没有不一致的链接可试）",
 		why:    "shell 那条存在性判据**平台相关**：Windows 的文件系统不区分大小写，于是 `[x](./Guides/a.md)`（磁盘上是 `guides/`）在本机**通过**、在 Linux CI 上**失败**——同一个仓库、同一份判据、两个结论，正是本项目反复吃亏的那种「看起来在检查」。先量过：全仓 2127 处仓库内链接**全部一致** ⇒ 加它不会引入新红，守的是下一次",
@@ -229,7 +242,7 @@ var netCoverageSources = map[string]netSource{
 		source: "判据在 `cmd/ngm/v087_entry_alignment_test.go`（与入口对齐网同文件：它们守的是同一件事的两半）；实现在 `scripts/check-library-standard.sh`",
 	},
 	"TestV87EntryInferenceAgreesBetweenProductAndChecker": {
-		what: "**自检器与产品必须在同一批形态上给出同一个入口**：11 种 `package.json` 形态（`ngm.json` 第 1 层 · `exports` 字符串/`\".\"` 字符串/条件映射/无 `\".\"` 条件映射/只有 `require`/`default` 先于 `require` · `main`+`types` 字段 · `index.js` · `index.cjs` · 两侧都找不到）逐个对账——一侧取 `mappings.InferEntry`（产品真正会写进 mappings 的入口），另一侧解析自检器**自己打印的那句话**（`入口 <path>（来自 …`）",
+		what: "**自检器与产品必须在同一批形态上给出同一个入口**（Main 与 Types **各自**对账）：`package.json` 形态从 11 种扩到 **22 种**——原有的（`ngm.json` 第 1 层 · `exports` 字符串/`\".\"` 字符串/条件映射/无 `\".\"` 条件映射/只有 `require`/`default` 先于 `require` · `main`+`types` 字段 · `index.js` · `index.cjs` · 两侧都找不到）**加上 v0.98 的 11 个边缘形态**（`exports` 是数组/null/`\".\"` 是 null/`import` 是嵌套对象/`types` 在 `import` 之后/`import` 是空白串/目标带 `*` 模式 · `main` 用反斜杠分隔/多个前导斜杠/前后空白/裸文件名）——一侧取 `mappings.InferEntry`（产品真正会写进 mappings 的入口），另一侧解析自检器**自己打印的那句话**（`入口 <path>（来自 …`）",
 		why: "v0.78 抓到过「自检器比产品严」：标准第 1 条推荐 `exports`，自检器却不读它，于是照着标准做的库被判「三层都没找到入口」。" +
 			"当时的处置是**人工**逐字对齐，而下一次有人在任一侧加一层，没有任何判据会红 ⇒ 这条网把它变成机械对账（牙齿：把自检器的 exports 两层拿掉 ⇒ 四条 exports 形态立刻红）",
 		source: "产品侧 `internal/mappings.InferEntry`（+ 判据里的真实目录读器）；自检器侧 `scripts/check-library-standard.sh` 的 `entry-resolvable` 输出。已知边界写在测试注释里：自检器只打印 Main，`Types` 侧只判「有没有」",

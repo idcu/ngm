@@ -153,6 +153,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.95** | **fetch 那一半也搬到本地了（https + `git http-backend`）** | v0.94 的 `subPath` 契约走的是本地镜像（`--offline`）⇒ **fetch 仍只在真人推送后被跑过**；这一版补上：本机 443 上 https（`git http-backend` 做 smart HTTP，CGI 桥；现场自签证书）⇒ `init → add https://127.0.0.1/acme/lib.git@v1.0.0 → update --all → verify`。断言：**服务端计数 > 0**（否则可能从热镜像读出来，什么都没证明）· lock 的 commit = 上游 HEAD · mappings 生成 · verify 通过。**边界（实测）**：`GIT_SSL_CAINFO` 在 schannel 后端被忽略（`SEC_E_UNTRUSTED_ROOT`）⇒ 只能 `GIT_SSL_NO_VERIFY`，且注释写明这条判据验「URL 构造 + smart HTTP + ref 解析 + 落盘」而**不**验「TLS 链校验」（另两条路都不该走：往系统证书库装东西 / 为测试切后端）。环境前提（443 空闲 · http-backend 在）**明确失败**不静默跳过。**产品代码 0 行**；一条一般的话：**「端到端只差一次推送」对验证不再成立——推送只剩发布与镜像覆盖的意义** |
 | **v0.96** | **把「大小写」纳入链接检查** | `check-docs-links.sh` 的存在性判据**平台相关**：`[x](./Guides/a.md)`（磁盘 `guides/`）Windows 通过、Linux CI 失败 ⇒ 「仪器说谎」的一种。**先量**：2127 处仓库内链接全一致（0 处新红）。**分工而非叠加**：存在性归 shell（v0.91 刚降到 1.33s，不能再塞 per-link 开销），**大小写归 Go 判据**（`TestV96DocLinkCaseIsExact`，逐段 `ReadDir` + 目录缓存；与 shell 覆盖同一批文件/链接，含 v0.92 平衡括号口径）。牙齿用临时树（对 / 错 / `../` / 行内代码各一条 ⇒ 恰好报 1 条、两边写法都点名）。顺带核「253 → 261」的差值来自期间新增文档而非漂移。**顺带（自己的复盘提供的反例）**：写 v0.96 复盘时用围栏代码块演示了一条大小写错误的链接 ⇒ 这条检查当场报了 3 条**示例**——而文件头里那句「跨行的代码块由下面的事实兜住」正是被它证伪的 ⇒ 加两行状态机（``` 开 / ``` 关，每文件重置）让围栏块**整块跳过**，并补黄金用例（块里不报 + **块之后仍然报**）。**产品代码 0 行**；一条一般的话：**读数不一致时，先看事实源会不会自己长大了** |
 | **v0.97** | **两条实现必须对同一批输入给出同一批结论** | 分工（shell 存在性 / Go 大小写）成立的前提是**两边一致**，而 v0.78 的原案正是"两份实现谁也没对过账"。新判据：同一份语料（25+ 形态）比坏链接三元组（文件:行号:原文）排序逐条相等 + 真仓库两侧（两边空 + Go 扫到 > 1000 处防空比）。**抓到三处**：① Go 侧漏 v0.96 的围栏规则 ⇒ 扫描核心抽成 Go 侧唯一实现 `linkrefs_test.go`；② **shell 根相对语义错**（`/x` 应相对仓库根，此前按文件目录拼；先量全仓 0 处 ⇒ 修它不影响现网；修时踩到"剥前导 `/` 必须在 normalize 之前"）；③ `filepath.Rel(绝对, 相对)` 在 Windows 报错被静默吞（v0.96 牙齿抓的）。语料刻意不放括号不配平形态（那是 shell 的回退路径，判定相同、消息不同）。443 冲突改显式登记 skip。**产品代码 0 行**；一条一般的话：**「两边都过」不是「两边一致」** |
+| **v0.98** | **对账用在另一对：入口路径规范化** | v0.97 的「两条实现必须一致」用在**另一对**（产品 `relPath` / 自检器 `rel_path`）。先挑对：`subPath` 校验 v0.82 已统一（不是成对）；`exports` 解析成对但读下来一致；**路径规范化光读代码就有两处分家**——① 反斜杠靠 `filepath.ToSlash`（**Windows 转、Linux 不转**）⇒ 同一份 `main` 在两台机器上得到不同入口；② 多前导斜杠只剥一个（`.//src/x.js`）vs 剥到不剩（`./src/x.js`）⇒ 同一文件、打印不同。两处**都在 Windows 上不可能被发现** ⇒ 修产品侧（产品是契约）+ `TestV98EntryPathsAreNormalised`（11 格，走公开 API 因此能进登记表）+ 对齐网 11 → 22 形态（27 子测试全绿）。**诚实边界**：反斜杠那格本机无法用行为分辨（价值在 Linux CI）；牙齿只对 `//` 两格有效。顺带补 v0.97 对账网漏登记。**一条一般的话**：**「逐字镜像」是一句承诺，而承诺不会自己检查自己** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -273,7 +274,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.97.0` 的 **Gitee 发行版（94 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.98.0` 的 **Gitee 发行版（95 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -348,7 +349,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 94 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 95 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```

@@ -3,7 +3,6 @@ package mappings
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/idcu/ngm/internal/config"
@@ -236,14 +235,25 @@ func entryFromIndexConvention(read FileReader) (Entry, bool) {
 //
 // 协议要求 `to` 使用 `./ngm.vendor/...` 形式；`main`/`types` 同理，
 // 以便构建工具的 alias 直接使用。
+//
+// v0.98：两处曾经**与自检器（`scripts/check-library-standard.sh` 的 `rel_path`）不同口径**
+// 的地方——而这两处**在 Windows 上都看不出来**，正是"判据平台相关"的又一份：
+//
+//	· 反斜杠：原来靠 `filepath.ToSlash` 转换——它在 **Windows 上转、Linux 上不转**。
+//	  于是同一个 `"main": "src\\x.js"` 在 Linux CI 上会得到 `./src\x.js`、在 Windows 上
+//	  得到 `./src/x.js`（而自检器一律转）。现在无条件转换：package.json 里的路径按 `/`
+//	  语义理解，这是 npm 自己的口径。
+//	· 前导斜杠：原来只剥一个（`"//x.js"` ⇒ `.//x.js`），自检器剥全部（`./x.js`）。
+//	  两个字符串指向同一个文件，但**打印出来不一样**——而"报告里写出来的就是产品会用的
+//	  那一个"是这条链路的全部意义（v0.88 把它写成判据，v0.97 把它写成对账）。
 func relPath(p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return ""
 	}
-	p = filepath.ToSlash(p)
+	p = strings.ReplaceAll(p, "\\", "/")
 	if strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../") {
 		return p
 	}
-	return "./" + strings.TrimPrefix(p, "/")
+	return "./" + strings.TrimLeft(p, "/")
 }

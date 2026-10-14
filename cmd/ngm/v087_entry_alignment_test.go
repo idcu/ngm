@@ -173,6 +173,57 @@ func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT"}`,
 			"README.md":    "# a\n",
 		}},
+
+		// ---- v0.98：专攻解析边界（`parseExports` 与路径规范化）----
+		// 这些形态都是**合法 JSON**，但按 exports 规范属边缘。两侧必须给出同一个答案，
+		// 而且答案里**打印出来的路径**必须逐字相同（"报告里写的就是产品会用的那一个"）。
+		{"exports 是数组（不是对象也不是字符串）⇒ 两侧都当没有入口", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":["./a.js","./b.js"]}`,
+			"index.js":     "export const a = 1;\n",
+		}},
+		{"exports 是 null", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":null}`,
+			"index.js":     "export const a = 1;\n",
+		}},
+		{`exports 的 "." 是 null`, map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":{".":null}}`,
+			"index.js":     "export const a = 1;\n",
+		}},
+		{"exports 的 import 是嵌套对象（不是字符串）⇒ 跳过它", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":{".":{"import":{"default":"./d.js"},"require":"./c.cjs"}}}`,
+			"d.js":         "export const a = 1;\n",
+			"c.cjs":        "module.exports = { a: 1 };\n",
+		}},
+		{"exports 的 types 在 import 之后（顺序不影响：types 与 main 各取各的）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":{".":{"import":"./i.js","types":"./t.d.ts"}}}`,
+			"i.js":         "export const a = 1;\n",
+			"t.d.ts":       "export declare const a: number;\n",
+		}},
+		{"exports 的 import 是空白串（trim 之后为空 ⇒ 两侧都不算入口）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":{".":{"import":"   "}}}`,
+			"index.js":     "export const a = 1;\n",
+		}},
+		{"exports 的目标带 `*` 模式（按字面采用，两侧一致）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","exports":{".":{"import":"./x-*.js"}}}`,
+			"x-1.js":       "export const a = 1;\n",
+		}},
+		{"main 用**反斜杠**分隔（npm 世界里常见于 Windows 作者）", map[string]string{
+			"package.json":   `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./src\\entry.js","types":"./src\\entry.d.ts"}`,
+			"src/entry.js":   "export const a = 1;\n",
+			"src/entry.d.ts": "export declare const a: number;\n",
+		}},
+		{"main 有**多个前导斜杠**（`//src/x.js`）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"//src/x.js"}`,
+			"src/x.js":     "export const a = 1;\n",
+		}},
+		{"main 前后有空白（trim 两侧一致）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"   ./m.js   "}`,
+			"m.js":         "export const a = 1;\n",
+		}},
+		{"main 是裸文件名（没有 `./` 前缀）", map[string]string{
+			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"m.js"}`,
+			"m.js":         "export const a = 1;\n",
+		}},
 	}
 
 	for _, sh := range shapes {
