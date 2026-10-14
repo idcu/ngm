@@ -4,6 +4,7 @@
 # 规则：
 #   1. 扫描给到的根：目录递归取 `**/*.md`，文件直接取（默认 `docs README.md`）
 #   2. 匹配形如 [label](path) 的内联链接：path 若是 .md/.txt 相对路径，必须存在。
+#      以 `/` 开头的 path 相对**仓库根**（与 Markdown / GitHub 一致，v0.97 修正）。
 #      path 里的括号按**平衡括号**解析（v0.92）：`](./b(c).md)` 的结尾是最后一个配平的
 #      `)`。旧的"截到第一个 `)`"会把它切成 `c`——既不报也看不见（一处已知漏检）。
 #      括号不配平时退回旧语义（取最后一个 `(` 之后），不把畸形写法顺手变哑。
@@ -134,17 +135,27 @@ link_scan() {
         if (t == "" || substr(t, 1, 1) == "#") continue
         if (t ~ /^(http|https|mailto|tel|file):/) continue
         sub(/#.*$/, "", t)
+        # **根相对链接**（以 `/` 开头）：Markdown 里它相对**仓库根**，不是相对文件所在目录
+        # （v0.97 修掉的一处语义错：此前按 base 拼，于是 `/LICENSE` 会去找
+        #  `docs/adr/LICENSE`）。仓库里目前 0 处，改它是为了让两条实现同口径。
+        if (substr(t, 1, 1) == "/") { rootrel = 1 } else { rootrel = 0 }
         # v0.93：**不再按扩展名过滤**——链接目标是脚本、源码、`LICENSE`、目录都可以，
         # 只要它在仓库里就该存在（此前只查 .md/.txt：把 `LICENSE` 改名、把
         # `internal/errs/errs.go` 挪走，文档里的链接会**静默**烂掉）。
         # 只跳过"本来就可能不在"的目标：第三方 / 生成物 / 被忽略的目录。
         if (t ~ /(^|\/)(node_modules|vendor|ngm\.vendor|dist|\.git)\//) continue
-        base = FILENAME
-        if (base ~ /\//) sub(/\/[^\/]*$/, "", base)
-        else base = ""
-        # 拼接时 base 为空**不能**产生前导 `/`：那会让相对链接被当成绝对路径
-        # （v0.91 等价性对照抓到的第二处——根目录的 README.md 正好命中）。
-        joined = (base == "" ? t : base "/" t)
+        if (rootrel) {
+          # 剥掉前导 `/` 再规范化：留着它会让 normalize 走"绝对路径"分支，
+          # 于是 `[x](/README.md)` 去找 `C:/…/Git/README.md`（v0.97 实测的坑）。
+          joined = substr(t, 2)
+        } else {
+          base = FILENAME
+          if (base ~ /\//) sub(/\/[^\/]*$/, "", base)
+          else base = ""
+          # 拼接时 base 为空**不能**产生前导 `/`：那会让相对链接被当成绝对路径
+          # （v0.91 等价性对照抓到的第二处——根目录的 README.md 正好命中）。
+          joined = (base == "" ? t : base "/" t)
+        }
         print normalize(joined) "\t" FILENAME "\t" FNR "\t" m
       }
     }

@@ -96,7 +96,12 @@ func TestV95HTTPSFetchEndToEnd(t *testing.T) {
 		t.Fatalf("自签证书装配失败：%v", err)
 	}
 	if err := portIsFree("127.0.0.1:443"); err != nil {
-		t.Fatalf("443 已被占用（%v）——https fetch 端到端要独占它（ngm 只用默认端口）", err)
+		// 端口被占是**环境条件**，不是缺陷：这条端到端必须独占 443（ngm 不接受显式端口）。
+		// 按本仓库的规矩，环境条件要**显式登记**、不许静默通过——所以这里把原因打印出来
+		// 再 skip：`go test -v` 与 CI 的摘要都会看到 SKIP（以及为什么），而不是假装跑过了。
+		// （先例：v0.88 的 `.ps1` 判据在没有 powershell 的机器上就是这样处理的。）
+		t.Skipf("443 已被占用（%v）：https fetch 端到端要独占它（ngm 只用默认端口）。"+
+			"这条判据这次**没跑**——不是通过。", err)
 	}
 	srv := &http.Server{Addr: "127.0.0.1:443", Handler: handler, TLSConfig: &tls.Config{Certificates: []tls.Certificate{tlsCert}}}
 	ln, err := net.Listen("tcp", "127.0.0.1:443")
