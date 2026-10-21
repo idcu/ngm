@@ -23,7 +23,7 @@ var jsonShapeRowTypes = map[string]struct {
 	file string
 	typ  string
 }{
-	"verify":           {"../../internal/verify/report.go", "Report"},
+	"verify":           {"../../internal/core/verify/report.go", "Report"},
 	"audit":            {"../../internal/supplychain/report.go", "AuditReport"},
 	"tree":             {"../../internal/observability/tree.go", "TreeReport"},
 	"why":              {"../../internal/observability/why.go", "WhyReport"},
@@ -35,6 +35,10 @@ var jsonShapeRowTypes = map[string]struct {
 	// v0.66：两个写命令的报告共用同一形状（差别在 `command` 字段）。
 	"install": {"./install.go", "writeReport"},
 	"update":  {"./install.go", "writeReport"},
+	// v0.104：modules 三个子命令各有独立报告类型。
+	"modules list":     {"./modules.go", "modulesListReport"},
+	"modules validate": {"./modules.go", "modulesValidateReport"},
+	"modules index":    {"./modules.go", "modulesIndexReport"},
 }
 
 // TestV26EveryDocumentedShapeIsANamedType 固定：**形状表里的每一行，都要有一个具名类型兜着。**

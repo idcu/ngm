@@ -235,12 +235,16 @@ func parseJSONShapeTable(t *testing.T) []shapeRow {
 				row.sub = w
 			}
 		}
-		for _, k := range reBacktick.FindAllStringSubmatch(l, -1) {
-			tok := k[1]
+		// 命令单元（第一个 `|` 到第二个 `|`）里的反引号 token 不是字段名。
+		// 不能只跳过 `tok == row.command`：`ngm modules ...` 的顶层字段就叫
+		// `modules`，按命令名跳过会把真正的字段一起吞掉。
+		cmdCellEnd := strings.Index(l, "` |")
+		for _, k := range reBacktick.FindAllStringSubmatchIndex(l, -1) {
+			tok := l[k[2]:k[3]]
 			if i := strings.LastIndex(tok, "."); i >= 0 {
 				tok = tok[i+1:] // `summary.exitCode` ⇒ `exitCode`
 			}
-			if strings.Contains(tok, "--json") || tok == row.command {
+			if (cmdCellEnd >= 0 && k[0] < cmdCellEnd) || strings.Contains(tok, "--json") {
 				continue
 			}
 			row.keys = append(row.keys, tok)

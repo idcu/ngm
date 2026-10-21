@@ -290,6 +290,16 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 			"cannot write a collection index with invalid modules",
 			"fix the module manifests, then re-run `ngm modules index`"))
 	}
+	if len(mods) == 0 {
+		if *jsonOut {
+			return writeModulesJSON(stdout, stderr, modulesIndexReport{
+				Version: 1, Out: *out, DryRun: *dryRun,
+				Index: collectionIndex{SchemaVersion: 1, Modules: []collectionModule{}},
+			})
+		}
+		fmt.Fprintln(stdout, "no modules found; nothing written")
+		return 0
+	}
 
 	idx := collectionIndex{SchemaVersion: 1, Modules: make([]collectionModule, 0, len(mods))}
 	for _, m := range mods {
@@ -369,7 +379,9 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		branchFiles[relPath] = content
 	}
 	var branchCommit string
-	if *branch != "" {
+	// 空集合不更新索引分支：它没有可表达的内容，且会让“无参数/--flag=false”
+	// 这类等价调用产生不同的 commit hash（v0.45 的等价判据会红）。
+	if *branch != "" && len(idx.Modules) > 0 {
 		if !isGitDir(ctx, *dir) {
 			if branchSet {
 				return runErr(ctx, stdout, stderr, errs.New(

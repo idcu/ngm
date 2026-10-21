@@ -145,7 +145,7 @@ var (
 // errsCodeNames 从实现里取出 名字（去掉 Code 前缀）→ 数值。
 func errsCodeNames(t *testing.T) map[string]int {
 	t.Helper()
-	raw := readDoc(t, "../../internal/errs/errs.go")
+	raw := readDoc(t, "../../internal/core/errs/errs.go")
 	out := map[string]int{}
 	for _, m := range reErrsConst.FindAllStringSubmatch(raw, -1) {
 		name := strings.TrimPrefix(m[1], "Code")

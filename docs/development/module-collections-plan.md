@@ -64,7 +64,8 @@
 | `store usage` 报告 module cache | `internal/core/vendor/module_cache.go`、`cmd/ngm/store.go` | `TestModuleCacheEnsure`（Usage）、v104 install e2e |
 | release 索引分片（本地 + 分支） | `cmd/ngm/modules.go`、`internal/core/git/exec.go` | `TestModulesIndexWritesReleaseShards`、`TestRunWithStdin` |
 | 逐模块 publish 覆盖全局 | `internal/config/config.go`、`cmd/ngm/modules.go` | `TestModulesIndexPerModulePublishOverridesGlobal`；ADR-037 |
-| 核心目录物理抽离 | `internal/core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify}` | 全仓 import 更新；`TestCoreBoundaryForbidsLanguageSpecificImports` |
+| 核心目录物理抽离 | `internal/core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify,modproof}` | 全仓 import 更新；`TestCoreBoundaryForbidsLanguageSpecificImports` |
+| 外部 `modproof` 孵化仓库 | `gitee.com/idcu/modproof` | 初始 facade 快照已推送；idcu-go `planned` 登记；单消费者例外 |
 
 **关键口径**：
 
@@ -138,7 +139,8 @@ v0.103 已完成：refType 窄默认、`modules list/validate/index`、release �
 v0.104 进行中：`--infer-ref-type`、快速验证指南、`git.LSRemote` 参数顺序修复、
 partial clone 模块缓存（install-from-lock + verify --offline）、`store usage` 层 1.5 报告、
 本地 release 索引分片、分片 branch 批量 tree 写入、逐模块 publish 覆盖全局已完成；
-核心目录物理抽离已完成（`atomicfile`、`digest`、`errs`、`git`、`lock`、`resolve`、`vendor`、`verify` 全部在 `internal/core/`）。
+核心目录物理抽离已完成；`gitee.com/idcu/modproof` 孵化仓库已建、已推送初始快照，
+idcu-go 登记为 `planned`（单消费者例外）。ngm 尚未切换到外部依赖。
 见 [ADR-032](../adr/adr-032-scoped-content-proof.md)、
 [ADR-034](../adr/adr-034-module-cache.md)、
 [ADR-036](../adr/adr-036-infer-ref-type-opt-in.md)、

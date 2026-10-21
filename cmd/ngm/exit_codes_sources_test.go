@@ -87,7 +87,7 @@ const (
 
 var exitOneSiteRegistry = map[string][]exitOneEntry{
 	// ---- definitions：这个码本身（不是"来源"）----
-	"internal/errs/errs.go :: (top-level)": {
+	"internal/core/errs/errs.go :: (top-level)": {
 		{
 			role: roleDefinition, tokenCode: 1, why: "`CodeRefDrift Code = 1`——数值的唯一定义处",
 		},
@@ -95,7 +95,7 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 			role: roleDefinition, tokenCode: 6, why: "`CodeInternal Code = 6`——码 6 的数值定义处（v0.59 · ADR-026）",
 		},
 	},
-	"internal/errs/errs.go :: String": {
+	"internal/core/errs/errs.go :: String": {
 		{
 			role: roleDefinition, tokenCode: 1, why: "`case CodeRefDrift:`——显示名映射",
 		},
@@ -103,22 +103,26 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 			role: roleDefinition, tokenCode: 6, why: "`case CodeInternal:`——同上（v0.59 新增码 6）",
 		},
 	},
-	"internal/errs/errs.go :: ExitCode": {{
+	"internal/core/errs/errs.go :: ExitCode": {{
 		role: roleSource, category: catInternal,
 		why: "**非 `NgmError` 的兜底**：错误没走 ngm 的错误模型 ⇒ 码 6（ADR-026）——" +
 			"从前它退 1，于是 CI 会把「有错误逃过了错误模型」读成「上游漂移」",
 	}},
 
 	// ---- helpers：返回 1 但不是退出码 ----
-	"internal/verify/report.go :: Rank": {{
+	"internal/core/verify/report.go :: Rank": {{
 		role: roleHelper, tokenCode: 1, why: "漂移分类的**排序权重**，返回值不进退出码",
+	}},
+	"internal/core/modproof/modproof.go :: classify": {{
+		role: roleHelper, tokenCode: 6,
+		why: "把 ngm 错误映射为 modproof 的中性 Kind，不返回退出码；内部失败路径保留码 6 的分类",
 	}},
 	"cmd/ngm/verify_signatures.go :: signatureRank": {{
 		role: roleHelper, tokenCode: 1, why: "签名状态的**排序权重**，同上",
 	}},
 
 	// ---- sources：策略类（文档本来就该写的那几类）----
-	"internal/verify/report.go :: ExitCode": {
+	"internal/core/verify/report.go :: ExitCode": {
 		{
 			role: roleSource, category: catDrift,
 			why: "verify 的漂移判定汇到这里——`expected` 之外都退 1；`why` / `outdated` 那些间接路径也是同一个出口（两处：两种判定各一条 `return errs.CodeRefDrift.ExitCode()`）",
