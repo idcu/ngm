@@ -65,7 +65,7 @@
 | release 索引分片（本地 + 分支） | `cmd/ngm/modules.go`、`internal/core/git/exec.go` | `TestModulesIndexWritesReleaseShards`、`TestRunWithStdin` |
 | 逐模块 publish 覆盖全局 | `internal/config/config.go`、`cmd/ngm/modules.go` | `TestModulesIndexPerModulePublishOverridesGlobal`；ADR-037 |
 | 核心目录物理抽离 | `internal/core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify,modproof}` | 全仓 import 更新；`TestCoreBoundaryForbidsLanguageSpecificImports` |
-| 外部 `modproof` 孵化仓库 | `gitee.com/idcu/modproof` | 初始 facade 快照已推送；idcu-go `planned` 登记；单消费者例外 |
+| 外部 `modproof` 孵化仓库 | `gitee.com/idcu/modproof` | facade + 测试 + 向量已推送；覆盖率约 56.9%，未达 84%；idcu-go `planned` 登记；单消费者例外 |
 
 **关键口径**：
 

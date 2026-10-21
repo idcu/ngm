@@ -82,7 +82,8 @@ cmd/ngm-core        （未来）
 - 仓库：`gitee.com/idcu/modproof`（注意：不是 `gitee.com/idcu-go/modproof`）；
 - 模块路径：`gitee.com/idcu/modproof`；
 - idcu-go 登记：`meta/modules/modules.yaml` 中 `state: planned`，标注单消费者例外；
-- 当前内容：从 ngm `internal/core/{modproof,git,digest,errs}` 复制的初始 facade 快照；
+- 当前内容：从 ngm `internal/core/{modproof,git,digest,errs}` 复制的 facade + 测试 + 冻结向量；
+- 测试已平移并通过；当前模块总覆盖率约 **56.9%**（`testutils` 等辅助包拉低），**未达到 84%**；
 - 未满足：双消费者门禁、覆盖率 84%、`module.yaml`/tag/发布流程；
 - ngm 仍使用自己的 `internal/core/modproof`，**尚未切换到外部依赖**。
 
