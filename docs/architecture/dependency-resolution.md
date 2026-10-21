@@ -158,11 +158,12 @@ digest 写入 lock；内容树落地到 content store（层 2），供 vendor �
 
 ## 传递性依赖
 
-### 递归规则（v0.1）
+### 递归规则（v0.101 模块集合）
 
-- **唯一来源**：依赖仓库根目录的 `ngm.json`；缺失即视为无传递依赖
+- **模块清单优先**：子路径依赖先读 `<subPath>/ngm.json`；存在即权威，不再混入仓库根清单
+- **根清单回退**：子路径没有自己的清单时，回退到仓库根 `ngm.json`，并输出一条 warning（点明缺失的 `<subPath>/ngm.json` 与如何变成自包含模块）；两者都缺失才视为无传递依赖
 - **不自动递归 package.json**：上游 `package.json` 中的 Git / registry 依赖不纳入 ngm（registry 生态归 pnpm）；若检测到 `package.json` 含 Git 依赖，`ngm install` 输出提示，建议上游迁移到 `ngm.json`
-- **refType 强制**：上游声明缺少 `refType` → 报错（exit 3），提示指向该上游仓库
+- **refType 强制**：上游声明缺少 `refType` → 报错（exit 3），提示指向该上游模块（`name#subPath`）
 - **循环引用**：按"名称 + ref"合并去重，已访问节点不重复展开
 - **依赖分类**：v0.1 只有 `dependencies` 一种，无 dev / optional
 

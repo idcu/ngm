@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // v0.81：**坏配置必须报出来**——不许静默退回默认。

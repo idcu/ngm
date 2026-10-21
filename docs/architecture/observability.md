@@ -24,7 +24,7 @@
 |--------|------|---------|
 | `0` | 成功（verify 的"仅预期更新"也归此） | 所有命令 |
 | `1` | 策略失败 | **策略漂移**：verify 非预期漂移（`expected` 之外都算；`why` / `outdated` 走同一出口）；**引擎运行失败**：adapter 引擎跑起来了但失败（引擎自己的退出码保留在消息与 `--json` 里，不透传）；**漏洞超阈值**：audit 存在超阈值漏洞、`tree --osv` 查到漏洞；**审计钩子否决或超时**（`--hook`）。来源分类由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生核对（v0.57 立、v0.59 扩到两个码） |
-| `2` | 完整性失败 | verify digest 重放不匹配 |
+| `2` | 完整性失败 | verify 的 digest 重放或模块 subtreeOid 绑定不匹配 |
 | `3` | 配置/策略/lock 错误 | schema 非法、lock 损坏、frozen 与声明不一致 |
 | `4` | Git/网络失败 | fetch / ls-remote 失败；`--offline` 下资源缺失 |
 | `5` | 引擎不可用 | adapter 找不到外部引擎 |
@@ -217,7 +217,8 @@ $ ngm audit
 | 检查 | 内容 | 默认 |
 |------|------|------|
 | ref → commit | 重新解析 refType，对比 lock | ✓（在线读**远端 ref 广播**；`--offline` 用本地 mirror 快照并标 stale） |
-| digest 重放 | 从 mirror 重建清单、重算 digest 对比 lock | ✓（本地、可离线） |
+| binding | 模块条目：`commit:subPath` 的 tree OID 对比 `subtreeOid` | ✓（模块条目；本地、可离线） |
+| digest 重放 | 根条目重放 `archiveDigest`；模块条目重放 `moduleDigest` | ✓（本地、可离线） |
 | 落地完整性 | vendor 与 content store 的存在性/链接校验 | ✓ |
 | 逐文件哈希 | `--deep` 追加：全量校验 vendor 文件字节 | ✗ |
 | 签名 | `--signatures` 追加：报告锁定 commit（commit 未签时再看它来源的 tag）的 Git 签名状态。判定用**用户自己的**密钥配置，ngm 不管理密钥 | ✗（默认不查：每个依赖一到两次 git 子进程，而 verify 的主要成本就是 spawn） |

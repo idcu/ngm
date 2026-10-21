@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // Validate 校验 ProjectFile 的字段语义。
@@ -97,11 +97,16 @@ func (d *Dependency) Validate() error {
 			"add a `ref` (the tag / branch / commit this dependency is pinned to) "+
 				"and a matching `refType`")
 	}
+	// 窄默认：只有完整 40 位 commit hash 可以省略 refType。
+	// tag/branch 仍然必须显式——它们与短 hash 无法从字符串本身区分。
+	if d.RefType == "" && resolve.IsFullCommit(d.Ref) {
+		d.RefType = RefTypeCommit
+	}
 	if !validRefType(d.RefType) {
 		return fieldErr(
-			fmt.Sprintf("refType %q invalid; must be one of %v (refType is required in ngm.json)",
+			fmt.Sprintf("refType %q invalid; must be one of %v (refType is required unless `ref` is a full 40-char commit)",
 				d.RefType, ValidRefType()),
-			fmt.Sprintf("set `refType` to one of %v — ngm does not guess it from `ref`", ValidRefType()),
+			fmt.Sprintf("set `refType` to one of %v — ngm only defaults to commit for a full 40-char hash", ValidRefType()),
 		)
 	}
 	if d.Path != "" {

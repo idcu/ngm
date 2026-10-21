@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
 )
 
 // v0.82：purl 的 subpath 编码，以及 SPDX 命名空间覆盖 digest。

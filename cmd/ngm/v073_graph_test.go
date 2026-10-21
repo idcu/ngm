@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/testutils"
 )
 

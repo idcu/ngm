@@ -37,6 +37,14 @@
 | [ADR-029](./adr-029-loopback-addresses.md) | 仓库地址：**收下回环**（只收 `localhost` / `127.0.0.1`） | 已定**并已实施**（v0.83；原编号 028，因与 ADR-028「直接依赖边进 lock」撞号改 029）：单标签主机名此前一律拒绝，于是"本机跑一遍"不可做，而 `127.0.0.1` 一直能用——**同一件事两种结论**。收下两个字面量、其余照旧拒绝（反笔误不受影响），报错把三条出路说清；`[::1]`、端口、`git://` 协议、`net:` 门禁**都不动**（各自的边界写进 ADR-029 §代价与边界） |
 | [ADR-027](./adr-027-attestation.md) | attestation：**接一层谓词，不自造签名** | 已定**并已实施**（v0.70）：`ngm attest` 输出**未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）；确定性优先（无时间戳、`invocationId` = lock 的哈希）；签名交给用户/CI 的标准工具（cosign） |
 | [ADR-028](./adr-028-dependency-graph-in-lock.md) | 把**直接依赖边**写进 ngm.lock | 已定（2026-10-09，**v0.73 实现**）：每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`）——`why` 离线 0 spawn、SBOM 增依赖关系段；lockfileVersion 不动（可选字段 + 解码器忽略未知字段是既有契约）；**只存直接边**（全路径是指数的，ADR-024）；`verify`/`tree`/`attest` 明确不变 |
+| [ADR-030](./adr-030-mirror-reclaim.md) | 层 1（mirror）的**占用、残骸与整理** | 已定**并已实施**（2026-10-15，v0.100）：`store usage` 增报 mirror（含点名 **一个 ref 都没有**的目录）、`store prune` 收 `objects/pack/tmp_*`（门槛 **1 小时**；实测 git 自己只清 **14 天**以上的）、新增 `store gc`；**拒绝** `--single-branch` 与部分克隆（会打断 refType 的完整性与"离线 digest 重放"，见 ADR-004/008/010） |
+| [ADR-031](./adr-031-module-collections.md) | 一个仓库承载**多个模块**（Module Collections） | 已定（2026-10-20）：模块身份 `repo + subPath`；模块自己的 `ngm.json` 权威，根清单仅在缺失时回退并 warning；不做 workspace/registry；tag 可选，commit 是真相 |
+| [ADR-032](./adr-032-scoped-content-proof.md) | **模块级内容证明**：`moduleDigest` + `subtreeOid` | 已定**并已实施**（2026-10-20，v0.102）：根依赖保留 `archiveDigest`，模块依赖只写 `moduleDigest + subtreeOid + version`；lockfileVersion 2.0；模块 content store/vendor/verify landing 均按模块 scope |
+| [ADR-033](./adr-033-language-neutral-core.md) | 抽离**语言无关**的 Git 模块证明核心 | 已定（2026-10-20，v0.104 开始搬迁）：核心只认识 repo/commit/subPath/digest/deps；JS 是第一个适配器；`core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify}` 已全部落地，物理搬迁完成 |
+| [ADR-034](./adr-034-module-cache.md) | **module cache** 与 mirror 的边界 | 已定**并已实施**（2026-10-20，v0.104）：ADR-030 对 mirror 的拒绝不变；module cache 只服务 lock 钉住的 `(commit, subPath)`，可 `blob:none`/`--depth=1`；install-from-lock 优先使用，filter 不支持明确回退；verify --offline 复用且禁止惰性联网 |
+| [ADR-035](./adr-035-refType-narrow-default.md) | `refType` 的**窄默认**（仅完整 commit hash） | 已定**并已实施**（2026-10-20）：完整 40 位 hex 可省略 refType 并按 commit 写回；tag/branch/短 hash 仍必填；三处共用 `resolve.IsFullCommit`；不做全局默认 |
+| [ADR-036](./adr-036-infer-ref-type-opt-in.md) | `--infer-ref-type`：显式 opt-in 的远端证据推断 | 已定**并已实施**（2026-10-20）：只在 `add` 缺 `--ref-type` 且非完整 commit 时生效；tag/branch 二选一，同名或缺失即失败；顺带修 `git.LSRemote` 参数顺序 |
+| [ADR-037](./adr-037-per-module-publish-override.md) | 逐模块 `publish` **完全覆盖**全局 `--releases` | 已定**并已实施**（2026-10-21）：`publish` 显式 true/false 直接决定，nil 才跟随全局；不做 AND/OR 短路；只影响 release 索引 |
 
 ---
 

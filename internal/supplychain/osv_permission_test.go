@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // TestQueryOSV_AsksBeforeItReachesOut 固定 v0.5 C 组补上的那道门禁的两条性质：

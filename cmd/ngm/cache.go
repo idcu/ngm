@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/idcu/ngm/internal/vendor"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 const cacheUsage = `ngm cache — maintain the (disposable) cache layer

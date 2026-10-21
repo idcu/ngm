@@ -3,11 +3,15 @@
 > **ngm 只解决一个问题**：当依赖直接来自 Git 仓库时，证明"我正在运行的代码"就是"我审过的那份代码"。
 > 它不是 npm / pnpm / Yarn / Bun / Vite 的通用替代品。
 
-**当前状态：v0.1 ~ v0.99 均已交付**，**`v0.1.0` ~ `v0.99.0` 九十九个 tag 均已打**。
+**当前状态：v0.1 ~ v0.100 均已交付**，**`v0.1.0` ~ `v0.100.0` 一百个 tag 均已打**。
+当前开发线（尚未打 tag）加入了**一仓多模块集合**、lock v2（`moduleDigest + subtreeOid`）、
+模块级 content store/vendor、partial-clone module cache、集合索引与 `internal/core` 抽离：
+见[模块集合架构](./architecture/module-collections.md)、[语言无关核心](./architecture/core-and-adapters.md)
+与 [ADR-031](./adr/adr-031-module-collections.md)…[ADR-037](./adr/adr-037-per-module-publish-override.md)。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
 许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](#发布状态)。
-**"交付"与"发布"是两件事，这一页把它们分开写**：99 个 tag 里，GitHub 上有 **60 个** release
-（它的 tag 是 65 个：`v0.1.0` … `v0.65.0`；差的 34 个是未推送的 `v0.66.0` 起，而 release 的最新
+**"交付"与"发布"是两件事，这一页把它们分开写**：100 个 tag 里，GitHub 上有 **60 个** release
+（它的 tag 是 65 个：`v0.1.0` … `v0.65.0`；差的 35 个是未推送的 `v0.66.0` 起，而 release 的最新
 是 `v0.64.0`——`v0.65.0` 跑过工作流但失败了 ✗），Gitee 上只有 **3 个**（`v0.2.0` · `v0.3.0` ·
 `v0.4.0`），而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](#发布状态)
 ——那张表的数字是 2026-10-10 **直接问两个源的 API** 得到的，不是本页的记忆
@@ -54,6 +58,7 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | 查某个命令、某个 flag | [CLI 参考](./guides/cli.md) | 使用者 |
 | 增删改依赖、处理冲突 | [依赖管理](./guides/dependency-management.md) | 使用者 |
 | **写自己的库、让它能被 Git 依赖统一消费** | [JS Git 库的标准](./guides/js-git-library-standard.md)（配 `scripts/check-library-standard.sh` 自检） | 库的作者 |
+| **一个仓库放多个模块、各自独立依赖/版本** | [模块集合架构](./architecture/module-collections.md) · [语言无关核心](./architecture/core-and-adapters.md) | 维护者 / 评估者 |
 | 用 ngm 构建 / 类型检查 / 编译 CSS | [构建](./guides/build.md) | 使用者 |
 | 让 CI 用上 ngm、发布产物 | [CI 与发布](./guides/publishing.md) | 使用者 |
 | 在 Node 和 Deno 之间选 | [Node vs Deno](./guides/node-vs-deno.md) | 使用者 |
@@ -64,6 +69,8 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | 查某个设计决策的理由 | [ADR 索引](./adr/README.md) | 贡献者 |
 | 看 ngm 与竞品的差异 | [竞品分析](./COMPETITIVE-ANALYSIS.md) | 评估者 |
 | **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
+| **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
+| **把整改方案交给某个项目** | [四份交接方案](./handover/README.md)（qforge / plotpin / lytjs / ngm 各一份） | 各项目维护者 |
 | 参与开发 | [开发总览](./development/README.md) | 维护者 |
 
 ---
@@ -73,8 +80,9 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 一条闭环，把原本分散的 Git 依赖控制点收束成同一套默认流程：
 
 ```
-refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 落地
-  → verify 漂移检测 → 〔v0.2：OSV / 白名单门禁〕 → 可复现构建
+refType 声明 → commit 解析 → 内容 digest 锁定（archive / module）
+  → vendor 落地 → verify 漂移/绑定/重放检测
+  → 〔v0.2：OSV / 白名单门禁〕 → 可复现构建
 ```
 
 **它不做什么**（完整清单见[能力矩阵 · 明确不做的能力](./internals/capability-matrix.md)）：
@@ -90,7 +98,7 @@ refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 落地
 
 | 层 | 技术 | 职责 |
 |---|---|---|
-| **ngm core** | **Go 单二进制** | 依赖图 / lock / vendor / cache / hardlink / verify |
+| **ngm core** | **Go 单二进制 + `internal/core`** | 依赖图 / lock v2 / 内容证明 / vendor / module cache / verify |
 | **Host runtime** | **Node.js 或 Deno** | 用户项目实际运行的环境 |
 | **Engine adapters** | subprocess（v0.1）/ **wasm（v0.3）**；`remote` 已被 [ADR-013](./adr/adr-013-remote-adapter.md) 排除 | 调用外部引擎；内置只有 esbuild（`bundle` / `transform`）与 `self` stub |
 | **Security sandbox** | Deno-style capability model（v0.3） | verify / audit / postinstall 都在同一套 default-deny 权限下 |
@@ -123,7 +131,7 @@ refType 声明 → commit 解析 → archiveDigest 锁定 → vendor 落地
 ngm init github.com/my-org/my-app --runtime=node
 # 也可 --runtime=deno
 
-# 2. 添加依赖（refType 必填：commit / tag / branch）
+# 2. 添加依赖（refType 通常必填；完整 40 位 commit 可省略）
 ngm add github:my-org/utils@v1.2.3 --ref-type tag
 ngm add github:my-org/logger@main --ref-type branch
 
@@ -145,8 +153,8 @@ ngm build --outfile=dist/app.js
 
 ```
 my-app/
-├── ngm.json              # 依赖声明（refType 必填）+ 引擎选择 + 运行时
-├── ngm.lock              # 锁定：refType + commit + archiveDigest + resolvedAt（必须提交）
+├── ngm.json              # 依赖声明（refType 条件必填）+ 引擎选择 + 运行时
+├── ngm.lock              # 锁定：refType + commit + 内容 digest + resolvedAt（必须提交）
 ├── ngm.mappings.json     # 构建工具映射（供 esbuild 等读取裸导入）
 ├── ngm.engines.json      # 引擎清单（可选，覆盖内置）
 ├── src/
@@ -166,10 +174,11 @@ v0.1 起就有的核心闭环（**现在就能用**）：
 
 | 能力 | 入口命令 | 说明 |
 |------|---------|------|
-| 依赖声明与解析 | `ngm init` / `add` / `remove` | refType 必填；广度优先解析传递依赖、检测冲突 |
+| 依赖声明与解析 | `ngm init` / `add` / `remove` | refType 条件必填（完整 40 位 commit 可省略）；广度优先解析传递依赖、检测冲突 |
 | 解析安装与锁定 | `ngm install` | 有 lock 则尊重 lock，不重新解析 ref |
 | ref 更新 | `ngm update` | 只有它会把锁定 commit 移到新位置 |
-| 漂移与完整性复核 | `ngm verify` | 三级检查 + `--deep` 全量字节校验 + `--json` |
+| 模块集合 | `ngm modules list` / `validate` / `index` | 发现嵌套模块、校验索引一致、生成 `ngm.collection.json` 与本地 `ngm-index` 分支 |
+| 漂移与完整性复核 | `ngm verify` | ref / 模块 binding / digest 重放 / 落地四查 + `--deep` 全量字节校验 + `--json` |
 | 构建（adapter） | `ngm build` | 内置 esbuild（`bundle`）；`typecheck` / `css` / `typedecl` 在缺引擎时明确 `exit 5` |
 | mappings | `ngm mappings` | 生成 / 校验 `ngm.mappings.json` |
 | 缓存维护 | `ngm cache clean` | 清缓存层，不影响可证明性 |
@@ -374,6 +383,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | v0.97 | **两条实现必须对同一批输入给出同一批结论**：链接检查现在有两条实现（shell 管存在性、Go 管大小写——**有意的分工**），而「两条都过」**推不出**「它们一致」（v0.78 的原案：同一件事两份实现，谁也没对过账，代价是一次误判）。这一版把它们放在**同一份语料**（25+ 形态）上比「坏链接三元组（文件:行号:原文）」，排序后逐条相等；再在真仓库上跑一遍（两边都空，且 Go 侧扫到 > 1000 处，防「范围缩了变成空比」）。**当场抓到三处**：① Go 侧漏了 v0.96 才加的**围栏代码块**规则（示例会被当成真链接）⇒ 扫描核心抽成 Go 侧**唯一实现**（`linkrefs_test.go`），两种判据共用；② **shell 侧的语义 bug**：以 `/` 开头的链接在 Markdown 里相对**仓库根**，而 shell 按文件目录拼（`[x](/LICENSE)` 会去找 `docs/adr/LICENSE`）——先量（全仓 **0 处** ⇒ 修它不影响现网），修时又踩一处（剥前导 `/` 必须在规范化之前，否则 `normalize` 走绝对路径分支，`/README.md` 去找 `C:/…/Git/README.md`）；③ Go 侧 `filepath.Rel(绝对, 相对)` 在 Windows 直接报错、被当成「不用查」静默跳过（v0.96 的牙齿抓的）。顺带把 v0.95 的 443 冲突改成**显式登记的环境条件**（skip + 打印原因，有先例：v0.88 的「没有 powershell」） | **已交付**（[计划](./development/v0.97-plan.md) / [复盘](./development/v0.97-retrospective.md)：语料刻意**不放**括号不配平的形态（按 CommonMark 那不是链接，shell 的回退路径消息形态不同、判定相同——判定由 v0.91 黄金用例守着）；**产品代码 0 行**；一条一般的话：**「两边都过」不是「两边一致」**） |
 | v0.98 | **对账用在另一对：入口路径规范化**（v0.97 把「两条实现必须一致」做成判据，这一版把它用在**另一对**上）：先挑对（`subPath` 校验 v0.82 已统一、**不是成对**；`exports` 解析成对但读下来一致）⇒ 落在**路径规范化**（产品 `relPath` / 自检器 `rel_path`），而它**光读代码就有两处分家**：① 反斜杠——产品靠 `filepath.ToSlash`，**Windows 上转、Linux 上不转** ⇒ 同一份 `main: "src\\x.js"` 在两台机器上得到不同入口；② 多个前导斜杠——产品只剥一个（`//src/x.js` ⇒ `.//src/x.js`），自检器剥到不剩（`./src/x.js`）：指向同一文件、**打印出来不一样**，而「报告里写出来的就是产品会用的那一个」是这条链路的全部意义。**两处都在 Windows 上不可能被发现** ⇒ 修产品侧（产品是契约：反斜杠无条件转、前导斜杠剥到不剩），走公开 API 加一条 11 格判据（能进登记表），对齐网语料 11 → **22 种形态**（`exports` 数组/null/`"."` 是 null/嵌套对象/`types` 在 `import` 之后/空白串/`*` 模式 · `main` 反斜杠/多前导斜杠/空白/裸文件名）⇒ 27 个子测试全绿。**诚实边界**（写进注释）：反斜杠那格在本机**无法用行为分辨**，价值在 Linux CI；牙齿只对 `//` 两格有效（改回 `TrimPrefix` ⇒ 当场红）。顺带补上 v0.97 那条对账网**漏登记的记账**（登记网第二次抓到我的键名/漏登） | **已交付**（[计划](./development/v0.98-plan.md) / [复盘](./development/v0.98-retrospective.md)：抓到的分家 **2 处**；一条一般的话：**「逐字镜像」是一句承诺，而承诺不会自己检查自己**） |
 | v0.99 | **承诺账本：一句「必须一致」值两处洞**（v0.98 的结论是「「逐字镜像」是一句承诺，而承诺不会自己检查自己」，这一版把仓库里同类承诺逐条记账）：六个词（`逐字镜像` · `逐字对齐` · `必须一致` · `必须保持` · `两份实现` · `两条实现`）扫 Go 非测试源码 + `scripts/*.sh|*.mjs` ⇒ **14 处**，逐条分类后 **3+1 处没人守**。① `wasmEngine.entryArgs` 把 `entry.Args` 前置了**两遍**（`buildInvocation` 已前置），而注释正说着「两者必须一致」——现有测试比的是两个 **builder** 的输出（**比在错误的层级**），且 wasm 条目的 `Args` 今天通常为空 ⇒ 三条原因叠在一起让它活着；处置按 v0.82 的老办法**让它只剩一处**，判据分层（行为层观测不到「第二次」，结构层能——牙齿证明分层不是装饰）。② `mappings.lockFileName` 的注释写着「由 CLI 的集成测试保证」，而**常量没导出 ⇒ 没有任何包能同时看见两个名字**，那句话做不到 ⇒ 导出 `LockFileName` + 在能同时 import 的目录里比。另补两处无人守的承诺：两种 SBOM 格式的依赖图形必须一致（边归一成 `父名 → 子名` 后逐条相等；图不完整 ⇒ 两侧都整段省略）· `slugHosts`/`hostSlugs` 必须同步（两表互逆 + 公开 API 往返 + 未知 host 原样保留）。主交付是**承诺账本**（六词是显式数据；未登记 ⇒ 红 · 措辞变了 ⇒ 红 · 判据名不存在 ⇒ 红）；产品代码**净 -5 行** | **已交付**（[计划](./development/v0.99-plan.md) / [复盘](./development/v0.99-retrospective.md)：抓到的洞 **2 处** + 无人守的承诺 **2 处**；一条一般的话：**承诺自己不会检查自己——但它们可以进账本**） |
+| v0.100 | **层 1 的两笔看不见的账**（把 v0.7 起层 2 就有的那套「占用可见 / 残骸可回收」补到 mirror 上）：先量再答——`express`（6181 个提交 / 3982 个 ref）的全量 mirror **18.41 MiB**，而它最新一版源码 **694.33 KiB**（约 26 倍；若每个提交各存一份快照则是 **4.1 GiB**，即压缩 **约 228 倍**）⇒ **「提交多」几乎不是成本来源**。真正白占磁盘的是两笔此前谁也看不见的账：① **非默认分支的 ref 所带对象 21610/54155（约 40%）**——它是 tag/branch 声明的解析依据（ADR-004）⇒ **明确不动**；② 一次被中断的 `git clone --mirror` 留下的临时包（本机实测到一个 **66.82 MiB**：对象库为空、`packed-refs` 不存在，而 `HEAD`/`objects/`/`refs/` 全齐 ⇒ **长得像能用的 mirror**），而 `git gc` **只清超过 14 天**的（实测 13 天存活、15 天被清 = `gc.pruneExpire` 默认的 `2.weeks`）⇒ 处置：`store usage` 增报层 1（逐仓库体积 / **packed history** / 残骸，并点名 **`NO REFS`** 的目录；`PackBytes=0` 是**合法读数**——本地克隆落的是松散对象）、`store prune` 增收 `objects/pack/tmp_*`（门槛 **1 小时**）、新增 `store gc [--dry-run]`（不触网、不删内容、跳过并点名没有 ref 的目录、部分失败退 **4** 且已整理好的照常打印）；**拒绝** `--single-branch` 与部分克隆（会打断 refType 与离线 digest 重放）⇒ ADR-030。顺手修掉一处既有缺陷：`store usage` 在 content store 不存在时**提前返回**，会让只有层 1 的机器被告知「没有可报告的东西」 | **已交付**（[计划](./development/v0.100-plan.md) / [复盘](./development/v0.100-retrospective.md)：产品 **+588 行**、新增判据 **12 个**、牙齿 **3 颗（都验证过）**；一条一般的话：**「提交多」不是成本——看不见的那两笔才是**） |
 
 ### 发布状态
 

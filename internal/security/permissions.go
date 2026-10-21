@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // Namespace 是权限命名空间。

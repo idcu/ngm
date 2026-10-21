@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 func sandboxPolicy(t *testing.T, allow, deny []string) *Policy {

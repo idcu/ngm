@@ -7,23 +7,26 @@ import (
 	"path/filepath"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 const addUsage = `ngm add — add a Git dependency to ngm.json
 
 USAGE:
-  ngm add <git-url>[@<ref>] --ref-type <type> [--path=<sub/path>] [--dir=<dir>]
+  ngm add <git-url>[@<ref>] [--ref-type=<type>] [--infer-ref-type] [--path=<sub/path>] [--dir=<dir>]
 
 ARGS:
   <git-url>   one of: https://host/org/repo[.git] | git@host:org/repo |
               git://host/org/repo | host:org/repo (shorthand)
-  @<ref>      tag / branch / commit hash (optional; --ref-type is still required)
+  @<ref>      tag / branch / commit hash (optional)
 
 FLAGS:
-  --ref-type  REQUIRED: tag | branch | commit
-              (ngm never silently infers it; see guides/configuration.md)
+  --ref-type  tag | branch | commit; optional only when <ref> is a full 40-char commit
+              (otherwise ngm never silently infers it; see guides/configuration.md)
+  --infer-ref-type
+              use one ls-remote to disambiguate a tag/branch ref (network; only when
+              --ref-type is missing). If the ref is both a tag and a branch, ngm fails.
   --path      monorepo sub-path; equivalent to the "#path=" URL fragment
   --dir       project directory containing ngm.json (default: .)
   --dry-run   print the resulting ngm.json without writing
@@ -31,6 +34,7 @@ FLAGS:
 EXAMPLES:
   ngm add github:my-org/utils@v1.2.3 --ref-type tag
   ngm add github:my-org/logger@main   --ref-type branch
+  ngm add github:my-org/utils@v1.2.3 --infer-ref-type
   ngm add github:my-org/monorepo#path=packages/core@v2.0.0 --ref-type tag
 
 EXIT CODES:
@@ -41,18 +45,21 @@ EXIT CODES:
 
 // runAdd 处理 `ngm add <git-url>[@<ref>] --ref-type <type>`。
 //
-// M1 范围：解析规格、校验 refType 必填、写 ngm.json。
-// ref → commit 的解析与 lock 写入属于 install（M3）；本命令不触网。
+// M1 范围：解析规格、校验 refType、写 ngm.json。
+// ref → commit 的解析与 lock 写入属于 install（M3）；默认本命令不触网，
+// 只有显式 `--infer-ref-type` 才会做一次远端 ls-remote。
 func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("add", stderr)
-	refType := fs.String("ref-type", "", "tag | branch | commit (required)")
+	refType := fs.String("ref-type", "", "tag | branch | commit (optional for a full 40-char commit)")
+	infer := fs.Bool("infer-ref-type", false, "use the remote to disambiguate tag/branch")
 	pathFlag := fs.String("path", "", "monorepo sub-path")
 	dirFlag := fs.String("dir", ".", "project directory")
 	dryRun := fs.Bool("dry-run", false, "print the resulting ngm.json without writing")
 	fs.Usage = func() { fmt.Fprint(stderr, addUsage) }
 
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
-		{Name: "ref-type"}, {Name: "path"}, {Name: "dir"}, {Name: "dry-run", Bool: true},
+		{Name: "ref-type"}, {Name: "infer-ref-type", Bool: true},
+		{Name: "path"}, {Name: "dir"}, {Name: "dry-run", Bool: true},
 	})); err != nil {
 		return 3
 	}
@@ -73,7 +80,29 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		spec.Path = *pathFlag
 	}
 
-	// 2) refType 必填（推断仅用于给出建议）
+	// 2) refType：完整 40 位 hash 可窄默认 commit；tag/branch 仍必须显式，
+	// 除非用户显式要求用远端证据推断（--infer-ref-type）。
+	if *refType == "" && resolve.IsFullCommit(spec.Ref) {
+		*refType = string(resolve.RefTypeCommit)
+	}
+	if *refType == "" && *infer {
+		env, ierr := newProjectEnv(*dirFlag)
+		if ierr != nil {
+			return runErr(ctx, stdout, stderr, ierr)
+		}
+		inferred, ierr := resolve.InferRefTypeFromRemote(ctx, spec.Repo, spec.Ref, resolve.ResolveOptions{
+			GitURL:   spec.Repo.CloneURL(env.Protocol),
+			Protocol: env.Protocol,
+			Secrets:  env.Secrets,
+			Policy:   env.Policy,
+		})
+		if ierr != nil {
+			return runErr(ctx, stdout, stderr, ierr)
+		}
+		*refType = string(inferred)
+		fmt.Fprintf(stderr, "inferred refType %s from the remote for %s@%s\n",
+			inferred, spec.Repo.Slug(), spec.Ref)
+	}
 	if *refType == "" {
 		return runErr(ctx, stdout, stderr, missingRefTypeError(spec))
 	}
@@ -159,7 +188,7 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 // 绝不静默写入。
 func missingRefTypeError(spec resolve.AddSpec) error {
 	msg := fmt.Sprintf("--ref-type is required for %q", spec.Repo.Slug())
-	hint := "add one of: --ref-type tag | --ref-type branch | --ref-type commit"
+	hint := "add one of: --ref-type tag | --ref-type branch | --ref-type commit, or pass --infer-ref-type"
 	if spec.Ref != "" {
 		if inferred, ok := resolve.InferRefType(spec.Ref); ok {
 			hint = fmt.Sprintf(

@@ -64,6 +64,21 @@ func readDeps(t *testing.T, dir string) []map[string]any {
 	return pf.Dependencies
 }
 
+func TestAdd_FullCommitDefaultsRefType(t *testing.T) {
+	dir := newProject(t)
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	if _, err := runCapture(t, "add", "github:my-org/utils@"+sha, "--dir="+dir); err != nil {
+		t.Fatalf("add full commit without --ref-type failed: %v", err)
+	}
+	deps := readDeps(t, dir)
+	if len(deps) != 1 {
+		t.Fatalf("deps=%v", deps)
+	}
+	if deps[0]["refType"] != "commit" {
+		t.Errorf("refType=%v, want commit", deps[0]["refType"])
+	}
+}
+
 func TestAdd_TagDependency(t *testing.T) {
 	dir := newProject(t)
 

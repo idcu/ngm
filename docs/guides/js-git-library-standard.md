@@ -54,7 +54,7 @@ Node/npm 生态的既定事实，而**本机离线，没有联网核对最新工
 | 4 | 根目录 `README.md` | 唯一会被人读的说明 |
 | 5 | `engines` 声明 Node 版本 🌐 | 让消费者的运行期约束可见 |
 | 6 | semver tag（`v1.2.3`）与不可变的 tag | ngm 的 `tag` 型依赖要求 tag 存在；漂移 tag 会让 `verify` 天天红 |
-| 7 | 有传递 Git 依赖时，写在**根目录 `ngm.json`** 里（`dependencies` 带 `refType` + `ref`，子路径用 `path`） | 这是 ngm 唯一会递归的来源；写在 `package.json` 里只会得到一条提示 🔒 |
+| 7 | 有传递 Git 依赖时，写在**该模块自己的 `ngm.json`** 里（`dependencies` 带 `refType` + `ref`，子路径用 `path`）；模块没有自己的清单时才回退仓库根 `ngm.json`（会得到一条 warning） | 模块清单是 ngm 递归的权威来源；写在 `package.json` 里只会得到一条提示 🔒 |
 | 8 | monorepo 的子包各自带 `ngm.json`/`package.json` | 子路径（`subPath`）被当作**同一个仓库的不同切片**，各自要能自证入口 |
 
 ### 禁止

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // AdapterKind 是 adapter 的实现方式（architecture/engine-adapter.md §Adapter 类型）。

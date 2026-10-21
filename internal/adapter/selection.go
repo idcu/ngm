@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // Selection 是一次能力调用的引擎选择（简写与完整写法归一化后的同一形态）。

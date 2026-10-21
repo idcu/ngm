@@ -94,7 +94,7 @@ GOMAXPROCS=1 go test -run '^$' -bench BuildArchive -benchtime 20x ./internal/git
 两个子进程，能并行的那一段只占一小部分。因此——
 
 > **digest 重放的瓶颈在 git 子进程，不在哈希。这条路径的下一个优化是"少开子进程"，
-> 不是"开更多线程"。**（结论与实测数字写进了 `internal/git/archive_bench_test.go` 的头部。）
+> 不是"开更多线程"。**（结论与实测数字写进了 `internal/core/git/archive_bench_test.go` 的头部。）
 
 ---
 
@@ -104,7 +104,7 @@ GOMAXPROCS=1 go test -run '^$' -bench BuildArchive -benchtime 20x ./internal/git
 因此"起了几个 git"是比秒数**更稳**的指标——秒数含机器噪声（同一台机器 2.2–3.1s 摆动），
 次数只含信号，而且可以被断言。
 
-仪器：`git.SpawnCount()`（`internal/git/spawn.go`，**唯一的构造点**里记账）。
+仪器：`git.SpawnCount()`（`internal/core/git/spawn.go`，**唯一的构造点**里记账）。
 
 ```bash
 go test -count=1 -run TestV05VerifySpawnInventory -v ./cmd/ngm   # 打印清单（证据）
@@ -231,8 +231,24 @@ v0.8 落地。**同一把尺子、同一台机器**，同一份 fixture（12 个
 
 | 层 | 谁来回收 | 现状 |
 |----|---------|------|
-| 1 mirror（Git 裸仓） | **`git gc`** —— git 的既有能力，用户随时可跑 | 有出路 |
+| 1 mirror（Git 裸仓） | **`ngm store gc`**（**v0.100** 起，就是 `git gc` 的入口）+ **`ngm store prune`** 收 `objects/pack/tmp_*`；`ngm store usage` 报每个 mirror 的体积 / packfile / 残骸 / `NO REFS` | **有出路，且不再需要用户自己知道 `~/.ngm/mirror` 在哪**（ADR-030）。此前这一格写的是"`git gc`——用户随时可跑" |
 | 2 content store | `ngm store prune --orphans`（**无人引用的 blob**，v0.11 / ADR-023）；**按可达性的删除仍没有任何人做** | **有第一条回收路径**，但"这个 digest 还有没有人要"依旧不可判定 |
+
+**层 1 的实测读数（v0.100，2026-10-15）**——它回答的是"只用最新版却要为全历史付磁盘吗"：
+
+| 量 | 值 | 说明 |
+|----|----|------|
+| `express` 的 mirror（全部 refs：3982 个 / 默认分支 6181 个提交） | **18.41 MiB**（54155 个对象） | 真实 JS 库的完整历史 |
+| 它最新一版的源码（HEAD 树） | **694.33 KiB** | "只用最新版"真正需要的东西 |
+| 若每个提交各存一份完整快照 | 6181 × 694 KiB ≈ **4.1 GiB** | 朴素实现的开销 ⇒ 实际与它差 **约 228 倍** |
+| 其中**不在**默认分支历史上的对象 | **21610 / 54155（约 40%）** | 只属于那 3981 个非 HEAD ref——对"只用最新版"是纯浪费，但它是 tag/branch 声明（ADR-004）的解析依据 |
+| 一次被中断的克隆留下的残骸 | **66.82 MiB**（`objects/pack/tmp_pack_*`，in-pack **0**，`packed-refs` 不存在） | 这 66 MiB **一个字节都不是历史** |
+| `git gc` 清 `tmp_*` 的门槛 | **14 天**（实测 13 天存活、15 天被清） | 即 `gc.pruneExpire` 默认的 `2.weeks` ⇒ "中断一次要等两周"正是 `MirrorResidueGrace`（1 小时）存在的理由 |
+
+> **"提交多"几乎不是成本来源。** 另一个方向的读数：`lodash` 的 `--depth=1` 克隆总共 5.36 MiB，
+> 其中 `.git` 只占 **0.82 MiB**，工作区 4.54 MiB——历史开销比代码本身还小。
+> 真正的浪费在两处：**非默认分支的 ref 所带的对象**，以及**被中断的克隆留下的临时包**。
+> 前者是 [ADR-030](../adr/adr-030-mirror-reclaim.md) 明确**不**动的（它是声明的解析依据），后者被收了。
 
 **结论（v0.6 判定）**：数据支持排期，但第一步不是写代码，而是先立 ADR——**已办**：
 [ADR-018](../adr/adr-018-store-reclaim.md) 决定**不做按可达性自动删除的 GC**

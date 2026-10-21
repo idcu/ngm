@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // 本文件是 v0.2 E 组新增引擎的 argv 翻译：typescript（tsc）/ deno / postcss。

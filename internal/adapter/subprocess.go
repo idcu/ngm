@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // versionProbeTimeout 限制版本探测的耗时。

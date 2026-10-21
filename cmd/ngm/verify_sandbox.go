@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/security"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // sandboxScript 是一条待执行的依赖自证脚本。

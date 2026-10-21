@@ -2,9 +2,17 @@
 
 > Git-first Dependency Provenance Layer
 
-ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit, content-addressed by an `archiveDigest` (SHA-256 over the canonical file listing), and verifiable on demand via `ngm verify`.
+ngm is a Node.js / Deno package manager with **provable** Git dependency tracking. Every dependency is locked to a specific commit and content-addressed by a content digest — `archiveDigest` for a whole repository, `moduleDigest` for a sub-path module — and verifiable on demand via `ngm verify`.
 
-Status: **v0.1 … v0.99 delivered in source**, and all ninety-nine tags `v0.1.0` … `v0.99.0` exist.
+Status: **v0.1 … v0.100 delivered in source**, and all one hundred tags `v0.1.0` … `v0.100.0` exist.
+The current development line (unreleased as a tag) adds **one-repository module collections**,
+lock v2 (`moduleDigest + subtreeOid`), per-module content store/vendor, partial-clone module cache,
+collection indexes, and the `internal/core` extraction:
+[module collections](./docs/architecture/module-collections.md) ·
+[ADR-032: module-scoped proof](./docs/adr/adr-032-scoped-content-proof.md) ·
+[ADR-033: language-neutral core](./docs/adr/adr-033-language-neutral-core.md) ·
+[core and adapters](./docs/architecture/core-and-adapters.md).
+
 `v0.5` was the convergence and delivery pass; `v0.6` made the remaining conclusions *decidable*
 (a git spawn budget as a CI gate, real-world reproducibility forms, measured content-store
 growth); `v0.7` made the content store's footprint **visible** (`ngm store usage`) and its
@@ -26,17 +34,17 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 99** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 99** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 100** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
+| Gitee | **3 of 100** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
 Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
 (`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 34 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.99.0`).
+The 35 tags the mirror does not have are the unpushed ones (`v0.66.0` … `v0.100.0`).
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
 
-**Back-filling those ninety-six historical artifacts is deferred by decision (2026-10-04)** — not
+**Back-filling those ninety-seven historical artifacts is deferred by decision (2026-10-04)** — not
 forgotten: every version in the gap has its capabilities in source (`v0.5`…`v0.57` compile with the
 "from source" path in [`docs/guides/installation.md`](./docs/guides/installation.md)), and the newest
 version is downloadable today. What it costs is a credential — `POST /actions/workflows/…/dispatches`
@@ -111,26 +119,28 @@ that case better, and ngm deliberately does not manage registry packages. The fu
 
 - **URL canonicalization** — 4 protocols (`https` / `git@host:path` / `git://` / shorthand) plus `ssh://`, explicit host, and bare canonical forms all normalize to `host/org/repo`; `Normalize` is idempotent
 - **Slug form** — `github:org/repo` for `ngm.json` / lock / CLI output, distinct from the canonical URL used for git operations
-- **refType resolution** — `tag` / `branch` / `commit` → commit, with **annotated tag peeling** (`^{}`) so the lock records a commit, never a tag object
-- **mirror** — `~/.ngm/mirror/<host>/<org>/<repo>.git`, `git clone --mirror` on first use then `git fetch --prune`; resolution prefers the local mirror, so `--offline` works
+- **refType resolution** — `tag` / `branch` / `commit` → commit, with **annotated tag peeling** (`^{}`) so the lock records a commit, never a tag object. A full 40-char commit may omit `refType`; tag/branch still require it
+- **mirror + module cache** — `~/.ngm/mirror/...` is the full object mirror; `~/.ngm/module-cache/...` is an optional `--filter=blob:none` partial clone for lock-pinned modules (ADR-034)
 - **credential passthrough** — ngm never reads or stores tokens; the environment is passed to git as-is and all output is redacted (`https://user:token@host` → `https://***@host`)
-- `ngm add <url>[@<ref>] --ref-type <type>` — writes `ngm.json`; `--ref-type` is required (inference is only ever a hint)
+- `ngm add <url>[@<ref>] [--ref-type <type>] [--infer-ref-type]` — writes `ngm.json`; inference is opt-in and only chooses when the remote has exactly one of tag/branch
 - `ngm update [<dep>|--all] [--offline]` — re-resolves refs to commits
 
-### M2 — archiveDigest (ADR-008)
+### M2 — content digests (ADR-008 / ADR-032)
 
-- **Canonical manifest** — `ngm-archive-digest/v1`: header + one `path NUL mode NUL sha256 NUL` record per non-directory tree entry, sorted by **UTF-8 byte order**. `archiveDigest = "sha256:" + sha256(manifest)`
+- **Root manifest** — `ngm-archive-digest/v1`: header + one `path NUL mode NUL sha256 NUL` record per non-directory tree entry, sorted by **UTF-8 byte order**. `archiveDigest = "sha256:" + sha256(manifest)`
+- **Module manifest** — `ngm-module-digest/v1`: the same record format with paths **relative to the module root**; location is bound separately by `subtreeOid = git rev-parse <commit>:<subPath>`
 - **No newline conversion** — blobs are hashed as-is; a frozen vector contains a CRLF file to prove it
-- **No Git host archive API** — the manifest is built from the local mirror, so digest generation is fully offline
-- **LFS pointers and gitlinks are rejected** (`exit 3`), never silently hashed
-- **content store** — `~/.ngm/content/sha256/<hex>/{tree/,meta.json}`; the tree is unpacked and byte-verified, symlinks are recreated, exec bits preserved
-- `ngm update --digest` — print the `archiveDigest`; `--store` also populates the content store
+- **No Git host archive API** — the manifest is built from the local mirror/cache, so digest generation is fully offline
+- **LFS pointers and gitlinks are rejected** (`exit 3`), never silently hashed; a sibling module's LFS/gitlink no longer poisons the module's own proof
+- **content store** — root entries use `archiveDigest`, module entries use `moduleDigest`; the tree is unpacked and byte-verified, symlinks recreated, exec bits preserved
+- `ngm update --digest` — print the content digest; `--store` also populates the content store
 
 Frozen vectors live in [`testdata/vectors/`](./testdata/vectors/) and are asserted on all three CI platforms.
 
 ### M3 — 依赖图与确定性 lock
 
-- **Transitive dependencies** — resolved breadth-first from each upstream's `ngm.json` only (never `package.json`; a warning is emitted if upstreams declare Git deps there). 4-way concurrency within a layer, deterministic results
+- **Transitive dependencies** — resolved breadth-first from each module's own `ngm.json` (`<subPath>/ngm.json` first; repository root only as a warned fallback). `package.json` is never a dependency source. 4-way concurrency within a layer, deterministic results
+- **Module addressing** — CLI targets accept `repo#path=<subPath>` (or legacy `repo#<subPath>`); ambiguity is an error listing candidates, never a silent “all modules”
 - **Conflict policy** — same `ref` merges; **root wins** (with the overridden transitive requirement reported); transitive-only conflicts fail with `exit 3` and a full provenance chain
 - **Deterministic `ngm.lock`** — fixed field order, 2-space indent, LF, trailing newline; every field is byte-reproducible except `resolvedAt` (which lives inside each entry, never at the top level)
 - **`ngm install`** — no lock → resolve and write it; lock present → **respect it** (refs are not re-resolved), and report staleness when `ngm.json` changed
@@ -149,8 +159,10 @@ github:demo/b@v1 (tag) → d24e024b...
 ### M4 — vendor 4 层与 mappings
 
 - **link tree (layer 3)** — real directory structure with per-file hardlinks to the content store; symlink entries are rebuilt as symlinks (never hardlinked). `ngm.vendor/` is a derived artifact, so each run cleans and rebuilds the target path
+- **module-aware landing** — a sub-path module is materialized from its **module-scoped** content store entry (paths relative to the module root), not by filtering a whole-repo tree
 - **`linkMode`** — `auto` (hardlink, falling back to a full-tree copy) / `hardlink` (no fallback) / `copy` / `symlink` (the dependency directory is linked as a whole). The **actually used** mode is reported, so a silent fallback cannot hide
 - **monorepo sub-paths** — only the sub-directory is materialized (`ngm.vendor/…/packages/core`), matching `dependency-resolution.md`
+- **cache layers** — mirror (full), module cache (partial clone), content store (root/module manifests), and `~/.ngm/cache/{metadata,osv,tmp}` (disposable); `ngm store usage` reports all three storage layers
 - **cache (layer 4)** — `~/.ngm/cache/{metadata,osv,tmp}`, disposable by contract; `ngm cache clean` never touches mirror or content store
 - **mappings** — `ngm.mappings.json` with three-tier entry inference (`ngm.json` → `package.json` exports → `./index.ts|js`); a missing entry is a warning, not a failure (the spec says the mapping is still generated)
 - **`ngm mappings validate`** — checks `from` against the lock, `to` on disk, and `main`/`types` existence
@@ -158,11 +170,12 @@ github:demo/b@v1 (tag) → d24e024b...
 
 ### M5 — verify
 
-`ngm verify` runs three checks per dependency and answers one question: **is what is on disk still what the lock claims?**
+`ngm verify` answers one question: **is what is on disk still what the lock claims?**
 
 - **check 1 — ref → commit.** Re-resolves the declared `refType` and compares it with the pinned commit.
-- **check 2 — digest replay.** Rebuilds the manifest from the local mirror at that commit and recomputes `archiveDigest` (fully local, works offline).
-- **check 3 — landing integrity.** Content-store metadata plus vendor tree structure (paths, symlink targets, sizes). `--deep` adds byte-level verification: the digest is replayed from the *installed* content tree and every vendor file is hashed against it.
+- **check 2 — binding (module entries).** `git rev-parse <commit>:<subPath>` must equal the lock's `subtreeOid`; a wrong location is `critical`.
+- **check 3 — digest replay.** Root entries replay `archiveDigest`; module entries replay `moduleDigest` from their own subtree. Both are fully local and work offline.
+- **check 4 — landing integrity.** Content-store metadata plus vendor tree structure (paths, symlink targets, sizes). `--deep` replays the digest from the installed content tree and hashes every vendor file against it.
 
 Drift is classified so CI can act on it without parsing prose:
 
@@ -230,6 +243,25 @@ go build -o ngm ./cmd/ngm
 #   archiveDigest: sha256:9f86d081...
 #   content store: ~/.ngm/content/sha256/9f86d081.../ (stored)
 ```
+
+---
+
+### M7 — module collections（当前开发线）
+
+一个 Git 仓库可以承载一个公司/个人的一组公共模块；每个模块有自己的 `ngm.json`、依赖、版本和内容证明：
+
+- **模块身份** — `repo + subPath`；消费声明写 `path`，CLI 目标写 `repo#path=<subPath>`
+- **独立依赖** — 先读 `<subPath>/ngm.json`；缺失才回退仓库根清单并输出 warning
+- **独立版本 / 发布** — 模块清单可写 `version` 与 `publish`；`publish` 显式 true/false **完全覆盖**全局 `--releases`，nil 才跟随默认
+- **模块级证明** — lock v2 写 `moduleDigest + subtreeOid + version`，不写整仓 `archiveDigest`
+- **模块级存储/落地** — content store 与 vendor 都按模块 scope 工作
+- **集合索引** — `ngm modules list` / `validate` / `index`；索引可内联 releases，也可 `--shards` 写 `releases/<module>.json`；本地 `ngm-index` 分支承载根索引与分片树
+- **部分克隆缓存** — `install-from-lock` 与 `verify --offline` 优先复用 `~/.ngm/module-cache` 的 `blob:none` partial clone；filter 不支持时明确回退完整 mirror
+- **核心抽离** — `atomicfile` / `digest` / `errs` / `git` / `lock` / `resolve` / `vendor` / `verify` 已在 `internal/core/`，为未来 `ngm-core` 独立 module 做准备
+
+详见 [模块集合架构](./docs/architecture/module-collections.md)、
+[语言无关核心与适配器](./docs/architecture/core-and-adapters.md)、
+[ADR-031](./docs/adr/adr-031-module-collections.md)…[ADR-037](./docs/adr/adr-037-per-module-publish-override.md)。
 
 ---
 
@@ -345,6 +377,7 @@ The complete per-version plans live in [`docs/development/`](./docs/development/
 | v0.97 | the link check has two implementations on purpose (the shell owns existence, Go owns case) — and "both pass" does not imply "they agree", which is v0.78's original lesson: two implementations of one thing, never reconciled, and the price was a misjudgement. This version puts them on one corpus of 25+ shapes and compares the three-tuple of every broken link (file:line:raw) sorted, then repeats it on the real repository (both empty, and Go must still see more than a thousand links, so the comparison cannot quietly become empty). It found three things at once: the Go side was missing v0.96's fenced-code-block rule, so an example inside a fence would be treated as a real link — the scanning core is now Go's single implementation, shared by the case check and this reconciliation; the shell had a semantic bug where a `/`-prefixed link (repo-root relative, as in Markdown) was resolved against the file's directory, so `[x](/LICENSE)` looked for `docs/adr/LICENSE` — measured first (zero such links exist, so the fix changes nothing today), and fixing it hit a second trap (stripping the leading slash must happen before normalisation, or `/README.md` is looked up as `C:/…/Git/README.md`); and a `filepath.Rel(absolute, relative)` call that errors on Windows and was being swallowed as "nothing to check". The 443 conflict from v0.95 also became a registered environment condition (skip with the reason printed) | delivered · released |
 | v0.98 | the reconciliation idea turned on another pair: entry-path normalisation (the product's `relPath` versus the checker's `rel_path`), where just *reading* both implementations already showed two divergences — and both are impossible to notice on Windows. A backslash in `main` was handled by `filepath.ToSlash`, which converts on Windows and does not on Linux, so one `main: "src\\x.js"` yields different entries on two machines; multiple leading slashes were trimmed one-at-a-time by the product (`//src/x.js` → `.//src/x.js`) and all-at-once by the checker (`./src/x.js`) — same file, different printed path, and "what the report prints is what the product uses" is the entire point of that chain. Both fixed on the product side (the product is the contract), with an 11-cell net going through the public API so it can be registered, and the alignment corpus grown from 11 to 22 shapes (exports arrays, nulls, nested objects, ordering, whitespace, `*` patterns; main with backslashes, repeated slashes, whitespace, bare names) — 27 subtests green. One honest boundary is written into the test: the backslash cell cannot be distinguished behaviourally on this machine, its value is on Linux CI, and the teeth only fire for the slash cells. v0.97's reconciliation net was also added to the registry, which had been missed | delivered · released |
 | v0.99 | a claims ledger: one sentence ("the two sides must agree") was worth two real holes. v0.98 concluded that "verbatim mirror" is a promise, and promises do not check themselves; this release inventories every such promise. Six words across Go non-test sources plus `scripts/*.sh|*.mjs` gave 14 hits, of which four were unguarded. The first: `wasmEngine.entryArgs` prepended `entry.Args` a second time (`buildInvocation` had already done it) while the comment right above said the two sides must agree — the existing test compared the output of the two *builders*, i.e. at the wrong level, and wasm entries usually have empty args, so three reasons stacked up to keep it alive. Fixed the v0.82 way: make it one place instead of two, with a judgment split across a behavioural layer (which cannot see the second prepend) and a structural one (which can) — the teeth prove the split is not decoration. The second: `mappings.lockFileName` claimed coverage by "CLI integration tests", but the constant was unexported, so no package could even see both names; it is exported now and compared where both can be imported. Two more promises had no net at all: the two SBOM formats must describe the same graph (edges normalised to parent → child, compared one by one; an incomplete graph drops them entirely on both sides), and `slugHosts`/`hostSlugs` must stay in sync (inverse maps, a public-API round trip, unknown hosts preserved). The main deliverable is the ledger itself — six words as explicit data, with failures for an unregistered promise, a reworded registration, or a net name that does not exist. Net product change: −5 lines | delivered · released |
+| v0.100 | layer 1 gets the accounting layer 2 has had since v0.7, starting from a fair question ("if I only ever use the latest version of the code, does a repo with many commits waste my disk?") measured before it was answered. A real JS library (`express`, 6181 commits / 3982 refs) has an **18.41 MiB** mirror whose HEAD tree is **694.33 KiB** — about 26×, against roughly **228×** compression versus one snapshot per commit, so "many commits" is not where the cost is. Two accounts were invisible instead: **40% of the objects (21610/54155) belong only to non-HEAD refs**, and an interrupted `git clone --mirror` leaves a temporary pack that nothing owns (one measured here at **66.82 MiB** with zero usable objects and no `packed-refs`, while `HEAD`/`objects/`/`refs/` are all present — it *looks* like a working mirror), which `git gc` only removes after **14 days** (measured: 13 days survive, 15 are removed — `gc.pruneExpire`'s default `2.weeks`). So `store usage` now reports layer 1 per repo (bytes / packed history / residue) and names directories with **NO REFS**; `store prune` reclaims that residue after **1 hour**; a new `store gc` runs `git gc` per usable mirror (no network, no `--prune=now`, skipped directories named, and a partial failure exits **4** while still printing what was collected). `--single-branch` and partial clones are **refused** in ADR-030 — they would break `refType` resolution (ADR-004) and turn offline digest replay (ADR-008) into a download. A pre-existing flaw was fixed on the way: `store usage` returned early when the content store was absent, telling a layer-1-only machine there was nothing to report. Net **+588 lines**, 12 new nets, 3 teeth (all verified) | delivered · released |
 
 ---
 
@@ -434,20 +467,27 @@ CI enforces both (`fmt-check` job: `gofmt -l` plus a CRLF grep over `.go`/`.md`/
 ```
 cmd/ngm/                 CLI entry (one file per command)
 ├── acceptance_m1_test.go  M1 executable acceptance (offline, cross-platform)
+internal/core/           language-neutral Git/module proof core (ADR-033)
+├── atomicfile/          atomic file writes
+├── digest/              archive + module manifest formats, LFS detection
+├── errs/                NgmError + exit-code contract
+├── git/                 git subprocess, ls-remote, mirror/partial clone, credential discipline
+├── lock/                ngm.lock v2 schema, deterministic serialization
+├── resolve/             URL canonicalization, refType, graph resolution, module targets
+├── vendor/              mirror (l1) + module cache (l1.5) + content store (l2) + link tree (l3)
+└── verify/              four checks, drift classification, JSON report
+
 internal/
 ├── config/              ngm.json schema, three-tier merge, atomic read/write
-├── errs/                NgmError + exit-code contract (0–5)
-├── git/                 git subprocess, ls-remote parsing, mirror clone/fetch, credential discipline
-├── resolve/             URL canonicalization, slug, protocol → clone URL, refType resolution, add-spec parsing
-├── digest/              ADR-008 manifest format, digest, LFS pointer detection
-├── lock/                ngm.lock schema, deterministic serialization, atomic read/write
 ├── mappings/            ngm.mappings.json schema, entry inference, validation
-├── vendor/              mirror (l1) + content store (l2) + link tree (l3) + cache (l4) + integrity check
-├── verify/              `ngm verify` engine: three checks, drift classification, exit-code contract, JSON report
 ├── adapter/             engine catalog, argv translation, subprocess protocol, fallback, `self` stub
-├── testutils/           golden files + Git fixture builders (annotated tag, force push, LFS, gitlink, monorepo)
-├── version/             ldflags-injected build metadata
-└── ...                  (digest / lock / supplychain / adapter / mappings / observability — land in M2+)
+├── observability/       why / tree / outdated
+├── supplychain/         OSV / policy / minimumReleaseAge
+├── sbom/ · attest/      SBOM / attestation outputs
+├── security/            permissions + sandbox
+├── integrations/        Vite / esbuild / Deno / Webpack scaffolds
+├── testutils/           golden files + Git fixture builders
+└── version/             ldflags-injected build metadata
 testdata/                fixtures/ and vectors/ (golden files)
 .github/workflows/       CI (build/vet/test/-race/fmt/acceptance M1–M7/engine integration) + release
 scripts/                 docs-link checkers, release builder (sh + ps1)
@@ -458,7 +498,7 @@ scripts/                 docs-link checkers, release builder (sh + ps1)
 
 - **Two representations, one source of truth.** `github.com/org/repo` (canonical) is what git and the mirror layout use; `github:org/repo` (slug) is what `ngm.json`, the lock, and CLI output use. `resolve.Normalize` and `resolve.ParseSlug` are the only constructors.
 - **Annotation peeling is non-negotiable.** `git ls-remote` emits two rows for an annotated tag (the tag object and its `^{}` commit). Taking the wrong row makes `verify` report false drift later.
-- **`--ref-type` is required.** Inference can be wrong (a branch may be named `v1.2.3`), so ngm surfaces it as a hint and never writes it silently — the declaration stays self-describing.
+- **`--ref-type` is required except for a full 40-char commit.** Inference can be wrong (a branch may be named `v1.2.3`), so ngm only defaults when the syntax is unambiguous; `--infer-ref-type` is an explicit, remote-evidence opt-in and fails on tag/branch ambiguity (ADR-035/036).
 - **Tokens are never touched.** ngm passes the environment through and redacts `userinfo` from every error message; mirror `.git/config` files are asserted to contain no credentials.
 - **The digest is over a manifest, never an archive.** Host archive APIs, tar/gzip parameters and `.gitattributes` export filters are all outside ngm's control, so hashing their output would make the same commit digest differently per host (ADR-008). ngm builds the byte stream itself, from the local mirror.
 - **`NUL`-separated, byte-sorted, no newline conversion.** The manifest records are separated by a single `0x00` (the spaces around `\0` in the ADR are typography, not bytes); sorting is Go's byte-wise `<`, so no locale can change the result; CRLF is never rewritten. Any of these slipping would silently change every digest.

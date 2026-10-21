@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
+	"github.com/idcu/ngm/internal/core/git"
 )
 
 // TestV03CredentialDiscipline 是 v0.3 D 组的第二项验收：**凭证纪律的落地审计**。

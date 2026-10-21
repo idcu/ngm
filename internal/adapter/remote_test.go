@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // ADR-013 的结论是"不发布 remote adapter"。这条决定**以措辞的形式**交付给用户：

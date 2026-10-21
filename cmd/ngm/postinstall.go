@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/security"
 	"github.com/idcu/ngm/internal/supplychain"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // PostInstallHookName 是依赖用来声明"安装后要做点什么"的文件名。

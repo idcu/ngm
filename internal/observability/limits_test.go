@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // TestV17WhyPathsAreBoundedAndSaySo 固定 why 的路径枚举上界（ADR-024）。

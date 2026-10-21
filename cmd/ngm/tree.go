@@ -7,12 +7,12 @@ import (
 	"os"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/observability"
-	"github.com/idcu/ngm/internal/resolve"
 	"github.com/idcu/ngm/internal/supplychain"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 const treeUsage = `ngm tree — print the dependency tree

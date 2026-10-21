@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/digest"
-	"github.com/idcu/ngm/internal/git"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // TestV07StoreAcceptance 端到端验证 `ngm store usage` 与 `ngm store prune`（v0.7 A/B 组）。

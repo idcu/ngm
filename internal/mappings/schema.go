@@ -10,13 +10,13 @@ package mappings
 import (
 	"encoding/json"
 
-	"github.com/idcu/ngm/internal/atomicfile"
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 const (

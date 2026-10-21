@@ -6,7 +6,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/idcu/ngm/internal/git"
+	"github.com/idcu/ngm/internal/core/git"
 )
 
 // NoFixAdvice 是"这条公告没有记录修复版本"时给出的下一步（v0.32 立、v0.50 收成一处）。

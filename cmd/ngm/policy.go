@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/supplychain"
 )
 

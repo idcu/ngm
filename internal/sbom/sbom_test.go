@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // v0.69：SBOM 导出的判据。

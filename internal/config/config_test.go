@@ -124,6 +124,29 @@ func TestDependencyValidate_NameDelegatesToResolve(t *testing.T) {
 	}
 }
 
+func TestDependencyValidate_DefaultsRefTypeForFullCommit(t *testing.T) {
+	d := Dependency{
+		Name:    "github:acme/lib",
+		Ref:     "0123456789abcdef0123456789abcdef01234567",
+		RefType: "",
+	}
+	if err := d.Validate(); err != nil {
+		t.Fatalf("full commit without refType should be accepted: %v", err)
+	}
+	if d.RefType != RefTypeCommit {
+		t.Errorf("refType = %q, want commit", d.RefType)
+	}
+
+	short := Dependency{Name: "github:acme/lib", Ref: "0123456", RefType: ""}
+	if err := short.Validate(); err == nil {
+		t.Error("short hash without refType must still be rejected")
+	}
+	tag := Dependency{Name: "github:acme/lib", Ref: "v1.2.3", RefType: ""}
+	if err := tag.Validate(); err == nil {
+		t.Error("tag without refType must still be rejected")
+	}
+}
+
 func TestLoad_NoProject(t *testing.T) {
 	r, err := Load("", t.TempDir())
 	if err != nil {
@@ -161,6 +184,50 @@ func TestLoad_PicksUpGlobal(t *testing.T) {
 	if r.GlobalEffective.Git.DefaultProtocol != "https" {
 		t.Errorf("global protocol=%q", r.GlobalEffective.Git.DefaultProtocol)
 	}
+}
+
+func TestRemoveDependencyAtSubPath(t *testing.T) {
+	pf := &ProjectFile{
+		Dependencies: []Dependency{
+			{Name: "github:acme/modules", Ref: "v1", RefType: RefTypeTag, Path: "packages/a"},
+			{Name: "github:acme/modules", Ref: "v1", RefType: RefTypeTag, Path: "packages/b"},
+			{Name: "github:acme/lib", Ref: "v1", RefType: RefTypeTag},
+		},
+	}
+
+	t.Run("exact sub-path removes one", func(t *testing.T) {
+		removed, err := pf.RemoveDependencyAt("github:acme/modules", "packages/a", true)
+		if err != nil {
+			t.Fatalf("RemoveDependencyAt: %v", err)
+		}
+		if !removed {
+			t.Fatal("expected removal")
+		}
+		if len(pf.Dependencies) != 2 {
+			t.Fatalf("deps=%d want 2", len(pf.Dependencies))
+		}
+		for _, d := range pf.Dependencies {
+			if d.Path == "packages/a" {
+				t.Errorf("packages/a still present: %+v", d)
+			}
+		}
+	})
+
+	t.Run("bare repo with multiple sub-paths is ambiguous", func(t *testing.T) {
+		pf2 := &ProjectFile{
+			Dependencies: []Dependency{
+				{Name: "github:acme/modules", Ref: "v1", RefType: RefTypeTag, Path: "packages/a"},
+				{Name: "github:acme/modules", Ref: "v1", RefType: RefTypeTag, Path: "packages/b"},
+			},
+		}
+		_, err := pf2.RemoveDependencyAt("github:acme/modules", "", false)
+		if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+			t.Fatalf("expected ambiguity error, got %v", err)
+		}
+		if len(pf2.Dependencies) != 2 {
+			t.Errorf("ambiguous removal must not delete anything, deps=%d", len(pf2.Dependencies))
+		}
+	})
 }
 
 func TestVendorValidate(t *testing.T) {

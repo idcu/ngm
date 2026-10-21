@@ -6,10 +6,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/supplychain"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 const auditUsage = `ngm audit — check locked dependencies against known vulnerabilities (OSV.dev)

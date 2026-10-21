@@ -12,7 +12,11 @@
 | 能力 | ngm 做法 | 成熟度 | 竞品已有 | 备注 |
 |------|---------|--------|---------|------|
 | Git 拉取 | 4 种协议归一化 | done (v0.1) | npm/pnpm/Yarn 都支持 | ngm 的 refType 是增量 |
-| 依赖锁定 | refType + commit + digest | done (v0.1) | npm 记录 commit | ngm 的 archiveDigest 是增量 |
+| 依赖锁定 | refType + commit + digest | done (v0.1)；**模块 lock v2 done（当前开发线）** | npm 记录 commit | 根用 `archiveDigest`；模块用 `moduleDigest + subtreeOid` |
+| 一仓多模块 | `repo + subPath`；模块清单优先 | done（当前开发线，未打 tag） | Go multi-module / Cargo workspace | 不做共享 lock 的 workspace |
+| 模块级内容证明 | `ngm-module-digest/v1` + `subtreeOid` | done（当前开发线） | 无直接等价 | 只证明模块子树；兄弟 LFS/gitlink 不毒害 |
+| 集合索引 | `ngm modules list/validate/index` | done（当前开发线） | 无直接等价 | 可内联或分片；本地 `ngm-index` 分支 |
+| 部分克隆模块缓存 | `blob:none` + lock 钉住的 commit | done（当前开发线） | pnpm store | filter 不支持明确回退完整 mirror |
 | vendor 落地 | 4 层模型 | done (v0.1)；**层 2 按文件寻址 done (v0.8)** | pnpm content store | ngm 强调可审计/可提交。**一处曾对 ngm 不利的差别（v0.6 实测，v0.8 已消除）**：层 2 过去按**整棵树**寻址，跨 commit **不去重**（实测每 commit 复制一整棵树 = 源码真实增量的 **20×**），而 pnpm 的 store 按**文件**寻址。v0.8 换成 blob 池 + 树清单后**同一场景约 0.6×**。仍未变的是：层 2 **没有任何人回收**（层 1 有 `git gc`）——去重改的是斜率，不是终点。见 [metrics · 磁盘增长](../internals/metrics.md#磁盘增长内容寻址-storev06) |
 | ref 漂移检测 | verify | done (v0.1) | Yarn immutable | ngm 区分预期/非预期 |
 | 供应链门禁 | JSON-first 策略 | done (v0.2)；**postinstall 入口 done (v0.3)** | pnpm/Deno/npm | 白名单与 minimumReleaseAge 生效；postinstall 只在沙箱内、只跑 JS 钩子（[ADR-009](../adr/adr-009-supply-chain-policy.md)） |
@@ -57,7 +61,7 @@
 
 ### ngm 真正独有的
 
-1. **refType 必填** + archiveDigest + verify 闭环
+1. **refType 自描述（仅完整 commit 窄默认）** + 内容 digest + verify 闭环
 2. **vendor 4 层**为可审计目标服务（不只是省磁盘）
 3. **供应链策略绑定到 Git commit** 而不是 registry version
 4. **mappings 协议**桥接 ngm 与外部构建工具

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
 )
 
@@ -82,9 +85,96 @@ func TestV94SubPathEndToEnd(t *testing.T) {
 	if code, out := runCaptureCode(t, "verify", "--dir="+proj); code != 0 {
 		t.Fatalf("verify 失败（exit %d）：\n%s", code, out)
 	}
+	// v0.101：subPath 的 --deep 必须把 `ls-tree` 的整仓路径与 content store 的
+	// “相对模块根”路径对齐；否则每个文件都会被报成 missing from the content store。
+	if code, out := runCaptureCode(t, "verify", "--deep", "--dir="+proj); code != 0 {
+		t.Fatalf("verify --deep 失败（exit %d）：\n%s", code, out)
+	}
 	code, mappingsOut := runCaptureCode(t, "mappings", "validate", "--dir="+proj)
 	if code != 0 {
 		t.Fatalf("mappings validate 失败（exit %d）：\n%s", code, mappingsOut)
+	}
+
+	// v0.102：子路径 lock 条目带模块证明；篡改它必须被 verify 判成 critical。
+	lockPath := filepath.Join(proj, "ngm.lock")
+	lockText := readFileString(t, lockPath)
+	for _, key := range []string{`"moduleDigest"`, `"subtreeOid"`} {
+		if !strings.Contains(lockText, key) {
+			t.Errorf("ngm.lock 缺少模块证明字段 %s：\n%s", key, lockText)
+		}
+	}
+	lf, err := lock.Read(lockPath)
+	if err != nil {
+		t.Fatalf("read ngm.lock: %v", err)
+	}
+	d, ok := lf.Find("127.0.0.1:acme/lib", "packages/a")
+	if !ok || d.ModuleDigest == "" {
+		t.Fatalf("lock entry for packages/a has no moduleDigest: %+v", d)
+	}
+	store := vendor.NewContentStore(defaultLayoutForTest(t).ContentRoot())
+	moduleEntries, err := store.Entries(d.ModuleDigest)
+	if err != nil {
+		t.Fatalf("read module-scoped content store: %v", err)
+	}
+	if len(moduleEntries) == 0 {
+		t.Fatal("module-scoped content store has no entries")
+	}
+	for _, e := range moduleEntries {
+		if strings.HasPrefix(e.Path, "packages/") {
+			t.Errorf("module store entries must be relative to the module root: %q", e.Path)
+		}
+	}
+
+	// 篡改模块 store 的字节，--deep 必须用 moduleDigest 发现（模块 landing 路径）。
+	var tamperPath string
+	for _, e := range moduleEntries {
+		if !e.Symlink && e.Full != "" {
+			tamperPath = e.Full
+			break
+		}
+	}
+	if tamperPath == "" {
+		t.Fatal("no regular module blob to tamper")
+	}
+	originalBytes, err := os.ReadFile(tamperPath)
+	if err != nil {
+		t.Fatalf("read module blob: %v", err)
+	}
+	tamperedBytes := append([]byte(nil), originalBytes...)
+	tamperedBytes[0] ^= 0x01
+	if err := os.WriteFile(tamperPath, tamperedBytes, 0o644); err != nil {
+		t.Fatalf("tamper module blob: %v", err)
+	}
+	if code, out := runCaptureCode(t, "verify", "--deep", "--dir="+proj); code != 2 {
+		t.Errorf("篡改模块 store 后 verify --deep 应退 2，实际 %d：\n%s", code, out)
+	}
+	if err := os.WriteFile(tamperPath, originalBytes, 0o644); err != nil {
+		t.Fatalf("restore module blob: %v", err)
+	}
+	var lockDoc struct {
+		Version         int              `json:"version"`
+		LockfileVersion string           `json:"lockfileVersion"`
+		Dependencies    []map[string]any `json:"dependencies"`
+	}
+	if err := json.Unmarshal([]byte(lockText), &lockDoc); err != nil {
+		t.Fatalf("parse ngm.lock: %v", err)
+	}
+	if len(lockDoc.Dependencies) != 1 {
+		t.Fatalf("lock deps=%d want 1", len(lockDoc.Dependencies))
+	}
+	lockDoc.Dependencies[0]["moduleDigest"] = "sha256:" + strings.Repeat("0", 64)
+	tampered, err := json.MarshalIndent(lockDoc, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal tampered lock: %v", err)
+	}
+	if err := os.WriteFile(lockPath, append(tampered, '\n'), 0o644); err != nil {
+		t.Fatalf("write tampered lock: %v", err)
+	}
+	if code, out := runCaptureCode(t, "verify", "--dir="+proj); code != 2 {
+		t.Errorf("篡改 moduleDigest 后 verify 应退 2，实际 %d：\n%s", code, out)
+	}
+	if err := os.WriteFile(lockPath, []byte(lockText), 0o644); err != nil {
+		t.Fatalf("restore lock: %v", err)
 	}
 
 	// ---- 3. 契约验收 ----

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/mappings"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // m4LeafRepo 建一个可作为依赖的仓库：带 ngm.json 入口声明 + 一个 index.ts 回退。

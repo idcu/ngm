@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/mappings"
 )
 

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/observability"
-	"github.com/idcu/ngm/internal/resolve"
 )
 
 const whyUsage = `ngm why — why is this dependency here?
@@ -67,7 +67,11 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, whyUsage)
 		return 3
 	}
-	target := fs.Arg(0)
+	target, terr := resolve.ParseTarget(fs.Arg(0))
+	if terr != nil {
+		return runErr(ctx, stdout, stderr, terr)
+	}
+	targetKey := target.Key()
 
 	env, err := newProjectEnv(*dirFlag)
 	if err != nil {
@@ -98,7 +102,7 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return runErr(ctx, stdout, stderr, rerr)
 		}
 	}
-	node, terr := observability.ResolveTarget(g, target)
+	node, terr := observability.ResolveTarget(g, targetKey)
 	if terr != nil {
 		// 不在图里是"问错了对象"，属用法/配置错误：exit 3 而不是静默成功
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,

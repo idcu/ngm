@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 const sampleCommit = "abc123def4567890abcdef1234567890abcdef12"

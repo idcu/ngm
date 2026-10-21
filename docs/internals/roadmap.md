@@ -1,8 +1,8 @@
 # 路线图
 
-> ngm 的产品路线。**v0.1 ~ v0.99 均已交付**（证据见各版[复盘](../development/)与计划）。
-> **九十九个 tag 全部已打**；发布则是另一回事，2026-10-10 直接问过两个源的 API：
-> GitHub 有 99 个里的 60 个 release（各 7 个资产），它的 tag 有 65 个（`v0.1.0` … `v0.65.0`），
+> ngm 的产品路线。**v0.1 ~ v0.100 均已交付**（证据见各版[复盘](../development/)与计划）。
+> **一百个 tag 全部已打**；发布则是另一回事，2026-10-10 直接问过两个源的 API：
+> GitHub 有 100 个里的 60 个 release（各 7 个资产），它的 tag 有 65 个（`v0.1.0` … `v0.65.0`），
 > Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
 > Gitee 侧现在有读数可复跑：`bash scripts/check-gitee-release-status.sh`
@@ -20,6 +20,13 @@
 > 唯一的��能增量是 `store prune --orphans`——层 2 第一次真正回收。
 >
 > 本文件是**范围**的唯一事实源；各版本的验收标准与实测结论在对应的计划与复盘里。
+>
+> **2026-10-21 当前开发线（未打 tag）**：范围已扩展到
+> **一仓多模块集合**（独立依赖/版本、lock v2、模块级 content store/vendor）、
+> **partial-clone module cache**、**集合索引/分片/本地 `ngm-index` 分支**、
+> **逐模块 `publish` 覆盖全局 `--releases`**，以及 **`internal/core` 物理抽离**。
+> 这些工作的状态以 [module-collections-plan](../development/module-collections-plan.md) 为准；
+> 它们还不是已发布版本，不应写进下面的历史版本表。
 
 ---
 

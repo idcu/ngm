@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 func main() {

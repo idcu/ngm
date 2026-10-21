@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/resolve"
-	"github.com/idcu/ngm/internal/vendor"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 // 本文件固定 ADR-010 的核心行为：**ref 问远端、对象按需取**。

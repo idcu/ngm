@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
 )
 
 // v0.81：半张图不得被导出成一张看起来完整的图。
@@ -134,7 +134,7 @@ func TestV81ExportRefusesUnusableDigest(t *testing.T) {
 	}
 	for _, dg := range bad {
 		lf := &lock.File{
-			Version: 1, LockfileVersion: "1.0.0",
+			Version: 1, LockfileVersion: "2.0.0",
 			Dependencies: []lock.Dependency{{
 				Name:          "github:org/dep",
 				Ref:           "v1",

@@ -2,7 +2,7 @@
 
 ## 核心原则
 
-**声明层用 refType（commit/tag/branch），锁定层统一记录实际解析到的 commit + archiveDigest + resolvedAt。**
+**声明层用 refType（commit/tag/branch），锁定层统一记录实际解析到的 commit + 内容 digest + resolvedAt。根条目用 `archiveDigest`；模块条目用 `moduleDigest + subtreeOid`（ADR-032）。**
 
 ---
 
@@ -11,7 +11,7 @@
 ```json
 {
   "version": 1,
-  "lockfileVersion": "1.0.0",
+  "lockfileVersion": "2.0.0",
   "dependencies": [
     {
       "name": "github:org/utils",
@@ -24,12 +24,15 @@
     },
     {
       "name": "github:org/logger",
-      "ref": "main",
-      "refType": "branch",
+      "ref": "packages/logger/v2.0.0",
+      "refType": "tag",
       "commit": "def456abc7890123def456abc7890123def456ab",
-      "archiveDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "moduleDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "subtreeOid": "sha1:0123456789abcdef0123456789abcdef01234567",
+      "version": "2.0.0",
       "resolvedAt": "2026-09-29T10:00:00Z",
-      "vendorPath": "github.com/org/logger"
+      "vendorPath": "github.com/org/logger",
+      "subPath": "packages/logger"
     }
   ]
 }
@@ -47,35 +50,38 @@
 | `ref` | 人类声明 | ngm.json |
 | `refType` | 声明意图 | ngm.json |
 | `commit` | 解析结果（不可变锚点） | `git ls-remote` |
-| `archiveDigest` | 规范化内容清单哈希（`sha256:<hex>`，定义见 [ADR-008](../adr/adr-008-archive-digest.md)） | 本地生成 |
+| `archiveDigest` | **根条目**的规范化内容清单哈希（`sha256:<hex>`，ADR-008） | 本地生成 |
+| `moduleDigest` | **模块条目**的模块作用域内容清单哈希（`ngm-module-digest/v1`，ADR-032） | 本地生成 |
+| `subtreeOid` | **模块条目**的 Git tree 绑定锚（`sha1:`/`sha256:`） | `git rev-parse commit:subPath` |
+| `version` | 模块版本标签（可选；与模块 `ngm.json` 的 version 一致） | 模块清单 |
 | `resolvedAt` | 解析时间（仅审计，不参与门禁计算） | 当前时间 |
 | `vendorPath` | vendor 落地路径 | 归一化规则 |
 | `subPath` | monorepo 子路径（可选，带 `omitempty`；空表示整仓） | ngm.json 的 `path` |
 
-**字段纪律**：digest 只有一个字段（`archiveDigest`），不引入重复表达；`resolvedAt` 只存在于依赖条目内，lock 顶层不含时间戳。
+**字段纪律**：digest 只表达一次——根条目写 `archiveDigest`，模块条目写 `moduleDigest + subtreeOid`，两者互斥；`resolvedAt` 只存在于依赖条目内，lock 顶层不含时间戳。
 
-> **为什么上面的示例里没有 `subPath`**：它是 v1.0.0 之后新增的**可选**字段。按本节末尾的
-> `lockfileVersion` 演进规则「同一 MAJOR 内只允许新增可选字段」，这是兼容变更；又因为有 `omitempty`，
-> 不含子路径时的字节流与 v1.0.0 示例**完全一致**——这正是 lock 字节可复现的前提之一。
->
 > **条目身份是 `name` + `subPath`，不是 `name`**：同一仓库的两个 monorepo 子路径是**两个独立条目**，
 > 排序与查找都以二者为键（内部形式 `name#subPath`）。少了 `subPath`，同仓多子路径的依赖会互相覆盖。
+>
+> **没有 v1 迁移**：项目尚无用户，v2 直接废止“模块条目同时写 archiveDigest”的过渡态；
+> 旧 lock 读到 v2 会明确报 `lockfileVersion` 不兼容，重新 `ngm install` 即可。
 
 ---
 
-## commit vs archiveDigest
+## commit vs 内容 digest
 
-| | commit | archiveDigest |
-|---|--------|---------------|
-| 锚定对象 | Git tree 对象 | 规范化内容清单（path/mode/blob 哈希） |
-| 可变性 | 不可变（除非 force push） | 不可变（规则由规范版本固定） |
-| 能回答 | "哪个 Git 版本" | "字节是否一致" |
-| 局限 | 不保证 working tree 一致 | 依赖清单规范版本的稳定性 |
+| | commit | archiveDigest（根） | moduleDigest + subtreeOid（模块） |
+|---|--------|---------------------|-----------------------------------|
+| 锚定对象 | Git tree 对象 | 整仓规范化清单 | 模块子树清单 + Git tree 绑定 |
+| 可变性 | 不可变（除非 force push） | 不可变（规则由规范版本固定） | 不可变；位置由 subtreeOid 绑定 |
+| 能回答 | "哪个 Git 版本" | "整仓字节是否一致" | "这个模块的字节与位置是否一致" |
+| 局限 | 不保证 working tree 一致 | 需要整仓 blob | 需要 `commit:subPath` 的 tree + 模块 blob |
 
-**两者互补**：
+**它们互补**：
 
 - commit 变了 → ref 漂移（tag 重打 / branch 移动）
 - commit 没变但 digest 重放不匹配 → 本地内容被篡改/损坏，或清单规范发生版本变化 → 阻断（exit 2）
+- 模块条目还要校验 `subtreeOid`：位置错与字节错分开报
 
 ---
 
@@ -83,7 +89,7 @@
 
 "lock 可复现"指**确定性字段集**的字节级一致，而不是整个文件：
 
-- 确定性字段：结构、字段顺序、`commit`、`archiveDigest`、`vendorPath` 等
+- 确定性字段：结构、字段顺序、`commit`、内容 digest（`archiveDigest` 或 `moduleDigest`/`subtreeOid`）、`vendorPath` 等
 - 非确定性字段：`resolvedAt`（解析时刻）
 - 序列化规范：UTF-8、2 空格缩进、字段顺序固定、末尾换行
 - 判定方式：同一 ngm.json + 同一上游 ref 状态 → 除 `resolvedAt` 外字段字节一致，即视为可复现
@@ -94,13 +100,13 @@ vendor 落地的可复现定义：相同 lock + 相同 content store → 相同 
 
 ## lockfileVersion 演进
 
-- 格式为 `MAJOR.MINOR`；v0.1 冻结为 `1.0.0`
+- 格式为 `MAJOR.MINOR`；当前为 `2.0.0`（ADR-032，模块级证明）
 - 同 MAJOR 内：只允许新增可选字段，旧版本工具应忽略未知字段继续工作
-- MAJOR 变更：破坏性字段调整（含 digest 清单规范版本升级）。**该变更必须与迁移命令
-  （`ngm lock migrate`）同时交付**——至今未发生 MAJOR 变更，因此**该命令尚不存在**；
-  当前唯一可行路径是删除 `ngm.lock` 并重跑 `ngm install` 重新生成（v0.5 复核修正：
-  错误提示与文档曾引用这个不存在的命令）
-- `archiveDigest` 的清单规范版本与 `lockfileVersion` 绑定，见 [ADR-008](../adr/adr-008-archive-digest.md)
+- MAJOR 变更：破坏性字段调整（含 digest 清单规范版本升级）。项目尚无用户，v1 → v2
+  **不提供迁移命令**；旧 lock 会被明确拒绝，重新 `ngm install` 即可
+- 根条目的 `archiveDigest` 与 `ngm-archive-digest/v1` 绑定；模块条目的 `moduleDigest`
+  与 `ngm-module-digest/v1` 绑定，见 [ADR-008](../adr/adr-008-archive-digest.md) /
+  [ADR-032](../adr/adr-032-scoped-content-proof.md)
 
 ---
 

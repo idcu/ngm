@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // configUsage 是 `ngm config --help` 的简短说明。

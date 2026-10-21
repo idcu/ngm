@@ -2,14 +2,15 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/idcu/ngm/internal/atomicfile"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/atomicfile"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // ReadProjectFile 读取并校验单个 ngm.json（不做三级合并）。
@@ -149,6 +150,56 @@ func (p *ProjectFile) RemoveDependency(name string) (bool, error) {
 		p.sortDependencies()
 	}
 	return removed, nil
+}
+
+// RemoveDependencyAt 按 name + 可选 subPath 精确移除一个声明。
+//
+// hasPath=false 表示只给了仓库名：此时若同一仓库有多个子路径条目，返回歧义错误，
+// 而不是把整仓的模块全部删掉。这与 update/verify 的目标选择同一纪律。
+func (p *ProjectFile) RemoveDependencyAt(name, subPath string, hasPath bool) (bool, error) {
+	target, err := resolve.ParseSlug(name)
+	if err != nil {
+		return false, err
+	}
+
+	var matches []int
+	for i := range p.Dependencies {
+		c, cerr := resolve.ParseSlug(p.Dependencies[i].Name)
+		if cerr != nil || !c.Equal(target) {
+			continue
+		}
+		if hasPath && normalizeSubPath(p.Dependencies[i].Path) != normalizeSubPath(subPath) {
+			continue
+		}
+		matches = append(matches, i)
+	}
+	if len(matches) == 0 {
+		return false, nil
+	}
+	if !hasPath && len(matches) > 1 {
+		keys := make([]string, 0, len(matches))
+		for _, i := range matches {
+			keys = append(keys, resolve.DepSpec{Name: p.Dependencies[i].Name, SubPath: p.Dependencies[i].Path}.Key())
+		}
+		return false, errs.New(
+			errs.CodeConfigInvalid,
+			fmt.Sprintf("%s is ambiguous: %v", name, keys),
+			fmt.Sprintf("pass the full target, e.g. %q", target.Slug()+"#path="+p.Dependencies[matches[0]].Path))
+	}
+
+	drop := make(map[int]bool, len(matches))
+	for _, i := range matches {
+		drop[i] = true
+	}
+	out := p.Dependencies[:0]
+	for i, d := range p.Dependencies {
+		if !drop[i] {
+			out = append(out, d)
+		}
+	}
+	p.Dependencies = out
+	p.sortDependencies()
+	return true, nil
 }
 
 // sortDependencies 按 name 的 UTF-8 字节序稳定排序（确定性输出）。

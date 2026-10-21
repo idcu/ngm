@@ -7,13 +7,13 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/mappings"
-	"github.com/idcu/ngm/internal/resolve"
 	"github.com/idcu/ngm/internal/security"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // projectEnv 是子命令共享的运行环境：用户态布局、mirror、content store、
@@ -28,6 +28,8 @@ type projectEnv struct {
 	Layout vendor.Layout
 	// Mirror 是层 1（Git 裸仓库镜像）管理器。
 	Mirror *vendor.Mirror
+	// ModuleCache 是层 1.5（partial clone 模块缓存，ADR-034）管理器。
+	ModuleCache *vendor.ModuleCache
 	// Store 是层 2（内容寻址存储）管理器。
 	Store *vendor.ContentStore
 	// GitOpts 是所有 git 子进程共享的选项（含 Secrets 脱敏集合）。
@@ -110,14 +112,15 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 	gitOpts := git.Options{Secrets: secrets, Policy: pol}
 
 	return &projectEnv{
-		ProjectDir: projectDir,
-		Layout:     layout,
-		Mirror:     vendor.NewMirror(layout.MirrorRoot(), gitOpts),
-		Store:      vendor.NewContentStore(layout.ContentRoot()),
-		GitOpts:    gitOpts,
-		Protocol:   proto,
-		Secrets:    secrets,
-		Policy:     pol,
+		ProjectDir:  projectDir,
+		Layout:      layout,
+		Mirror:      vendor.NewMirror(layout.MirrorRoot(), gitOpts),
+		ModuleCache: vendor.NewModuleCache(layout.ModuleCacheRoot(), gitOpts),
+		Store:       vendor.NewContentStore(layout.ContentRoot()),
+		GitOpts:     gitOpts,
+		Protocol:    proto,
+		Secrets:     secrets,
+		Policy:      pol,
 	}, nil
 }
 
@@ -339,16 +342,28 @@ type digestNode struct {
 	Repo    resolve.Canonical
 	SubPath string
 	Digest  string
+	// Module 表示 Digest 是 moduleDigest，条目路径已经相对模块根。
+	Module bool
 }
 
 // digestNodeFromResolved 把图节点转为落地输入。
-func digestNodeFromResolved(n *resolve.Node, digest string) digestNode {
-	return digestNode{Name: n.Name, Repo: n.Repo, SubPath: n.SubPath, Digest: digest}
+func digestNodeFromResolved(n *resolve.Node, archiveDigest, moduleDigest string) digestNode {
+	dn := digestNode{Name: n.Name, Repo: n.Repo, SubPath: n.SubPath, Digest: archiveDigest}
+	if n.SubPath != "" && moduleDigest != "" {
+		dn.Digest = moduleDigest
+		dn.Module = true
+	}
+	return dn
 }
 
 // digestNodeFromLock 把 lock 条目转为落地输入（尊重 lock 路径使用）。
 func digestNodeFromLock(d *lock.Dependency, repo resolve.Canonical) digestNode {
-	return digestNode{Name: d.Name, Repo: repo, SubPath: d.SubPath, Digest: d.ArchiveDigest}
+	dn := digestNode{Name: d.Name, Repo: repo, SubPath: d.SubPath, Digest: d.ArchiveDigest}
+	if d.SubPath != "" && d.ModuleDigest != "" {
+		dn.Digest = d.ModuleDigest
+		dn.Module = true
+	}
+	return dn
 }
 
 // ContentReader 返回从 content store 读取某依赖根下文件的 reader。
@@ -362,7 +377,8 @@ func (e *projectEnv) ContentReader(dn digestNode) mappings.FileReader {
 	prefix := strings.Trim(dn.SubPath, "/")
 	return func(rel string) ([]byte, bool, error) {
 		p := filepath.ToSlash(rel)
-		if prefix != "" {
+		// 模块 scope 的清单路径已经相对模块根，不能再拼 subPath。
+		if prefix != "" && !dn.Module {
 			p = prefix + "/" + p
 		}
 		return e.Store.ReadFile(dn.Digest, p)
@@ -393,7 +409,13 @@ func (e *projectEnv) MaterializeVendorAndMappings(pf *config.ProjectFile, items 
 	for _, dn := range items {
 		relPath := vendor.VendorPathFor(dn.Repo.MirrorRelPath(), dn.SubPath)
 
-		res, err := lt.Materialize(dn.Digest, dn.Repo.MirrorRelPath(), dn.SubPath)
+		var res vendor.LinkResult
+		var err error
+		if dn.Module {
+			res, err = lt.MaterializeModule(dn.Digest, dn.Repo.MirrorRelPath(), dn.SubPath)
+		} else {
+			res, err = lt.Materialize(dn.Digest, dn.Repo.MirrorRelPath(), dn.SubPath)
+		}
 		if err != nil {
 			return out, err
 		}

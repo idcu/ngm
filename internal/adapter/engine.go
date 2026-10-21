@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // EngineKind 是引擎能力类别（architecture/engine-adapter.md §引擎接口）。

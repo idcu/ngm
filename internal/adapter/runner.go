@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // Plan 描述一次引擎调用**将要**执行什么。

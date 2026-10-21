@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/resolve"
-	"github.com/idcu/ngm/internal/vendor"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 // TestV02InstallModesAcceptance 是 v0.2 F 组（install 的 CI 模式）的可执行验收。

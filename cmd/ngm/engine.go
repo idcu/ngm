@@ -9,7 +9,7 @@ import (
 
 	"github.com/idcu/ngm/internal/adapter"
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/mappings"
 )
 

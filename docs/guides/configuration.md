@@ -4,8 +4,8 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 
 | 文件 | 作用 | 位置 |
 |------|------|------|
-| `ngm.json` | 依赖声明（refType 必填）+ 引擎选择 + 供应链策略 + 运行时 | 项目根目录 |
-| `ngm.lock` | 锁定文件：commit + archiveDigest + resolvedAt | 项目根目录，**必须提交** |
+| `ngm.json` | 依赖声明（refType 条件必填）+ 引擎选择 + 供应链策略 + 运行时 | 项目根目录 |
+| `ngm.lock` | 锁定文件：commit + 内容 digest（根 archiveDigest / 模块 moduleDigest）+ resolvedAt | 项目根目录，**必须提交** |
 | `ngm.mappings.json` | 构建工具映射（供外部构建工具读取裸导入） | 项目根目录 |
 | `ngm.engines.json` | 引擎清单（可选，覆盖内置清单） | 项目根目录或全局 `~/.ngm/` |
 | `~/.ngm/config.json` | 全局配置（Git 凭证、默认引擎、权限） | 用户主目录 |
@@ -97,6 +97,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | `runtime` | `"node" \| "deno"` | 是 | 宿主运行时 |
 | `main` | string | 否 | 入口文件（本项目作为被依赖方时，供 mappings 推断；见下"入口推断"） |
 | `types` | string | 否 | 类型声明入口（同上；推断出的 `types` 会写进 `ngm.mappings.json`，并优先用于 tsconfig paths） |
+| `publish` | boolean | 否 | 模块发布开关：nil 跟随 `--releases`；显式 true/false **完全覆盖**全局开关（ADR-037） |
 | `dependencies` | array | 是 | 依赖列表 |
 | `engines` | object | 否 | 引擎选择 |
 | `vendor` | object | 否 | vendor 模式配置 |
@@ -121,21 +122,17 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 是 | 依赖标识，格式 `git-host:org/repo` |
-| `ref` | string | 是 | refType 必填 |
-| `refType` | `"commit" \| "tag" \| "branch"` | 是 | **必填**，不允许省略 |
+| `ref` | string | 是 | tag / branch / commit 名字 |
+| `refType` | `"commit" \| "tag" \| "branch"` | 条件必填 | 完整 40 位 commit hash 可省略（按 commit）；其余**必填** |
 | `path` | string | 否 | monorepo 子路径 |
 
-### refType 为什么必填
+### refType 为什么通常必填
 
 `@main` 无法区分是 tag 叫 main 还是 branch 叫 main。refType 让声明自描述，不依赖推断。
 
-**推断规则**（仅在 `ngm add` 交互时辅助）：
+**唯一的窄默认**（ADR-035）：`ref` 是完整 40 位十六进制 hash 时，可以省略 `refType`，按 `commit` 处理并写回。tag、branch、7–39 位短 hash 仍然必须显式。
 
-- 匹配 `v*.*.*` 或 `*.*.*` → tag
-- 匹配 7 位以上 hex → commit
-- 其他 → branch
-
-推断可能出错（branch 叫 `v1.2.3`、tag 叫 `main`），所以写入 ngm.json 时**必须显式带上 refType**。
+`ngm add` 的提示仍会给出“看起来像 tag/branch”的建议，但不会把 tag/branch 静默写成 commit。需要消歧时显式加 `--infer-ref-type`：ngm 做一次 `ls-remote`，只有 tag/branch 之一存在才写入，两者都有则报错。
 
 ---
 
@@ -324,8 +321,9 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 
 - 同一大版本内只新增可选字段，旧工具应忽略未知字段继续工作
 - 破坏性变更递增大版本，并**同时**提供迁移命令（`ngm lock migrate` 等）；
-  至今未发生此类变更，**迁移命令尚不存在**——唯一可行路径是重新生成
-- `archiveDigest` 的清单规范版本与之绑定（见 [ADR-008](../adr/adr-008-archive-digest.md)）
+  v1 → v2（模块级证明）因项目尚无用户而直接废止 v1，**迁移命令仍不存在**——重新生成即可
+- `archiveDigest`/`moduleDigest` 的清单规范版本与 lockfileVersion 绑定
+  （见 [ADR-008](../adr/adr-008-archive-digest.md) / [ADR-032](../adr/adr-032-scoped-content-proof.md)）
 
 ---
 

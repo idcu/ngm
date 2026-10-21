@@ -7,9 +7,9 @@ import (
 	"io"
 	"sort"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/supplychain"
 )
 

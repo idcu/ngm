@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
-	"github.com/idcu/ngm/internal/vendor"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 // verifyWithSignatures 在常规判定之后追加"这份代码有没有被签名"这一层。

@@ -9,20 +9,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/idcu/ngm/internal/digest"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/vendor"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
-const storeUsage = `ngm store — inspect and tidy the content store (layer 2)
+const storeUsage = `ngm store — inspect and tidy ngm's on-disk layers
 
 USAGE:
   ngm store <subcommand>
 
 SUBCOMMANDS:
-  usage   report what the content store is holding (read-only)
-  prune   remove unpack residue left by interrupted builds (--dry-run available)
+  usage   report what ngm holds on disk, layer by layer (read-only)
+  prune   remove residue left by interrupted clones and builds (--dry-run available)
+  gc      consolidate the git mirrors with "git gc" (--dry-run available)
 
 PRUNE FLAGS:
   --dry-run              print what would be removed without removing anything
@@ -30,24 +31,37 @@ PRUNE FLAGS:
                          (age-guarded: --older-than, default 24h)
   --older-than=<dur>     age guard for --orphans (e.g. 24h, 30m); only valid with --orphans
 
-NOTES:
-  The content store is derived data: it can always be rebuilt from the mirror by
-  re-running "ngm install".
+GC FLAGS:
+  --dry-run              print which mirrors would be collected without running git
 
-  There is deliberately **no** reachability-based deletion ("this digest is no longer
-  wanted anywhere"): that needs a project registry ngm does not have, and getting it
-  wrong makes some other project fail verification one day — see
-  docs/adr/adr-018-store-reclaim.md.
+NOTES:
+  Two layers live under ngm's home, and they grow for different reasons:
+
+    mirror (layer 1)   bare git clones. Every fetch can add objects, and only
+                       "git gc" consolidates them — that is what "ngm store gc" runs.
+                       An interrupted clone leaves a temporary pack
+                       (objects/pack/tmp_*) which git itself keeps for TWO WEEKS
+                       (measured: 13 days survive, 15 days are removed); that residue
+                       is what "ngm store prune" reclaims after one hour.
+    content (layer 2)  derived data: it can always be rebuilt from the mirror by
+                       re-running "ngm install".
+
+  There is deliberately **no** reachability-based deletion in either layer ("this
+  digest / this commit is no longer wanted anywhere"): that needs a project registry
+  ngm does not have, and getting it wrong makes some other project fail verification
+  one day — see docs/adr/adr-018-store-reclaim.md and docs/adr/adr-030-mirror-reclaim.md.
 
   --orphans is a different thing: it removes bytes that NO manifest in this store
   references at all. That is decidable by construction (no registry needed), and it is
   age-guarded because "ngm install" writes bytes before it publishes the manifest they
   belong to. See docs/adr/adr-023-orphan-reclaim.md.
 
-  EXIT CODES:
-  0  reported (usage) or finished (prune) — "nothing to do" is still 0
+EXIT CODES:
+  0  reported (usage) or finished (prune / gc) — "nothing to do" is still 0
   3  configuration error: unknown subcommand, or a manifest could not be read
-  (prune refuses to delete anything in that case)
+     (prune refuses to delete anything in that case)
+  4  gc could not collect a mirror: git failed on it (the other mirrors were left
+     collected; run "git gc" in that mirror by hand to see git's own message)
   `
 
 // runStore 处理 `ngm store <subcommand>`。
@@ -71,6 +85,8 @@ func runStore(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return runStoreUsage(ctx, rest, stdout, stderr)
 	case "prune":
 		return runStorePrune(ctx, rest, stdout, stderr)
+	case "gc":
+		return runStoreGC(ctx, rest, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, storeUsage)
 		return 3
@@ -97,17 +113,129 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
+	// 两层都读：**层 1 不能挂在层 2 的提前返回后面**。
+	//
+	// v0.100 之前的形状是"content store 不存在 ⇒ 打印 nothing to report 并 return 0"。
+	// 那条路在只有层 1 的机器上是错的：一个有 mirror、没有 content store 的用户
+	// （例如刚 clone 过、还没 install）会被告知"没有可报告的东西"——
+	// 而他打开这个命令正是想看那些 mirror 占了多大。
+	mirror, err := vendor.NewMirror(layout.MirrorRoot(), git.Options{}).Usage()
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	mc, err := vendor.NewModuleCache(layout.ModuleCacheRoot(), git.Options{}).Usage()
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
 	u, err := vendor.NewContentStore(layout.ContentRoot()).Usage()
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
-	if !u.Exists {
-		fmt.Fprintf(stdout, "no content store at %s (nothing to report)\n", u.Root)
+	if !mirror.Exists && !mc.Exists && !u.Exists {
+		fmt.Fprintf(stdout,
+			"nothing to report: none of %s, %s or %s exists yet\n",
+			mirror.Root, mc.Root, u.Root)
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "content store: %s\n", u.Root)
-	if u.V2Trees > 0 || u.Blobs > 0 {
+	// 层 1 先报：它是**根**（content store 是它的派生物），体积通常也是最大的一块。
+	fmt.Fprintf(stdout, "mirror (layer 1): %s\n", mirror.Root)
+	if !mirror.Exists {
+		fmt.Fprintf(stdout, "  not created yet (%s does not exist)\n", mirror.Root)
+	} else {
+		fmt.Fprintf(stdout,
+			"  %d repo(s), %s on disk — of which %s is packed history\n",
+			mirror.Repos, storeBytes(mirror.Bytes), storeBytes(mirror.PackBytes))
+		// 逐仓库一行：只列**非零**的那些维度，避免把"没有的事"印成 0。
+		//
+		// 上限 10 与层 2 那段（`storeEntryLines` 里同样是 10）取同一个口径：
+		// 报告要能一眼看完，而"还有多少个"必须说出来——一个被静默截断的清单
+		// 会让人以为"就这么多"。
+		const showMirrors = 10
+		for i, e := range mirror.Entries {
+			if i == showMirrors {
+				fmt.Fprintf(stdout, "    ... and %d more (sorted by path)\n", len(mirror.Entries)-showMirrors)
+				break
+			}
+			fmt.Fprintf(stdout, "    %-52s %10s", e.Repo, storeBytes(e.Bytes))
+			if e.ResidueBytes > 0 {
+				fmt.Fprintf(stdout, "  residue: %d (%s)", e.ResidueCount, storeBytes(e.ResidueBytes))
+			}
+			if e.NotMirror {
+				fmt.Fprintf(stdout, "  NOT A MIRROR")
+			}
+			fmt.Fprintln(stdout)
+		}
+		if mirror.NotMirrorCount > 0 {
+			// 这一句是这个报告里最值钱的一条：有体积、却解析不出任何 commit 的目录。
+			fmt.Fprintf(stdout,
+				"  note: %d path(s) are NOT mirrors — a clone that was interrupted leaves a\n"+
+					"        usable-looking bare repo whose config has no %s refspec,\n"+
+					"        and `git fetch` on it succeeds while fetching NOTHING. To rebuild:\n"+
+					"        rm -rf that directory + run \"ngm install\" again (it re-clones).\n",
+				mirror.NotMirrorCount, git.MirrorRefspec)
+		}
+		if len(mirror.Landings) > 0 {
+			// 第二值钱的一条：**正在落地**的克隆（v0.101）。它是上面那条的**成因**——
+			// 从前克隆直接落在最终路径上，一次中断就留下一个"长得像能用的 mirror"。
+			fmt.Fprintf(stdout,
+				"  unfinished clone(s): %d (%s) — ngm clones into a temporary directory and\n"+
+					"        renames it into place, so these are a clone that failed or was killed.\n"+
+					"        \"ngm store prune\" reclaims them after one hour:\n",
+				len(mirror.Landings), storeBytes(mirror.LandingBytes))
+			for i, rel := range mirror.Landings {
+				if i == showMirrors {
+					fmt.Fprintf(stdout, "          ... and %d more (sorted by path)\n", len(mirror.Landings)-showMirrors)
+					break
+				}
+				fmt.Fprintf(stdout, "          %s\n", rel)
+			}
+		}
+		if mirror.ResidueCount > 0 {
+			fmt.Fprintf(stdout,
+				"  residue: %d temporary pack(s) (%s) — left by an interrupted clone or fetch;\n"+
+					"        git itself keeps these for TWO WEEKS, \"ngm store prune\" removes them\n"+
+					"        after one hour. Run \"git gc\" for the history itself: ngm store gc\n",
+				mirror.ResidueCount, storeBytes(mirror.ResidueBytes))
+		} else {
+			fmt.Fprintln(stdout,
+				"  no residue: nothing was left behind by an interrupted clone (ngm store prune would do nothing)")
+		}
+	}
+
+	fmt.Fprintf(stdout, "module cache (layer 1.5): %s\n", mc.Root)
+	if !mc.Exists {
+		fmt.Fprintf(stdout, "  not created yet (%s does not exist)\n", mc.Root)
+	} else {
+		fmt.Fprintf(stdout,
+			"  %d repo(s), %s on disk — of which %s is packed history\n",
+			mc.Repos, storeBytes(mc.Bytes), storeBytes(mc.PackBytes))
+		const showModuleCaches = 10
+		for i, e := range mc.Entries {
+			if i == showModuleCaches {
+				fmt.Fprintf(stdout, "    ... and %d more (sorted by path)\n", len(mc.Entries)-showModuleCaches)
+				break
+			}
+			fmt.Fprintf(stdout, "    %-52s %10s", e.Repo, storeBytes(e.Bytes))
+			if e.NotPartial {
+				fmt.Fprintf(stdout, "  NOT A PARTIAL CLONE")
+			}
+			fmt.Fprintln(stdout)
+		}
+		if mc.NotPartialCount > 0 {
+			fmt.Fprintf(stdout,
+				"  note: %d path(s) are NOT partial clones — the filter was not applied or its\n"+
+					"        config changed. They are disposable: delete them and run `ngm install`\n"+
+					"        again (ngm will re-create the module cache).\n",
+				mc.NotPartialCount)
+		}
+	}
+
+	fmt.Fprintf(stdout, "content store (layer 2): %s\n", u.Root)
+	if !u.Exists {
+		fmt.Fprintf(stdout, "  not created yet (%s does not exist)\n", u.Root)
+	}
+	if u.Exists && (u.V2Trees > 0 || u.Blobs > 0) {
 		fmt.Fprintf(stdout, "  blobs (deduplicated content): %d (%s)\n", u.Blobs, storeBytes(u.BlobBytes))
 		// 三个数回答三个不同的问题：去重省了多少（共享）、丢掉某一棵树能回收多少（独占）、
 		// 有多少空间**没有任何人需要**（孤儿）。最后那个不是垃圾的同义词，也不会被 prune 清掉
@@ -129,7 +257,7 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 		}
 		fmt.Fprintf(stdout, "  tree manifests (v2): %d (%s)\n", u.V2Trees, storeBytes(u.V2TreeBytes))
 	}
-	if u.UnreadableManifests > 0 {
+	if u.Exists && u.UnreadableManifests > 0 {
 		// 方向要说清，否则这三个数会被当成事实：读不出来的清单，它的 blob 会**失去引用**，
 		// 于是孤儿被**多算**、共享被**少算**。两种偏差方向相反，所以不能说"是下界"。
 		fmt.Fprintf(stdout,
@@ -137,9 +265,13 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 				"        so the orphan count above is an over-count and \"shared\" is an under-count\n",
 			u.UnreadableManifests)
 	}
-	// v1 那一行**总是**打印：它同时是"迁移收敛到什么程度"的读数——
-	// 全是 0 就说明这个 store 已经不再有旧布局的残留（ADR-019 的收敛目标）。
-	fmt.Fprintf(stdout, "  content trees (v1 legacy): %d (%s)\n", len(u.Trees), storeBytes(u.TreeBytes))
+	if u.Exists {
+		// v1 那一行在 store 存在时**总是**打印：它同时是"迁移收敛到什么程度"的读数——
+		// 全是 0 就说明这个 store 已经不再有旧布局的残留（ADR-019 的收敛目标）。
+		// （v0.100 起多了一个前置：store 不存在时不打印它。此前是靠上面那条
+		// 提前返回来保证这一行不会在"没有 store"时出现，而那条返回会连层 1 一起吞掉。）
+		fmt.Fprintf(stdout, "  content trees (v1 legacy): %d (%s)\n", len(u.Trees), storeBytes(u.TreeBytes))
+	}
 	if len(u.Trees) > 0 {
 		// **它不会自己变好**（ADR-019 §修订 5）：健康的 v1 条目 `Has` 为真，install 因此
 		// 直接短路、不会重写它们——而那条短路是"无网络也能安装"的承诺，不能为了迁移去动它。
@@ -171,7 +303,11 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 			u.TempCount, storeBytes(u.TempBytes))
 	}
 	fmt.Fprintln(stdout,
-		"note: read-only, nothing was changed. Deleting a content tree is deliberately not offered (ADR-018).")
+		"note: read-only, nothing was changed. Deleting content trees (layer 2) and deleting\n"+
+			"      packed history (layer 1) are both deliberately not offered (ADR-018/030);\n"+
+			"      the module cache (layer 1.5) is a disposable cache — deleting it only costs\n"+
+			"      a re-fetch, not provenance. The reclaim paths on offer are \"ngm store prune\"\n"+
+			"      (residue) and \"ngm store gc\" (consolidate mirror packfiles).")
 	return 0
 }
 
@@ -291,6 +427,128 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 				ores.KeptYoung, ores.OlderThan, storeBytes(ores.KeptYoungBytes))
 		}
 		fmt.Fprintf(stdout, "  %d referenced blob(s) untouched\n", ores.Referenced)
+	}
+
+	// ---- 层 1（mirror）的残骸（v0.100 / ADR-030）----
+	//
+	// 这一段**追加**在既有输出之后，而不是插进层 2 的几段之间：既有那几行的顺序
+	// 属于对外契约（文档与脚本在读它），加一层新东西没有理由去动它。
+	// 代价是这里的顺序（层 2 先、层 1 后）与 `store usage` 的（层 1 先）相反——
+	// 写在这里，免得后来者以为是排错了。
+	mres, merr := vendor.NewMirror(layout.MirrorRoot(), git.Options{}).
+		PruneResidue(vendor.MirrorResidueGrace, time.Now(), *dryRun)
+	if merr != nil {
+		return runErr(ctx, stdout, stderr, merr)
+	}
+	mverb := "removed"
+	if mres.DryRun {
+		mverb = "would remove"
+	}
+	if len(mres.Removed) == 0 && len(mres.LandingsRemoved) == 0 {
+		fmt.Fprintf(stdout, "no mirror residue and no unfinished clone in %s (nothing to do)\n", mres.Root)
+	} else {
+		if len(mres.Removed) > 0 {
+			fmt.Fprintf(stdout, "%s %d mirror residue file(s), freeing %s:\n",
+				mverb, len(mres.Removed), storeBytes(mres.BytesFreed))
+			for _, n := range mres.Removed {
+				fmt.Fprintf(stdout, "  %s\n", n)
+			}
+		}
+		if len(mres.LandingsRemoved) > 0 {
+			// 与残骸文件分开报：删掉一个**目录**与删掉一个临时文件不是同一件事，
+			// 而"删了 N 个"这个数如果不分类，就说不出删掉的是什么。
+			fmt.Fprintf(stdout, "%s %d unfinished clone(s), freeing %s:\n",
+				mverb, len(mres.LandingsRemoved), storeBytes(mres.LandingBytesFreed))
+			for _, n := range mres.LandingsRemoved {
+				fmt.Fprintf(stdout, "  %s\n", n)
+			}
+		}
+	}
+	fmt.Fprintf(stdout, "kept %d mirror(s) untouched\n", mres.Scanned-mres.Touched)
+	if mres.KeptYoung > 0 {
+		// 与层 2 那条同源：把"没删的那些"说出来，它是并发克隆的安全阀
+		// （mirror 层没有跨进程锁，见 MirrorResidueGrace 的说明）。
+		//
+		// 措辞是 item(s) 而不是 file(s)：这个数从 v0.101 起**两类都算**
+		// （临时包与没落地的克隆目录），因为保护它们的是同一个东西——一次进行中的克隆。
+		fmt.Fprintf(stdout,
+			"  kept %d mirror residue item(s) younger than %s (%s) — another clone or\n"+
+				"  fetch may be writing them right now, so recent ones are never removed\n",
+			mres.KeptYoung, vendor.MirrorResidueGrace, storeBytes(mres.KeptYoungBytes))
+	}
+	return 0
+}
+
+// runStoreGC 对层 1 的每个 mirror 跑一次 `git gc`（整理历史本体）。
+//
+// 为什么它值得是一条命令（v0.100 / ADR-030）：`store usage` 已经把每个 mirror
+// 的体积摆出来了，而"看得见却点不动"是一种坏形状——用户拿到"这个 mirror 占了
+// 18 MB"之后，下一步只能自己去猜 `~/.ngm/mirror` 在哪、该跑什么。
+func runStoreGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("store gc", stderr)
+	dryRun := fs.Bool("dry-run", false,
+		"print which mirrors would be collected without running git")
+	fs.Usage = func() { fmt.Fprint(stderr, storeUsage) }
+	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
+		return 3
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprint(stderr, storeUsage)
+		return 3
+	}
+
+	// 这里要 `newProjectEnv` 而不是只取 `layout`：本命令**要跑 git**，
+	// 因此 `run:git` 的判定与凭证脱敏必须来自与别的命令同一处，而不是在本函数里
+	// 现拼一个空的 `git.Options`（那会让权限配置在这条路上静默失效）。
+	// `newProjectEnv` 不建目录、也不读项目清单，对全局命令是安全的。
+	//
+	// 代价是**坏掉的全局配置会在这里退 3**（`store usage` 则不受影响）：
+	// 这是有意的——跑 git 之前必须先把"允不允许跑、哪些值要脱敏"读对，
+	// 而把它当成"没配"会让用户以为自己写的 deny 已经生效（env.go 那条注释同源）。
+	env, err := newProjectEnv("")
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+
+	res, gerr := env.Mirror.GC(ctx, *dryRun)
+
+	// 先报**已经做完的那部分**，再报失败：`GC` 在某个 mirror 上失败时会继续
+	// 整理其余的，把结果丢掉会让"哪些已经整理过了"变成不可知——而用户接下来
+	// 要不要重跑，正取决于这个。
+	verb := "collected"
+	if res.DryRun {
+		verb = "would collect"
+	}
+	switch {
+	case len(res.Collected) > 0:
+		fmt.Fprintf(stdout, "%s %d mirror(s), reclaiming %s:\n",
+			verb, len(res.Collected), storeBytes(res.Reclaimed()))
+		for _, n := range res.Collected {
+			fmt.Fprintf(stdout, "  %s\n", n)
+		}
+	case gerr == nil:
+		fmt.Fprintf(stdout, "no mirror to collect in %s (nothing to do)\n", res.Root)
+	}
+	if len(res.SkippedIncomplete) > 0 {
+		// 跳过要**说清为什么**：这些目录有体积、却不是一个可用的 mirror
+		// （config 里没有镜像 refspec），因此 `git gc` 对它们没有意义
+		// （而且它的失败会伪装成"整理失败"）。
+		fmt.Fprintf(stdout,
+			"  skipped %d mirror(s) whose clone never finished (no mirror refspec): %s\n",
+			len(res.SkippedIncomplete), strings.Join(res.SkippedIncomplete, ", "))
+	}
+	if len(res.SkippedNotMirror) > 0 {
+		fmt.Fprintf(stdout,
+			"  skipped %d path(s) that are not bare mirrors (ngm did not touch them): %s\n",
+			len(res.SkippedNotMirror), strings.Join(res.SkippedNotMirror, ", "))
+	}
+	if !res.DryRun && len(res.Collected) > 0 {
+		fmt.Fprintln(stdout,
+			"note: git keeps unreachable objects for 2 weeks by default, and ngm does not\n"+
+				"      shorten that window (a branch the upstream deleted stays recoverable).")
+	}
+	if gerr != nil {
+		return runErr(ctx, stdout, stderr, gerr)
 	}
 	return 0
 }

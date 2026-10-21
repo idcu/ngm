@@ -30,7 +30,7 @@ ngm add github:my-org/legacy@abc123def --ref-type commit
 ngm add github:my-org/monorepo@v2.0.0 --ref-type tag --path=packages/core
 ```
 
-`--ref-type` 必填。因为 `@main` 无法区分是 tag 还是 branch。
+`--ref-type` 通常必填，因为 `@main` 无法区分是 tag 还是 branch；只有完整 40 位 commit hash 可以省略。
 
 ---
 
@@ -41,6 +41,33 @@ ngm add github:my-org/monorepo@v2.0.0 --ref-type tag --path=packages/core
 | `commit` | `@abc123def` | 生产环境，绝对锁定 | 锁定该 commit |
 | `tag` | `@v1.2.3` | 生产环境，语义化版本 | 锁定解析到的 commit |
 | `branch` | `@main` | 开发环境，跟随最新 | 锁定解析到的 commit |
+
+---
+
+## 快速验证一个未发布改动
+
+不需要为了试一次改动就打 tag。两种模式：
+
+```bash
+# 1) 分支模式：改推送到一个分支，消费该分支
+ngm add github:my-org/utils@try-fix --ref-type branch --path=packages/utils
+ngm install
+ngm verify          # 分支再前进会报 expected，不阻断
+```
+
+```bash
+# 2) 精确 commit 模式：完整 40 位 hash，连 --ref-type 都可省略
+ngm add github:my-org/utils@0123456789abcdef0123456789abcdef01234567 --path=packages/utils
+ngm install
+ngm verify          # commit 不可变，无漂移
+```
+
+判据：
+
+- lock 永远钉住解析到的 `commit`；
+- branch 模式只报 `expected`，`--strict` 下才 exit 1；
+- commit 模式无 ref 漂移；
+- 验证通过后，再按集合发布流程打 tag / 更新 `ngm.collection.json`。
 
 ---
 

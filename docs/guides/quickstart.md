@@ -42,7 +42,7 @@ ngm add github:my-org/logger@main --ref-type branch
 ngm add github:my-org/legacy@abc123def --ref-type commit
 ```
 
-`--ref-type` 必填，因为 `@main` 无法区分是 tag 还是 branch。
+`--ref-type` 通常必填，因为 `@main` 无法区分是 tag 还是 branch；只有完整 40 位 commit hash 可以省略。
 
 ### 3. 安装
 

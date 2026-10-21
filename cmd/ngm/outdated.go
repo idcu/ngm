@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/observability"
-	"github.com/idcu/ngm/internal/resolve"
 )
 
 const outdatedUsage = `ngm outdated — which dependencies have newer versions?

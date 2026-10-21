@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/idcu/ngm/internal/atomicfile"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/atomicfile"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/sbom"
 	"github.com/idcu/ngm/internal/version"
 )

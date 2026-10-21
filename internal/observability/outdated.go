@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
 )
 
 // reSemver 识别形如 `v1.2.3` / `1.2.3` 的版本标签。

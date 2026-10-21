@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 func policyWithAge(t *testing.T, iso string) *Policy {

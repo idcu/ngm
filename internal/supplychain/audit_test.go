@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
 )
 
 const (
@@ -37,7 +37,7 @@ func auditServer(t *testing.T) *httptest.Server {
 }
 
 func lockFile(commits ...string) *lock.File {
-	lf := &lock.File{Version: 1, LockfileVersion: "1.0.0"}
+	lf := &lock.File{Version: 1, LockfileVersion: "2.0.0"}
 	for i, c := range commits {
 		lf.Dependencies = append(lf.Dependencies, lock.Dependency{
 			Name:    "github:o/dep" + string(rune('a'+i)),

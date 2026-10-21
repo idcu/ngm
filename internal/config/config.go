@@ -21,8 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // SchemaVersion 是 ngm.json / ngm.lock / ngm.mappings.json 等所有协议文件的
@@ -67,16 +67,21 @@ func ValidRuntime() []Runtime { return []Runtime{RuntimeNode, RuntimeDeno} }
 
 // ProjectFile 是项目根目录的 ngm.json。
 type ProjectFile struct {
-	SchemaVersion int                `json:"schemaVersion"`
-	Name          string             `json:"name"`
-	Version       string             `json:"version"`
-	Runtime       Runtime            `json:"runtime"`
-	Main          string             `json:"main,omitempty"`
-	Types         string             `json:"types,omitempty"`
-	Dependencies  []Dependency       `json:"dependencies"`
-	Engines       *EnginesConfig     `json:"engines,omitempty"`
-	Vendor        *VendorConfig      `json:"vendor,omitempty"`
-	SupplyChain   *SupplyChainConfig `json:"supplyChain,omitempty"`
+	SchemaVersion int     `json:"schemaVersion"`
+	Name          string  `json:"name"`
+	Version       string  `json:"version"`
+	Runtime       Runtime `json:"runtime"`
+	Main          string  `json:"main,omitempty"`
+	Types         string  `json:"types,omitempty"`
+	// Publish 是模块的发布开关（仅对模块集合有意义）。
+	//
+	// nil = 跟随全局默认（`ngm modules index --releases`）；显式 true/false
+	// 完全覆盖全局开关（ADR-037）。它只影响 release 索引生成，不影响安装/验证。
+	Publish      *bool              `json:"publish,omitempty"`
+	Dependencies []Dependency       `json:"dependencies"`
+	Engines      *EnginesConfig     `json:"engines,omitempty"`
+	Vendor       *VendorConfig      `json:"vendor,omitempty"`
+	SupplyChain  *SupplyChainConfig `json:"supplyChain,omitempty"`
 }
 
 // Dependency 声明中的一个依赖。

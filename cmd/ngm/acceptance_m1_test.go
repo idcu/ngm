@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // TestM1Acceptance 是 development/v0.1-plan.md 中 M1（Git 层）阶段的**可执行验收**。

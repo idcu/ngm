@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // m5Project 建一个项目并声明给定依赖。

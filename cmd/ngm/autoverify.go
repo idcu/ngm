@@ -6,9 +6,9 @@ import (
 	"io"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/verify"
 	"github.com/idcu/ngm/internal/supplychain"
-	"github.com/idcu/ngm/internal/verify"
 )
 
 // autoVerifyAfterLock 在策略要求时，对刚落地/刷新的 lock 自动跑一遍 verify。
@@ -41,13 +41,14 @@ func autoVerifyAfterLock(ctx context.Context, env *projectEnv, pf *config.Projec
 	}
 
 	opts := verify.Options{
-		Offline:      offline,
-		MirrorRoot:   env.Layout.MirrorRoot(),
-		ContentRoot:  env.Layout.ContentRoot(),
-		VendorRoot:   env.VendorRoot(pf),
-		GitOpts:      env.GitOpts,
-		Protocol:     env.Protocol,
-		EnsureMirror: env.EnsureMirror,
+		Offline:         offline,
+		MirrorRoot:      env.Layout.MirrorRoot(),
+		ModuleCacheRoot: env.Layout.ModuleCacheRoot(),
+		ContentRoot:     env.Layout.ContentRoot(),
+		VendorRoot:      env.VendorRoot(pf),
+		GitOpts:         env.GitOpts,
+		Protocol:        env.Protocol,
+		EnsureMirror:    env.EnsureMirror,
 	}
 	if offline {
 		// 与 install/verify 共用同一实现：三条命令对"不联网"只有一种含义

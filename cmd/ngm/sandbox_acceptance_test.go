@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // v3SandboxProject 建一个依赖了 `github:v3/sbx` 的项目。

@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/mappings"
-	"github.com/idcu/ngm/internal/resolve"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 const installUsage = `ngm install — resolve dependencies and produce ngm.lock
@@ -234,33 +235,66 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	lf := lock.NewFile()
 	now := time.Now()
 	items := make([]digestNode, 0, len(g.Nodes))
+	materials := newMaterialCache()
+	proofs, pferr := buildModuleProofs(ctx, env, g.Nodes)
+	if pferr != nil {
+		return runErr(ctx, stdout, stderr, pferr)
+	}
 
 	for _, n := range g.Nodes {
-		// v0.68：一次算出（条目 + 内容 + digest），把材料交给 Put 复用——
-		// 此前这里算一遍、Put 内部再算一遍，加 Put 自己的 tree 与 cat-file：
-		// 每个依赖 6 个 git 子进程；现在 digest 阶段只剩 2 个（ls-tree + cat-file）。
-		material, derr := git.BuildArchiveMaterial(ctx, env.GitOpts, n.MirrorPath, n.Commit)
-		if derr != nil {
-			return runErr(ctx, stdout, stderr, derr)
-		}
-		dg := material.Digest
+		proof := proofs[n.Key]
+		var archiveDigest string
 
-		if _, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
-			Repo:     n.Name,
-			Commit:   n.Commit,
-			Digest:   dg,
-			SubPath:  n.SubPath,
-			Material: material,
-		}); perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+		if n.SubPath == "" {
+			// 根 scope：整仓 archiveDigest + archive content store。
+			// v0.68：一次算出（条目 + 内容 + digest），把材料交给 Put 复用。
+			// v0.101：同一 commit 的多个根依赖共享 material。
+			material, derr := materials.get(ctx, env.GitOpts, n.MirrorPath, n.Commit)
+			if derr != nil {
+				return runErr(ctx, stdout, stderr, derr)
+			}
+			archiveDigest = material.Digest
+			if _, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
+				Repo:     n.Name,
+				Commit:   n.Commit,
+				Digest:   archiveDigest,
+				Material: material,
+			}); perr != nil {
+				return runErr(ctx, stdout, stderr, perr)
+			}
+		} else {
+			// 模块 scope：只写模块 content store；不再为它写整仓条目。
+			if proof.Material == nil {
+				return runErr(ctx, stdout, stderr, errs.New(
+					errs.CodeConfigInvalid,
+					n.Key+": module proof material is missing",
+					"this is an internal inconsistency; re-run `ngm install`"))
+			}
+			if _, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
+				Repo:            n.Name,
+				Commit:          n.Commit,
+				Digest:          proof.Digest,
+				SubPath:         n.SubPath,
+				ManifestVersion: digest.ModuleManifestVersion,
+				Material:        proof.Material,
+			}); perr != nil {
+				return runErr(ctx, stdout, stderr, perr)
+			}
 		}
 
+		contentDigest := archiveDigest
+		if n.SubPath != "" {
+			contentDigest = proof.Digest
+		}
 		lf.Dependencies = append(lf.Dependencies, lock.Dependency{
 			Name:          n.Name,
 			Ref:           n.Ref,
 			RefType:       string(n.RefType),
 			Commit:        n.Commit,
-			ArchiveDigest: dg,
+			ArchiveDigest: archiveDigest,
+			ModuleDigest:  proof.Digest,
+			SubtreeOid:    proof.SubtreeOid,
+			Version:       proof.Version,
 			ResolvedAt:    lock.FormatResolvedAt(now),
 			VendorPath:    n.Repo.MirrorRelPath(),
 			SubPath:       n.SubPath,
@@ -269,15 +303,16 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			// Marshal 归一（排序 + 去重）——同一份解析 ⇒ 同一份字节。
 			RequiredBy: n.RequiredBy,
 		})
-		items = append(items, digestNodeFromResolved(n, dg))
+		items = append(items, digestNodeFromResolved(n, archiveDigest, proof.Digest))
 		if rep != nil {
 			rep.Dependencies = append(rep.Dependencies, writeReportDep{
 				Name: n.Name, Ref: n.Ref, RefType: string(n.RefType), SubPath: n.SubPath,
-				Commit: n.Commit, ArchiveDigest: dg, VendorPath: n.Repo.MirrorRelPath(),
-				Source: "resolved",
+				Commit: n.Commit, ArchiveDigest: archiveDigest,
+				ModuleDigest: proof.Digest, SubtreeOid: proof.SubtreeOid, Version: proof.Version,
+				VendorPath: n.Repo.MirrorRelPath(), Source: "resolved",
 			})
 		}
-		printResolved(stdout, n, dg, showDigest)
+		printResolved(stdout, n, contentDigest, showDigest)
 	}
 
 	// 因 root wins 被忽略的传递声明：必须在整张图展开完成后输出
@@ -335,7 +370,13 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		// 这不是性能优化，而是承诺问题。locking.md 明确写着"配合 content store 或
 		// vendor，环境无网络也能安装与构建"——若命中时仍然 fetch，无网络的 CI 会
 		// 在**什么都没变**的情况下失败，而"什么都没变"正是 CI 最常见的场景。
-		if env.Store.Has(d.ArchiveDigest) {
+		storeReady := false
+		if d.SubPath != "" {
+			storeReady = d.ModuleDigest != "" && env.Store.Has(d.ModuleDigest)
+		} else {
+			storeReady = env.Store.Has(d.ArchiveDigest)
+		}
+		if storeReady {
 			fromStore++
 			items = append(items, digestNodeFromLock(d, repo))
 			if rep != nil {
@@ -343,44 +384,69 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 			}
 			fmt.Fprintf(stdout, "%s@%s (%s) → %s\n", d.Name, d.Ref, d.RefType, d.Commit)
 			if showDigest {
-				fmt.Fprintf(stdout, "  archiveDigest: %s\n", d.ArchiveDigest)
+				label := "archiveDigest"
+				if d.SubPath != "" {
+					label = "moduleDigest"
+				}
+				fmt.Fprintf(stdout, "  %s: %s\n", label, d.ContentDigest())
 			}
 			continue
 		}
 
-		// 未命中：需要 mirror 与对象。**按需取物**（v0.66，评估报告 P3）：
-		// mirror 已存在且已含 lock 的 commit 时不做任何 fetch——那正是
-		// "什么都没变"的常见情形，而 ADR-010 的哲学是"对象按需才取"。
-		// 此前无条件 Ensure（已存在即增量 fetch），于是每次 install 都为一个
-		// **已经在本地成立的事实**触网。
-		//
-		// 未命中时行为不变：Ensure 负责 clone / fetch，取不到对象由下面
-		// 的 CommitExists 检查报错（"mirror 不完整或 commit 已被上游移除"）。
-		mirrorPath := env.Mirror.PathFor(repo)
-		present := false
-		if git.IsBareMirror(mirrorPath) {
-			if ok, cerr := git.CommitExists(ctx, env.GitOpts, mirrorPath, d.Commit); cerr == nil && ok {
-				present = true
-			}
-		}
-		if !present {
-			var merr error
-			mirrorPath, merr = ensure(ctx, repo)
-			if merr != nil {
-				return runErr(ctx, stdout, stderr, merr)
+		// 未命中：模块条目优先试 module cache（partial clone），失败再回退完整 mirror；
+		// 根条目仍走 mirror。**按需取物**（v0.66，评估报告 P3）的哲学不变：
+		// 已存在且已含 lock 的 commit 时不做任何 fetch。
+		sourcePath := ""
+		source := "fetched"
+		if d.SubPath != "" {
+			if ok, cerr := env.ModuleCache.HasCommit(ctx, repo, d.Commit); cerr != nil {
+				return runErr(ctx, stdout, stderr, cerr)
+			} else if ok {
+				sourcePath = env.ModuleCache.PathFor(repo)
+				source = "module-cache"
+			} else if !offline {
+				res, cerr := env.ModuleCache.Ensure(ctx, repo, moduleCacheRemoteURL(ctx, env, repo),
+					env.Protocol, d.Commit, d.Ref, string(d.RefType))
+				if cerr != nil {
+					// 服务端不支持 filter / 网络失败都不阻断安装：回退完整 mirror。
+					// 但必须说出来——否则“省流量”会 quietly 变成“没省”。
+					fmt.Fprintf(stderr, "warning: module cache unavailable for %s; falling back to a full mirror: %v\n",
+						d.Name, cerr)
+				} else {
+					sourcePath = res.Path
+					source = "module-cache"
+				}
 			}
 		}
 
-		// lock 的 commit 必须在 mirror 中可解析
-		ok, cerr := git.CommitExists(ctx, env.GitOpts, mirrorPath, d.Commit)
+		if sourcePath == "" {
+			mirrorPath := env.Mirror.PathFor(repo)
+			present := false
+			if git.IsBareMirror(mirrorPath) {
+				if ok, cerr := git.CommitExists(ctx, env.GitOpts, mirrorPath, d.Commit); cerr == nil && ok {
+					present = true
+				}
+			}
+			if !present {
+				var merr error
+				mirrorPath, merr = ensure(ctx, repo)
+				if merr != nil {
+					return runErr(ctx, stdout, stderr, merr)
+				}
+			}
+			sourcePath = mirrorPath
+		}
+
+		// lock 的 commit 必须在取数来源里可解析
+		ok, cerr := git.CommitExists(ctx, env.GitOpts, sourcePath, d.Commit)
 		if cerr != nil {
 			return runErr(ctx, stdout, stderr, cerr)
 		}
 		if !ok {
 			return runErr(ctx, stdout, stderr, errs.New(
 				errs.CodeGitFetch,
-				d.Name+": commit "+git.ShortSHA(d.Commit)+" from ngm.lock is not present in the local mirror",
-				"the mirror is incomplete or the lock points at a removed commit; "+
+				d.Name+": commit "+git.ShortSHA(d.Commit)+" from ngm.lock is not present in the local mirror or module cache",
+				"the mirror/cache is incomplete or the lock points at a removed commit; "+
 					"re-fetch (delete ~/.ngm/mirror/<host>/<org>/<repo>.git) or run `ngm update`"))
 		}
 
@@ -389,7 +455,17 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		// v0.68 刻意**不**在这里传 Material：这里的 digest 是 lock 的**声明值**，
 		// 而 Put 内部的重算**正是那条校验本身**（"这份内容真的是 lock 说的那个吗"）。
 		// 复用上面的计算结果会把它变成同义反复——省下的 spawn 不值这个价。
-		if _, perr := env.Store.Put(ctx, env.GitOpts, mirrorPath, vendor.Meta{
+		if d.SubPath != "" {
+			if _, perr := env.Store.Put(ctx, env.GitOpts, sourcePath, vendor.Meta{
+				Repo:            d.Name,
+				Commit:          d.Commit,
+				Digest:          d.ModuleDigest,
+				SubPath:         d.SubPath,
+				ManifestVersion: digest.ModuleManifestVersion,
+			}); perr != nil {
+				return runErr(ctx, stdout, stderr, perr)
+			}
+		} else if _, perr := env.Store.Put(ctx, env.GitOpts, sourcePath, vendor.Meta{
 			Repo:    d.Name,
 			Commit:  d.Commit,
 			Digest:  d.ArchiveDigest,
@@ -400,11 +476,15 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 
 		items = append(items, digestNodeFromLock(d, repo))
 		if rep != nil {
-			rep.Dependencies = append(rep.Dependencies, writeReportDepFromLock(d, "fetched"))
+			rep.Dependencies = append(rep.Dependencies, writeReportDepFromLock(d, source))
 		}
 		fmt.Fprintf(stdout, "%s@%s (%s) → %s\n", d.Name, d.Ref, d.RefType, d.Commit)
 		if showDigest {
-			fmt.Fprintf(stdout, "  archiveDigest: %s\n", d.ArchiveDigest)
+			label := "archiveDigest"
+			if d.SubPath != "" {
+				label = "moduleDigest"
+			}
+			fmt.Fprintf(stdout, "  %s: %s\n", label, d.ContentDigest())
 		}
 	}
 
@@ -427,6 +507,23 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr)
 }
 
+// moduleCacheRemoteURL 返回 module cache 克隆/ fetch 应使用的远端地址。
+//
+// 优先复用**已有 mirror 的 origin URL**：那是本地读取的配置，不需要重新推导协议，
+// 也不会把本地测试/CI 预置 mirror 当成网络地址。拿不到时返回空，由 ModuleCache
+// 按 repo.CloneURL(protocol) 生成。
+func moduleCacheRemoteURL(ctx context.Context, env *projectEnv, repo resolve.Canonical) string {
+	mirrorPath := env.Mirror.PathFor(repo)
+	if !git.IsBareMirror(mirrorPath) {
+		return ""
+	}
+	url, err := git.MirrorRemoteURL(ctx, env.GitOpts, mirrorPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(url)
+}
+
 // printResolved 打印一条解析结果。
 func printResolved(w io.Writer, n *resolve.Node, dg string, showDigest bool) {
 	pathNote := ""
@@ -435,7 +532,11 @@ func printResolved(w io.Writer, n *resolve.Node, dg string, showDigest bool) {
 	}
 	fmt.Fprintf(w, "%s%s@%s (%s) → %s\n", n.Name, pathNote, n.Ref, n.RefType, n.Commit)
 	if showDigest {
-		fmt.Fprintf(w, "  archiveDigest: %s\n", dg)
+		label := "archiveDigest"
+		if n.SubPath != "" {
+			label = "moduleDigest"
+		}
+		fmt.Fprintf(w, "  %s: %s\n", label, dg)
 	}
 }
 
@@ -493,6 +594,9 @@ type writeReportDep struct {
 	SubPath       string `json:"subPath,omitempty"`
 	Commit        string `json:"commit"`
 	ArchiveDigest string `json:"archiveDigest"`
+	ModuleDigest  string `json:"moduleDigest,omitempty"`
+	SubtreeOid    string `json:"subtreeOid,omitempty"`
+	Version       string `json:"version,omitempty"`
 	VendorPath    string `json:"vendorPath"`
 	// Source 是这一条内容的来源：
 	//
@@ -506,8 +610,9 @@ type writeReportDep struct {
 func writeReportDepFromLock(d *lock.Dependency, source string) writeReportDep {
 	return writeReportDep{
 		Name: d.Name, Ref: d.Ref, RefType: d.RefType, SubPath: d.SubPath,
-		Commit: d.Commit, ArchiveDigest: d.ArchiveDigest, VendorPath: d.VendorPath,
-		Source: source,
+		Commit: d.Commit, ArchiveDigest: d.ArchiveDigest,
+		ModuleDigest: d.ModuleDigest, SubtreeOid: d.SubtreeOid, Version: d.Version,
+		VendorPath: d.VendorPath, Source: source,
 	}
 }
 

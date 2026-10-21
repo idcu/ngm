@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
 )
 
 // AuditOptions 是一次审计的输入。

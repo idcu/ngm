@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/adapter"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 const typecheckUsage = `ngm typecheck — type-check a project with an external engine

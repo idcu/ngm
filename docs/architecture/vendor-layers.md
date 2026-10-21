@@ -2,15 +2,16 @@
 
 ## 推翻"vendor = 拷文件"
 
-ngm 的 vendor 不是一团目录拷贝，而是四层协作：mirror 提供对象库，content store 提供不可变内容树，link tree 把内容带进项目，cache 只做加速。
+ngm 的 vendor 不是一团目录拷贝，而是四层协作：mirror 提供对象库，module cache 提供按模块的 partial 对象库，content store 提供不可变内容树，link tree 把内容带进项目，cache 只做加速。
 
 ---
 
-## 四层结构
+## 层结构
 
 ```
 ~/.ngm/
 ├── mirror/        # 层 1：Git 裸仓库镜像（完整对象库）
+├── module-cache/  # 层 1.5：partial clone 模块缓存（blob:none，ADR-034）
 ├── content/       # 层 2：内容寻址的不可变内容树（已解包）
 └── cache/         # 层 4：可丢弃缓存（metadata / OSV / tmp）
 
@@ -38,9 +39,36 @@ project/
 - 4 种协议归一化（https/ssh/git/shorthand）
 - 认证信息管理（SSH key / token / netrc）
 - mirror 缺失且在线时自动补拉；离线且缺失时 digest 生成/校验报错（exit 4）
-- v0.1 不提供 shallow / partial clone：mirror 保留完整历史（大仓库成本列入后续探索）
+- **不提供** shallow / partial clone：mirror 保留完整历史（全 refs）。这条此前是"大仓库成本列入
+  后续探索"（v0.1 的说法）；**v0.100 有了结论**——见 [ADR-030](../adr/adr-030-mirror-reclaim.md)：
+  `--single-branch` 会让 tag/branch 型声明在本地解析不到（[ADR-004](../adr/adr-004-reftype.md)），
+  部分克隆会把"离线 digest 重放"（[ADR-008](../adr/adr-008-archive-digest.md)）变成"用到时才下载"，
+  因此**两条都拒绝**，成本改从**整理与残骸**两头削。
+- 占用与回收（**v0.100**，[ADR-030](../adr/adr-030-mirror-reclaim.md)）：`ngm store usage` 报每个
+  mirror 的体积 / 其中的 packfile / 其中的残骸，并点名**一个 ref 都没有**的目录；
+  `ngm store prune` 收 `objects/pack/tmp_*`（年龄门槛 **1 小时**——实测 git 自己只清超过 **14 天**的）；
+  `ngm store gc` 跑 `git gc` 整理松散对象与多个包（不触网、不删内容、不改保留期）
 
 **对应竞品思想**：git remote 镜像。
+
+---
+
+## 层 1.5：module cache（partial clone 模块缓存）
+
+**职责**：为“一个仓库里只用几个模块”的消费者按 `(commit, subPath)` 取对象，避免为一个小模块克隆整仓（[ADR-034](../adr/adr-034-module-cache.md)）。
+
+```
+~/.ngm/module-cache/
+└── github.com/my-org/modules.git/    # bare partial clone（--filter=blob:none）
+```
+
+- 只服务 **lock 钉住的 commit**：先试精确 commit fetch，服务端不允许按 SHA fetch 时再试 tag/branch；
+- 完整性由模块清单给出：`moduleDigest` 列出所需 blob；缺对象 = 缓存不完整（exit 4），不是篡改；
+- **不宣称**任意 ref 可离线重放，也不替代 mirror；mirror 仍保留完整对象库；
+- filter 不支持时明确回退完整 mirror，不静默全量克隆。
+
+当前接入范围：`install-from-lock` 与 `verify --offline` 的模块条目优先使用/复用；
+`ngm store usage` 报层 1.5 的仓库数、体积、packfile 与“不是 partial clone”的路径。
 
 ---
 
@@ -133,6 +161,11 @@ project/ngm.vendor/
   **不做**按可达性自动删除的 GC（它依赖跨项目引用索引，而 ngm 没有，也不该去扫用户的磁盘）；
   代之以 `ngm store usage`（只读占用报告）、`ngm store prune`（清解包残骸）
   与 `ngm store prune --orphans`（**回收无人引用的 blob**，[ADR-023](../adr/adr-023-orphan-reclaim.md)，v0.11 落地）。
+  **层 1 的三件事自 v0.100 起走同一套**（[ADR-030](../adr/adr-030-mirror-reclaim.md)）：
+  `store usage` 报 mirror 的体积 / packfile / 残骸与 `NO REFS`、`store prune` 收
+  `objects/pack/tmp_*`（门槛 1 小时）、`store gc` 跑 `git gc` 整理历史本体。
+  层的分工仍然清楚：**"整理"（把碎片收成包）与"删内容"是两件事**——
+  后者在两层都没有做。
   注意这三者的边界：**"无人引用"由构造可判定**（引用只可能来自 `trees/` 下的清单），
   因此它不需要那个缺失的注册表；而**"某个 digest 还有没有人要"仍然不可判定**，那件事没有做。
   真正能改变增长曲线的是**层 2 的写入侧去重**——布局改为 blob 池 + 树清单，

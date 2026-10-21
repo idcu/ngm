@@ -6,9 +6,9 @@ import (
 	"io"
 	"sort"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // WhyReport 是 `ngm why` 的报告。
@@ -105,6 +105,7 @@ type LockedInfo struct {
 	Commit        string `json:"commit"`
 	ResolvedAt    string `json:"resolvedAt,omitempty"`
 	ArchiveDigest string `json:"archiveDigest,omitempty"`
+	SubPath       string `json:"subPath,omitempty"`
 }
 
 // ResolveTarget 把用户给出的依赖标识解析为节点 Key。
@@ -306,7 +307,11 @@ func (r *WhyReport) Render(w io.Writer) {
 	}
 	if r.Locked != nil {
 		fmt.Fprintf(w, "\n锁定：%s (%s)\n", git.ShortSHA(r.Locked.Commit), r.Locked.ResolvedAt)
-		fmt.Fprintf(w, "archiveDigest: %s\n", r.Locked.ArchiveDigest)
+		label := "archiveDigest"
+		if r.Locked.SubPath != "" {
+			label = "moduleDigest"
+		}
+		fmt.Fprintf(w, "%s: %s\n", label, r.Locked.ArchiveDigest)
 	}
 	// 图从哪来：必须写在报告里（两条路径的代价差一个量级，且不许静默回退）。
 	fmt.Fprintf(w, "\n来源：%s\n", whySourceText(r.Source))
@@ -345,5 +350,10 @@ func LockedFrom(lf *lock.File, name, subPath string) *LockedInfo {
 	if !ok {
 		return nil
 	}
-	return &LockedInfo{Commit: d.Commit, ResolvedAt: d.ResolvedAt, ArchiveDigest: d.ArchiveDigest}
+	return &LockedInfo{
+		Commit:        d.Commit,
+		ResolvedAt:    d.ResolvedAt,
+		ArchiveDigest: d.ContentDigest(),
+		SubPath:       d.SubPath,
+	}
 }

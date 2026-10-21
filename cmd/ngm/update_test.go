@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // isolateUserEnv 把 NGM_HOME / HOME / USERPROFILE 指向临时目录，

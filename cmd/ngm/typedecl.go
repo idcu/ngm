@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/adapter"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 const typedeclUsage = `ngm typedecl — emit .d.ts declarations with an external engine

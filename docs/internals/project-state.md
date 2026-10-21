@@ -1,4 +1,12 @@
-# 项目状态评估（2026-10-04）
+# 项目状态评估（2026-10-04，附 2026-10-21 当前开发线）
+
+> **2026-10-21 当前开发线（未打 tag）**：本页主体仍是 v0.100 的评估。
+> 当前工作树已加入一仓多模块集合、lock v2（`moduleDigest + subtreeOid`）、
+> 模块级 content store/vendor、partial-clone module cache、集合索引/分片/本地 `ngm-index` 分支、
+> 逐模块 `publish` 覆盖全局 `--releases`，并完成 `internal/core` 物理搬迁。
+> 当前状态与验收以 [module-collections-plan](../development/module-collections-plan.md)、
+> [module-collections 架构](../architecture/module-collections.md) 与
+> [core-and-adapters](../architecture/core-and-adapters.md) 为准；本页历史数字未重算。
 
 > 这一页回答六个问题：**项目目标 / 任务进度 / 未完成任务 / 阻塞原因 / 下一步任务 / 实际怎么用**，
 > 外加一节**与主流工具的对比**。
@@ -155,6 +163,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.97** | **两条实现必须对同一批输入给出同一批结论** | 分工（shell 存在性 / Go 大小写）成立的前提是**两边一致**，而 v0.78 的原案正是"两份实现谁也没对过账"。新判据：同一份语料（25+ 形态）比坏链接三元组（文件:行号:原文）排序逐条相等 + 真仓库两侧（两边空 + Go 扫到 > 1000 处防空比）。**抓到三处**：① Go 侧漏 v0.96 的围栏规则 ⇒ 扫描核心抽成 Go 侧唯一实现 `linkrefs_test.go`；② **shell 根相对语义错**（`/x` 应相对仓库根，此前按文件目录拼；先量全仓 0 处 ⇒ 修它不影响现网；修时踩到"剥前导 `/` 必须在 normalize 之前"）；③ `filepath.Rel(绝对, 相对)` 在 Windows 报错被静默吞（v0.96 牙齿抓的）。语料刻意不放括号不配平形态（那是 shell 的回退路径，判定相同、消息不同）。443 冲突改显式登记 skip。**产品代码 0 行**；一条一般的话：**「两边都过」不是「两边一致」** |
 | **v0.98** | **对账用在另一对：入口路径规范化** | v0.97 的「两条实现必须一致」用在**另一对**（产品 `relPath` / 自检器 `rel_path`）。先挑对：`subPath` 校验 v0.82 已统一（不是成对）；`exports` 解析成对但读下来一致；**路径规范化光读代码就有两处分家**——① 反斜杠靠 `filepath.ToSlash`（**Windows 转、Linux 不转**）⇒ 同一份 `main` 在两台机器上得到不同入口；② 多前导斜杠只剥一个（`.//src/x.js`）vs 剥到不剩（`./src/x.js`）⇒ 同一文件、打印不同。两处**都在 Windows 上不可能被发现** ⇒ 修产品侧（产品是契约）+ `TestV98EntryPathsAreNormalised`（11 格，走公开 API 因此能进登记表）+ 对齐网 11 → 22 形态（27 子测试全绿）。**诚实边界**：反斜杠那格本机无法用行为分辨（价值在 Linux CI）；牙齿只对 `//` 两格有效。顺带补 v0.97 对账网漏登记。**一条一般的话**：**「逐字镜像」是一句承诺，而承诺不会自己检查自己** |
 | **v0.99** | **承诺账本** | 六个词（`逐字镜像` 等）扫 Go 非测试源码 + `scripts/*.sh|*.mjs` ⇒ 14 处承诺，逐条登记「被哪条判据对账 / 为什么验不了」。当场读出两处真洞：`wasmEngine.entryArgs` 把 `entry.Args` **前置两遍**（注释说着「必须一致」；现有测试比在两个 builder 的层级上 ⇒ 看不见），处置是**让它只剩一处** + 分层判据（行为层看不见第二次、结构层能）；`mappings.lockFileName` 的「由 CLI 的集成测试保证」**做不到**（常量未导出）⇒ 导出 + 可对账。另补两处无人守的承诺：SBOM 两格式的依赖图形一致 · `slugHosts`/`hostSlugs` 对偶。**一条一般的话**：**承诺自己不会检查自己——但它们可以进账本** |
+| **v0.100** | **层 1 的两笔看不见的账** | v0.7 起层 2 就有「占用可见 + 残骸可回收」，而层 1（mirror）的出路一直写着「用户自己跑 `git gc`」。先量再答那个很自然的问题（只用最新版却要为全历史付磁盘吗）⇒ **「提交多」几乎不是成本来源**：6181 提交 / 3982 ref 的 mirror **18.41 MiB**，最新版源码 **694.33 KiB**（约 26 倍；对「每提交一份快照」的 4.1 GiB 是约 **228 倍**压缩）。真正白占磁盘的两笔：① **非默认分支 ref 所带对象 21610/54155（约 40%）**——它是 tag/branch 声明的解析依据（ADR-004）⇒ **明确不动**；② **被中断的克隆留下的临时包**（实测 **66.82 MiB**、对象库为空、`packed-refs` 不存在，而 `HEAD`/`objects/`/`refs/` 全齐 ⇒ 长得像能用的 mirror），而 `git gc` **只清 14 天以上**的（实测 13 天存活 / 15 天被清 = `gc.pruneExpire` 默认 `2.weeks`）。处置：`store usage` 增报层 1（体积 / **packed history** / 残骸 / **`NO REFS`**）· `store prune` 增收残骸（门槛 **1 小时**）· 新增 `store gc [--dry-run]`（不触网、不删内容、跳过并点名没有 ref 的目录、部分失败退 **4** 且已整理好的照常打印）；ADR-030 **拒绝** `--single-branch` 与部分克隆。顺手修掉「只有层 1 的机器被告知没有可报告的东西」的既有缺陷。**一条一般的话**：**「提交多」不是成本——看不见的那两笔才是** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -275,7 +284,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | # | 任务（暂缓中） | 恢复时怎么做 | 为什么我不能代做 |
 |---|------|---------|----------------|
 | 1 | `v0.5.0` ~ `v0.8.0` 的 GitHub release（4 个，各 7 个资产） | Actions → Release → **Run workflow** → 填 `v0.5.0`（再重复三次到 `v0.8.0`） | `POST /actions/workflows/release.yml/dispatches` **无token 返回 401**；工作流会先跑测试再打包，这条路径不能绕（也不该绕） |
-| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.99.0` 的 **Gitee 发行版（96 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
+| 2 | `v0.1.0` 及 `v0.5.0` ~ `v0.100.0` 的 **Gitee 发行版（97 个）** | `scripts/upload-gitee-assets.ps1 -Tag v0.21.0`（逐版各一次；需 `GITEE_TOKEN`） | 脚本已就绪（幂等 + 双向校验），但**没有 `GITEE_TOKEN`**。`v0.1.0` 此前不在清单里——它一直缺，只是没人查。**清单本身现在有读数**：`scripts/check-gitee-release-status.sh`（只读，不需要 token；Windows 入口 `.ps1` 转调它） |
 
 **每次做完用这一条自查**（它自己会拒绝报成功）：
 
@@ -350,7 +359,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 96 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 97 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```

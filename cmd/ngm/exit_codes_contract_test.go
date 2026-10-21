@@ -211,6 +211,14 @@ var exitCodeElsewhere = []exitCase{
 	{cmd: "verify", code: 5, why: "TestV22DenoIsMissing/verify"},
 	{cmd: "install", code: 5, why: "TestV22DenoIsMissing/install"},
 	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},
+	// v0.100：`store` 的码 4（`store gc` 在一个 mirror 上被 git 拒绝）。
+	//
+	// 它进不了主表，理由与上面那批同源但更具体：主表的触发命令一律"只看本地
+	// mirror / vendor / lock，用假引擎、本地 OSV 替身"，各自的形状由 `setup` 一个
+	// 函数决定；而这一条要先**建出一个真实存在的破损 mirror**（refs 指向不存在的
+	// 对象——部分恢复/损坏的镜像就是这个形状）才能量到本轮真正想量的那件事：
+	// **哪一个失败了、哪一个已经整理完了**（"部分完成"必须能被读出来）。
+	{cmd: "store", code: 4, why: "TestV100StoreGCReportsGitFailureInsteadOfPretending/store gc"},
 }
 
 // TestV56RegisteredPointersResolve 要求上表里的**指针指到真东西**（v0.56）。

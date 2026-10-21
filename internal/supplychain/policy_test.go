@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 func boolPtr(b bool) *bool { return &b }

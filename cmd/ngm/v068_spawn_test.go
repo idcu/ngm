@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
+	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/testutils"
 )
 

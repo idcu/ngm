@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // OSV 查询与缓存。

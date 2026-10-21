@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/lock"
 )
 
 // TestV02VerifyReportOrderIsStable 固定并发改造后唯一的对外不变量：

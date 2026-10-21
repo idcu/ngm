@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // v0.66：承诺修复版的端到端断言。

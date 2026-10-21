@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/idcu/ngm/internal/digest"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // Format 是导出格式。
@@ -82,7 +82,8 @@ type Entry struct {
 	RefType string
 	// Commit 是锁定的完整 commit（不可变锚点）。
 	Commit string
-	// Digest 是 `sha256:<hex>` 形态的 archiveDigest。
+	// Digest 是 `sha256:<hex>` 形态的内容 digest：根条目为 archiveDigest，
+	// 模块条目为 moduleDigest（ADR-032）。
 	Digest string
 	// Canonical 是 `host/path` 形态（purl 与 vcs URL 的基）。
 	Canonical string

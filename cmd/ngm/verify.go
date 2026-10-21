@@ -7,14 +7,14 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
-	"github.com/idcu/ngm/internal/verify"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/verify"
 )
 
-const verifyUsage = `ngm verify — check ref drift and replay archiveDigest
+const verifyUsage = `ngm verify — check ref drift and replay the content digest
 
 USAGE:
   ngm verify [<dep>...] [--dir=<dir>] [--offline] [--deep] [--strict] [--allow-drift] [--json] [--sandbox]
@@ -49,7 +49,7 @@ FLAGS:
 CHECK LEVELS (architecture/observability.md):
   ref      re-resolve refType and compare with the commit pinned in ngm.lock
   digest   rebuild the manifest from the local mirror at that commit and replay
-           archiveDigest (fully local, works offline)
+           archiveDigest (root) or moduleDigest (subPath); fully local, works offline
   landing  content store metadata + vendor tree structure; --deep adds byte hashes
   signature
            Git signature of the pinned commit (or of the tag it came from). Reported
@@ -138,15 +138,16 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	opts := verify.Options{
-		Offline:     *offline,
-		Deep:        *deep,
-		Strict:      *strict,
-		AllowDrift:  *allowDrift,
-		MirrorRoot:  env.Layout.MirrorRoot(),
-		ContentRoot: env.Layout.ContentRoot(),
-		VendorRoot:  env.VendorRoot(pf),
-		GitOpts:     env.GitOpts,
-		Protocol:    env.Protocol,
+		Offline:         *offline,
+		Deep:            *deep,
+		Strict:          *strict,
+		AllowDrift:      *allowDrift,
+		MirrorRoot:      env.Layout.MirrorRoot(),
+		ModuleCacheRoot: env.Layout.ModuleCacheRoot(),
+		ContentRoot:     env.Layout.ContentRoot(),
+		VendorRoot:      env.VendorRoot(pf),
+		GitOpts:         env.GitOpts,
+		Protocol:        env.Protocol,
 		// --offline 的"绝不触网"承诺在这里落地：换成一个只认既有 mirror 的实现。
 		EnsureMirror: env.EnsureMirror,
 	}
@@ -345,31 +346,48 @@ func verifySummaryLine(rep verify.Report, offline bool) string {
 //
 // 用于 `ngm verify <dep>...`：CI 可以只对变更的依赖做门禁。
 // 未在 lock 中出现的名字按配置错误处理（exit 3）——静默忽略会让
-// "我验过了"变成假象。
+// "我验过了"变成假象。只给仓库名且它对应多个子路径时，报歧义而不是全选。
 func filterLock(lf *lock.File, names []string) (*lock.File, error) {
 	out := lock.NewFile()
 	for _, name := range names {
-		want, err := resolve.ParseSlug(name)
+		target, err := resolve.ParseTarget(name)
 		if err != nil {
 			return nil, err
 		}
-		found := false
+
+		var matches []lock.Dependency
 		for i := range lf.Dependencies {
 			d := lf.Dependencies[i]
 			got, perr := resolve.ParseSlug(d.Name)
 			if perr != nil {
 				continue
 			}
-			if got.Equal(want) {
-				out.Dependencies = append(out.Dependencies, d)
-				found = true
+			if !got.Equal(target.Repo) {
+				continue
 			}
+			if target.HasPath && d.SubPath != target.SubPath {
+				continue
+			}
+			matches = append(matches, d)
 		}
-		if !found {
+
+		switch {
+		case len(matches) == 0:
 			return nil, errs.New(
 				errs.CodeConfigInvalid,
 				fmt.Sprintf("dependency %q is not present in ngm.lock", name),
 				"run `ngm install` first, or omit the argument to verify every dependency")
+		case len(matches) > 1 && !target.HasPath:
+			keys := make([]string, 0, len(matches))
+			for _, d := range matches {
+				keys = append(keys, d.Key())
+			}
+			return nil, errs.New(
+				errs.CodeConfigInvalid,
+				fmt.Sprintf("%s is ambiguous: %v", name, keys),
+				fmt.Sprintf("pass the full target, e.g. %q", target.Repo.Slug()+"#path="+matches[0].SubPath))
+		default:
+			out.Dependencies = append(out.Dependencies, matches...)
 		}
 	}
 	return out, nil

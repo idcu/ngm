@@ -20,7 +20,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/mappings"
 )
 

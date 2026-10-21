@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // v0.73：`GraphFromLock` 的判据（[ADR-028](../../docs/adr/adr-028-dependency-graph-in-lock.md)）。

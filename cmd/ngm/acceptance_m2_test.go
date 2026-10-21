@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/digest"
-	"github.com/idcu/ngm/internal/git"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // readVector 读取 testdata/vectors 下的冻结向量（去掉首尾空白）。

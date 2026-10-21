@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // SandboxScriptName 是依赖自证脚本的文件名（放依赖根目录）。

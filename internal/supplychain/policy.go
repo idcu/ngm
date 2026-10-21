@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // Policy 是一份**生效中的**供应链策略。

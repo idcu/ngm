@@ -9,9 +9,9 @@ package sbom
 import (
 	"sort"
 
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // FromLock 把 lock 条目映射为导出条目。
@@ -38,9 +38,10 @@ func FromLock(lf *lock.File) ([]Entry, error) {
 		//
 		// 位置选在 FromLock：它是 SBOM 与 attestation **共用**的唯一映射处，
 		// 规则不写在第二个地方。
-		if !lock.IsArchiveDigest(d.ArchiveDigest) {
+		contentDigest := d.ContentDigest()
+		if !lock.IsArchiveDigest(contentDigest) {
 			return nil, errs.New(errs.CodeConfigInvalid,
-				"dependency "+d.Name+" has no usable `archiveDigest` (got "+d.ArchiveDigest+")",
+				"dependency "+d.Name+" has no usable content digest (got "+contentDigest+")",
 				"an SBOM without hashes is only a list; re-run `ngm install` to regenerate the digest")
 		}
 		out = append(out, Entry{
@@ -48,7 +49,7 @@ func FromLock(lf *lock.File) ([]Entry, error) {
 			Ref:       d.Ref,
 			RefType:   d.RefType,
 			Commit:    d.Commit,
-			Digest:    d.ArchiveDigest,
+			Digest:    contentDigest,
 			Canonical: repo.String(),
 			SubPath:   d.SubPath,
 			// v0.73：直接边随条目一起进导出层（依赖段的唯一来源）。

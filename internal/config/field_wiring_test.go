@@ -67,6 +67,7 @@ var wiredFields = map[string]string{
 	"ProjectFile.Runtime":      "TestRuntimeIsValidatedAcceptedAndEchoed",
 	"ProjectFile.Main":         "TestM6Acceptance", // ngm build 不带参数时用 main 作入口
 	"ProjectFile.Types":        "TestDeclaredTypesEntryReachesTheMappings",
+	"ProjectFile.Publish":      "TestModulesIndexPerModulePublishOverridesGlobal",
 	"ProjectFile.Dependencies": "TestAdd_TagDependency",
 	"ProjectFile.Engines":      "TestM6Acceptance",
 	"ProjectFile.Vendor":       "TestM4Acceptance",

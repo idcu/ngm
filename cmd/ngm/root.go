@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // 命令表：以 "name" 索引到实现。每个命令只负责一件事。
@@ -41,6 +41,7 @@ var commands = []*commandSpec{
 	{Name: "install", Run: runInstall, Usage: installUsage},
 	{Name: "update", Run: runUpdate, Usage: updateUsage},
 	{Name: "remove", Run: runRemove, Usage: removeUsage},
+	{Name: "modules", Run: runModules, Usage: modulesUsage},
 	{Name: "verify", Run: runVerify, Usage: verifyUsage},
 	{Name: "audit", Run: runAudit, Usage: auditUsage},
 	{Name: "why", Run: runWhy, Usage: whyUsage},

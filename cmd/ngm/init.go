@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // initUsage 是 `ngm init --help` 的简短说明。

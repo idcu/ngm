@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/mappings"
-	"github.com/idcu/ngm/internal/resolve"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 const updateUsage = `ngm update — re-resolve dependency refs to commits
@@ -161,39 +161,77 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	now := time.Now()
 	printed := 0
 	items := make([]digestNode, 0, len(g.Nodes))
+	materials := newMaterialCache()
+	proofs, pferr := buildModuleProofs(ctx, env, g.Nodes)
+	if pferr != nil {
+		return runErr(ctx, stdout, stderr, pferr)
+	}
 
 	for _, n := range g.Nodes {
-		// v0.68：同 installFresh——一次算出、交给 Put 复用（每个依赖少 4 个 spawn）。
-		material, derr := git.BuildArchiveMaterial(ctx, env.GitOpts, n.MirrorPath, n.Commit)
-		if derr != nil {
-			return runErr(ctx, stdout, stderr, derr)
-		}
-		dg := material.Digest
+		proof := proofs[n.Key]
+		var archiveDigest string
+		var putRes vendor.PutResult
 
-		putRes, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
-			Repo:     n.Name,
-			Commit:   n.Commit,
-			Digest:   dg,
-			SubPath:  n.SubPath,
-			Material: material,
-		})
-		if perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+		if n.SubPath == "" {
+			// 根 scope：整仓 material + archive store。
+			material, derr := materials.get(ctx, env.GitOpts, n.MirrorPath, n.Commit)
+			if derr != nil {
+				return runErr(ctx, stdout, stderr, derr)
+			}
+			archiveDigest = material.Digest
+			var perr error
+			putRes, perr = env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
+				Repo:     n.Name,
+				Commit:   n.Commit,
+				Digest:   archiveDigest,
+				Material: material,
+			})
+			if perr != nil {
+				return runErr(ctx, stdout, stderr, perr)
+			}
+		} else {
+			// 模块 scope：只写模块 content store。
+			if proof.Material == nil {
+				return runErr(ctx, stdout, stderr, errs.New(
+					errs.CodeConfigInvalid,
+					n.Key+": module proof material is missing",
+					"this is an internal inconsistency; re-run `ngm update`"))
+			}
+			var perr error
+			putRes, perr = env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
+				Repo:            n.Name,
+				Commit:          n.Commit,
+				Digest:          proof.Digest,
+				SubPath:         n.SubPath,
+				ManifestVersion: digest.ModuleManifestVersion,
+				Material:        proof.Material,
+			})
+			if perr != nil {
+				return runErr(ctx, stdout, stderr, perr)
+			}
 		}
-		items = append(items, digestNodeFromResolved(n, dg))
 
+		items = append(items, digestNodeFromResolved(n, archiveDigest, proof.Digest))
 		lf.Dependencies = append(lf.Dependencies, lock.Dependency{
 			Name:          n.Name,
 			Ref:           n.Ref,
 			RefType:       string(n.RefType),
 			Commit:        n.Commit,
-			ArchiveDigest: dg,
+			ArchiveDigest: archiveDigest,
+			ModuleDigest:  proof.Digest,
+			SubtreeOid:    proof.SubtreeOid,
+			Version:       proof.Version,
 			ResolvedAt:    lock.FormatResolvedAt(now),
 			VendorPath:    n.Repo.MirrorRelPath(),
 			SubPath:       n.SubPath,
 			// v0.73（ADR-028）：同 installFresh——直接边写进 lock（序列化时归一）。
 			RequiredBy: n.RequiredBy,
 		})
+		contentDigest := archiveDigest
+		if n.SubPath != "" {
+			contentDigest = proof.Digest
+		}
+
 		// 报告覆盖**整张图**（与 lock 同一范围），而不只是被选中的条目——
 		// 与人类输出刻意不同：人读聚焦"你让我更新的那几个"，机器读要完整状态。
 		source := "resolved"
@@ -203,8 +241,9 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		}
 		rep.Dependencies = append(rep.Dependencies, writeReportDep{
 			Name: n.Name, Ref: n.Ref, RefType: string(n.RefType), SubPath: n.SubPath,
-			Commit: n.Commit, ArchiveDigest: dg, VendorPath: n.Repo.MirrorRelPath(),
-			Source: source,
+			Commit: n.Commit, ArchiveDigest: archiveDigest,
+			ModuleDigest: proof.Digest, SubtreeOid: proof.SubtreeOid, Version: proof.Version,
+			VendorPath: n.Repo.MirrorRelPath(), Source: source,
 		})
 
 		// 输出只聚焦选中项（--all 时即全部）
@@ -212,7 +251,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			continue
 		}
 		printed++
-		printResolved(humanOut, n, dg, *digestFlag || *storeFlag)
+		printResolved(humanOut, n, contentDigest, *digestFlag || *storeFlag)
 		if *storeFlag {
 			status := "stored"
 			if putRes.AlreadyPresent {
@@ -267,8 +306,9 @@ func offlineEnsureMirror(env *projectEnv) func(context.Context, resolve.Canonica
 
 // selectTargets 依据参数选定要更新的依赖。
 //
-// 匹配逻辑：显式 <dep> 参数按归一化后的仓库地址比较（name 大小写与 host 折叠不敏感），
-// 因此 `github.com:org/repo` 与 `github:org/repo` 都能命中同一条声明。
+// 匹配逻辑：显式 <dep> 参数先按 `slug` / `slug#path=<sub>` 解析，再按归一化后的
+// 仓库地址比较（name 大小写与 host 折叠不敏感）。只给仓库名且它对应多个子路径时，
+// **不静默全选**：列出候选并报歧义，让调用方给出完整目标。
 func selectTargets(pf *config.ProjectFile, names []string, all bool) ([]config.Dependency, error) {
 	if all {
 		out := make([]config.Dependency, len(pf.Dependencies))
@@ -278,27 +318,43 @@ func selectTargets(pf *config.ProjectFile, names []string, all bool) ([]config.D
 
 	var out []config.Dependency
 	for _, name := range names {
-		want, err := resolve.ParseSlug(name)
+		target, err := resolve.ParseTarget(name)
 		if err != nil {
 			return nil, err
 		}
-		found := false
+
+		var matches []config.Dependency
 		for _, dep := range pf.Dependencies {
 			got, perr := resolve.ParseSlug(dep.Name)
 			if perr != nil {
 				continue
 			}
-			if got.Equal(want) {
-				out = append(out, dep)
-				found = true
-				break
+			if !got.Equal(target.Repo) {
+				continue
 			}
+			if target.HasPath && dep.Path != target.SubPath {
+				continue
+			}
+			matches = append(matches, dep)
 		}
-		if !found {
+
+		switch {
+		case len(matches) == 0:
 			return nil, errs.New(
 				errs.CodeConfigInvalid,
 				fmt.Sprintf("dependency %q is not declared in ngm.json", name),
 				"run `ngm add` first, or use `ngm update --all`")
+		case len(matches) > 1 && !target.HasPath:
+			keys := make([]string, 0, len(matches))
+			for _, dep := range matches {
+				keys = append(keys, resolve.DepSpec{Name: dep.Name, SubPath: dep.Path}.Key())
+			}
+			return nil, errs.New(
+				errs.CodeConfigInvalid,
+				fmt.Sprintf("%s is ambiguous: %v", name, keys),
+				fmt.Sprintf("pass the full target, e.g. %q", target.Repo.Slug()+"#path="+matches[0].Path))
+		default:
+			out = append(out, matches...)
 		}
 	}
 	return out, nil

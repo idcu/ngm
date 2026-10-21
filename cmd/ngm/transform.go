@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/adapter"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 const transformUsage = `ngm transform — transform a single file (or stdin) with an external engine

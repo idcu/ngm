@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/git"
-	"github.com/idcu/ngm/internal/lock"
-	"github.com/idcu/ngm/internal/resolve"
+	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // resolvedAtLine 匹配 lock 中唯一非确定性字段（可复现性判定用）。
@@ -499,7 +499,7 @@ func TestM3LockGoldenShape(t *testing.T) {
 	raw := readLockFile(t, proj)
 	for _, field := range []string{
 		`"version": 1`,
-		`"lockfileVersion": "1.0.0"`,
+		`"lockfileVersion": "2.0.0"`,
 		`"dependencies"`,
 		`"name"`, `"ref"`, `"refType"`, `"commit"`,
 		`"archiveDigest"`, `"resolvedAt"`, `"vendorPath"`,

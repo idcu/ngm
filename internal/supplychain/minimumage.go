@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // CheckMinimumAge 校验一个依赖是否达到"晾晒期"（minimumReleaseAge）。

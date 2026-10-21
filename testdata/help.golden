@@ -9,6 +9,7 @@ COMMANDS:
   install        解析并安装依赖
   update         更新依赖 ref
   remove         移除依赖
+  modules        模块集合的发现与校验
   verify         检查 ref 漂移与 digest 重放
   audit          供应链审计（OSV.dev，v0.2）
   why            为什么装了这个依赖
@@ -22,7 +23,7 @@ COMMANDS:
   mappings       mappings 管理
   integrations   构建工具集成脚手架（v0.3）
   cache          缓存维护
-  store          内容寻址 store 的占用报告与回收（残骸 + 无人引用的 blob，见 ADR-018/023）
+  store          ngm 两层的磁盘占用报告与回收（mirror + content store，见 ADR-018/023/030）
   config         配置管理
   engines        引擎管理
   sbom           导出 SBOM（CycloneDX / SPDX，v0.69）

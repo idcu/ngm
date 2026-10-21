@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/digest"
+	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/testutils"
-	"github.com/idcu/ngm/internal/vendor"
 )
 
 // snapshotTree 把一个目录走一遍，返回 relpath -> sha256(内容)。
@@ -161,6 +161,10 @@ func TestV14DryRunAndReadOnlyCommandsWriteNothing(t *testing.T) {
 		{name: "css --dry-run", args: []string{"css", "src/index.css", "--engine=postcss", "--dry-run"}, mustSee: "would compile"},
 		{name: "integrations add vite --dry-run", args: []string{"integrations", "add", "vite", "--dry-run"}},
 		{name: "store prune --dry-run", args: []string{"store", "prune", "--dry-run"}, mustSee: "would remove", noDir: true},
+		// v0.100：层 1 的整理也走同一条 `--dry-run` 纪律。它的措辞是 "would collect"
+		// （不是为了凑一个字符串：这批用例的第一条陪衬就是"命令必须走到那条分支"，
+		// 而这里那条分支恰好是"看过哪些 mirror、一个 git 都没跑"）。
+		{name: "store gc --dry-run", args: []string{"store", "gc", "--dry-run"}, mustSee: "would collect", noDir: true},
 		{name: "store usage (read-only)", args: []string{"store", "usage"}, noDir: true},
 		{name: "config show (read-only)", args: []string{"config", "show"}},
 		{name: "engines list (read-only)", args: []string{"engines", "list"}},

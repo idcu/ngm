@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/adapter"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 const buildUsage = `ngm build — bundle a project with an external engine

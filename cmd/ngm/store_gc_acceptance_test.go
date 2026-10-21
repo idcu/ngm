@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/idcu/ngm/internal/vendor"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 // TestV11StorePruneOrphansAcceptance 端到端验证 `ngm store prune --orphans`。

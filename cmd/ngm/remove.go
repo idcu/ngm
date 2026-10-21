@@ -6,7 +6,8 @@ import (
 	"io"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 const removeUsage = `ngm remove — remove a dependency from ngm.json
@@ -49,6 +50,10 @@ func runRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return 3
 	}
 	name := fs.Arg(0)
+	target, err := resolve.ParseTarget(name)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
 
 	env, err := newProjectEnv(*dirFlag)
 	if err != nil {
@@ -59,7 +64,7 @@ func runRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return runErr(ctx, stdout, stderr, err)
 	}
 
-	removed, err := pf.RemoveDependency(name)
+	removed, err := pf.RemoveDependencyAt(target.Repo.Slug(), target.SubPath, target.HasPath)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}

@@ -29,13 +29,14 @@ import (
 // `cmd/ngm/` 里，不在 internal。第一版把它们指到 internal 的同名包，
 // 网于是对着"没有这些字段的地方"找字段——**映射写错时，网会报一大堆假缺陷**。
 var jsonShapeSourceFiles = map[string][]string{
-	"verify":       {"../../internal/verify/*.go"},
+	"verify":       {"../../internal/core/verify/*.go"},
 	"audit":        {"../../internal/supplychain/*.go"},
 	"tree":         {"../../internal/observability/*.go"},
 	"why":          {"../../internal/observability/*.go"},
 	"outdated":     {"../../internal/observability/*.go"},
 	"integrations": {"./integrations*.go"},
 	"engines":      {"./engines*.go"},
+	"modules":      {"./modules.go"},
 	// v0.66：两个写命令的报告结构体都在 install.go（update 共用同一形状）。
 	"install": {"./install.go"},
 	"update":  {"./install.go"},

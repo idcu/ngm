@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 func mustPolicy(t *testing.T, allow, deny []string) *Policy {

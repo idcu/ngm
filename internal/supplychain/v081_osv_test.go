@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // v0.81：commit 参与缓存**路径拼接**，形态必须在入口处校验。

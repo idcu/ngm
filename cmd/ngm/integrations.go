@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/idcu/ngm/internal/errs"
+	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/integrations"
 	"github.com/idcu/ngm/internal/mappings"
 )
