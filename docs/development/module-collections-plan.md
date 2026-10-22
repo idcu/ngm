@@ -65,7 +65,7 @@
 | release 索引分片（本地 + 分支） | `cmd/ngm/modules.go`、`internal/core/git/exec.go` | `TestModulesIndexWritesReleaseShards`、`TestRunWithStdin` |
 | 逐模块 publish 覆盖全局 | `internal/config/config.go`、`cmd/ngm/modules.go` | `TestModulesIndexPerModulePublishOverridesGlobal`；ADR-037 |
 | 核心目录物理抽离 | `internal/core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify,modproof}` | 全仓 import 更新；`TestCoreBoundaryForbidsLanguageSpecificImports` |
-| 外部 `modproof` 孵化仓库 | `gitee.com/idcu/modproof` | facade + 测试 + 向量已推送；覆盖率约 56.9%，未达 84%；idcu-go `planned` 登记；单消费者例外 |
+| 外部 `modproof` 孵化仓库 | `gitee.com/idcu-go/modproof` | facade + 测试 + 向量已推送；覆盖率约 56.9%，未达 84%；idcu-go `planned` 登记；单消费者例外 |
 
 **关键口径**：
 
@@ -139,7 +139,7 @@ v0.103 已完成：refType 窄默认、`modules list/validate/index`、release �
 v0.104 进行中：`--infer-ref-type`、快速验证指南、`git.LSRemote` 参数顺序修复、
 partial clone 模块缓存（install-from-lock + verify --offline）、`store usage` 层 1.5 报告、
 本地 release 索引分片、分片 branch 批量 tree 写入、逐模块 publish 覆盖全局已完成；
-核心目录物理抽离已完成；`gitee.com/idcu/modproof` 孵化仓库已建、已推送初始快照，
+核心目录物理抽离已完成；`gitee.com/idcu-go/modproof` 孵化仓库已建、已推送初始快照，
 idcu-go 登记为 `planned`（单消费者例外）。ngm 尚未切换到外部依赖。
 见 [ADR-032](../adr/adr-032-scoped-content-proof.md)、
 [ADR-034](../adr/adr-034-module-cache.md)、

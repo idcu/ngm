@@ -108,7 +108,7 @@ cmd/ngm-core        （未来）
 物理搬迁已完成：`atomicfile` / `digest` / `errs` / `git` / `lock` / `resolve` / `vendor` / `verify`
 全部在 `internal/core/`；`internal/core/modproof` 是中性 facade。
 
-**孵化外部模块**：`gitee.com/idcu/modproof` 已建立，包含 facade 与 `git`/`digest`/`errs` 的初始快照；
+**孵化外部模块**：`gitee.com/idcu-go/modproof` 已建立，包含 facade 与 `git`/`digest`/`errs` 的初始快照；
 idcu-go `modules.yaml` 登记为 `planned`（单消费者例外），尚未满足双消费者/覆盖率/`module.yaml`/tag 门禁。
 ngm 仍使用自己的 `internal/core/modproof`，尚未切换外部依赖。
 
