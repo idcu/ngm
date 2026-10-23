@@ -82,11 +82,12 @@ cmd/ngm-core        （未来）
 - 仓库：`gitee.com/idcu-go/modproof`；
 - 模块路径：`gitee.com/idcu-go/modproof`（已对齐 idcu-go 组织规范）；
 - idcu-go 登记：`meta/modules/modules.yaml` 中 `state: planned`，标注单消费者例外；
-- 当前内容：从 ngm `internal/core/{modproof,git,digest,errs}` 复制的 facade + 测试 + 冻结向量；
+- 当前内容：facade + `git`/`digest`/`errs` 实现 + 测试 + 冻结向量；
 - 测试已平移并通过；模块总覆盖率约 **84.2%**，已达到 84% 门禁；
-- `module.yaml` / `docs/api.md` / `docs/api.sig` / Makefile / CI 已补齐，`v0.1.1` 已打 tag；
-- 唯一未满足的是**双消费者门禁**；idcu-go 仍登记 `planned`；
-- ngm 仍使用自己的 `internal/core/modproof`，**尚未切换到外部依赖**。
+- `module.yaml` / `docs/api.md` / `docs/api.sig` / Makefile / CI 已补齐，`v0.2.0` 已打 tag；
+- **ngm 已切换为外部依赖** `gitee.com/idcu-go/modproof v0.2.0`，并删除自己的 `internal/core/modproof`；
+- `Repo.Options` 让外部 proof 继承 ngm 的 `run:git` 权限、secrets 脱敏与额外环境；
+- 唯一未满足的是**双消费者门禁**；idcu-go 仍登记 `planned`。
 
 这是“特事特办”的显式记录：可以继续用、可以继续推进，但在第二消费者出现前不宣称通用、不作为常态。
 

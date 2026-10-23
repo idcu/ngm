@@ -257,7 +257,8 @@ go build -o ngm ./cmd/ngm
 - **模块级存储/落地** — content store 与 vendor 都按模块 scope 工作
 - **集合索引** — `ngm modules list` / `validate` / `index`；索引可内联 releases，也可 `--shards` 写 `releases/<module>.json`；本地 `ngm-index` 分支承载根索引与分片树
 - **部分克隆缓存** — `install-from-lock` 与 `verify --offline` 优先复用 `~/.ngm/module-cache` 的 `blob:none` partial clone；filter 不支持时明确回退完整 mirror
-- **核心抽离** — `atomicfile` / `digest` / `errs` / `git` / `lock` / `resolve` / `vendor` / `verify` 已在 `internal/core/`，为未来 `ngm-core` 独立 module 做准备
+- **核心抽离** — `atomicfile` / `digest` / `errs` / `git` / `lock` / `resolve` / `vendor` / `verify` 已在 `internal/core/`
+- **外部证明模块** — `gitee.com/idcu-go/modproof v0.2.0` 承载模块 proof；ngm 的 `verify` 已切换，内部 facade 已删除
 
 详见 [模块集合架构](./docs/architecture/module-collections.md)、
 [语言无关核心与适配器](./docs/architecture/core-and-adapters.md)、

@@ -1,2 +1,4 @@
+gitee.com/idcu-go/modproof v0.2.0 h1:bJegu3GeFBgMqAn7qodly6UDhsl8K5m8vNQ9OyUXi0o=
+gitee.com/idcu-go/modproof v0.2.0/go.mod h1:TTx8RzKhl9EQyaKWN92Q5ligtt2PXJVp61j0i+J1GLI=
 github.com/tetratelabs/wazero v1.9.0 h1:IcZ56OuxrtaEz8UYNRHBrUa9bYeX9oVY93KspZZBf/I=
 github.com/tetratelabs/wazero v1.9.0/go.mod h1:TSbcXCfFP0L2FGkRPxHphadXPjo1T6W+CseNNY7EkjM=

@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"gitee.com/idcu-go/modproof"
 
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
@@ -570,30 +573,36 @@ func checkDigest(ctx context.Context, mirrorPath string, d *lock.Dependency, opt
 // 它只读取目标子树的 tree/blob，不依赖兄弟模块内容。返回 error 仅表示
 // “无法完成检查”（操作性失败）；内容不符写成 DriftCritical。
 func checkModuleProof(ctx context.Context, mirrorPath string, d *lock.Dependency, opts Options) (CheckResult, error) {
-	oid, err := git.TreeOIDAtPath(ctx, opts.GitOpts, mirrorPath, d.Commit, d.SubPath)
+	proof, err := modproof.Prove(ctx, modproof.Repo{
+		Path: mirrorPath,
+		Options: &modproof.Options{
+			ExtraEnv:    opts.GitOpts.ExtraEnv,
+			AllowPrompt: opts.GitOpts.AllowPrompt,
+			Secrets:     opts.GitOpts.Secrets,
+			Policy:      opts.GitOpts.Policy,
+		},
+	}, d.Commit, d.SubPath)
 	if err != nil {
 		return CheckResult{Check: CheckBinding, Status: StatusFail, Operational: true,
-			Detail: "cannot resolve the module subtree: " + err.Error()}, err
+			Detail: "cannot compute the module proof: " + err.Error()}, err
 	}
-	if oid != d.SubtreeOid {
+	if proof.SubtreeOID != d.SubtreeOid {
 		return CheckResult{Check: CheckBinding, Status: StatusFail, Drift: DriftCritical,
 			Detail: fmt.Sprintf("subtree binding mismatch: %s:%s is %s but ngm.lock says %s",
-				git.ShortSHA(d.Commit), d.SubPath, oid, d.SubtreeOid)}, nil
+				git.ShortSHA(d.Commit), d.SubPath, proof.SubtreeOID, d.SubtreeOid)}, nil
 	}
-
-	m, err := git.BuildModuleMaterial(ctx, opts.GitOpts, mirrorPath, d.Commit, d.SubPath)
-	if err != nil {
-		return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true,
-			Detail: "cannot replay the module digest: " + err.Error()}, err
-	}
-	if m.Digest != d.ModuleDigest {
+	if proof.ModuleDigest != d.ModuleDigest {
 		return CheckResult{Check: CheckDigest, Status: StatusFail, Drift: DriftCritical,
 			Detail: fmt.Sprintf("module digest mismatch: the local subtree replays to %s but ngm.lock says %s",
-				m.Digest, d.ModuleDigest)}, nil
+				proof.ModuleDigest, d.ModuleDigest)}, nil
 	}
 
 	if d.Version != "" {
-		got := moduleVersionFromMaterial(m)
+		got, verr := moduleVersionAt(ctx, mirrorPath, d, opts)
+		if verr != nil {
+			return CheckResult{Check: CheckDigest, Status: StatusFail, Operational: true,
+				Detail: "cannot read the module version: " + verr.Error()}, verr
+		}
 		if got != d.Version {
 			return CheckResult{Check: CheckDigest, Status: StatusFail, Drift: DriftCritical,
 				Detail: fmt.Sprintf("module version mismatch: %s/ngm.json says %q but ngm.lock says %q",
@@ -606,21 +615,22 @@ func checkModuleProof(ctx context.Context, mirrorPath string, d *lock.Dependency
 			git.ShortSHA(d.Commit)+":"+d.SubPath, d.ModuleDigest)}, nil
 }
 
-// moduleVersionFromMaterial 读模块清单的 version；读不到返回空串。
-func moduleVersionFromMaterial(m *git.ArchiveMaterial) string {
-	for i, e := range m.Entries {
-		if e.Path != "ngm.json" || i >= len(m.Contents) {
-			continue
-		}
-		var f struct {
-			Version string `json:"version"`
-		}
-		if json.Unmarshal(m.Contents[i], &f) != nil {
-			return ""
-		}
-		return f.Version
+// moduleVersionAt 读模块清单的 version；清单缺失返回空串。
+func moduleVersionAt(ctx context.Context, mirrorPath string, d *lock.Dependency, opts Options) (string, error) {
+	content, exists, err := git.ReadFileAtCommit(ctx, opts.GitOpts, mirrorPath, d.Commit, path.Join(d.SubPath, "ngm.json"))
+	if err != nil {
+		return "", err
 	}
-	return ""
+	if !exists {
+		return "", nil
+	}
+	var f struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(content, &f); err != nil {
+		return "", nil
+	}
+	return f.Version, nil
 }
 
 // checkLanding 是检查三：落地完整性。

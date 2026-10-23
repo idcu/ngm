@@ -113,10 +113,7 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 	"internal/core/verify/report.go :: Rank": {{
 		role: roleHelper, tokenCode: 1, why: "漂移分类的**排序权重**，返回值不进退出码",
 	}},
-	"internal/core/modproof/modproof.go :: classify": {{
-		role: roleHelper, tokenCode: 6,
-		why: "把 ngm 错误映射为 modproof 的中性 Kind，不返回退出码；内部失败路径保留码 6 的分类",
-	}},
+
 	"cmd/ngm/verify_signatures.go :: signatureRank": {{
 		role: roleHelper, tokenCode: 1, why: "签名状态的**排序权重**，同上",
 	}},

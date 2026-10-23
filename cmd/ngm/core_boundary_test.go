@@ -76,13 +76,13 @@ func TestCoreBoundaryForbidsLanguageSpecificImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scan internal/: %v", err)
 	}
-	for _, pkg := range []string{"core/atomicfile", "core/digest", "core/errs", "core/git", "core/lock", "core/modproof", "core/resolve", "core/vendor", "core/verify"} {
+	for _, pkg := range []string{"core/atomicfile", "core/digest", "core/errs", "core/git", "core/lock", "core/resolve", "core/vendor", "core/verify"} {
 		if !scanned[pkg] {
 			t.Fatalf("%s was not scanned — the physical extraction regressed", pkg)
 		}
 	}
-	if len(scanned) != 9 {
-		t.Fatalf("core packages scanned = %d, want 9 — the boundary scope changed: %v",
+	if len(scanned) != 8 {
+		t.Fatalf("core packages scanned = %d, want 8 — the boundary scope changed: %v",
 			len(scanned), scanned)
 	}
 	if filesChecked < 20 {
