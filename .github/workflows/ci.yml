@@ -12,6 +12,9 @@ env:
   # （内核报 "missing LC_UID Load Command" 并以 abort trap 杀掉进程，
   # 测试二进制启动即崩、0.002s FAIL）。升到当前稳定版。
   GO_VERSION: '1.27'
+  # ngm 直接依赖 gitee.com/idcu-go/modproof；GOPRIVATE 阻止 proxy/sumdb 把它当公共模块。
+  GOPRIVATE: gitee.com/idcu-go/*
+  GONOSUMDB: gitee.com/idcu-go/*
 
 jobs:
   build-test:
@@ -34,6 +37,22 @@ jobs:
         run: |
           go version
           git --version
+
+      # gitee.com/idcu-go/modproof 是私有 Gitee 模块。仓库为公开时无需 token；
+      # 私有仓库必须在仓库 Secrets 中配置 GITEE_TOKEN。
+      - name: Configure Gitee module access
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -n "${GITEE_TOKEN}" ]; then
+            git config --global url."https://oauth2:${GITEE_TOKEN}@gitee.com/".insteadOf "https://gitee.com/"
+          else
+            echo "GITEE_TOKEN is not set; assuming the Gitee module is public"
+          fi
+
+      - name: go mod download
+        run: go mod download
 
       - name: go build ./...
         run: go build ./...

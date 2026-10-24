@@ -31,6 +31,8 @@ env:
   # 与 ci.yml 保持一致：旧工具链构建的 macOS 二进制在新内核上无法加载，
   # 发布产物必须用能通过三平台验收的同一版本构建。
   GO_VERSION: '1.27'
+  GOPRIVATE: gitee.com/idcu-go/*
+  GONOSUMDB: gitee.com/idcu-go/*
 
 jobs:
   release:
@@ -72,6 +74,20 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Configure Gitee module access
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -n "${GITEE_TOKEN}" ]; then
+            git config --global url."https://oauth2:${GITEE_TOKEN}@gitee.com/".insteadOf "https://gitee.com/"
+          else
+            echo "GITEE_TOKEN is not set; assuming the Gitee module is public"
+          fi
+
+      - name: go mod download
+        run: go mod download
 
       # 发布前先跑测试：产物一旦推出去就是可下载的二进制，绕过验收直接发布
       # 等于把 v0.1 的退出标准交给运气。

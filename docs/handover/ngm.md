@@ -13,6 +13,10 @@
 > 本地 `ngm-index` 分支、逐模块 `publish` 覆盖，以及 `internal/core` 物理搬迁。
 > 开工前先看 [module-collections-plan](../development/module-collections-plan.md) 与
 > [core-and-adapters](../architecture/core-and-adapters.md)；下面 N1–N4 仍是未完成项。
+>
+> **CI 依赖私有 Gitee 模块**：`go.mod` 现在直接依赖 `gitee.com/idcu-go/modproof v0.2.0`。
+> 工作流已设置 `GOPRIVATE`/`GONOSUMDB`，并会在 `GITEE_TOKEN` secret 存在时配置 git
+> insteadOf；私有仓库必须在 Secrets 中提供 `GITEE_TOKEN`，公开仓库可省略。
 
 ## 0. 完成定义（做到这三条就算完）
 
