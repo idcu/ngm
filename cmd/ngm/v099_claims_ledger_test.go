@@ -84,11 +84,20 @@ type claimEntry struct {
 // claimsLedger：v0.99 清点出的每一处"两边必须一致"。
 var claimsLedger = []claimEntry{
 	{
+		file: "internal/core/git/mirrorurl_local.go", phrase: "两份实现会在",
+		net: "TestGitConfigIsParsedInExactlyOnePlace",
+	},
+	{
+		file: "internal/core/git/mirrorurl_local.go", phrase: "两份实现，谁也没对过账",
+		net: "TestGitConfigIsParsedInExactlyOnePlace",
+	},
+
+	{
 		file: "internal/adapter/subprocess.go", phrase: "两者必须一致",
 		net: "TestV99EntryArgsArePrependedExactlyOnce",
 	},
 	{
-		file: "internal/resolve/normalize.go", phrase: "且必须保持同步",
+		file: "internal/core/resolve/normalize.go", phrase: "且必须保持同步",
 		net: "TestV99HostMapsAreInverse",
 	},
 	{
@@ -101,11 +110,11 @@ var claimsLedger = []claimEntry{
 	},
 	{
 		// v0.82 已把两份实现合并为一份（两个调用点都转调 resolve.ValidateSubPath）。
-		file: "internal/resolve/addspec.go", phrase: "两份实现不一致的问题由此消失",
+		file: "internal/core/resolve/addspec.go", phrase: "两份实现不一致的问题由此消失",
 		why: "v0.82 已合并为单实现（addspec 与 config 都转调 resolve.ValidateSubPath）——没有第二方，无可对账",
 	},
 	{
-		file: "internal/resolve/subpath.go", phrase: "这条规则此前有**两份实现**",
+		file: "internal/core/resolve/subpath.go", phrase: "这条规则此前有**两份实现**",
 		why: "同上：这两行注释记录的正是那次合并（规则现在只有一处定义）",
 	},
 	{

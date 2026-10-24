@@ -23,7 +23,7 @@ import (
 func IsAncestor(ctx context.Context, opts Options, repoPath, ancestor, descendant string) (bool, error) {
 	if ancestor == "" || descendant == "" {
 		return false, errs.New(errs.CodeConfigInvalid,
-			"IsAncestor: empty commit", "")
+			"IsAncestor: empty commit", "pass the old and new commit hashes from the lock/ref check")
 	}
 	opts.Dir = repoPath
 

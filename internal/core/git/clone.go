@@ -32,7 +32,7 @@ func CloneMirror(ctx context.Context, opts Options, remoteURL, localPath string)
 		return errs.New(errs.CodeGitFetch, "clone: empty remote URL", "check the dependency declaration")
 	}
 	if localPath == "" {
-		return errs.New(errs.CodeGitFetch, "clone: empty local path", "")
+		return errs.New(errs.CodeGitFetch, "clone: empty local path", "pass the mirror path explicitly")
 	}
 	if exists(localPath) {
 		return errs.New(errs.CodeGitFetch,
