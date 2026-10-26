@@ -22,6 +22,8 @@ type OutdatedEntry struct {
 	Ref     string `json:"ref"`
 	RefType string `json:"refType"`
 	Commit  string `json:"commit"`
+	// SubPath 是模块子路径（可空）；没有它，同仓多模块的 outdated 结果无法区分。
+	SubPath string `json:"subPath,omitempty"`
 
 	// Latest 是发现的最新版本；为空表示无法获知。
 	Latest string `json:"latest,omitempty"`
@@ -76,6 +78,7 @@ func CheckOutdated(ctx context.Context, lf *lock.File, opts OutdatedOptions) (*O
 			Ref:     d.Ref,
 			RefType: d.RefType,
 			Commit:  d.Commit,
+			SubPath: d.SubPath,
 			Behind:  -1,
 		}
 		switch d.RefType {
@@ -92,7 +95,7 @@ func CheckOutdated(ctx context.Context, lf *lock.File, opts OutdatedOptions) (*O
 			if d.RefType == "branch" {
 				checkBranch(ctx, opts, mirrorPath, &e)
 			} else {
-				if err := checkTag(ctx, opts, mirrorPath, &e); err != nil {
+				if err := checkTag(ctx, opts, mirrorPath, &e, d.SubPath); err != nil {
 					return nil, err
 				}
 			}
@@ -108,34 +111,73 @@ func CheckOutdated(ctx context.Context, lf *lock.File, opts OutdatedOptions) (*O
 	return rep, nil
 }
 
-func checkTag(ctx context.Context, opts OutdatedOptions, mirrorPath string, e *OutdatedEntry) error {
+type versionedTag struct {
+	Full    string
+	Version string
+}
+
+func checkTag(ctx context.Context, opts OutdatedOptions, mirrorPath string, e *OutdatedEntry, subPath string) error {
 	// 按创建时间倒序列出 tag：semver 不可用时用它做兜底排序
 	res, err := git.Run(ctx, opts.GitOpts, "-C", mirrorPath,
 		"for-each-ref", "--sort=-creatordate", "--format=%(refname:short)", "refs/tags")
 	if err != nil {
 		return err
 	}
-	tags := []string{}
+	all := []string{}
 	for _, line := range strings.Split(string(res.Stdout), "\n") {
 		if t := strings.TrimSpace(line); t != "" {
-			tags = append(tags, t)
+			all = append(all, t)
 		}
+	}
+
+	prefix := ""
+	if sub := strings.Trim(strings.TrimSpace(subPath), "/"); sub != "" {
+		prefix = sub + "/"
+	}
+	tags := make([]versionedTag, 0, len(all))
+	for _, full := range all {
+		if prefix == "" {
+			tags = append(tags, versionedTag{Full: full, Version: full})
+			continue
+		}
+		if !strings.HasPrefix(full, prefix) {
+			continue
+		}
+		tags = append(tags, versionedTag{Full: full, Version: strings.TrimPrefix(full, prefix)})
 	}
 	if len(tags) == 0 {
 		e.Stale = true
-		e.Note = "no tags in the local mirror"
+		if prefix != "" {
+			e.Note = "no tags for module " + strings.TrimPrefix(prefix, "/") + " in the local mirror"
+		} else {
+			e.Note = "no tags in the local mirror"
+		}
 		return nil
 	}
 
-	if best, ok := newestSemver(tags); ok {
-		e.Latest = best
+	current := e.Ref
+	if prefix != "" && strings.HasPrefix(current, prefix) {
+		current = strings.TrimPrefix(current, prefix)
+	}
+
+	if best, ok := newestSemverTag(tags); ok {
+		e.Latest = best.Full
 		e.LatestRule = "semver"
+		e.Update = best.Version != current && isNewer(current, best.Version)
+		if e.Update {
+			e.Note = "newer module tag available: " + best.Full
+		}
+		return nil
+	}
+
+	e.Latest = tags[0].Full
+	e.LatestRule = "tag-date"
+	e.Update = tags[0].Version != current && isNewer(current, tags[0].Version)
+	if prefix != "" {
+		e.Note = "no semver tags for module; newest by tag creation date"
 	} else {
-		e.Latest = tags[0]
-		e.LatestRule = "tag-date"
 		e.Note = "no semver tags; newest by tag creation date"
 	}
-	e.Update = e.Latest != e.Ref && isNewer(e.Ref, e.Latest)
 	return nil
 }
 
@@ -171,6 +213,24 @@ func checkBranch(ctx context.Context, opts OutdatedOptions, mirrorPath string, e
 	} else {
 		e.Behind = 0
 	}
+}
+
+// newestSemverTag 在能解析为 semver 的 tag 中取最大者，保留完整 tag 与版本两段。
+func newestSemverTag(tags []versionedTag) (versionedTag, bool) {
+	var best versionedTag
+	var bk [3]int
+	found := false
+	for _, t := range tags {
+		m := reSemver.FindStringSubmatch(t.Version)
+		if m == nil {
+			continue
+		}
+		n := [3]int{atoi(m[1]), atoi(m[2]), atoi(m[3])}
+		if !found || gt(n, bk) {
+			best, bk, found = t, n, true
+		}
+	}
+	return best, found
 }
 
 // newestSemver 在能解析为 semver 的 tag 中取最大者。
@@ -247,7 +307,11 @@ func (r *OutdatedReport) Render(w io.Writer) {
 		case e.Update:
 			drift = "yes"
 		}
-		fmt.Fprintf(w, "%-24s %-12s %-12s %-8s %s\n", e.Name, e.Ref, latest, e.RefType, drift)
+		display := e.Name
+		if e.SubPath != "" {
+			display += "#" + e.SubPath
+		}
+		fmt.Fprintf(w, "%-24s %-12s %-12s %-8s %s\n", display, e.Ref, latest, e.RefType, drift)
 		// `unknown` 必须带上**为什么**：原因此前只存在于 --json 的 Note 字段里，
 		// 于是默认输出只告诉用户"我不知道"，不告诉他该去修什么
 		// （一条指向正确位置的错误，价值取决于它指的位置对不对）。

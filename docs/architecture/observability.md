@@ -142,6 +142,8 @@ vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)
 - tag refType：列举**本地 mirror** 中的 tag，取最新（semver 优先，无可解析 semver 时按 tag 创建时间）。
   **不依赖 Git host API**——ngm 是 Git 直连（[ADR-002](../adr/adr-002-git-direct.md)），
   走 host API 会引入 rate limit 与平台差异，而 mirror 里的 tag 列表就是权威
+- 模块条目：只在该模块的 `<subPath>/` tag 前缀里选最新；没有自己的 tag 时标 `unknown`，
+  **绝不**拿兄弟模块的 tag 当最新；人类输出显示 `name#subPath`
 - branch refType：需要 fetch 才能知道最新 tip，并与 lock 对比、给出落后提交数
 - commit refType：无更新（已锁定）
 
