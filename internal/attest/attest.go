@@ -52,8 +52,12 @@ const (
 	annotationDigestScope = "ngm/digest-scope"
 	// annotationDeclaredRef 记下 ngm.json 里声明的 ref / refType（人类溯源）。
 	annotationDeclaredRef = "ngm/declared-ref"
+	// annotationSubtreeOID / annotationModuleVersion 只对模块条目出现。
+	annotationSubtreeOID    = "ngm/subtree-oid"
+	annotationModuleVersion = "ngm/module-version"
 
-	digestScopeValue = "sha256 over the canonical archive manifest (ADR-008); not the tarball bytes"
+	digestScopeRoot   = "sha256 over the canonical archive manifest (ADR-008); not the tarball bytes"
+	digestScopeModule = "sha256 over the canonical module manifest (ngm-module-digest/v1); not the tarball bytes"
 )
 
 // Options 控制一次导出。
@@ -86,12 +90,22 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 	subjects := make([]subject, 0, len(sorted))
 	materials := make([]material, 0, len(sorted))
 	for _, e := range sorted {
+		scope := digestScopeRoot
+		annotations := map[string]string{annotationDigestScope: scope}
+		if e.SubPath != "" {
+			scope = digestScopeModule
+			annotations[annotationDigestScope] = scope
+			if e.SubtreeOID != "" {
+				annotations[annotationSubtreeOID] = e.SubtreeOID
+			}
+			if e.Version != "" {
+				annotations[annotationModuleVersion] = e.Version
+			}
+		}
 		subjects = append(subjects, subject{
-			Name:   e.Purl(),
-			Digest: sha256Digest{SHA256: e.HexDigest()},
-			Annotations: map[string]string{
-				annotationDigestScope: digestScopeValue,
-			},
+			Name:        e.Purl(),
+			Digest:      sha256Digest{SHA256: e.HexDigest()},
+			Annotations: annotations,
 		})
 		materials = append(materials, material{
 			URI:    "git+" + e.VCSURL() + "@" + e.Commit,

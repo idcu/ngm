@@ -89,6 +89,10 @@ type Entry struct {
 	Canonical string
 	// SubPath 是 monorepo 子路径（可空）。
 	SubPath string
+	// SubtreeOID 是模块条目的 Git tree 绑定锚（`sha1:`/`sha256:`，可空）。
+	SubtreeOID string
+	// Version 是模块清单的 version（可空；根条目通常为空）。
+	Version string
 	// RequiredBy 是**直接引用者**的身份（v0.73，ADR-028）：`name` 或 `name#subPath`，
 	// 项目直接声明时为 `lock.RootRequirer`。空 = 这份 lock 里没有图（导出端据此省略依赖段）。
 	RequiredBy []string

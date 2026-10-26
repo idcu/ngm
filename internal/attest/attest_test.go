@@ -36,6 +36,8 @@ func testEntries() []sbom.Entry {
 			Slug: "github:org/mono", Ref: "main", RefType: "branch",
 			Commit: testCommit, Digest: testDigest,
 			Canonical: "github.com/org/mono", SubPath: "packages/core",
+			SubtreeOID: "sha1:0123456789abcdef0123456789abcdef01234567",
+			Version:    "1.2.3",
 		},
 	}
 }
@@ -124,6 +126,19 @@ func TestV70StatementShape(t *testing.T) {
 		scope := s.Annotations[annotationDigestScope]
 		if !strings.Contains(scope, "manifest") || !strings.Contains(scope, "not the tarball") {
 			t.Errorf("%s：缺少/写错了 digest-scope 注解: %q", s.Name, scope)
+		}
+		if strings.HasSuffix(s.Name, "#packages/core") {
+			if !strings.Contains(scope, "module manifest") {
+				t.Errorf("%s：模块条目应说明 module manifest，got %q", s.Name, scope)
+			}
+			if s.Annotations[annotationSubtreeOID] == "" {
+				t.Errorf("%s：缺少 subtree-oid 注解", s.Name)
+			}
+			if s.Annotations[annotationModuleVersion] != "1.2.3" {
+				t.Errorf("%s：module-version 注解 = %q", s.Name, s.Annotations[annotationModuleVersion])
+			}
+		} else if s.Annotations[annotationSubtreeOID] != "" {
+			t.Errorf("%s：根条目不应带 subtree-oid", s.Name)
 		}
 	}
 	// 排序：mono 在 utils 之前（字节序），且子路径进 purl 的 subpath 段。

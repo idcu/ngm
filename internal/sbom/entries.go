@@ -45,13 +45,15 @@ func FromLock(lf *lock.File) ([]Entry, error) {
 				"an SBOM without hashes is only a list; re-run `ngm install` to regenerate the digest")
 		}
 		out = append(out, Entry{
-			Slug:      d.Name,
-			Ref:       d.Ref,
-			RefType:   d.RefType,
-			Commit:    d.Commit,
-			Digest:    contentDigest,
-			Canonical: repo.String(),
-			SubPath:   d.SubPath,
+			Slug:       d.Name,
+			Ref:        d.Ref,
+			RefType:    d.RefType,
+			Commit:     d.Commit,
+			Digest:     contentDigest,
+			Canonical:  repo.String(),
+			SubPath:    d.SubPath,
+			SubtreeOID: d.SubtreeOid,
+			Version:    d.Version,
 			// v0.73：直接边随条目一起进导出层（依赖段的唯一来源）。
 			RequiredBy: d.RequiredBy,
 		})
