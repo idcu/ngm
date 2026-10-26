@@ -58,6 +58,8 @@ archiveDigest: sha256:<digest>
 来源：ngm.lock（未重新解析：0 次 git 子进程）
 ```
 
+模块条目的“锁定”段会显示 `moduleDigest`、`subtreeOid` 与 `version`；根条目仍只显示 `archiveDigest`。
+
 > **这一段就是快照**（`cmd/ngm/testdata/why.golden`）：它由 `TestV02ObservabilityGolden`
 > 生成，并由 `TestV17DocOutputExamplesMatchTheGoldens` 与本页**逐行对照**。
 > 改输出就要同时改这两处。本页此前画的是**渲染器从不产生的形状**（树形方块 + `├──`），

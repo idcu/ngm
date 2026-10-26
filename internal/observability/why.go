@@ -106,6 +106,8 @@ type LockedInfo struct {
 	ResolvedAt    string `json:"resolvedAt,omitempty"`
 	ArchiveDigest string `json:"archiveDigest,omitempty"`
 	SubPath       string `json:"subPath,omitempty"`
+	SubtreeOID    string `json:"subtreeOid,omitempty"`
+	Version       string `json:"version,omitempty"`
 }
 
 // ResolveTarget 把用户给出的依赖标识解析为节点 Key。
@@ -312,6 +314,12 @@ func (r *WhyReport) Render(w io.Writer) {
 			label = "moduleDigest"
 		}
 		fmt.Fprintf(w, "%s: %s\n", label, r.Locked.ArchiveDigest)
+		if r.Locked.SubtreeOID != "" {
+			fmt.Fprintf(w, "subtreeOid: %s\n", r.Locked.SubtreeOID)
+		}
+		if r.Locked.Version != "" {
+			fmt.Fprintf(w, "version: %s\n", r.Locked.Version)
+		}
 	}
 	// 图从哪来：必须写在报告里（两条路径的代价差一个量级，且不许静默回退）。
 	fmt.Fprintf(w, "\n来源：%s\n", whySourceText(r.Source))
@@ -355,5 +363,7 @@ func LockedFrom(lf *lock.File, name, subPath string) *LockedInfo {
 		ResolvedAt:    d.ResolvedAt,
 		ArchiveDigest: d.ContentDigest(),
 		SubPath:       d.SubPath,
+		SubtreeOID:    d.SubtreeOid,
+		Version:       d.Version,
 	}
 }
