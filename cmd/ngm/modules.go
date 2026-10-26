@@ -127,6 +127,7 @@ var semverLike = regexp.MustCompile(`^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$`)
 
 // runModules 处理 `ngm modules <list|validate>`。
 func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	args = reorderModulesArgs(args)
 	if len(args) == 0 {
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
@@ -142,6 +143,26 @@ func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
 	}
+}
+
+// reorderModulesArgs 允许 `ngm modules --dir=X list` 与 `ngm modules list --dir=X`
+// 两种拼写。只移动**子命令前**的 flag；`--` 之后保持原样。
+func reorderModulesArgs(args []string) []string {
+	i := 0
+	for i < len(args) && strings.HasPrefix(args[i], "-") && args[i] != "--" {
+		if (args[i] == "--dir" || args[i] == "-dir") && i+1 < len(args) {
+			i += 2
+			continue
+		}
+		i++
+	}
+	if i == 0 || i >= len(args) {
+		return args
+	}
+	out := make([]string, 0, len(args))
+	out = append(out, args[i:]...)
+	out = append(out, args[:i]...)
+	return out
 }
 
 func runModulesList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -291,6 +312,12 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 			"fix the module manifests, then re-run `ngm modules index`"))
 	}
 	if len(mods) == 0 {
+		if *branch != "" && branchSet && !isGitDir(ctx, *dir) {
+			return runErr(ctx, stdout, stderr, errs.New(
+				errs.CodeConfigInvalid,
+				"--branch requires a Git repository",
+				"run inside a Git repo, or pass --branch= to disable the index branch"))
+		}
 		if *jsonOut {
 			return writeModulesJSON(stdout, stderr, modulesIndexReport{
 				Version: 1, Out: *out, DryRun: *dryRun,
