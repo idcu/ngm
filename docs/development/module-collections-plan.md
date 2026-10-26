@@ -142,6 +142,8 @@ partial clone 模块缓存（install-from-lock + verify --offline）、`store us
 本地 release 索引分片、分片 branch 批量 tree 写入、逐模块 publish 覆盖全局已完成；
 核心目录物理抽离已完成；`gitee.com/idcu-go/modproof v0.2.0` 已发布，
 ngm 的模块 proof 已切换到外部依赖并删除内部 facade；idcu-go 仍登记 `planned`（仅剩双消费者门禁）。
+全量验证：`cmd/ngm` 分片全绿、`internal/...` 全绿、`modproof` 84.2%、
+idcu-go G1–G4 通过。
 见 [ADR-032](../adr/adr-032-scoped-content-proof.md)、
 [ADR-034](../adr/adr-034-module-cache.md)、
 [ADR-036](../adr/adr-036-infer-ref-type-opt-in.md)、
