@@ -61,8 +61,17 @@ type moduleInfo struct {
 	// Publish 是逐模块发布开关（ADR-037）：nil 跟随全局 --releases；
 	// 显式 true/false 完全覆盖全局，不被全局总开关短路。
 	Publish *bool `json:"publish,omitempty"`
+	// Deps 只用于集合内依赖对齐检查，不进入 list/validate 的 JSON。
+	Deps []moduleDependency `json:"-"`
 	// Err 是该模块清单的解析错误（list 会如实标出；validate 让它变成失败）。
 	Err string `json:"error,omitempty"`
+}
+
+type moduleDependency struct {
+	Name    string
+	Ref     string
+	RefType string
+	Path    string
 }
 
 type modulesListReport struct {
@@ -811,9 +820,15 @@ func scanModules(root string) ([]moduleInfo, error) {
 			return nil
 		}
 		var f struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-			Publish *bool  `json:"publish"`
+			Name         string `json:"name"`
+			Version      string `json:"version"`
+			Publish      *bool  `json:"publish"`
+			Dependencies []struct {
+				Name    string `json:"name"`
+				Ref     string `json:"ref"`
+				RefType string `json:"refType"`
+				Path    string `json:"path"`
+			} `json:"dependencies"`
 		}
 		if uerr := json.Unmarshal(data, &f); uerr != nil {
 			m.Err = "invalid JSON: " + uerr.Error()
@@ -821,6 +836,11 @@ func scanModules(root string) ([]moduleInfo, error) {
 			m.Name = f.Name
 			m.Version = f.Version
 			m.Publish = f.Publish
+			for _, d := range f.Dependencies {
+				m.Deps = append(m.Deps, moduleDependency{
+					Name: d.Name, Ref: d.Ref, RefType: d.RefType, Path: d.Path,
+				})
+			}
 		}
 		out = append(out, m)
 		return nil
@@ -874,7 +894,60 @@ func validateModules(mods []moduleInfo, strict bool) []string {
 	}
 	sort.Strings(dupes)
 	problems = append(problems, dupes...)
+	if strict {
+		problems = append(problems, validateSharedDependencies(mods)...)
+	}
 	sort.Strings(problems)
+	return problems
+}
+
+// validateSharedDependencies 检查集合内同一依赖是否被钉到不同 ref。
+//
+// ngm 是扁平图 + 单版本选择：A 要 lib@v1、B 要 lib@v2，消费者端必然冲突。
+// `--strict` 把它前移到生产者端；默认只做发现，不阻止索引生成。
+func validateSharedDependencies(mods []moduleInfo) []string {
+	type use struct {
+		ref     string
+		refType string
+		module  string
+	}
+	uses := map[string][]use{}
+	for _, m := range mods {
+		if m.Err != "" {
+			continue
+		}
+		for _, d := range m.Deps {
+			if d.Name == "" {
+				continue
+			}
+			key := d.Name
+			if d.Path != "" {
+				key += "#" + d.Path
+			}
+			uses[key] = append(uses[key], use{ref: d.Ref, refType: d.RefType, module: m.Path})
+		}
+	}
+
+	var problems []string
+	for key, list := range uses {
+		byPin := map[string][]string{}
+		for _, u := range list {
+			pin := u.ref + " (" + u.refType + ")"
+			byPin[pin] = append(byPin[pin], u.module)
+		}
+		if len(byPin) <= 1 {
+			continue
+		}
+		var pins []string
+		for pin, modules := range byPin {
+			sort.Strings(modules)
+			pins = append(pins, fmt.Sprintf("%s used by %s", pin, strings.Join(modules, ", ")))
+		}
+		sort.Strings(pins)
+		problems = append(problems, fmt.Sprintf(
+			"shared dependency %s is pinned to different refs across the collection: %s",
+			key, strings.Join(pins, "; ")))
+	}
 	return problems
 }
 
