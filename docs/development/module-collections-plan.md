@@ -66,6 +66,7 @@
 | 逐模块 publish 覆盖全局 | `internal/config/config.go`、`cmd/ngm/modules.go` | `TestModulesIndexPerModulePublishOverridesGlobal`；ADR-037 |
 | 核心目录物理抽离 | `internal/core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify}` | 全仓 import 更新；`TestCoreBoundaryForbidsLanguageSpecificImports` |
 | 外部 `modproof` 发布与消费 | `gitee.com/idcu-go/modproof` | `v0.2.0`；覆盖率 84.2%；ngm 已切到外部 proof；idcu-go `planned`，仅剩双消费者门禁 |
+| 外部 proof 消费契约 | `internal/core/verify`、`cmd/ngm` | `TestModproofMatchesInternalMaterial`、`TestModproofDependencyIsPinned` |
 
 **关键口径**：
 
