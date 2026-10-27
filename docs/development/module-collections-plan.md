@@ -69,6 +69,7 @@
 | 模块级 outdated tag 收窄 | `internal/observability/outdated.go` | `TestOutdatedModuleOnlySeesItsOwnTags`、`TestOutdatedModuleWithoutOwnTagsIsStale` |
 | `ngm doctor` 诊断命令 | `cmd/ngm/doctor.go` | 配置矩阵 / 退出码 / 参数拼写 / JSON 形状判据 |
 | `ngm modules changed` 发布规划 | `cmd/ngm/modules.go` | `TestModulesChangedListsTouchedModules` |
+| `ngm modules plan` 版本/tag 建议 | `cmd/ngm/modules.go` | `TestModulesPlanBumpsOnlyChangedModules` |
 | 核心目录物理抽离 | `internal/core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify}` | 全仓 import 更新；`TestCoreBoundaryForbidsLanguageSpecificImports` |
 | 外部 `modproof` 发布与消费 | `gitee.com/idcu-go/modproof` | `v0.2.0`；覆盖率 84.2%；ngm 已切到外部 proof；idcu-go `planned`，仅剩双消费者门禁 |
 | 外部 proof 消费契约 | `internal/core/verify`、`cmd/ngm` | `TestModproofMatchesInternalMaterial`、`TestModproofDependencyIsPinned` |

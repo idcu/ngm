@@ -40,6 +40,7 @@ var jsonShapeRowTypes = map[string]struct {
 	"modules validate": {"./modules.go", "modulesValidateReport"},
 	"modules index":    {"./modules.go", "modulesIndexReport"},
 	"modules changed":  {"./modules.go", "modulesChangedReport"},
+	"modules plan":     {"./modules.go", "modulesPlanReport"},
 }
 
 // TestV26EveryDocumentedShapeIsANamedType 固定：**形状表里的每一行，都要有一个具名类型兜着。**

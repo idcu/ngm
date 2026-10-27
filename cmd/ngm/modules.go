@@ -27,12 +27,14 @@ USAGE:
   ngm modules validate [--dir=<dir>] [--json] [--strict] [--index=<file>]
   ngm modules index [--dir=<dir>] [--out=<file>] [--dry-run] [--json] [--releases=false] [--shards] [--branch=<name>]
   ngm modules changed [--dir=<dir>] [--since=<ref>] [--json]
+  ngm modules plan [--dir=<dir>] [--since=<ref>] [--bump=patch|minor|major] [--json]
 
 SUBCOMMANDS:
   list       list nested modules (subdirectories containing ngm.json)
   validate   check module manifests, duplicate names, and (with --strict) versions
   index      write a deterministic ngm.collection.json from the module manifests
   changed    list modules touched since a Git ref (release planning; read-only)
+  plan       show next versions/tags for changed modules (read-only; no tags/commits)
 
 FLAGS:
   --dir      project directory (default: .)
@@ -45,7 +47,8 @@ FLAGS:
   --releases include version→commit mappings from local tags (default: true)
   --shards   write releases/<module>.json and leave releases out of the root index
   --branch   also update a local index branch (default: ngm-index; local only, no push)
-  --since    git ref for modules changed (default: HEAD~1)
+  --since    git ref for modules changed/plan (default: HEAD~1)
+  --bump     plan version bump: patch (default) | minor | major
 
 NOTES:
   The repository-root ngm.json is the project manifest, not a collection module.
@@ -125,6 +128,21 @@ type modulesChangedReport struct {
 	Modules []moduleInfo `json:"modules"`
 }
 
+type modulesPlanReport struct {
+	Version int               `json:"version"`
+	Since   string            `json:"since"`
+	Bump    string            `json:"bump"`
+	Modules []modulesPlanItem `json:"modules"`
+}
+
+type modulesPlanItem struct {
+	Name        string `json:"name,omitempty"`
+	Path        string `json:"path"`
+	Version     string `json:"version"`
+	NextVersion string `json:"nextVersion"`
+	Tag         string `json:"tag"`
+}
+
 type modulesIndexReport struct {
 	Version      int             `json:"version"`
 	Out          string          `json:"out"`
@@ -142,6 +160,7 @@ type releaseShard struct {
 }
 
 var semverLike = regexp.MustCompile(`^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$`)
+var rePlanVersion = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
 
 // runModules 处理 `ngm modules <list|validate>`。
 func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -159,6 +178,8 @@ func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runModulesIndex(ctx, args[1:], stdout, stderr)
 	case "changed":
 		return runModulesChanged(ctx, args[1:], stdout, stderr)
+	case "plan":
+		return runModulesPlan(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
@@ -290,43 +311,29 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	return 0
 }
 
-func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("modules changed", stderr)
-	dir := fs.String("dir", ".", "project directory")
-	since := fs.String("since", "HEAD~1", "git ref to diff from")
-	jsonOut := fs.Bool("json", false, "machine-readable output")
-	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
-		{Name: "dir"}, {Name: "since"}, {Name: "json", Bool: true},
-	})); err != nil {
-		return 3
-	}
-	if fs.NArg() != 0 {
-		fmt.Fprint(stderr, modulesUsage)
-		return 3
-	}
-	if strings.TrimSpace(*since) == "" {
-		return runErr(ctx, stdout, stderr, errs.New(
+// changedModules 返回 `since...HEAD` 改动涉及的模块（按 path 排序）。
+func changedModules(ctx context.Context, dir, since string) ([]moduleInfo, error) {
+	if strings.TrimSpace(since) == "" {
+		return nil, errs.New(
 			errs.CodeConfigInvalid, "--since must not be empty",
-			"pass a tag, branch or commit, e.g. --since=v1.0.0"))
+			"pass a tag, branch or commit, e.g. --since=v1.0.0")
+	}
+	gitOpts := git.Options{Dir: dir}
+	if _, err := git.Run(ctx, gitOpts, "rev-parse", "--verify", since+"^{commit}"); err != nil {
+		return nil, errs.Wrap(errs.CodeConfigInvalid,
+			"resolve --since "+since,
+			"pass a ref that exists in this Git repository", err)
+	}
+	res, err := git.Run(ctx, gitOpts, "diff", "--name-only", "-z", since+"...HEAD")
+	if err != nil {
+		return nil, errs.Wrap(errs.CodeConfigInvalid,
+			"diff modules since "+since,
+			"run this command inside a Git repository", err)
 	}
 
-	gitOpts := git.Options{Dir: *dir}
-	if _, err := git.Run(ctx, gitOpts, "rev-parse", "--verify", *since+"^{commit}"); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
-			"resolve --since "+*since,
-			"pass a ref that exists in this Git repository", err))
-	}
-	res, err := git.Run(ctx, gitOpts, "diff", "--name-only", "-z", *since+"...HEAD")
+	mods, err := scanModules(dir)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
-			"diff modules since "+*since,
-			"run `modules changed` inside a Git repository", err))
-	}
-
-	mods, err := scanModules(*dir)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return nil, err
 	}
 	byPath := make(map[string]moduleInfo, len(mods))
 	for _, m := range mods {
@@ -352,6 +359,28 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
+}
+
+func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("modules changed", stderr)
+	dir := fs.String("dir", ".", "project directory")
+	since := fs.String("since", "HEAD~1", "git ref to diff from")
+	jsonOut := fs.Bool("json", false, "machine-readable output")
+	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
+	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+		{Name: "dir"}, {Name: "since"}, {Name: "json", Bool: true},
+	})); err != nil {
+		return 3
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprint(stderr, modulesUsage)
+		return 3
+	}
+	out, err := changedModules(ctx, *dir, *since)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
 
 	rep := modulesChangedReport{Version: 1, Since: *since, Modules: out}
 	if *jsonOut {
@@ -369,6 +398,79 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 		}
 	}
 	return 0
+}
+
+func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("modules plan", stderr)
+	dir := fs.String("dir", ".", "project directory")
+	since := fs.String("since", "HEAD~1", "git ref to diff from")
+	bump := fs.String("bump", "patch", "version bump: patch | minor | major")
+	jsonOut := fs.Bool("json", false, "machine-readable output")
+	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
+	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+		{Name: "dir"}, {Name: "since"}, {Name: "bump"}, {Name: "json", Bool: true},
+	})); err != nil {
+		return 3
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprint(stderr, modulesUsage)
+		return 3
+	}
+	switch *bump {
+	case "patch", "minor", "major":
+	default:
+		return runErr(ctx, stdout, stderr, errs.New(
+			errs.CodeConfigInvalid, "--bump must be patch, minor or major",
+			"pass one of: --bump=patch, --bump=minor, --bump=major"))
+	}
+
+	changed, err := changedModules(ctx, *dir, *since)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	rep := modulesPlanReport{Version: 1, Since: *since, Bump: *bump}
+	for _, m := range changed {
+		next, nerr := nextModuleVersion(m.Version, *bump)
+		if nerr != nil {
+			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+				m.Path+": cannot plan version", "set a semver `version` in the module manifest", nerr))
+		}
+		rep.Modules = append(rep.Modules, modulesPlanItem{
+			Name: m.Name, Path: m.Path, Version: m.Version,
+			NextVersion: next, Tag: m.Path + "/v" + next,
+		})
+	}
+
+	if *jsonOut {
+		return writeModulesJSON(stdout, stderr, rep)
+	}
+	if len(rep.Modules) == 0 {
+		fmt.Fprintf(stdout, "no module changes since %s; nothing to release\n", *since)
+		return 0
+	}
+	for _, m := range rep.Modules {
+		fmt.Fprintf(stdout, "%s\t%s -> %s\t%s\n", m.Path, m.Version, m.NextVersion, m.Tag)
+	}
+	return 0
+}
+
+func nextModuleVersion(current, bump string) (string, error) {
+	m := rePlanVersion.FindStringSubmatch(strings.TrimSpace(current))
+	if m == nil {
+		return "", fmt.Errorf("version %q is not semver", current)
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	patch, _ := strconv.Atoi(m[3])
+	switch bump {
+	case "major":
+		major, minor, patch = major+1, 0, 0
+	case "minor":
+		minor, patch = minor+1, 0
+	case "patch":
+		patch++
+	}
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
 }
 
 func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Writer) int {

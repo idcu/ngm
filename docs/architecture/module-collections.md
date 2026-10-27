@@ -104,7 +104,7 @@ digest:  "sha256:" + sha256(manifest)
 - `releases` 来自本地 `<modulePath>/v<version>` tag，只按模块前缀收窄；
 - `ngm modules validate --index=...` 检查索引与目录一致：缺失、多余、name/version 不一致都失败；
 - `ngm modules validate --strict` 检查集合内同一依赖是否被钉到不同 ref；ngm 是扁平图，这类冲突应在生产者端发现；
-- `ngm modules changed --since=<ref>` 只读列出被改动过的模块，供发布编排使用；
+- `ngm modules changed --since=<ref>` 只读列出被改动过的模块；`ngm modules plan --since=<ref> --bump=...` 给出建议的下一个版本/ tag，但不提交、不打 tag；
 - 索引只做发现、`outdated`、避免枚举全仓 tag；不是信任锚；
 - 索引滞后安全；索引领先危险；
 - 条目必须记录 `version + tag + commit`；只记录 branch 会失去版本的可复现性；
