@@ -26,11 +26,13 @@ USAGE:
   ngm modules list [--dir=<dir>] [--json] [--limit=<n>]
   ngm modules validate [--dir=<dir>] [--json] [--strict] [--index=<file>]
   ngm modules index [--dir=<dir>] [--out=<file>] [--dry-run] [--json] [--releases=false] [--shards] [--branch=<name>]
+  ngm modules changed [--dir=<dir>] [--since=<ref>] [--json]
 
 SUBCOMMANDS:
   list       list nested modules (subdirectories containing ngm.json)
   validate   check module manifests, duplicate names, and (with --strict) versions
   index      write a deterministic ngm.collection.json from the module manifests
+  changed    list modules touched since a Git ref (release planning; read-only)
 
 FLAGS:
   --dir      project directory (default: .)
@@ -43,6 +45,7 @@ FLAGS:
   --releases include version→commit mappings from local tags (default: true)
   --shards   write releases/<module>.json and leave releases out of the root index
   --branch   also update a local index branch (default: ngm-index; local only, no push)
+  --since    git ref for modules changed (default: HEAD~1)
 
 NOTES:
   The repository-root ngm.json is the project manifest, not a collection module.
@@ -50,7 +53,7 @@ NOTES:
   and does not touch the network.
 
 EXIT CODES:
-  0  the listing/validation completed
+  0  the module command completed
   3  configuration or usage error; validate also uses 3 when a module is invalid
 `
 
@@ -116,6 +119,12 @@ type collectionModule struct {
 	Version string `json:"version,omitempty"`
 }
 
+type modulesChangedReport struct {
+	Version int          `json:"version"`
+	Since   string       `json:"since"`
+	Modules []moduleInfo `json:"modules"`
+}
+
 type modulesIndexReport struct {
 	Version      int             `json:"version"`
 	Out          string          `json:"out"`
@@ -148,6 +157,8 @@ func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runModulesValidate(ctx, args[1:], stdout, stderr)
 	case "index":
 		return runModulesIndex(ctx, args[1:], stdout, stderr)
+	case "changed":
+		return runModulesChanged(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
@@ -275,6 +286,87 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	}
 	if len(errsList) > 0 {
 		return 3
+	}
+	return 0
+}
+
+func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("modules changed", stderr)
+	dir := fs.String("dir", ".", "project directory")
+	since := fs.String("since", "HEAD~1", "git ref to diff from")
+	jsonOut := fs.Bool("json", false, "machine-readable output")
+	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
+	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+		{Name: "dir"}, {Name: "since"}, {Name: "json", Bool: true},
+	})); err != nil {
+		return 3
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprint(stderr, modulesUsage)
+		return 3
+	}
+	if strings.TrimSpace(*since) == "" {
+		return runErr(ctx, stdout, stderr, errs.New(
+			errs.CodeConfigInvalid, "--since must not be empty",
+			"pass a tag, branch or commit, e.g. --since=v1.0.0"))
+	}
+
+	gitOpts := git.Options{Dir: *dir}
+	if _, err := git.Run(ctx, gitOpts, "rev-parse", "--verify", *since+"^{commit}"); err != nil {
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			"resolve --since "+*since,
+			"pass a ref that exists in this Git repository", err))
+	}
+	res, err := git.Run(ctx, gitOpts, "diff", "--name-only", "-z", *since+"...HEAD")
+	if err != nil {
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			"diff modules since "+*since,
+			"run `modules changed` inside a Git repository", err))
+	}
+
+	mods, err := scanModules(*dir)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	byPath := make(map[string]moduleInfo, len(mods))
+	for _, m := range mods {
+		byPath[m.Path] = m
+	}
+	changed := map[string]moduleInfo{}
+	for _, file := range strings.Split(string(res.Stdout), "\x00") {
+		file = strings.TrimSpace(file)
+		if file == "" {
+			continue
+		}
+		parts := strings.Split(filepath.ToSlash(file), "/")
+		for i := len(parts); i >= 1; i-- {
+			prefix := strings.Join(parts[:i], "/")
+			if m, ok := byPath[prefix]; ok {
+				changed[prefix] = m
+				break
+			}
+		}
+	}
+	out := make([]moduleInfo, 0, len(changed))
+	for _, m := range changed {
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+
+	rep := modulesChangedReport{Version: 1, Since: *since, Modules: out}
+	if *jsonOut {
+		return writeModulesJSON(stdout, stderr, rep)
+	}
+	if len(out) == 0 {
+		fmt.Fprintf(stdout, "no module changes since %s\n", *since)
+		return 0
+	}
+	for _, m := range out {
+		if m.Version != "" {
+			fmt.Fprintf(stdout, "%s\t%s@%s\n", m.Path, displayName(m), m.Version)
+		} else {
+			fmt.Fprintf(stdout, "%s\t%s\n", m.Path, displayName(m))
+		}
 	}
 	return 0
 }
