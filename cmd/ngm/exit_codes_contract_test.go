@@ -109,6 +109,7 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "config", code: 0, args: []string{"validate"}, setup: setupDep},
 	{cmd: "engines", code: 0, args: []string{"list"}, setup: setupProject},
 	{cmd: "modules", code: 0, args: []string{"list"}, setup: setupProject},
+	{cmd: "doctor", code: 0, args: nil, setup: setupProject},
 	{cmd: "typecheck", code: 0, args: []string{"--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
 	{cmd: "typedecl", code: 0, args: []string{"--outdir=types", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
 	{cmd: "build", code: 0, args: []string{"entry.ts", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
@@ -161,6 +162,7 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "config", code: 3, args: []string{"validate", "--zz-nope"}, setup: setupMissing},
 	{cmd: "engines", code: 3, args: []string{"list", "--zz-nope"}, setup: setupMissing},
 	{cmd: "modules", code: 3, args: []string{"list", "--zz-nope"}, setup: setupMissing},
+	{cmd: "doctor", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 	{cmd: "sbom", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 	{cmd: "attest", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 

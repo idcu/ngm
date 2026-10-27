@@ -42,6 +42,7 @@ var commands = []*commandSpec{
 	{Name: "update", Run: runUpdate, Usage: updateUsage},
 	{Name: "remove", Run: runRemove, Usage: removeUsage},
 	{Name: "modules", Run: runModules, Usage: modulesUsage},
+	{Name: "doctor", Run: runDoctor, Usage: doctorUsage},
 	{Name: "verify", Run: runVerify, Usage: verifyUsage},
 	{Name: "audit", Run: runAudit, Usage: auditUsage},
 	{Name: "why", Run: runWhy, Usage: whyUsage},

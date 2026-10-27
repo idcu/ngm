@@ -37,6 +37,7 @@ var jsonShapeSourceFiles = map[string][]string{
 	"integrations": {"./integrations*.go"},
 	"engines":      {"./engines*.go"},
 	"modules":      {"./modules.go"},
+	"doctor":       {"./doctor.go"},
 	// v0.66：两个写命令的报告结构体都在 install.go（update 共用同一形状）。
 	"install": {"./install.go"},
 	"update":  {"./install.go"},

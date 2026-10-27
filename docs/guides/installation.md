@@ -145,6 +145,7 @@ ngm --help
 #   update         更新依赖 ref
 #   remove         移除依赖
 #   modules        模块集合的发现与校验
+#   doctor         诊断本地环境与项目状态
 #   verify         检查 ref 漂移与 digest 重放
 #   audit          供应链审计（OSV.dev，v0.2）
 #   why            为什么装了这个依赖

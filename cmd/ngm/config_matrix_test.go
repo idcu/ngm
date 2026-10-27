@@ -356,6 +356,7 @@ var matrixArgs = map[string][]string{
 	"remove":       {"github:x/dep"},
 	"verify":       {},
 	"modules":      {"list", "--json"},
+	"doctor":       {"--json"},
 	"audit":        {},
 	"why":          {"github:x/dep"},
 	"tree":         {},
@@ -395,6 +396,8 @@ var exitZeroByDesign = map[string]string{
 		"见 globalCommands",
 	"modules": "`modules list` 只扫描目录、不读项目配置；坏 ngm.json 不会让它失败，" +
 		"它在全部形状下都退 0，属于有意的只读发现命令。",
+	"doctor": "`doctor` 是诊断命令：配置损坏会写进报告的 fail 项，但命令本身仍退 0，" +
+		"否则 CI 无法同时拿到报告和退出码。",
 	"init": "`init` 的职责就是**创建**清单——「目录不存在」与「空目录」正是它的成功路径",
 	"add": "`add` 只写清单、**不读锁**：实测锁损坏时它照常追加，并打印 " +
 		"`next: run ngm install to resolve and lock`（把解析交给 install）",
