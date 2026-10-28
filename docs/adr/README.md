@@ -45,6 +45,7 @@
 | [ADR-035](./adr-035-refType-narrow-default.md) | `refType` 的**窄默认**（仅完整 commit hash） | 已定**并已实施**（2026-10-20）：完整 40 位 hex 可省略 refType 并按 commit 写回；tag/branch/短 hash 仍必填；三处共用 `resolve.IsFullCommit`；不做全局默认 |
 | [ADR-036](./adr-036-infer-ref-type-opt-in.md) | `--infer-ref-type`：显式 opt-in 的远端证据推断 | 已定**并已实施**（2026-10-20）：只在 `add` 缺 `--ref-type` 且非完整 commit 时生效；tag/branch 二选一，同名或缺失即失败；顺带修 `git.LSRemote` 参数顺序 |
 | [ADR-037](./adr-037-per-module-publish-override.md) | 逐模块 `publish` **完全覆盖**全局 `--releases` | 已定**并已实施**（2026-10-21）：`publish` 显式 true/false 直接决定，nil 才跟随全局；不做 AND/OR 短路；只影响 release 索引 |
+| [ADR-038](./adr-038-no-own-git.md) | **不自研 Git**，保持子进程 + 单一边界 | 已定（2026-10-28）：运行时 Git 只在 `internal/core/git`；不自研对象/协议；未来只考虑 go-git/gitoxide/libgit2 backend |
 
 ---
 
