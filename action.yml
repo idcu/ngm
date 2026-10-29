@@ -1,37 +1,56 @@
-name: ngm verify
+name: ngm
 description: >-
-  Verify Git dependency provenance with ngm and turn every failing check into a
-  pull-request annotation. Requires the `ngm` binary to be on PATH.
+  Verify Git dependency provenance with ngm, or baseline / re-check an existing
+  node_modules without adopting ngm as the installer.
+  Requires the `ngm` binary to be on PATH.
 
 # 为什么这是一个 **composite** action 而不是一个 Docker action：
-# 它不做任何构建，只把 `ngm verify` 的两个机器出口接到 PR 上。
-# 多一层容器只多一个失败点（以及一个要维护的基础镜像）。
+# 它不做任何构建，只把 ngm 的三个机器入口接到 PR 上。多一层容器只多一个失败点。
 #
 # 它**不**下载 ngm：把二进制装到 PATH 是使用者的一次决定（版本、校验和、来源），
 # 而 action 悄悄替你决定"用哪个版本的 ngm"正是供应链工具最不该做的事。
+#
+# 三种 mode 覆盖两条接入路径（docs/internals/intake-paths.md）：
+#   verify      —— 有 ngm.lock 的项目：ref 漂移 + digest 重放，失败项变注解
+#   adopt       —— **不用 ngm 安装**的项目：为现有 node_modules 出一份内容证明
+#   adopt-check —— 同一棵树再跑一次，与那份证明比较，有变化即失败
 
 inputs:
+  mode:
+    description: >-
+      verify (default) | adopt | adopt-check.
+      `verify` needs ngm.lock; `adopt` needs only node_modules; `adopt-check`
+      compares against `proof-file` and needs no lock and no network.
+    required: false
+    default: "verify"
   dir:
-    description: Project directory that contains ngm.json / ngm.lock
+    description: Project directory
     required: false
     default: "."
   format:
     description: >-
-      github (default) writes ::error/::warning annotations;
-      sarif writes a SARIF 2.1.0 log to the path in `sarif-file`.
+      For mode=verify only: github (default) writes ::error/::warning annotations;
+      sarif writes a SARIF 2.1.0 log to `sarif-file`.
     required: false
     default: "github"
   sarif-file:
-    description: Where to put the SARIF log when format=sarif
+    description: Where to put the SARIF log when mode=verify and format=sarif
     required: false
     default: "ngm.sarif"
+  proof-file:
+    description: >-
+      The proof written by `adopt` (default ngm.proof.json). In mode=adopt it is
+      where the fresh proof goes; in mode=adopt-check it is the baseline to
+      compare against.
+    required: false
+    default: "ngm.proof.json"
   args:
-    description: Extra arguments forwarded to `ngm verify` (e.g. "--deep --strict")
+    description: Extra arguments forwarded to the ngm command (e.g. "--deep --strict")
     required: false
     default: ""
   fail-on-error:
     description: >-
-      Fail the step when ngm verify returns non-zero. Set to "false" to publish
+      Fail the step when ngm returns non-zero. Set to "false" to publish
       annotations while letting another step decide (rarely what you want:
       the exit code is the gate).
     required: false
@@ -39,30 +58,52 @@ inputs:
 
 outputs:
   exit-code:
-    description: The exit code of `ngm verify` (0 / 1 / 2 / 3 / 4 / 6)
-    value: ${{ steps.verify.outputs.code }}
+    description: The exit code of the ngm command (0 / 1 / 2 / 3 / 4 / 6)
+    value: ${{ steps.run.outputs.code }}
+  proof-file:
+    description: The proof file used or written (useful as an upload-artifact path)
+    value: ${{ inputs.proof-file }}
 
 runs:
   using: composite
   steps:
-    - id: verify
+    - id: run
       shell: bash
       env:
+        NGM_MODE: ${{ inputs.mode }}
         NGM_DIR: ${{ inputs.dir }}
         NGM_FORMAT: ${{ inputs.format }}
         NGM_SARIF: ${{ inputs.sarif-file }}
+        NGM_PROOF: ${{ inputs.proof-file }}
         NGM_ARGS: ${{ inputs.args }}
         NGM_FAIL: ${{ inputs.fail-on-error }}
       run: |
         set -o pipefail
-        # The human report would be noise here (annotations carry the same facts);
-        # stderr still gets it for the job log.
-        if [ "$NGM_FORMAT" = "sarif" ]; then
-          ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=sarif > "$NGM_SARIF"
-        else
-          ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=github
-        fi
-        code=$?
+        code=0
+        case "$NGM_MODE" in
+          verify)
+            if [ "$NGM_FORMAT" = "sarif" ]; then
+              ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=sarif > "$NGM_SARIF" || code=$?
+            else
+              ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=github || code=$?
+            fi
+            ;;
+          adopt)
+            # 证明走文件（默认 ngm.proof.json），并把它作为产物留给后续步骤。
+            if [ -n "$NGM_PROOF" ] && [ "$NGM_PROOF" != "ngm.proof.json" ]; then
+              NGM_ARGS="$NGM_ARGS --out=$NGM_PROOF"
+            fi
+            ngm adopt --dir "$NGM_DIR" $NGM_ARGS || code=$?
+            ;;
+          adopt-check)
+            # 只读：不写任何文件，退出码就是结论。
+            ngm adopt --dir "$NGM_DIR" --check="$NGM_PROOF" $NGM_ARGS || code=$?
+            ;;
+          *)
+            echo "::error::unknown mode '$NGM_MODE' (expected verify, adopt or adopt-check)"
+            code=3
+            ;;
+        esac
         echo "code=$code" >> "$GITHUB_OUTPUT"
         if [ "$code" -ne 0 ] && [ "$NGM_FAIL" != "false" ]; then
           exit "$code"

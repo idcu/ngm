@@ -34,6 +34,17 @@ wrote ngm.proof.json (source: npm package-lock.json, coverage 1/3 traceable)
 
 **代价**：0 行改动。**收益**：一份可 diff、可归档的内容清单。
 
+CI 里不需要自己拼命令——仓库根的 `action.yml` 有三个 mode，其中两个属于这条路径：
+
+```yaml
+- uses: actions/checkout@v4
+- run: echo ok          # 先把 ngm 装到 PATH
+- uses: ./
+  with:
+    mode: adopt-check    # 与上次的 ngm.proof.json 比较；有变化即失败
+    proof-file: ngm.proof.json
+```
+
 写下的证明**可以被复核**（否则它就只是一次性快照，而"没人再读的审计结论"
 与"从没做过审计"是同一件事）：
 

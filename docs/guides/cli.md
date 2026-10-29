@@ -278,13 +278,16 @@ ngm verify --format=sarif > ngm.sarif
 ```
 
 仓库根有一个 composite action（`action.yml`）把这条命令接到 PR 上。它**刻意不下载 ngm**——
-"用哪个版本、从哪校验"是使用者的一次决定，而供应链工具替你决定版本正是它最不该做的事：
+"用哪个版本、从哪校验"是使用者的一次决定，而供应链工具替你决定版本正是它最不该做的事。
+三个 `mode` 对应两条接入路径：`verify`（需要 `ngm.lock`）、`adopt` / `adopt-check`
+（只需要 `node_modules`，见[三条接入路径](../internals/intake-paths.md)）：
 
 ```yaml
 - uses: actions/checkout@v4
 - run: echo ok   # 先把 ngm 装到 PATH（发布产物或源码构建都行）
 - uses: ./          # composite action 在本仓库时；外部用 idcu/ngm@<tag>
   with:
+    mode: verify
     args: "--deep --strict"
 ```
 
