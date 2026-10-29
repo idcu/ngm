@@ -407,6 +407,17 @@ func finishSkippingRefAndDigest(res DepResult, merr error, mirrorPath string,
 		Operational: true,
 		Detail:      "the local mirror is unavailable, so the ref and digest checks were skipped",
 	})
+	// 每一项检查各有一条记录（v0.107）。
+	//
+	// 此前这两项挤在**一条** ref 记录里（detail 顺带说 digest 也跳过了）：
+	// 人读没问题，但按 `checks[]` 逐项遍历的消费者会看到 digest **不存在**——
+	// 而"不存在"与"通过"在数据上无法区分。少一条记录从来不是节省。
+	res.Checks = append(res.Checks, CheckResult{
+		Check:       CheckDigest,
+		Status:      StatusFail,
+		Operational: true,
+		Detail:      "not attempted: the local mirror is unavailable",
+	})
 	res.Checks = append(res.Checks, checkLanding(context.Background(), mirrorPath, d, store, opts))
 	res.DriftKind = aggregateDrift(res.Checks)
 	res.Remediation = remediationFor(&res)
