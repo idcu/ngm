@@ -46,6 +46,8 @@
 | [ADR-036](./adr-036-infer-ref-type-opt-in.md) | `--infer-ref-type`：显式 opt-in 的远端证据推断 | 已定**并已实施**（2026-10-20）：只在 `add` 缺 `--ref-type` 且非完整 commit 时生效；tag/branch 二选一，同名或缺失即失败；顺带修 `git.LSRemote` 参数顺序 |
 | [ADR-037](./adr-037-per-module-publish-override.md) | 逐模块 `publish` **完全覆盖**全局 `--releases` | 已定**并已实施**（2026-10-21）：`publish` 显式 true/false 直接决定，nil 才跟随全局；不做 AND/OR 短路；只影响 release 索引 |
 | [ADR-038](./adr-038-no-own-git.md) | **不自研 Git**，保持子进程 + 单一边界 | 已定（2026-10-28）：运行时 Git 只在 `internal/core/git`；不自研对象/协议；未来只考虑 go-git/gitoxide/libgit2 backend |
+| [ADR-039](./adr-039-exit-code-precedence.md) | `verify` 退出码 **2 压过 4**：已确证的篡改 > 没查成 | 已定**并已实施**（2026-10-29）：原"4 优先"的理由只排除 0/1，没排除 2；而 4 的语义是可重试，于是 CI 会把被篡改的树当成网络抖动重试。`ExitCode()` 改为先记漂移分类再看 `Err` |
+| [ADR-040](./adr-040-adopt-proof-layer.md) | 从"包管理器"退回"证明层"：`ngm adopt` 为已装好的依赖出证据 | 已定**并已实施**（2026-10-29）：只读 `node_modules` + `package-lock.json`，摘要与 `archiveDigest` 同构；读不了的 lock 在 `notes`/`coverage.unknown` 里具名；**不接管安装**，因此不再把 registry 互通列为待办 |
 
 ---
 

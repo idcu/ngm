@@ -139,6 +139,24 @@ ngm verify --sandbox
 一个会写盘、会联网的审计脚本，和依赖脚本一样需要被约束。
 否决时退出码是 `1`（"有需要处理的东西"，与"发现漏洞"同类），不是 `2`（完整性失败）。
 
+### 模块加载层：三个必须一起给的开关（v0.105）
+
+`--deny-net` 管的是 **Deno API 的 fetch**，而**模块加载**是另一条路。
+实测（Deno 1.45.2）：在 `--deny-net --no-remote --deny-write --deny-run --deny-env
+--deny-read` 全部给出的情况下，`import "npm:is-number@7.0.0"` **仍然成功**，
+`<DENO_DIR>/npm/registry.npmjs.org/is-number/7.0.0/package.json` 被真的下载下来。
+
+所以 argv 里还必须有三项，它们与其它 deny 一样**显式写出**（边界要能被读日志的人看见）：
+
+| 开关 | 拦住的路径 |
+|------|-----------|
+| `--no-npm` | `npm:` / `node:` 说明符——运行时自己的 registry 客户端，不经过 fetch 权限 |
+| `--no-config` | **工作目录里的 `deno.json`**。沙箱的 cwd 是依赖自己的目录，那份配置由上游控制，能重写 `imports` 与 `nodeModulesDir` |
+| `--no-lock` | 锁文件参与的解析 |
+
+判据：`TestV105SandboxDeniesModuleLoading`（argv 断言 + 真 Deno 行为断言，
+后者**禁止 `t.Skip`**——它就是这条边界本身）。
+
 ### 为什么用 Deno 做沙箱
 
 - Deno 原生支持 permission 参数

@@ -422,7 +422,8 @@ func (k IssueKind) ExitCode() int {
 // 复用 subprocess 驱动而不是另写一份：探测方式必须与引擎被调用的方式一致
 // （同一个 program + 同一段前缀参数），否则"声明 vs 实际"的比较没有意义。
 func probeVersion(e Entry) (string, error) {
-	return newSubprocessEngine(e, "").Version()
+	// 版本探测不执行引擎产物逻辑，也不接触策略：nil 表示不剔除（与旧行为一致）。
+	return newSubprocessEngine(e, "", nil).Version()
 }
 
 // Issue 是清单校验发现的一个问题。

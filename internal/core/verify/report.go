@@ -170,13 +170,21 @@ type Report struct {
 //
 // 优先级（高 → 低）：
 //
-//	4  操作性失败：有依赖因网络/资源缺失而未能完成校验。
-//	   刻意高于 2 —— 不完整的校验不得被读作"完整性通过"。
 //	2  完整性失败：digest 重放不匹配 / vendor 或 content store 被篡改。
-//	   --allow-drift **不**降级它（observability.md："critical → 阻断，exit 2，禁止构建"）。
+//	   **最高**：它是唯一"内容已被证明不对"的信号，也是唯一禁止构建的信号。
+//	   --allow-drift **不**降级它（observability.md："critical → 阻断，exit 2"）。
+//	4  操作性失败：有依赖因网络/资源缺失而未能完成校验。
+//	   不完整的校验不得被读作"完整性通过"——但 2 同样不是"通过"，
+//	   所以"已确证篡改"必须压过"没查成"（见下）。
 //	1  非预期漂移（tag 重打 / 分支改写）；--allow-drift 降级为 0。
 //	1  仅有预期更新且给了 --strict；否则 0。
 //	0  全部匹配。
+//
+// **v0.105 调整了 2 与 4 的先后**（此前是 4 优先）。原注释的理由是
+// "不完整的校验不得被读作完整性通过"——它排除了 0/1，但没排除 2。
+// 而一个依赖可以**同时**满足两件事：landing 已确证被改（critical）＋
+// ref 检查撞上网络失败（Err）。此时退 4 的后果是 CI 把"已证明被篡改"
+// 当成"资源缺失、可重试"，于是重试而不阻断。
 //
 // 注意 --strict 与 --allow-drift 同时给出时的语义：两者作用于**不同**的分类
 // （strict → expected，allow-drift → unexpected），互不抵消，因此可能出现
@@ -185,10 +193,8 @@ func (r *Report) ExitCode() int {
 	var hasOperational, hasCritical, hasUnexpected, hasExpected bool
 	for i := range r.Dependencies {
 		d := &r.Dependencies[i]
-		if d.Err != "" {
-			hasOperational = true
-			continue
-		}
+		// 先读分类，再看 Err：顺序反了（`if d.Err != "" { continue }`）
+		// 就会让这一条依赖的 critical 被整体丢弃——那正是 v0.105 修的缺陷。
 		switch d.DriftKind {
 		case DriftCritical:
 			hasCritical = true
@@ -197,13 +203,16 @@ func (r *Report) ExitCode() int {
 		case DriftExpected:
 			hasExpected = true
 		}
+		if d.Err != "" {
+			hasOperational = true
+		}
 	}
 
 	switch {
-	case hasOperational:
-		return errs.CodeGitFetch.ExitCode()
 	case hasCritical:
 		return errs.CodeDigestMismatch.ExitCode()
+	case hasOperational:
+		return errs.CodeGitFetch.ExitCode()
 	case hasUnexpected && !r.AllowDrift:
 		return errs.CodeRefDrift.ExitCode()
 	case hasExpected && r.Strict:

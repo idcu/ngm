@@ -169,6 +169,48 @@ func TestScriptError(t *testing.T) {
 	}
 }
 
+// TestV105SandboxDeniesModuleLoading 是 v0.105 那条真缺陷的回归判据。
+//
+// 缺陷形态（实测，Deno 1.45.2）：给出 `--deny-net --no-remote --deny-write
+// --deny-run --deny-env --deny-read` 之后，`import "npm:is-number@7.0.0"`
+// **仍然成功**，`<DENO_DIR>/npm/registry.npmjs.org/is-number/7.0.0/package.json`
+// 被真的下载。原因：npm 解析走运行时自己的 registry 客户端，不经过 fetch 权限，
+// 而 `--no-remote` 只覆盖 http(s) 模块。
+//
+// 换句话说："沙箱无网络"这句对外承诺，在**模块加载**这一层不成立。
+// 它需要 postinstall 被显式开启才能触发，但沙箱的全部价值就在于开启时边界成立。
+func TestV105SandboxDeniesModuleLoading(t *testing.T) {
+	joined := strings.Join(Grants{}.DenoArgs(), " ")
+	for _, want := range []string{"--no-npm", "--no-config", "--no-lock"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("DenoArgs() = %q\nmissing %s — module loading is the one egress that "+
+				"bypasses --deny-net; keep these three flags together", joined, want)
+		}
+	}
+
+	// 行为层：只证明"npm 说明符被拒"，不依赖公网可达
+	// （--no-npm 在**解析阶段**就失败，因此这条断言离线也成立）。
+	d := realDeno(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hook.js")
+	if err := os.WriteFile(script,
+		[]byte("import n from \"npm:is-number@7.0.0\";\nDeno.exit(n(1) ? 0 : 9);\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := d.RunScript(context.Background(), ScriptRequest{
+		Script: script,
+		Dir:    dir,
+		Grants: Grants{Read: []string{dir}},
+	})
+	if err != nil {
+		t.Fatalf("RunScript: %v", err)
+	}
+	if res.ExitCode == 0 {
+		t.Errorf("a sandboxed script reached the npm registry (exit 0).\nstderr: %s",
+			firstLine(strings.TrimSpace(string(res.Stderr))))
+	}
+}
+
 func TestEnvWithout(t *testing.T) {
 	env := []string{"PATH=/bin", "GITHUB_TOKEN=secret", "HOME=/home/x"}
 	got := envWithout(env, []string{"github_token"})

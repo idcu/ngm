@@ -311,14 +311,32 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	return 0
 }
 
+// modulesGitOpts 返回本文件全部 git 子进程统一使用的选项。
+//
+// 为什么需要它（v0.105 修）：本文件的每一处 `git.Options{Dir: dir}` 都只设了目录，
+// 而 `git.Options.Policy` 为 nil 的语义是"**不施加权限**"（见 core/git/exec.go）。
+// 于是 `ngm modules *` 成了唯一一条能绕过 `run:git` 门禁的 git 路径——
+// 与 reftype.go 写下的不变量（"ngm 里不应存在绕过门禁的 git 调用路径"）相反。
+// 而且这条命令会 `hash-object` / `commit-tree` / `update-ref`，是**写操作**。
+//
+// 只读全局配置里的 permissions：这些命令可以跑在没有 ngm.json 的收集仓库里。
+func modulesGitOpts(dir string) (git.Options, error) {
+	env, err := newProjectEnv(dir)
+	if err != nil {
+		return git.Options{}, err
+	}
+	o := env.GitOpts
+	o.Dir = dir
+	return o, nil
+}
+
 // changedModules 返回 `since...HEAD` 改动涉及的模块（按 path 排序）。
-func changedModules(ctx context.Context, dir, since string) ([]moduleInfo, error) {
+func changedModules(ctx context.Context, gitOpts git.Options, dir, since string) ([]moduleInfo, error) {
 	if strings.TrimSpace(since) == "" {
 		return nil, errs.New(
 			errs.CodeConfigInvalid, "--since must not be empty",
 			"pass a tag, branch or commit, e.g. --since=v1.0.0")
 	}
-	gitOpts := git.Options{Dir: dir}
 	if _, err := git.Run(ctx, gitOpts, "rev-parse", "--verify", since+"^{commit}"); err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalid,
 			"resolve --since "+since,
@@ -377,7 +395,11 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
 	}
-	out, err := changedModules(ctx, *dir, *since)
+	gitOpts, oerr := modulesGitOpts(*dir)
+	if oerr != nil {
+		return runErr(ctx, stdout, stderr, oerr)
+	}
+	out, err := changedModules(ctx, gitOpts, *dir, *since)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
@@ -424,7 +446,11 @@ func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer
 			"pass one of: --bump=patch, --bump=minor, --bump=major"))
 	}
 
-	changed, err := changedModules(ctx, *dir, *since)
+	gitOpts, oerr := modulesGitOpts(*dir)
+	if oerr != nil {
+		return runErr(ctx, stdout, stderr, oerr)
+	}
+	changed, err := changedModules(ctx, gitOpts, *dir, *since)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
@@ -501,6 +527,14 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		return 3
 	}
 
+	// 一次构建、全程复用：本命令会起十余次 git（diff / tag / rev-parse /
+	// hash-object / commit-tree / update-ref），它们必须都由**同一条**
+	// 带门禁的选项驱动（见 modulesGitOpts）。
+	gitOpts, oerr := modulesGitOpts(*dir)
+	if oerr != nil {
+		return runErr(ctx, stdout, stderr, oerr)
+	}
+
 	mods, err := scanModules(*dir)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
@@ -515,7 +549,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 			"fix the module manifests, then re-run `ngm modules index`"))
 	}
 	if len(mods) == 0 {
-		if *branch != "" && branchSet && !isGitDir(ctx, *dir) {
+		if *branch != "" && branchSet && !isGitDir(ctx, gitOpts) {
 			return runErr(ctx, stdout, stderr, errs.New(
 				errs.CodeConfigInvalid,
 				"--branch requires a Git repository",
@@ -538,7 +572,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	var releaseFiles map[string][]byte
 	releaseMods := modulesForRelease(mods, *releases)
 	if len(releaseMods) > 0 {
-		rel, rerr := collectReleases(ctx, *dir, releaseMods)
+		rel, rerr := collectReleases(ctx, gitOpts, *dir, releaseMods)
 		if rerr != nil {
 			return runErr(ctx, stdout, stderr, rerr)
 		}
@@ -554,7 +588,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 			idx.Releases = rel
 		}
 	}
-	src, serr := collectSource(ctx, *dir)
+	src, serr := collectSource(ctx, gitOpts, *dir)
 	if serr != nil {
 		return runErr(ctx, stdout, stderr, serr)
 	}
@@ -612,7 +646,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	// 空集合不更新索引分支：它没有可表达的内容，且会让“无参数/--flag=false”
 	// 这类等价调用产生不同的 commit hash（v0.45 的等价判据会红）。
 	if *branch != "" && len(idx.Modules) > 0 {
-		if !isGitDir(ctx, *dir) {
+		if !isGitDir(ctx, gitOpts) {
 			if branchSet {
 				return runErr(ctx, stdout, stderr, errs.New(
 					errs.CodeConfigInvalid,
@@ -620,7 +654,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 					"run inside a Git repo, or pass --branch= to disable the index branch"))
 			}
 		} else {
-			branchCommit, err = writeIndexBranch(ctx, *dir, *branch, branchFiles)
+			branchCommit, err = writeIndexBranch(ctx, gitOpts, *dir, *branch, branchFiles)
 			if err != nil {
 				return runErr(ctx, stdout, stderr, err)
 			}
@@ -692,8 +726,7 @@ func modulesForRelease(mods []moduleInfo, global bool) []moduleInfo {
 // collectReleases 从本地 Git tags 收集 `<modulePath>/v<version>` → commit。
 //
 // 不是 Git 仓库时返回 nil（索引仍可生成）；Git 命令失败则报错，不静默写出空映射。
-func collectReleases(ctx context.Context, dir string, mods []moduleInfo) (map[string]map[string]collectionRelease, error) {
-	gitOpts := git.Options{Dir: dir}
+func collectReleases(ctx context.Context, gitOpts git.Options, dir string, mods []moduleInfo) (map[string]map[string]collectionRelease, error) {
 	if _, err := git.Run(ctx, gitOpts, "rev-parse", "--git-dir"); err != nil {
 		return nil, nil // 普通目录：没有 releases，不是错误
 	}
@@ -733,17 +766,16 @@ func collectReleases(ctx context.Context, dir string, mods []moduleInfo) (map[st
 }
 
 // isGitDir 报告 dir 是否位于一个 Git 仓库内。
-func isGitDir(ctx context.Context, dir string) bool {
-	res, err := git.RunAllowFailure(ctx, git.Options{Dir: dir}, "rev-parse", "--git-dir")
+func isGitDir(ctx context.Context, gitOpts git.Options) bool {
+	res, err := git.RunAllowFailure(ctx, gitOpts, "rev-parse", "--git-dir")
 	return err == nil && res.ExitCode == 0
 }
 
 // collectSource 把索引锚到代码 commit；不是 Git 仓库或无 HEAD 时省略。
-func collectSource(ctx context.Context, dir string) (*collectionSource, error) {
-	if !isGitDir(ctx, dir) {
+func collectSource(ctx context.Context, gitOpts git.Options, dir string) (*collectionSource, error) {
+	if !isGitDir(ctx, gitOpts) {
 		return nil, nil
 	}
-	gitOpts := git.Options{Dir: dir}
 	commit, err := git.RevParse(ctx, gitOpts, dir, "HEAD")
 	if err != nil {
 		// 空仓库（还没有 commit）可以生成索引，但没有可锚定的源码状态。
@@ -769,8 +801,7 @@ func collectSource(ctx context.Context, dir string) (*collectionSource, error) {
 // 它**不推送**：分支发布由 CI/用户显式完成。commit message 记录代码 commit，
 // 让“索引快照 ↔ 代码状态”的关系可查。批量写入用 `hash-object --stdin-paths`
 // 与 `update-index --index-info`，避免为每个分片启动一个 git 子进程。
-func writeIndexBranch(ctx context.Context, dir, branch string, files map[string][]byte) (string, error) {
-	gitOpts := git.Options{Dir: dir}
+func writeIndexBranch(ctx context.Context, gitOpts git.Options, dir, branch string, files map[string][]byte) (string, error) {
 	if res, err := git.RunAllowFailure(ctx, gitOpts, "check-ref-format", "--branch", branch); err != nil || res.ExitCode != 0 {
 		return "", errs.New(errs.CodeConfigInvalid,
 			"invalid branch name "+branch,
@@ -845,7 +876,9 @@ func writeIndexBranch(ctx context.Context, dir, branch string, files map[string]
 	tmpIndex.Close()
 	defer func() { _ = os.Remove(tmpIndexName) }()
 
-	indexOpts := git.Options{Dir: dir, ExtraEnv: []string{"GIT_INDEX_FILE=" + tmpIndexName}}
+	indexOpts := gitOpts
+	indexOpts.ExtraEnv = append(append([]string{}, gitOpts.ExtraEnv...),
+		"GIT_INDEX_FILE="+tmpIndexName)
 	if _, err := git.Run(ctx, indexOpts, "read-tree", "--empty"); err != nil {
 		return "", errs.Wrap(errs.CodeGitFetch, "prepare the index tree",
 			"check repository permissions", err)
@@ -877,7 +910,7 @@ func writeIndexBranch(ctx context.Context, dir, branch string, files map[string]
 	}
 
 	msg := "ngm index"
-	if src, _ := collectSource(ctx, dir); src != nil && src.Commit != "" {
+	if src, _ := collectSource(ctx, gitOpts, dir); src != nil && src.Commit != "" {
 		msg += ": " + src.Commit
 	}
 	commitArgs := []string{"commit-tree", tree, "-m", msg}

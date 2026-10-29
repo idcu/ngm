@@ -48,6 +48,15 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	}
 
 	runner := adapter.NewRunner(cat, env.ProjectDir)
+	// `deny: ["env:X"]` 的**第三个**施力点：引擎子进程。
+	//
+	// git 侧有 buildEnv、沙箱侧有 envWithout，而引擎侧此前是裸
+	// `os.Environ()`——于是这条 deny 只对前两者生效，esbuild / tsc /
+	// 用户自定义引擎照旧看得到 token（v0.105）。三处现在共用
+	// internal/envutil 的同一份实现。
+	if env.Policy != nil {
+		runner.WithDeniedEnv(env.Policy.DeniedEnvVars())
+	}
 	// 回退是隐式行为，必须让用户看见：primary 挂了却只看到 fallback 的
 	// 输出，会让人误判是哪个引擎在干活。
 	runner.OnWarn(func(format string, args ...any) {

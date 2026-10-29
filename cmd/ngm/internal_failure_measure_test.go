@@ -65,6 +65,11 @@ func TestV22StdoutWriteFailureIsMeasured(t *testing.T) {
 	t.Run("attest", func(t *testing.T) {
 		measureInternalFailure(t, "attest", "--dir="+p)
 	})
+	// v0.105：adopt 的证明算完了，stdout 写不出去。
+	t.Run("adopt", func(t *testing.T) {
+		seedNodeModules(t, p)
+		measureInternalFailure(t, "adopt", "--json", "--dir="+p)
+	})
 }
 
 // measureInternalFailure 跑一次"写不出去"的命令并要求它退 **6**。

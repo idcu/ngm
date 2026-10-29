@@ -193,13 +193,32 @@ func (lt *LinkTree) materialize(digest, canonicalPath, subPath string, relative 
 		return LinkResult{}, err
 	}
 
+	// 父目录先建出来：下面的**大小写探针**要在真实的目标文件系统上问，
+	// 而不是按 GOOS 猜（Linux 也能挂 case-insensitive 的卷）。
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid, "create vendor parent dir", "", err)
+	}
+
+	// 大小写折叠的文件系统上，仅大小写不同的两个条目会落到**同一个路径**：
+	// 第一次 hardlink 成功，第二次返回 EEXIST → auto 降级 copy → 以 O_TRUNC
+	// 覆盖同一个文件 → 后写者胜，而 `files++` 照增、安装照报成功。
+	//
+	// v0.105 实测（Windows）：仓库里同时有 `Foo.txt` 与 `foo.txt` 时，
+	// `ngm install` 打印 "installed 1 dependencies"，vendor 里只剩一个文件；
+	// 紧接的 `ngm verify` 报 `critical` exit 2（"foo.txt: present in the content
+	// store but missing from vendor"）——**工具自己造出一个自己拒绝的世界**，
+	// 而中间那步看起来是成功的。
+	//
+	// 处置是 fail-closed，且必须在 `os.RemoveAll(dst)` **之前**：
+	// 先删再拒绝等于用一个"拒绝"把用户原来的 vendor 也删掉了。
+	if err := ensureNoCaseCollisions(entries, filepath.Dir(dst)); err != nil {
+		return LinkResult{}, err
+	}
+
 	// vendor 是派生物：先清理，避免残留已删除的文件
 	if err := os.RemoveAll(dst); err != nil {
 		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid, "clean "+dst,
 			"close any process holding files under ngm.vendor/", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return LinkResult{}, errs.Wrap(errs.CodeConfigInvalid, "create vendor parent dir", "", err)
 	}
 
 	// 整目录 symlink 只在**还有一棵树可链**时成立（v1 布局）。
@@ -257,6 +276,67 @@ func validateEntryPaths(entries []ContentEntry) error {
 		}
 	}
 	return nil
+}
+
+// ensureNoCaseCollisions 在落地的目标文件系统上拒绝"仅大小写不同"的条目对。
+//
+// 判据跟随**磁盘**（isCaseInsensitiveDir），不跟随 GOOS：同一份清单在 Linux
+// 上可以忠实落地，在 Windows 上不能。把两件事混为一谈会得到"要么误拒 Linux、
+// 要么在 Windows 上静默丢文件"。
+func ensureNoCaseCollisions(entries []ContentEntry, dir string) error {
+	a, b, ok := caseCollision(entries)
+	if !ok || !isCaseInsensitiveDir(dir) {
+		return nil
+	}
+	return errs.New(errs.CodeConfigInvalid,
+		fmt.Sprintf("refusing to materialize %s and %s: they differ only by case, "+
+			"and this filesystem folds case (one would silently overwrite the other)", a, b),
+		"the dependency cannot be materialized faithfully here; "+
+			"pin a commit that renames one of them, or use a case-sensitive volume")
+}
+
+// caseCollision 返回第一对**仅大小写不同**的条目路径（按清单顺序）。
+//
+// 用 ToLower 做折叠：这是对 Windows / macOS 默认卷行为的近似，而不是完整的
+// Unicode case folding——它比漏判更保守（会多拒几对罕见路径），而漏判的代价是
+// 静默丢文件。
+func caseCollision(entries []ContentEntry) (a, b string, ok bool) {
+	seen := make(map[string]string, len(entries))
+	for _, e := range entries {
+		folded := strings.ToLower(e.Path)
+		if prev, dup := seen[folded]; dup && prev != e.Path {
+			return prev, e.Path, true
+		}
+		if _, dup := seen[folded]; !dup {
+			seen[folded] = e.Path
+		}
+	}
+	return "", "", false
+}
+
+// isCaseInsensitiveDir 在**真实的**目标目录上探测"这个文件系统折叠大小写吗"。
+//
+// 不按 runtime.GOOS 判断：Linux 可以挂 case-insensitive 卷（ext4 casefold、
+// 容器里的 vfat），macOS 也可以格式化成 case-sensitive。判据必须是磁盘本身。
+//
+// 探测失败返回 false（= 按大小写敏感处理，保持既有行为）：
+// 探针目录是落地目标本身，写不进去时后面每一步都会失败并报出真因，
+// 这里不该用一条推测性的拒绝把那个真因盖掉。
+func isCaseInsensitiveDir(dir string) bool {
+	f, err := os.CreateTemp(dir, ".ngm-caseprobe-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	defer func() { _ = os.Remove(name) }()
+
+	folded := strings.ToUpper(filepath.Base(name))
+	if folded == filepath.Base(name) {
+		return false
+	}
+	_, statErr := os.Stat(filepath.Join(dir, folded))
+	return statErr == nil
 }
 
 // EscapesPackageTree 报告条目路径空间中的 symlink 目标是否逃逸依赖子树。

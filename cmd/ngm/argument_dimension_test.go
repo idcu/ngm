@@ -162,4 +162,13 @@ var argumentDimensions = []struct {
 //
 // 留这张表是为了让"某个命令真的可以在这两种形状下退 0"有一个**被看见的位置**：
 // 一旦有人往里加东西，diff 里就会多一行带理由的登记。
-var exitZeroOnArguments = map[string]string{}
+var exitZeroOnArguments = map[string]string{
+	// v0.105：`doctor` 是 v0.104 新增的命令，此前没有走过这条参数维度——
+	// 它一进矩阵就退 0，而"退 0 必须登记"正是这张网的规矩。
+	//
+	// 这个 0 是**有意的**（与 exitZeroByDesign["doctor"] 同一条理由）：
+	// doctor 的职责是"把哪里坏了说出来"，判定好坏由报告里的 fail 项承担。
+	// 无参数时 `--dir` 取默认值 "."，于是它诊断的是"当前目录不是一个项目"——
+	// 那是它的正常输入之一，不是它自己的失败。
+	"doctor/no-args": "诊断命令：结论在报告的 fail 项里；「这个目录不能当项目用」是它在诊断的东西，不是它失败了",
+}

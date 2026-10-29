@@ -42,7 +42,16 @@ func TestV66ExitCodePrecedence(t *testing.T) {
 		{"完整性失败", Report{Dependencies: []DepResult{criticalDep}}, 2},
 		{"--allow-drift 不降级 critical", Report{Dependencies: []DepResult{criticalDep}, AllowDrift: true}, 2},
 		{"操作性失败", Report{Dependencies: []DepResult{operationalDep}}, 4},
-		{"4 高于 2：不完整的校验不得被读作完整性结论", Report{Dependencies: []DepResult{operationalDep, criticalDep}}, 4},
+		// v0.105 翻转了这条期望。原期望是 4，理由是"不完整的校验不得被读作
+		// 完整性结论"——那条理由排除的是 0/1，不包括 2。而 4 的语义是
+		// "资源缺失、可重试"，于是 CI 会把**已证明被篡改**当成一次可以重试的
+		// 网络抖动：重试而不阻断。2 同时满足"不是通过"，且多一条"禁止构建"。
+		//
+		// 判据也一并收紧：同一依赖**同时**有 Err 与 critical 的情形单独成格，
+		// 因为旧代码的 `continue` 正是在那一格里把 critical 整块丢掉的。
+		{"2 高于 4：已确证的篡改压过没查成", Report{Dependencies: []DepResult{operationalDep, criticalDep}}, 2},
+		{"同一依赖既有 Err 又有 critical ⇒ 仍是 2",
+			Report{Dependencies: []DepResult{{Name: "f", Err: "network down", DriftKind: DriftCritical}}}, 2},
 		{"2 高于 1", Report{Dependencies: []DepResult{criticalDep, unexpectedDep}}, 2},
 		{"1 高于 0", Report{Dependencies: []DepResult{unexpectedDep, okDep}}, 1},
 		{"--strict 与 --allow-drift 作用于不同分类，互不抵消",
@@ -78,9 +87,9 @@ func TestV66SummarizeCounts(t *testing.T) {
 	if s.ExitCode != rep.ExitCode() {
 		t.Errorf("Summary.ExitCode = %d, but ExitCode() = %d", s.ExitCode, rep.ExitCode())
 	}
-	// 有操作性失败 → 4
-	if s.ExitCode != 4 {
-		t.Errorf("Summary.ExitCode = %d, want 4", s.ExitCode)
+	// 有 critical 同时也有操作性失败 → 2（v0.105：critical 优先，见 ExitCode 的注释）
+	if s.ExitCode != 2 {
+		t.Errorf("Summary.ExitCode = %d, want 2 (critical outweighs operational)", s.ExitCode)
 	}
 }
 

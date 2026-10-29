@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/envutil"
 )
 
 // versionProbeTimeout 限制版本探测的耗时。
@@ -43,10 +44,25 @@ type subprocessEngine struct {
 	probed   bool
 	version  string
 	probeErr error
+
+	// deniedEnv 是不交给引擎子进程的变量名（来自策略的 `deny: ["env:X"]`）。
+	//
+	// 为什么在这层也要做（v0.105）：`--deny-env` 是 Deno 的 API，git 侧有
+	// `buildEnv`——而引擎子进程此前直接 `append(os.Environ(), extra...)`，
+	// 于是 `deny: ["env:GITHUB_TOKEN"]` 只对 git 与沙箱生效，
+	// esbuild / tsc / 自定义引擎照旧能读到 token。
+	// 三个施力点现在共用 [envutil.Without]，语义只有一处。
+	deniedEnv []string
 }
 
-func newSubprocessEngine(entry Entry, dir string) *subprocessEngine {
-	return &subprocessEngine{entry: entry, dir: dir}
+func newSubprocessEngine(entry Entry, dir string, deniedEnv []string) *subprocessEngine {
+	return &subprocessEngine{entry: entry, dir: dir, deniedEnv: deniedEnv}
+}
+
+// run 是本引擎执行子进程的唯一入口：把 deniedEnv 一并交给 runProcessEnv，
+// 使"每个 runProcess 调用点都要记得传拒绝列表"变成不可能忘。
+func (e *subprocessEngine) run(ctx context.Context, args []string, stdin []byte, extraEnv []string) (*runResult, error) {
+	return runProcessEnv(ctx, e.entry.Program, args, e.dir, stdin, extraEnv, e.deniedEnv)
 }
 
 // Name 实现 Engine。
@@ -92,7 +108,7 @@ func (e *subprocessEngine) Version() (string, error) {
 	defer cancel()
 
 	args := append(append([]string{}, e.entry.Args...), "--version")
-	res, err := runProcess(ctx, e.entry.Program, args, e.dir, nil, nil)
+	res, err := e.run(ctx, args, nil, nil)
 	if err != nil {
 		e.probeErr = err
 		return "", err
@@ -122,12 +138,32 @@ func (e *subprocessEngine) Bundle(ctx context.Context, entry string, opts Bundle
 		return nil, err
 	}
 	env := e.envFor(opts.Production)
-	res, err := runProcess(ctx, e.entry.Program, inv.Args, e.dir, nil, env)
+	res, err := e.run(ctx, inv.Args, nil, env)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
 	out := &BundleResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
+		// "引擎退出 0"不是产物存在的证据（v0.105）。
+		// 此前这里只把路径抄进结果：引擎写了别处、或什么都没写，
+		// `ngm build` 仍然报成功，而下游拿到的是一个不存在的文件。
+		written := opts.Outfile
+		if !filepath.IsAbs(written) {
+			written = filepath.Join(e.dir, written)
+		}
+		if st, serr := os.Stat(written); serr != nil || st.IsDir() {
+			detail := "the file does not exist"
+			if serr == nil {
+				detail = "that path is a directory"
+			}
+			return nil, annotate(&EngineError{
+				Code:    0,
+				Message: fmt.Sprintf("%s exited 0 but produced no bundle at %s (%s)", e.entry.Name, written, detail),
+				Fallback: true,
+				Hint: "check the engine's output flags (`ngm engines validate`); " +
+					"ngm will not report a bundle it cannot see",
+			}, e.entry, inv.Args)
+		}
 		out.Outfile = opts.Outfile
 	} else {
 		out.Code = res.Stdout
@@ -141,7 +177,7 @@ func (e *subprocessEngine) Transform(ctx context.Context, input []byte, opts Tra
 	if err != nil {
 		return nil, err
 	}
-	res, err := runProcess(ctx, e.entry.Program, inv.Args, e.dir, stdinFor(inv, input), nil)
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, input), nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -157,7 +193,7 @@ func (e *subprocessEngine) Check(ctx context.Context, entry string, opts TypeChe
 	if err != nil {
 		return nil, err
 	}
-	res, err := runProcess(ctx, e.entry.Program, inv.Args, e.dir, stdinFor(inv, nil), nil)
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, nil), nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -175,7 +211,7 @@ func (e *subprocessEngine) GenerateTypeDecl(ctx context.Context, entry string, o
 	if err != nil {
 		return nil, err
 	}
-	res, err := runProcess(ctx, e.entry.Program, inv.Args, e.dir, stdinFor(inv, nil), nil)
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, nil), nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -200,7 +236,7 @@ func (e *subprocessEngine) Compile(ctx context.Context, input []byte, opts CSSOp
 	if err != nil {
 		return nil, err
 	}
-	res, err := runProcess(ctx, e.entry.Program, inv.Args, e.dir, stdinFor(inv, input), nil)
+	res, err := e.run(ctx, inv.Args, stdinFor(inv, input), nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -288,11 +324,19 @@ type runResult struct {
 const waitDelayAfterCancel = 2 * time.Second
 
 func runProcess(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv []string) (*runResult, error) {
+	return runProcessEnv(ctx, program, args, dir, stdin, extraEnv, nil)
+}
+
+// runProcessEnv 与 runProcess 相同，但先按 deniedEnv 剔掉被拒绝的变量。
+//
+// 剔除发生在**追加 extraEnv 之前**：先滤后加，extraEnv 才不会被滤掉，
+// 而从父进程继承来的 token 已经不在列表里了。
+func runProcessEnv(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv, deniedEnv []string) (*runResult, error) {
 	cmd := exec.CommandContext(ctx, program, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Env = append(envutil.Without(os.Environ(), deniedEnv), extraEnv...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

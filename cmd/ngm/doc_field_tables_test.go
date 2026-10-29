@@ -38,6 +38,8 @@ var jsonShapeSourceFiles = map[string][]string{
 	"engines":      {"./engines*.go"},
 	"modules":      {"./modules.go"},
 	"doctor":       {"./doctor.go"},
+	// v0.105：adopt 的报告类型在 internal/adopt（它是证据文件的 schema）。
+	"adopt": {"../../internal/adopt/*.go"},
 	// v0.66：两个写命令的报告结构体都在 install.go（update 共用同一形状）。
 	"install": {"./install.go"},
 	"update":  {"./install.go"},

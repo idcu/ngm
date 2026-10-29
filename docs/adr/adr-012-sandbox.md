@@ -14,6 +14,28 @@
 
 ---
 
+## 修订（v0.105，2026-10-29）：`--deny-*` 不覆盖**模块加载**
+
+上面那句"默认全拒（无网络…）"在实现上曾**不成立**，而实现与结论的差距是本 ADR
+最该记下来的一课：结论写得比实现强，没有任何判据会因此变红。
+
+实测（Deno 1.45.2，`--deny-net --no-remote --deny-write --deny-run --deny-env
+--deny-read` 全给）：`import "npm:is-number@7.0.0"` **成功**，包被真的下载进
+`<DENO_DIR>/npm/registry.npmjs.org/…`。原因是 `--deny-net` 管的是 Deno API 的
+`fetch`，而 `npm:` 解析走运行时自己的 registry 客户端；`--no-remote` 只覆盖
+http(s) 模块。同一类漏掉的还有**工作目录里的 `deno.json`**——沙箱的 cwd 是依赖
+自己的目录，那份配置由上游控制。
+
+处置：`Grants.DenoArgs()` 追加 `--no-npm`、`--no-config`、`--no-lock`，三者与
+其它 deny 一样显式写进 argv（决策 3 的原意：边界应当是读日志就能看见的东西）。
+判据 `TestV105SandboxDeniesModuleLoading` 同时断言 argv 与**真实行为**，
+且行为那半**禁止 `t.Skip`**：它测的正是这条边界，跳过它就等于没有边界。
+
+原始结论（"默认全拒"）因此**现在是真话**，但它成立的依据从"Deno 默认拒绝"
+改成了"我们把三个开关逐一写出来了"——这也是决策 3 当初选择显式 argv 的价值。
+
+---
+
 ## 背景
 
 ### 为什么要这篇 ADR

@@ -63,8 +63,14 @@ func (p *ProjectFile) Validate() error {
 			fmt.Sprintf("set `runtime` to one of %v in ngm.json", ValidRuntime()),
 		)
 	}
-	for i, d := range p.Dependencies {
-		if err := d.Validate(); err != nil {
+	// 必须按下标写回：`for _, d := range` 拿到的是**副本**，而 `Validate` 会
+	// 为"完整 40 位 commit 省略 refType"补上窄默认（见该方法内的注释）。
+	// v0.105 实测的后果：同一份 ngm.json，`ngm config validate` 打印
+	// `ngm.json OK`（exit 0），而 `ngm tree` / `ngm install` 报
+	// `ConfigInvalid: invalid refType ""`（exit 3）——两个命令对同一份清单
+	// 给出相反结论，而 CI 只会跑到前者。
+	for i := range p.Dependencies {
+		if err := p.Dependencies[i].Validate(); err != nil {
 			return fmt.Errorf("dependencies[%d]: %w", i, err)
 		}
 	}

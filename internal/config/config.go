@@ -13,6 +13,7 @@
 package config
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -321,9 +322,27 @@ func globalConfigErr(cause error) error {
 		"fix the reported field in ~/.ngm/config.json, or move the file aside to run with defaults")
 }
 
+// stripBOM 跳过文件开头的 UTF-8 BOM。
+//
+// 为什么必须容忍它（v0.105 实测）：Windows PowerShell 5.1 的
+// `Set-Content -Encoding utf8` 与 Notepad 的"UTF-8"默认都**写入 BOM**，
+// 而 `encoding/json` 会在 BOM 上报 `invalid character '\ufeff'`。
+// 症状是"文件肉眼看着完全正确、工具说不合法"，而 ngm 的第一顺位用户
+// 恰好在 Windows 上——这是第一次上手就会撞到的死法。
+//
+// BOM 不是内容的一部分：JSON（RFC 8259 §8.1）要求解析器可以忽略它。
+func stripBOM(r io.Reader) io.Reader {
+	br := bufio.NewReader(r)
+	if b, err := br.Peek(3); err == nil && len(b) == 3 &&
+		b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
+		_, _ = br.Discard(3)
+	}
+	return br
+}
+
 func decodeProject(r io.Reader, path string) (*ProjectFile, error) {
 	var p ProjectFile
-	dec := json.NewDecoder(r)
+	dec := json.NewDecoder(stripBOM(r))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
@@ -336,7 +355,7 @@ func decodeProject(r io.Reader, path string) (*ProjectFile, error) {
 
 func decodeGlobal(r io.Reader, path string) (*GlobalFile, error) {
 	var g GlobalFile
-	dec := json.NewDecoder(r)
+	dec := json.NewDecoder(stripBOM(r))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&g); err != nil {
 		return nil, globalConfigErr(fmt.Errorf("parse %s: %w", path, err))

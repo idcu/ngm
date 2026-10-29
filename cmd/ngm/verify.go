@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/idcu/ngm/internal/config"
@@ -12,12 +14,21 @@ import (
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/core/verify"
+	"github.com/idcu/ngm/internal/version"
+)
+
+// `--format` 的取值。放成常量而不是散在字符串里：
+// 校验、渲染分支与帮助文本读同一份，三者不会各自漂移。
+const (
+	reportFormatSARIF  = "sarif"
+	reportFormatGitHub = "github"
 )
 
 const verifyUsage = `ngm verify — check ref drift and replay the content digest
 
 USAGE:
-  ngm verify [<dep>...] [--dir=<dir>] [--offline] [--deep] [--strict] [--allow-drift] [--json] [--sandbox]
+  ngm verify [<dep>...] [--dir=<dir>] [--offline] [--deep] [--strict] [--allow-drift] [--json]
+             [--format=sarif|github] [--sandbox] [--signatures] [--require-signed]
 
 ARGS:
   <dep>   verify only these dependency slugs (default: everything in ngm.lock)
@@ -32,6 +43,17 @@ FLAGS:
   --strict       treat expected updates (a branch that advanced) as failures
   --allow-drift  do not fail on unexpected drift (critical still returns 2)
   --json         write a machine-readable report to stdout (CI should use this)
+  --format       render the report for another consumer (stdout), instead of the
+                 human text and instead of ngm's own --json schema:
+                   sarif   SARIF 2.1.0 - upload with github/codeql-action/upload-sarif
+                           or open in any SARIF viewer. No region/line is emitted:
+                           ngm does not know line numbers, and a fake "line: 1" would
+                           pin every annotation to the first line of the file.
+                   github  GitHub Actions workflow commands - one error/notice
+                           annotation per failing check. Needs no extra permission.
+                 Mutually exclusive with --json (same channel, two spellings).
+                 If the run produced no report at all (bad lock, missing config),
+                 stdout stays empty and the error goes to stderr as usual.
   --sandbox      additionally run each dependency's own verify.js inside a Deno
                  sandbox, with no network, no run, no env and read access limited
                  to that dependency's own vendor subtree.
@@ -85,6 +107,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	strict := fs.Bool("strict", false, "treat expected updates as failures")
 	allowDrift := fs.Bool("allow-drift", false, "do not fail on unexpected drift")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
+	format := fs.String("format", "", "render the report for another consumer: sarif or github")
 	sandbox := fs.Bool("sandbox", false, "run dependency self-check scripts in a Deno sandbox")
 	signatures := fs.Bool("signatures", false, "report each dependency's Git signature status")
 	requireSigned := fs.Bool("require-signed", false,
@@ -98,6 +121,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		{Name: "strict", Bool: true},
 		{Name: "allow-drift", Bool: true},
 		{Name: "json", Bool: true},
+		{Name: "format"},
 		{Name: "sandbox", Bool: true},
 		{Name: "signatures", Bool: true},
 		{Name: "require-signed", Bool: true},
@@ -107,6 +131,37 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
+	// `--format` 的两条校验都必须在**任何工作之前**完成：
+	//
+	//  1. 显式空值（`--format=` / `--format ""`）必须被拒绝。Go 的 flag 把它解析成
+	//     空串，而空串与"没给这个 flag"在后续代码里无法区分——那正是 v0.41 那个
+	//     "静默把空值当成默认值"的缺陷形状，只不过这次的默认值恰好是"不渲染"。
+	//  2. `--json` 与 `--format` 是**同一条通道的两种写法**，同时给出说明调用方
+	//     自己也不知道要什么；猜一个比报错更糟。
+	formatSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "format" {
+			formatSet = true
+		}
+	})
+	if formatSet && strings.TrimSpace(*format) == "" {
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"`--format` was given an empty value",
+			"use --format=sarif (Code Scanning) or --format=github (PR annotations)"))
+	}
+	switch *format {
+	case "", reportFormatSARIF, reportFormatGitHub:
+	default:
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"unknown --format "+strconv.Quote(*format),
+			"supported: sarif, github (omit the flag for the human report)"))
+	}
+	if *jsonOut && *format != "" {
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"--json and --format are two spellings of the same channel",
+			"keep one: --json for ngm's own schema, --format=sarif|github for a consumer's"))
+	}
+
 	ctx = markJSONIfRequested(ctx, *jsonOut)
 
 	env, err := newProjectEnv(*dirFlag)
@@ -161,6 +216,31 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	rep, verr := verify.Run(ctx, lf, opts)
 	if verr != nil {
 		return runErr(ctx, stdout, stderr, verr)
+	}
+
+	// 三种渲染共享同一份判定（`rep` 与 `rep.Summary.ExitCode`），差别只在字节上。
+	// 这也是"判定与渲染分离"的可测形态：三个出口的退出码必然相同。
+	machine := *jsonOut || *format != ""
+	switch *format {
+	case reportFormatSARIF:
+		data, rerr := verify.RenderSARIF(&rep, version.Version)
+		if rerr != nil {
+			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeInternal,
+				"encode SARIF", "this is an internal error; report it", rerr))
+		}
+		if _, werr := stdout.Write(data); werr != nil {
+			fmt.Fprintf(stderr, "write report: %v\n", werr)
+			return errs.CodeInternal.ExitCode()
+		}
+		return finishVerify(ctx, env, pf, lf,
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, machine, stdout, stderr)
+	case reportFormatGitHub:
+		if _, werr := io.WriteString(stdout, verify.RenderGitHub(&rep)); werr != nil {
+			fmt.Fprintf(stderr, "write report: %v\n", werr)
+			return errs.CodeInternal.ExitCode()
+		}
+		return finishVerify(ctx, env, pf, lf,
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, machine, stdout, stderr)
 	}
 
 	if *jsonOut {

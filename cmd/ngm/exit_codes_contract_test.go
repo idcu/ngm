@@ -83,6 +83,9 @@ const (
 	setupOsvVuln  = "osvvuln"  // OSV 走本地替身（一个 HIGH 发现）
 	setupGhost    = "ghost"    // 引擎目录里声明了一个"没装"的引擎
 	setupEngine   = "engine"   // 真实可跑的假引擎（FAKE_EXIT 控制成功/失败）
+	// setupNodeModules 是 v0.105 的 `adopt` 夹具：一个 node_modules（两个包）
+	// 加一份 package-lock.json（其中一个来源是 Git commit，另一个是 registry）。
+	setupNodeModules = "nodemodules"
 )
 
 // fakeEngine 是假引擎二进制的路径，由测试启动时构建一次。
@@ -122,6 +125,11 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "sbom", code: 0, args: nil, setup: setupDep},
 	// v0.70：attest 读同一份 lock 导出 in-toto / SLSA 语句。
 	{cmd: "attest", code: 0, args: nil, setup: setupDep},
+	// v0.105：adopt 读**别人的** node_modules 出具内容证明——它不需要 ngm.json，
+	// 也不需要 ngm.lock（这正是它的全部意义：不要求迁移）。
+	{cmd: "adopt", code: 0, args: []string{"--json"}, setup: setupNodeModules},
+	// 同一个命令的配置错误：没有 node_modules 就没什么可描述的。
+	{cmd: "adopt", code: 3, args: nil, setup: setupProject},
 
 	// ---- 1：策略失败（非预期漂移 / 引擎运行失败 / 超阈值漏洞）----
 	{cmd: "verify", code: 1, args: nil, setup: setupDrift},
@@ -212,6 +220,7 @@ var exitCodeElsewhere = []exitCase{
 	{cmd: "engines", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/engines"},
 	{cmd: "sbom", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/sbom"},
 	{cmd: "attest", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/attest"},
+	{cmd: "adopt", code: 6, why: "TestV22StdoutWriteFailureIsMeasured/adopt"},
 	{cmd: "verify", code: 5, why: "TestV22DenoIsMissing/verify"},
 	{cmd: "install", code: 5, why: "TestV22DenoIsMissing/install"},
 	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},
@@ -500,6 +509,10 @@ func buildFixture(t *testing.T, home, setup string) string {
 		p := newProject(t)
 		seedDep(t, p)
 		return p
+	case setupNodeModules:
+		p := newProject(t)
+		seedNodeModules(t, p)
+		return p
 	case setupCold:
 		p := newProject(t)
 		if code, out := runCaptureCode(t, "add", "github:x/cold@v1", "--ref-type=tag", "--dir="+p); code != 0 {
@@ -641,6 +654,40 @@ func declares(cmd string, code int) bool {
 		}
 	}
 	return false
+}
+
+// seedNodeModules 造一个最小的"别人装出来的"依赖树（v0.105 的 adopt 夹具）。
+//
+// 它刻意**不**经过 ngm 的 install：adopt 要证明的正是"不接管安装也能出证据"。
+// lock 里放两条来源：一个 Git commit（可追溯）与一个 registry integrity（只有摘要），
+// 这样 Coverage 的两个计数都不是 0——全 0 或全 1 的夹具分不出这两种分支。
+func seedNodeModules(t *testing.T, p string) {
+	t.Helper()
+
+	writePkg := func(dir, name, version, body string) {
+		full := filepath.Join(p, "node_modules", filepath.FromSlash(dir))
+		if err := os.MkdirAll(full, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(full, "package.json"),
+			[]byte(`{"name":"`+name+`","version":"`+version+`"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(full, "index.js"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePkg("fromgit", "fromgit", "0.1.0", "module.exports = 'git'\n")
+	writePkg("@scope/fromreg", "@scope/fromreg", "2.0.0", "module.exports = 'reg'\n")
+
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	lock := `{"lockfileVersion":3,"packages":{` +
+		`"node_modules/fromgit":{"version":"0.1.0","resolved":"git+https://github.com/x/fromgit.git#` + commit + `"},` +
+		`"node_modules/@scope/fromreg":{"version":"2.0.0","resolved":"https://registry.npmjs.org/@scope/fromreg/-/fromreg-2.0.0.tgz","integrity":"sha512-AAA"}` +
+		`}}`
+	if err := os.WriteFile(filepath.Join(p, "package-lock.json"), []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 var _ = http.StatusOK

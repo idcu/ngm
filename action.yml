@@ -1,0 +1,69 @@
+name: ngm verify
+description: >-
+  Verify Git dependency provenance with ngm and turn every failing check into a
+  pull-request annotation. Requires the `ngm` binary to be on PATH.
+
+# 为什么这是一个 **composite** action 而不是一个 Docker action：
+# 它不做任何构建，只把 `ngm verify` 的两个机器出口接到 PR 上。
+# 多一层容器只多一个失败点（以及一个要维护的基础镜像）。
+#
+# 它**不**下载 ngm：把二进制装到 PATH 是使用者的一次决定（版本、校验和、来源），
+# 而 action 悄悄替你决定"用哪个版本的 ngm"正是供应链工具最不该做的事。
+
+inputs:
+  dir:
+    description: Project directory that contains ngm.json / ngm.lock
+    required: false
+    default: "."
+  format:
+    description: >-
+      github (default) writes ::error/::warning annotations;
+      sarif writes a SARIF 2.1.0 log to the path in `sarif-file`.
+    required: false
+    default: "github"
+  sarif-file:
+    description: Where to put the SARIF log when format=sarif
+    required: false
+    default: "ngm.sarif"
+  args:
+    description: Extra arguments forwarded to `ngm verify` (e.g. "--deep --strict")
+    required: false
+    default: ""
+  fail-on-error:
+    description: >-
+      Fail the step when ngm verify returns non-zero. Set to "false" to publish
+      annotations while letting another step decide (rarely what you want:
+      the exit code is the gate).
+    required: false
+    default: "true"
+
+outputs:
+  exit-code:
+    description: The exit code of `ngm verify` (0 / 1 / 2 / 3 / 4 / 6)
+    value: ${{ steps.verify.outputs.code }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        NGM_DIR: ${{ inputs.dir }}
+        NGM_FORMAT: ${{ inputs.format }}
+        NGM_SARIF: ${{ inputs.sarif-file }}
+        NGM_ARGS: ${{ inputs.args }}
+        NGM_FAIL: ${{ inputs.fail-on-error }}
+      run: |
+        set -o pipefail
+        # The human report would be noise here (annotations carry the same facts);
+        # stderr still gets it for the job log.
+        if [ "$NGM_FORMAT" = "sarif" ]; then
+          ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=sarif > "$NGM_SARIF"
+        else
+          ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=github
+        fi
+        code=$?
+        echo "code=$code" >> "$GITHUB_OUTPUT"
+        if [ "$code" -ne 0 ] && [ "$NGM_FAIL" != "false" ]; then
+          exit "$code"
+        fi

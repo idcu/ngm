@@ -175,8 +175,33 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		why: "**捕获 panic** ⇒ `exit = 1`（这一处连 `CodeRefDrift` 都不提，只写了字面量 1——" +
 			"从前扫描只看这个名字时，它整个是不可见的）",
 	}},
-	"cmd/ngm/verify.go :: runVerify": {{
-		role: roleSource, category: catInternal, why: "`write report: %v`——JSON 报告写不出去",
+	"cmd/ngm/verify.go :: runVerify": {
+		{
+			role: roleSource, category: catInternal,
+			why: "`write report: %v`——`--json` 报告写不出去",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`write report: %v`——`--format=sarif` 报告写不出去（与 --json 同一条规矩，两条通道分开计站点）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`write report: %v`——`--format=github` 注解写不出去",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`encode SARIF`——结论算出来了但编码失败（v0.105 新增的出口）",
+		},
+	},
+	// adopt 把"编码"放在 internal（证据文件的 schema 属于那一层），
+	// 于是同一个"算完了却送不出去"在两处各有一站：编码（本行）与写出（下一行）。
+	"internal/adopt/adopt.go :: Marshal": {{
+		role: roleSource, category: catInternal,
+		why: "`encode the proof`——证据算完了但序列化失败（由 runAdopt 折算成码 6）",
+	}},
+	"cmd/ngm/adopt.go :: runAdopt": {{
+		role: roleSource, category: catInternal,
+		why: "`write proof: %v`——`--json` 的证明写不出去（v0.105 新增的出口）",
 	}},
 	"cmd/ngm/audit.go :: runAudit": {{
 		role: roleSource, category: catInternal, why: "`write report: %v`",

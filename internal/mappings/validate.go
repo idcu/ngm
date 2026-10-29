@@ -154,6 +154,22 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 				return
 			}
 			abs := filepath.Join(toAbs, filepath.FromSlash(strings.TrimPrefix(p, "./")))
+			// v0.106：入口必须**落在被 vendor 的目录里**。
+			//
+			// 合法性检查（schema）只能看字符串形状，而 `filepath.Join` 会老实
+			// 地把 `../../../x.js` 解析到 vendor 之外——那份文件可能真的存在，
+			// 于是"存在性"检查反而放行。而这个值会被 integrations 拼进
+			// tsconfig 的 paths / alias，指向项目里任意位置。
+			if rel, rerr := filepath.Rel(toAbs, abs); rerr != nil ||
+				rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				findings = append(findings, Finding{
+					From: m.From,
+					Message: "`" + kind + "` escapes the vendored directory: " + p +
+						" resolves outside " + m.To,
+					Fatal: true,
+				})
+				return
+			}
 			if _, err := os.Stat(abs); err != nil {
 				findings = append(findings, Finding{
 					From:    m.From,

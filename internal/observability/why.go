@@ -160,6 +160,18 @@ func ResolveTarget(g *resolve.Graph, arg string) (*resolve.Node, error) {
 // 决定与重开条件见 ADR-024。
 const MaxWhyPaths = 64
 
+// MaxWhyWork 是一次 `why`（在有条数上界时）最多访问的节点次数。
+//
+// 存在理由（v0.106）：条数上界只约束**命中**，不约束**搜索**。当目标"在图中、
+// 但从根不可达"时（lock 里有孤儿条目、或上游声明的边断在半路），一条路径都不会
+// 命中，DFS 于是把**全部简单路径**走一遍——那是指数的，而报告里 `pathsTruncated`
+// 仍然是 false（因为一条都没列出来），读的人会以为"没有路径"。
+//
+// 图宽 41 时实测 1 048 576 条路径 / 0.778s / 626 MB；再宽一层就是 16 倍。
+// 10 万次访问在实测里是毫秒级，而人真正会读的路径 ≤ 5 条。
+// `--all` 不受它约束：那是用户明确要求"全部"。
+const MaxWhyWork = 100_000
+
 // FindPaths 找出从根到目标节点的路径，**最多 max 条**（max <= 0 表示不限）。
 //
 // 反向遍历（自顶向下）而不是从 RequiredBy 回溯：RequiredBy 只记录了"父节点"，
@@ -170,10 +182,12 @@ const MaxWhyPaths = 64
 // 否则报告会把"全部列完了"说成"还有更多"，同样是一种说谎。
 func FindPaths(g *resolve.Graph, target string, max int) ([][]string, bool) {
 	limit := 0
+	work := 0
 	if max > 0 {
 		limit = max + 1
+		work = MaxWhyWork
 	}
-	w := &walker{target: target, children: childrenOf(g), limit: limit}
+	w := &walker{target: target, children: childrenOf(g), limit: limit, work: work}
 
 	var roots []*resolve.Node
 	for _, n := range g.Nodes {
@@ -189,6 +203,14 @@ func FindPaths(g *resolve.Graph, target string, max int) ([][]string, bool) {
 		}
 		w.walk(r, nil, map[string]bool{})
 	}
+	// 工作量上界被撞到时，列表**不是完整答案**——即使一条路径都没列出来
+	// （"目标不可达"与"我们没搜完"是两件事，这里只能诚实地说后者）。
+	if w.budgetHit {
+		if max > 0 && len(w.out) > max {
+			return w.out[:max], true
+		}
+		return w.out, true
+	}
 	if max > 0 && len(w.out) > max {
 		return w.out[:max], true
 	}
@@ -203,10 +225,21 @@ type walker struct {
 	limit    int // 0 = 无上限
 	out      [][]string
 	stopped  bool
+	work     int // 0 = 无上限
+	visited  int
+	// budgetHit 记录"是因为工作量上界停的"，而不是因为条数够了。
+	budgetHit bool
 }
 
 func (w *walker) walk(n *resolve.Node, path []string, seen map[string]bool) {
 	if w.stopped {
+		return
+	}
+	// 工作量预算在**每一次访问**上扣减，与"命中了几条"无关（v0.106）。
+	w.visited++
+	if w.work > 0 && w.visited > w.work {
+		w.stopped = true
+		w.budgetHit = true
 		return
 	}
 	path = append(path, label(n))

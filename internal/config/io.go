@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,6 +41,24 @@ func ReadProjectFile(path string) (*ProjectFile, error) {
 		// 内层（validate.go 的校验）现在自己带建议，那句建议知道**是哪个字段、该填什么**；
 		// 而这句兜底只会说"这个文件整体坏了"。原先渲染取最外层非空那句，
 		// 于是兜底把内层盖掉了——用户永远只看到这一句。
+		return nil, errs.WrapUnlessHinted(errs.CodeConfigInvalid, "invalid "+path,
+			"fix the reported field, or run `ngm config validate` for details", err)
+	}
+	return p, nil
+}
+
+// ParseProjectFile 从**已经在内存里的字节**解析 ngm.json。
+//
+// 存在理由（v0.106）：`ngm attest` 要同时做两件互相矛盾的事——解析清单，
+// 以及把**清单的字节**哈希进要被签名的语句。分别调用 `ReadProjectFile` 与
+// `os.ReadFile` 会打开同一个文件两次，两次之间清单若被改动，语句描述的
+// 与它依据的就是两份不同的文件，而签名之后没有任何东西能发现这件事
+// （v0.82 已对 lock 做过同样的修，这里补上另一半）。
+//
+// 错误包装与 ReadProjectFile 同口径：内层校验自带建议时不被兜底遮蔽。
+func ParseProjectFile(data []byte, path string) (*ProjectFile, error) {
+	p, err := decodeProject(bytes.NewReader(data), path)
+	if err != nil {
 		return nil, errs.WrapUnlessHinted(errs.CodeConfigInvalid, "invalid "+path,
 			"fix the reported field, or run `ngm config validate` for details", err)
 	}

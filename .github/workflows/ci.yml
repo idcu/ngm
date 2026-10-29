@@ -360,7 +360,9 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
-          for f in .github/workflows/*.yml; do
+          # v0.105：`action.yml` 也在这条判据的范围内。它是**对外发布的**入口，
+          # 解析不了的表现是"用户那边什么都看不到"，而不是某个 job 变红。
+          for f in .github/workflows/*.yml action.yml; do
             [ -e "$f" ] || continue
             if npx --yes js-yaml@4.1.0 "$f" > /dev/null 2> js-yaml.err; then
               echo "ok      $f"

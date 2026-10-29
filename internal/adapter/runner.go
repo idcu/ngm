@@ -60,11 +60,24 @@ type Runner struct {
 	warn func(format string, args ...any)
 	// beforeRun 在每次真正执行某个引擎之前调用（见 OnEngine）。
 	beforeRun func(entry Entry) error
+	// deniedEnv 是要从引擎子进程环境里剔除的变量名（`deny: ["env:X"]`）。
+	//
+	// 由 CLI 从策略对象注入（见 cmd/ngm/engine.go）：adapter 不读配置，
+	// 也不该知道"为什么"要剔——它只需要知道"哪些不许传"。
+	deniedEnv []string
 }
 
 // NewRunner 创建执行器。dir 为空表示继承当前进程的 cwd。
 func NewRunner(catalog *Catalog, dir string) *Runner {
 	return &Runner{catalog: catalog, dir: dir}
+}
+
+// WithDeniedEnv 设置要从引擎子进程环境里剔除的变量名。
+//
+// 返回自身以便链式调用；传 nil 表示不剔除（既有行为）。
+func (r *Runner) WithDeniedEnv(names []string) *Runner {
+	r.deniedEnv = names
+	return r
 }
 
 // OnWarn 注册回退过程的说明回调（默认丢弃）。
@@ -93,13 +106,22 @@ func (r *Runner) warnf(format string, args ...any) {
 // 逐个报告可用性，构造阶段就失败会让"哪个引擎缺了"无从得知。
 // 可用性判断交给 Engine.Available。
 func NewEngine(entry Entry, dir string) (Engine, error) {
+	return newEngine(entry, dir, nil)
+}
+
+// newEngine 与 NewEngine 相同，但带上要剔除的环境变量名。
+//
+// 分成两层而不是给 NewEngine 加参数：它是一个**导出**的构造入口
+// （`engines list` / 测试在用），加一个必须理解的参数会让"不剔除"
+// 这个合理选择也得写一遍。Runner 走这一层，因为它知道策略。
+func newEngine(entry Entry, dir string, deniedEnv []string) (Engine, error) {
 	switch entry.Adapter {
 	case AdapterSubprocess:
 		if entry.Program == "" {
 			return nil, errs.New(errs.CodeConfigInvalid,
 				"engine `"+entry.Name+"` has an empty `command`", "")
 		}
-		return newSubprocessEngine(entry, dir), nil
+		return newSubprocessEngine(entry, dir, deniedEnv), nil
 	case AdapterWasm:
 		if entry.Program == "" {
 			return nil, errs.New(errs.CodeConfigInvalid,
@@ -193,7 +215,7 @@ func (r *Runner) Plans(kind EngineKind, sel Selection, opts any, entryFile strin
 			p.ReadsStdin = inv.ReadsStdin
 		}
 
-		if eng, eerr := NewEngine(entry, r.dir); eerr == nil {
+		if eng, eerr := newEngine(entry, r.dir, r.deniedEnv); eerr == nil {
 			p.Available = eng.Available()
 			if v, verr := eng.Version(); verr == nil {
 				p.Version = v
@@ -212,7 +234,7 @@ func (r *Runner) Plans(kind EngineKind, sel Selection, opts any, entryFile strin
 func (r *Runner) Bundle(ctx context.Context, sel Selection, entryFile string, opts BundleOptions) (*BundleResult, error) {
 	return runChain(ctx, r, KindBundle, sel,
 		func(ctx context.Context, entry Entry) (*BundleResult, error) {
-			eng, err := NewEngine(entry, r.dir)
+			eng, err := newEngine(entry, r.dir, r.deniedEnv)
 			if err != nil {
 				return nil, err
 			}
@@ -232,7 +254,7 @@ func (r *Runner) Bundle(ctx context.Context, sel Selection, entryFile string, op
 func (r *Runner) Transform(ctx context.Context, sel Selection, input []byte, opts TransformOptions) (*TransformResult, error) {
 	return runChain(ctx, r, KindTransform, sel,
 		func(ctx context.Context, entry Entry) (*TransformResult, error) {
-			eng, err := NewEngine(entry, r.dir)
+			eng, err := newEngine(entry, r.dir, r.deniedEnv)
 			if err != nil {
 				return nil, err
 			}
@@ -252,7 +274,7 @@ func (r *Runner) Transform(ctx context.Context, sel Selection, input []byte, opt
 func (r *Runner) Check(ctx context.Context, sel Selection, entryFile string, opts TypeCheckOptions) (*TypeCheckResult, error) {
 	return runChain(ctx, r, KindTypeCheck, sel,
 		func(ctx context.Context, entry Entry) (*TypeCheckResult, error) {
-			eng, err := NewEngine(entry, r.dir)
+			eng, err := newEngine(entry, r.dir, r.deniedEnv)
 			if err != nil {
 				return nil, err
 			}
@@ -272,7 +294,7 @@ func (r *Runner) Check(ctx context.Context, sel Selection, entryFile string, opt
 func (r *Runner) GenerateTypeDecl(ctx context.Context, sel Selection, entryFile string, opts TypeDeclOptions) (*TypeDeclResult, error) {
 	return runChain(ctx, r, KindTypeDecl, sel,
 		func(ctx context.Context, entry Entry) (*TypeDeclResult, error) {
-			eng, err := NewEngine(entry, r.dir)
+			eng, err := newEngine(entry, r.dir, r.deniedEnv)
 			if err != nil {
 				return nil, err
 			}
@@ -292,7 +314,7 @@ func (r *Runner) GenerateTypeDecl(ctx context.Context, sel Selection, entryFile 
 func (r *Runner) Compile(ctx context.Context, sel Selection, input []byte, opts CSSOptions) (*CSSResult, error) {
 	return runChain(ctx, r, KindCSS, sel,
 		func(ctx context.Context, entry Entry) (*CSSResult, error) {
-			eng, err := NewEngine(entry, r.dir)
+			eng, err := newEngine(entry, r.dir, r.deniedEnv)
 			if err != nil {
 				return nil, err
 			}

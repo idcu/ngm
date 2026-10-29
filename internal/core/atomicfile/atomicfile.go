@@ -71,5 +71,32 @@ func Write(path string, data []byte) error {
 		return errs.Wrap(errs.CodeConfigInvalid, "replace "+path,
 			"close any editor holding the file", err)
 	}
+	// rename 之后还要**同步目录项**（v0.106）。
+	//
+	// `tmp.Sync()` 只把**文件内容**推盘，不保证"这个目录里多了一个名字"也落了盘：
+	// 崩溃后可能看到"内容在、文件名不在"。content store 的 publishManifest 一直在
+	// 做这一步，而这里（lock / ngm.json / ngm.mappings.json / sbom / attest 的 --out）
+	// 没有——差别在于后者里有两样是**要被签名或提交的证据**。
+	syncDir(dir)
 	return nil
+}
+
+// syncDir 是一个**可替换的接缝**，只为判据而存在：
+// "目录项有没有被同步"在没有故障注入的情况下无法从外部观察到，
+// 而库里起一个钩子比让判据去读源码更结实（v0.106）。
+var syncDir = fsyncDir
+
+// fsyncDir 尽力同步目录项。
+//
+// 错误被忽略（与 internal/core/vendor 的实现同一条纪律）：Windows 上对目录句柄
+// Sync 会返回"不支持的函数"，而那是平台能力差异，不是这次写入的失败。
+// 忽略它换来的是"数据内容仍然 sync 过 + rename 仍然原子"，丢掉的只是
+// 掉电窗口的一点点确定性——把整次写入判失败会让 Windows 上所有写操作都失败。
+func fsyncDir(dir string) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_ = f.Sync()
 }

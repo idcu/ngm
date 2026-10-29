@@ -40,13 +40,14 @@
 | 命令 | 作用 | 成熟度 | 主要来源文档 |
 |------|------|--------|-------------|
 | `ngm init <name> [--runtime=node\|deno] [--dir=<path>] [--force]` | 初始化项目（同时生成 `src/index.ts`，不覆盖已存在的） | v0.1 | [快速上手](./quickstart.md) |
+| `ngm adopt [--dir=<dir>] [--out=<file>] [--json]` | 为**已经被别人装好**的依赖（`node_modules`）出具内容证明，写 `ngm.proof.json`。每个包算一个**与 `ngm verify` 的 `archiveDigest` 逐字节同构**的摘要，并按 `package-lock.json` 标注来源（git commit / registry integrity / unknown）。**只读**：不安装、不写 `node_modules`、不改任何 lock；读不了 pnpm/yarn 的 lock 时**在 `notes` 与 `coverage.unknown` 里说出来**，不假装没有来源。它证明"磁盘上是这些字节"，**不**证明"这些代码无害"。**不是** registry 包管理的一环：来源解析只认 `package-lock.json`，**不打算**支持 pnpm/yarn 的 lock（理由见 ADR-040 决定 2 的注）——pnpm 项目接入 ngm 走的是**共存**：`node_modules/` 归 pnpm，`ngm.vendor/` 归 ngm，把那几个 Git 依赖用 `ngm add` 声明出来即可 | **v0.105 新增** | [ADR-040](../adr/adr-040-adopt-proof-layer.md) · [竞品对比](../COMPETITIVE-ANALYSIS.md) |
 | `ngm add <git-url>[@<ref>] [--ref-type <type>] [--infer-ref-type] [--path=<子路径>] [--dry-run]` | 添加依赖（refType 通常必填；完整 40 位 commit 可省略；`--infer-ref-type` 用一次远端 ls-remote 消歧 tag/branch） | v0.1 / **v0.104 增 `--infer-ref-type`** | [依赖管理](./dependency-management.md) |
 | `ngm install [--digest] [--json]` | 解析并安装依赖（有 lock 则尊重 lock）。`--json` **v0.66**：报告每个依赖解析/落地成了什么（含 `source`: resolved / store / fetched），人类文本改走 stderr | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm update [<dep>] [--all] [--offline] [--digest] [--store] [--json]` | 更新 ref 与锁定。`--json` **v0.66**（与 install 同一形状；`dependencies` 覆盖整张图） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm doctor [--dir=<dir>] [--json]` | 诊断本地环境与项目：git、ngm.json、ngm.lock、`~/.ngm` 布局、mirror/module-cache/content-store、嵌套模块扫描。诊断失败写进报告但命令仍退 0；用法错误退 3 | **v0.104 新增** | [可观测性](../architecture/observability.md) |
 | `ngm modules list\|validate\|index [--dir=<dir>] [--json] [--limit=<n>] [--strict] [--index=<file>] [--out=<file>] [--dry-run] [--releases=false] [--shards] [--branch=<name>]` | 集合模块的发现、校验与索引：`list` 扫描嵌套 `ngm.json`，`validate` 检查 JSON、重名、索引一致性，`--strict` 还检查集合内同一依赖是否被钉到不同 ref（把消费者端冲突前移到生产者端），`index` 写确定性的 `ngm.collection.json`、从本地 tag 收集 `version → commit`（`--shards` 写 `releases/<module>.json`），并默认更新本地 `ngm-index` 分支（不推送；支持分片树）；`changed` 列出 `--since` 以来被改动过的模块，`plan` 进一步给出建议的下一个版本/ tag（只读，不提交不打 tag） | **v0.103 已实现**；**v0.104 增 `--shards`、分片分支、`changed` 与 `plan`** | [模块集合](../architecture/module-collections.md) |
-| `ngm verify [<dep>...] [--offline] [--deep] [--json] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2）。**默认（不加 `--deep`）只比结构与大小**——等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode）；**要字节级保证请加 `--deep`**，汇总行也会把这条边界说出来（v0.66） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
+| `ngm verify [<dep>...] [--offline] [--deep] [--json] [--format=sarif\|github] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2）。**默认（不加 `--deep`）只比结构与大小**——等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode）；**要字节级保证请加 `--deep`**，汇总行也会把这条边界说出来（v0.66） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
 | `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run]` | 构建（adapter） | v0.1 | [构建](./build.md) |
 | `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（内置清单里是 `typescript` = tsc）。**需要声明**：`engines.typeCheck` 或 `--engine=typescript`——未声明是 `exit 3`，声明了但 `tsc` 未装才是 `exit 5` | [构建](./build.md) |
 | `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
@@ -152,7 +153,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 
 ## 全局约定
 
-- **退出码**：0 成功 / 1 策略失败（含引擎运行失败 · 漏洞超阈值 · 审计钩子否决）/ 2 完整性失败 / 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用 / 6 **内部失败**（panic · 「结论算出来了却写不出去」——**两条通道同一条规则**：人读路径在 stdout 写失败时也退 6，v0.60 起）；**例外**：管道被**对端关闭**（`ngm verify | head`）不算失败，安静退出，v0.61 起；完整定义见[可观测性](../architecture/observability.md) 与 [ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)
+- **退出码**：0 成功 / 1 策略失败（含引擎运行失败 · 漏洞超阈值 · 审计钩子否决）/ 2 完整性失败（**压过 4**：已确证的篡改优先于"没查成"，v0.105，[ADR-039](../adr/adr-039-exit-code-precedence.md)）/ 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用 / 6 **内部失败**（panic · 「结论算出来了却写不出去」——**两条通道同一条规则**：人读路径在 stdout 写失败时也退 6，v0.60 起）；**例外**：管道被**对端关闭**（`ngm verify | head`）不算失败，安静退出，v0.61 起；完整定义见[可观测性](../architecture/observability.md) 与 [ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)
 - **配置文件**：`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json` / `~/.ngm/config.json`，见[配置详解](./configuration.md)
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。
@@ -184,6 +185,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm engines validate --json` | 对象：`version` · `ok` · `issues` | ✗ |
 | `ngm doctor --json` | 对象：`version` · `ok` · `checks`；`checks` 元素键：`name` · `status` · `detail` | ✗ |
 | `ngm modules list --json` | 对象：`version` · `modules` · `truncated`（截断时） · `limit`；`modules` 元素键：`name` · `path` · `version` · `error` | ✗ |
+| `ngm adopt --json` | 对象：`version` · `tool` · `source` · `coverage` · `packages` · `notes`（`source` 键：`manager` · `lockfile` · `lockfileDigest`；`coverage` 键：`packages` · `withCommit` · `withIntegrity` · `unknown` · `skipped`；`packages` 元素键：`name` · `version` · `path` · `digest` · `files` · `bytes` · `nested` · `provenance`——`provenance` 键：`kind` · `url` · `commit` · `ref` · `resolved` · `integrity`） | ✗ |
 | `ngm modules validate --json` | 对象：`version` · `ok` · `modules` · `errors` | ✗ |
 | `ngm modules changed --json` | 对象：`version` · `since` · `modules`；`modules` 元素键：`name` · `path` · `version` · `error` | ✗ |
 | `ngm modules plan --json` | 对象：`version` · `since` · `bump` · `modules`；`modules` 元素键：`name` · `path` · `version` · `nextVersion` · `tag` | ✗ |
@@ -261,6 +263,29 @@ CI 门禁（v0.1 可用）：
 ngm install            # 有 ngm.lock → 尊重 lock，不重新解析 ref
 ngm verify --json      # 读 driftKind 与退出码：0 通过 / 1 非预期漂移 / 2 完整性失败
 ngm build --outfile=dist/app.js
+```
+
+PR 注解（不需要任何额外权限，失败项直接变成 PR 上的红叉）：
+
+```bash
+ngm verify --format=github
+```
+
+Code Scanning（SARIF 2.1.0；`sarif` 与 `github` 是同一通道的两种写法，不能和 `--json` 同时给）：
+
+```bash
+ngm verify --format=sarif > ngm.sarif
+```
+
+仓库根有一个 composite action（`action.yml`）把这条命令接到 PR 上。它**刻意不下载 ngm**——
+"用哪个版本、从哪校验"是使用者的一次决定，而供应链工具替你决定版本正是它最不该做的事：
+
+```yaml
+- uses: actions/checkout@v4
+- run: echo ok   # 先把 ngm 装到 PATH（发布产物或源码构建都行）
+- uses: ./          # composite action 在本仓库时；外部用 idcu/ngm@<tag>
+  with:
+    args: "--deep --strict"
 ```
 
 完全离线可复现（v0.2 已实现）：

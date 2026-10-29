@@ -35,6 +35,13 @@ var jsonShapeRowTypes = map[string]struct {
 	// v0.66：两个写命令的报告共用同一形状（差别在 `command` 字段）。
 	"install": {"./install.go", "writeReport"},
 	"update":  {"./install.go", "writeReport"},
+	// v0.105：`doctor --json` 的载荷一直是具名类型（`doctorReport`），
+	// 但形状表里那一行**没有登记映射**——于是反向判据每天红着，
+	// 而"少看一行"与"全都对得上"在输出里长得一样（v0.26 的判据抓自己）。
+	"doctor": {"./doctor.go", "doctorReport"},
+	// v0.105：`adopt` 的报告类型住在 internal/adopt（它是"证据文件"的 schema，
+	// 不是 CLI 的临时形状），因此这里指向那个包。
+	"adopt": {"../../internal/adopt/adopt.go", "Proof"},
 	// v0.104：modules 三个子命令各有独立报告类型。
 	"modules list":     {"./modules.go", "modulesListReport"},
 	"modules validate": {"./modules.go", "modulesValidateReport"},

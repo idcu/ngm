@@ -19,6 +19,7 @@ USAGE:
 
 COMMANDS:
   init           初始化项目
+  adopt          为**已安装**的依赖（npm/pnpm 装的）出具内容证明：不接管安装，只描述磁盘上的字节
   add            添加依赖
   install        解析并安装依赖
   update         更新依赖 ref

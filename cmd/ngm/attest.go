@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/attest"
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
@@ -80,17 +81,26 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// v0.81：保留读到的清单（此前丢弃返回值，只判断"在不在场"）。
 	// 只有拿着它才能问"lock 与 ngm.json 是否自洽"——而这一问对一份
 	// 要被签名的产物是必需的。
-	pf, err := env.ReadManifest()
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
-	}
-
 	// 输入的哈希 = **提交进 Git 的那份文件字节**（不是重新序列化后的规范形态）：
 	// 外部参数要钉的是"你审过的那份文件"，重新序列化会掩盖手工编辑。
+	//
+	// v0.106：**只读一次**。此前这里先 `ReadManifest()`（open + decode）再
+	// `os.ReadFile()`（又 open 一次），于是"语句描述的那份清单"与"被哈希进语句的
+	// 那份字节"可能不是同一份文件——而这份语句是要被**签名**的，签完之后
+	// 没有任何东西能发现这个窗口（v0.82 对 lock 做过同样的修，这里是它漏掉的另一半）。
 	manifestBytes, rerr := os.ReadFile(env.ManifestPath())
 	if rerr != nil {
+		if os.IsNotExist(rerr) {
+			return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+				"ngm.json not found at "+env.ManifestPath(),
+				"run `ngm init <name>` first to create a project"))
+		}
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
 			"read "+env.ManifestPath(), "check that the file is readable", rerr))
+	}
+	pf, err := config.ParseProjectFile(manifestBytes, env.ManifestPath())
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
 	}
 	lockBytes, rerr := os.ReadFile(env.LockPath())
 	if rerr != nil {

@@ -37,6 +37,7 @@ type commandSpec struct {
 // 每一项目前都有真实 Run——0.1 时代的 nil 占位与 notImplementedYet 已随 v0.3 移除。
 var commands = []*commandSpec{
 	{Name: "init", Run: runInit, Usage: initUsage},
+	{Name: "adopt", Run: runAdopt, Usage: adoptUsage},
 	{Name: "add", Run: runAdd, Usage: addUsage},
 	{Name: "install", Run: runInstall, Usage: installUsage},
 	{Name: "update", Run: runUpdate, Usage: updateUsage},

@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"strings"
+
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // SignatureStatus 是一次签名检查的结论。
@@ -95,7 +97,38 @@ func TagSignature(ctx context.Context, opts Options, repoPath, tag string) (Sign
 
 	// 有签名块：用退出码定"通过/不通过"。非零退出时 Run 返回 error，
 	// 但 Result 仍然可用（exec.go 的返回值约定），因此这里看的是 ExitCode。
-	vres, _ := Run(ctx, o, "verify-tag", tag)
+	vres, verr := Run(ctx, o, "verify-tag", tag)
+	return verdictFromVerifyTag(vres, verr, tag)
+}
+
+// verdictFromVerifyTag 把一次 `git verify-tag` 的结果翻译成结论。
+//
+// 抽成**纯函数**是为了让"未能执行"这一支能被测到：它在真实仓库上很难造
+// （要先有一个带签名的 tag，再让 git 恰好在这第二次调用时起不来）。
+// 项目里同类做法见 v0.24 的 `auditHookVerdict`——一个判据要能被构造出来，
+// 否则它保护的只是"我以为它是对的"。
+//
+// 语义分界：`verify-tag` 用**非零退出**表达"签名不可信"，而 ExitCode < 0
+// （exec.go 只在"未能启动"或 ctx 取消时给出 -1）**不是签名结论**。
+// v0.106 之前这里是 `vres, _ :=`，于是那条路径落进 SigUntrusted：
+// 用户被引导去查密钥信任，而真实原因是"命令没执行"。
+// 对一个把签名当门禁的功能（--require-signed），这是最坏的一类错误——
+// 它把一个操作失败说成了一个安全结论。
+func verdictFromVerifyTag(vres *Result, runErr error, tag string) (Signature, error) {
+	if vres == nil {
+		if runErr == nil {
+			runErr = errs.New(errs.CodeGitFetch, "could not run `git verify-tag` for "+tag,
+				"install Git and check `permissions.deny` allows `run:git`")
+		}
+		return Signature{}, runErr
+	}
+	if vres.ExitCode < 0 {
+		if runErr == nil {
+			runErr = errs.New(errs.CodeGitFetch, "could not run `git verify-tag` for "+tag,
+				"install Git and check `permissions.deny` allows `run:git`")
+		}
+		return Signature{}, runErr
+	}
 	out := string(vres.Stdout) + string(vres.Stderr)
 	if vres.ExitCode == 0 {
 		return Signature{Status: SigGood, From: "tag " + tag, Raw: "verify-tag exit 0"}, nil

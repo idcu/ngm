@@ -53,6 +53,11 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "dir"}, {Name: "json", Bool: true},
 	})); err != nil {
+		// v0.105：`doctor` 是 v0.104 新增的命令，没被 v0.54 那张网接管——
+		// 实测 `ngm doctor --json --bogus` 的 stdout 是 **0 字节**，
+		// 而用户明明提了 `--json`（要机器可读，却只拿到人读的 usage）。
+		failEarly(args, stdout, err.Error(),
+			"run `ngm doctor --help` for the flags it accepts")
 		return 3
 	}
 	if fs.NArg() != 0 {

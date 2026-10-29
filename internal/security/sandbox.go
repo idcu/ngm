@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/envutil"
 )
 
 // SandboxScriptName 是依赖自证脚本的文件名（放依赖根目录）。
@@ -140,6 +141,24 @@ func (g Grants) DenoArgs() []string {
 	// 不从网络加载模块：否则 `import "https://..."` 会把网络访问
 	// 从"权限"变成"脚本的副作用"，而 --deny-net 拦不住模块加载。
 	args = append(args, "--no-remote")
+
+	// ---- 模块加载层的三个开关（v0.105 补）----
+	//
+	// 上面那行 `--no-remote` 只覆盖 http(s) 模块。实测（本机 Deno 1.45.2）：
+	// 在 `--deny-net --no-remote --deny-write --deny-run --deny-env --deny-read`
+	// 全部给出的情况下，`import "npm:is-number@7.0.0"` **仍然成功**，并且
+	// `<DENO_DIR>/npm/registry.npmjs.org/is-number/7.0.0/package.json` 被真的下载下来。
+	// 也就是说"沙箱无网络"这句承诺在**模块加载**这一层不成立——而它恰恰是
+	// 唯一能绕开 `--deny-net` 的出口（npm 解析走运行时自己的 registry 客户端，
+	// 不经过 fetch 权限）。
+	//
+	// `--no-npm` 关掉 npm: 解析；`--no-config` 关掉**当前目录的 deno.json 自动发现**
+	// （RunScript 的 cwd 是依赖自己的目录，见 postinstall 的调用方——那份配置由
+	// 上游控制，能重写 imports / nodeModulesDir）；`--no-lock` 关掉锁文件参与的解析。
+	//
+	// 三者放在同一处、与其它 deny 一样"显式写在 argv 里"：读日志的人能直接看到边界，
+	// 而不是需要相信"运行时默认应该是关的"（ADR-012 决策 3）。
+	args = append(args, "--no-npm", "--no-config", "--no-lock")
 
 	return args
 }
@@ -336,26 +355,11 @@ func firstLine(s string) string {
 }
 
 // envWithout 从环境里剔除指定变量（大小写不敏感，Windows 环境变量名不区分大小写）。
+//
+// 实现在 [envutil.Without]：`deny: ["env:X"]` 有三个施力点（git / 沙箱 / 引擎），
+// 三者必须共用同一份语义——v0.105 的引擎侧缺陷正是"只修了其中两份"。
 func envWithout(env, drop []string) []string {
-	if len(drop) == 0 {
-		return env
-	}
-	dropSet := make(map[string]bool, len(drop))
-	for _, d := range drop {
-		dropSet[strings.ToUpper(d)] = true
-	}
-	out := make([]string, 0, len(env))
-	for _, e := range env {
-		name := e
-		if i := strings.IndexByte(e, '='); i >= 0 {
-			name = e[:i]
-		}
-		if dropSet[strings.ToUpper(name)] {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
+	return envutil.Without(env, drop)
 }
 
 // ScriptPath 返回依赖目录下的自证脚本路径。
