@@ -257,6 +257,19 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 
 	if refCheck.Operational {
 		res.Err = refCheck.Detail
+		// 跳过也要留痕（v0.107）。
+		//
+		// 此前这一支**整块跳过** digest 检查且不留任何记录，于是 `--json` 的
+		// `checks[]` 里凭空少了一项：脚本读到的数组短了一条，
+		// 而"少了一条"与"那条通过了"在数据上长得一模一样（v0.106 在 SARIF 渲染层
+		// 补过一次兜底，但报告本身不该缺）。这里与 finishSkippingRefAndDigest
+		// 保持同一种记法：Status=fail + Operational，Detail 说明**没有尝试**。
+		res.Checks = append(res.Checks, CheckResult{
+			Check:       CheckDigest,
+			Status:      StatusFail,
+			Operational: true,
+			Detail:      "not attempted: the ref check could not complete",
+		})
 	} else {
 		// ---- 检查二：digest 重放（本地；必要时先取对象）
 		//
@@ -799,11 +812,20 @@ func replayModuleDigestFromEntries(entries []vendor.ContentEntry) (string, error
 			}
 			content = b
 		}
-		records = append(records, digest.Record{
+		rec := digest.Record{
 			Path:       e.Path,
 			Mode:       e.Mode,
 			BlobSHA256: digest.HashBytes(content),
-		})
+		}
+		// 根条目那一支的 Path/Mode 来自 `git ls-tree`（权威，见 replayDigestFromEntries）；
+		// 模块这一支**来自 content store 的清单 JSON**，而那是磁盘上可改写的文件。
+		// 清单的字节流以 NUL 分隔字段，所以一个带 NUL 的 Path 能把一条记录改成两条——
+		// 于是"重放"可以通过，而它通过的理由是它读的不是锁定内容（v0.107）。
+		// 格式的守卫必须在这一层生效：这是**不可信输入**进入摘要计算的唯一位置。
+		if err := digest.ValidateRecord(rec); err != nil {
+			return "", fmt.Errorf("content store manifest is not a valid manifest: %w", err)
+		}
+		records = append(records, rec)
 	}
 	return digest.Digest(digest.BuildModuleManifest(records)), nil
 }

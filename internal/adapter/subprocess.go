@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/idcu/ngm/internal/boundbuf"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/envutil"
 )
@@ -63,6 +64,22 @@ func newSubprocessEngine(entry Entry, dir string, deniedEnv []string) *subproces
 // 使"每个 runProcess 调用点都要记得传拒绝列表"变成不可能忘。
 func (e *subprocessEngine) run(ctx context.Context, args []string, stdin []byte, extraEnv []string) (*runResult, error) {
 	return runProcessEnv(ctx, e.entry.Program, args, e.dir, stdin, extraEnv, e.deniedEnv)
+}
+
+// runArtifact 跑一次"**stdout 就是产物**"的调用。
+//
+// 与 run 的区别只有一条：stdout 的上界是 artifactLimit，且**截断即失败**。
+// 三条命令属于这一类：`ngm transform`、`ngm css`、不带 `--outfile` 的 `ngm build`。
+// 用诊断通道的 1 MiB 去截它们，等于静默改坏产物——那比失败更坏，因为它看起来成功了。
+func (e *subprocessEngine) runArtifact(ctx context.Context, args []string, stdin []byte, extraEnv []string) (*runResult, error) {
+	res, err := runProcessEnvLimit(ctx, e.entry.Program, args, e.dir, stdin, extraEnv, e.deniedEnv, artifactLimit)
+	if err != nil {
+		return nil, err
+	}
+	if res.Truncated {
+		return nil, artifactTooLarge(e.entry.Program, artifactLimit)
+	}
+	return res, nil
 }
 
 // Name 实现 Engine。
@@ -138,7 +155,13 @@ func (e *subprocessEngine) Bundle(ctx context.Context, entry string, opts Bundle
 		return nil, err
 	}
 	env := e.envFor(opts.Production)
-	res, err := e.run(ctx, inv.Args, nil, env)
+	// 产出到文件时 stdout 只是诊断；不带 `--outfile` 时 stdout **就是产物**。
+	// 两条路的上界不同，见 artifactLimit。
+	run := e.run
+	if opts.Outfile == "" {
+		run = e.runArtifact
+	}
+	res, err := run(ctx, inv.Args, nil, env)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -177,7 +200,8 @@ func (e *subprocessEngine) Transform(ctx context.Context, input []byte, opts Tra
 	if err != nil {
 		return nil, err
 	}
-	res, err := e.run(ctx, inv.Args, stdinFor(inv, input), nil)
+	// 产物走 stdout（见 artifactLimit）：这条路上的截断等于改坏产物。
+	res, err := e.runArtifact(ctx, inv.Args, stdinFor(inv, input), nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -236,7 +260,8 @@ func (e *subprocessEngine) Compile(ctx context.Context, input []byte, opts CSSOp
 	if err != nil {
 		return nil, err
 	}
-	res, err := e.run(ctx, inv.Args, stdinFor(inv, input), nil)
+	// 产物走 stdout（见 artifactLimit）：这条路上的截断等于改坏产物。
+	res, err := e.runArtifact(ctx, inv.Args, stdinFor(inv, input), nil)
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
@@ -298,6 +323,31 @@ type runResult struct {
 	Stdout   []byte
 	Stderr   []byte
 	ExitCode int
+	// Truncated 表示某个通道撞到了捕获上界（见 boundbuf），输出不全。
+	Truncated bool
+}
+
+// artifactLimit 是"**stdout 就是产物**"时的捕获上界（64 MiB）。
+//
+// 为什么需要两个上界（v0.107）：诊断通道（tsc 的 warning、引擎的 stderr）用 1 MiB
+// 足够且必须小——那是防 OOM 的安全边界；而 `ngm transform` / `ngm css` /
+// 不带 `--outfile` 的 `ngm build` 里 **stdout 是产物本身**。用 1 MiB 去截它，
+// 等于**静默改坏用户的构建产物**——比 OOM 更坏，因为它看起来成功了。
+//
+// 64 MiB 不是安全边界，是**误用的护栏**：超过它的产物几乎一定是参数写错了，
+// 而"截断后继续"比"失败并说清楚"危险得多。撞到它直接报错，绝不交付半份。
+const artifactLimit = 64 << 20
+
+// artifactTooLarge 是产物超出上界时的错误（按引擎失败处理，exit 1）。
+func artifactTooLarge(program string, bytesKept int) error {
+	return &EngineError{
+		Code:     0,
+		Message:  fmt.Sprintf("%s produced more than %d bytes on stdout and was cut off", program, bytesKept),
+		Retryable: false,
+		Fallback:  false,
+		Hint: "write the artifact to a file (`--outfile`) instead of stdout; " +
+			"ngm will not deliver a truncated product",
+	}
 }
 
 // runProcess 执行一次引擎命令，把失败映射为 *EngineError。
@@ -332,6 +382,15 @@ func runProcess(ctx context.Context, program string, args []string, dir string, 
 // 剔除发生在**追加 extraEnv 之前**：先滤后加，extraEnv 才不会被滤掉，
 // 而从父进程继承来的 token 已经不在列表里了。
 func runProcessEnv(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv, deniedEnv []string) (*runResult, error) {
+	return runProcessEnvLimit(ctx, program, args, dir, stdin, extraEnv, deniedEnv, boundbuf.DefaultLimit)
+}
+
+// runProcessEnvLimit 与上面相同，但显式给出 **stdout** 的捕获上界。
+//
+// stderr 恒用 DefaultLimit：它是诊断通道，1 MiB 已经远超"人真的会读的量"，
+// 而它是防 OOM 的那条边界。stdout 可能是产物（见 artifactLimit），
+// 所以上界由调用方决定——"哪个通道是产物"只有调用方知道。
+func runProcessEnvLimit(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv, deniedEnv []string, stdoutLimit int) (*runResult, error) {
 	cmd := exec.CommandContext(ctx, program, args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -343,12 +402,20 @@ func runProcessEnv(ctx context.Context, program string, args []string, dir strin
 	// 见上方说明：没有这一行，ctx 只是"杀直接子进程"，管不住继承管道的孙进程。
 	cmd.WaitDelay = waitDelayAfterCancel
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// 有上界的捕获（v0.107）：引擎是外部程序，`tsc --watch` 误用或一个
+	// 循环打印的插件都能让 `ngm build` 被 OOM 打死。截断带显式标记。
+	stdout := boundbuf.New(stdoutLimit)
+	stderr := boundbuf.New(boundbuf.DefaultLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
-	res := &runResult{Stdout: stdout.Bytes(), Stderr: stderr.Bytes(), ExitCode: 0}
+	res := &runResult{
+		Stdout:    stdout.Bytes(),
+		Stderr:    stderr.Bytes(),
+		ExitCode:  0,
+		Truncated: stdout.Truncated(),
+	}
 	if err == nil {
 		return res, nil
 	}

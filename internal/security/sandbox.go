@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/idcu/ngm/internal/boundbuf"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/envutil"
 )
@@ -285,9 +286,13 @@ func (d Deno) RunScript(ctx context.Context, req ScriptRequest) (*Result, error)
 	}
 	cmd.Env = envWithout(os.Environ(), d.DeniedEnv)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// 输出必须有上界（v0.107）：沙箱约束了网络、写入与派生，而**内存**
+	// 是同一个边界内最容易打穿的一维——一条 `while(true) console.log("x")`
+	// 就能把 `ngm install` 直接 OOM 掉。截断会带显式标记，不静默。
+	stdout := boundbuf.New(boundbuf.DefaultLimit)
+	stderr := boundbuf.New(boundbuf.DefaultLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 	res := &Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes(), ExitCode: 0}

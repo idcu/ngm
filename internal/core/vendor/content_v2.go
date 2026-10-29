@@ -47,10 +47,37 @@ func (s *ContentStore) MetaPathV2(digestID string) string {
 
 // BlobPath 返回某个 blob 名对应的路径。
 func (s *ContentStore) BlobPath(sha string) string {
-	if len(sha) < 3 {
+	// 只接受 64 位小写十六进制（v0.107）。
+	//
+	// 此前只检查 `len(sha) < 3` 就当路径拼——而这个 sha 来自**磁盘上的清单 JSON**，
+	// 是可被改写的。一个形如 `../../../../etc/passwd` 的"sha"会让
+	// `filepath.Join(blobsRoot, sha[:2], sha)` 逃出 content store：
+	// `ngm verify --deep` 会去**读那个文件**并把它算进摘要。
+	// 也就是说，篡改一份清单不只能骗过校验，还能让 verify 读任意路径。
+	//
+	// 空返回值是刻意的 fail-closed：调用方（entriesFromManifest）会把
+	// `Full` 留空，重放于是报"没有字节位置"，按完整性失败处理。
+	if !isLowerHex64(sha) {
 		return ""
 	}
 	return filepath.Join(s.blobsRoot(), sha[:2], sha)
+}
+
+// isLowerHex64 报告 s 是否是 64 位小写十六进制。
+//
+// 与 `digest` 里的同名判断分开写：那个是给**记录**用的（会拒绝大写），
+// 这个是给**路径**用的；两处都只认一种形态，才有"路径只有一个来源"这回事。
+func isLowerHex64(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // Manifest 是 v2 的内容树清单。

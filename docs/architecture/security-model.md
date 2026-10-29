@@ -157,6 +157,22 @@ ngm verify --sandbox
 判据：`TestV105SandboxDeniesModuleLoading`（argv 断言 + 真 Deno 行为断言，
 后者**禁止 `t.Skip`**——它就是这条边界本身）。
 
+### 内存也是边界的一部分（v0.107）
+
+沙箱约束了网络、写入与派生，但**内存**此前没有上界：stdout / stderr 是裸
+`bytes.Buffer`，一条 `while (true) console.log("x")` 就能把 `ngm install` OOM 掉——
+依赖不需要逃出沙箱，只需要把宿主喂饱。现在三个捕获点（沙箱、subprocess 引擎、wasm）
+都走 `internal/boundbuf`：stderr 恒为 **1 MiB**，stdout 默认同为 1 MiB，
+超出部分丢弃并计数，`Bytes()` 末尾追加一行
+`[ngm: output truncated after N bytes; …]`。对子进程来说写入仍报成功
+（`len(p), nil`）——我们要的是**有界的失败**，不是让工具在跑到一半被 SIGPIPE 打断。
+
+**一个例外，且它必须是例外**：`ngm transform`、`ngm css`、不带 `--outfile` 的
+`ngm build` 里 **stdout 就是产物**。对它们用 1 MiB 上界等于静默改坏用户的构建产物，
+比 OOM 更坏——因为它看起来成功了。这三条走 `artifactLimit`（64 MiB），
+而且**撞到上界即失败**（绝不交付一份被截断的产物）。
+64 MiB 不是安全边界，是误用的护栏：超过它的产物几乎一定是参数写错了。
+
 ### 为什么用 Deno 做沙箱
 
 - Deno 原生支持 permission 参数

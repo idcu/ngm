@@ -233,6 +233,11 @@ $ ngm audit
 | 逐文件哈希 | `--deep` 追加：全量校验 vendor 文件字节 | ✗ |
 | 签名 | `--signatures` 追加：报告锁定 commit（commit 未签时再看它来源的 tag）的 Git 签名状态。判定用**用户自己的**密钥配置，ngm 不管理密钥 | ✗（默认不查：每个依赖一到两次 git 子进程，而 verify 的主要成本就是 spawn） |
 
+**`checks[]` 不会因为跳过而变短（v0.107）**：每一项检查都有记录，
+"没做"记为 `status: fail` + `operational: true` + `detail: "not attempted: …"`。
+此前 ref 检查操作性失败时，digest 检查被整块跳过且**不留记录**——脚本读到的数组
+凭空少一项，而"少了一项"与"那一项通过了"在数据上无法区分。
+
 ### 另两个机器出口：`--format=sarif|github`（v0.105）
 
 `--json` 是 **ngm 自己的** schema；`--format` 是**别人的** schema。两者是

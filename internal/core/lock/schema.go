@@ -179,8 +179,36 @@ func (f *File) Validate() error {
 				"lock dependencies["+strconv.Itoa(i)+"] invalid: "+msg, "", err)
 		}
 	}
+	if err := f.validateUnique(); err != nil {
+		return err
+	}
 	if err := f.validateEdges(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateUnique 拒绝同一个依赖（name + subPath）出现两次（v0.107）。
+//
+// 为什么必须拒绝：`Index()` 让**后**一条覆盖前一条，而 `Find()` 返回**前**一条。
+// 于是同一份 lock 里，幽灵边判据看的是 A，`install` 落地的是 B，而两者可以指向
+// 不同的 commit——"锁文件里同一个依赖有两个版本"这种状态没有任何合法用途，
+// 它只可能来自手工编辑或一次写坏的合并。
+func (f *File) validateUnique() error {
+	seen := make(map[string]int, len(f.Dependencies))
+	for i, d := range f.Dependencies {
+		key := d.Name + "\x00" + d.SubPath
+		if prev, ok := seen[key]; ok {
+			label := d.Name
+			if d.SubPath != "" {
+				label += " [" + d.SubPath + "]"
+			}
+			return errs.New(errs.CodeConfigInvalid,
+				"lock dependencies["+strconv.Itoa(prev)+"] and ["+strconv.Itoa(i)+
+					"] are the same dependency ("+label+")",
+				"delete ngm.lock and re-run `ngm install` — one dependency may have exactly one entry")
+		}
+		seen[key] = i
 	}
 	return nil
 }
