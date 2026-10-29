@@ -261,6 +261,15 @@ func (e *wasmEngine) run(ctx context.Context, args []string, stdin []byte) (*run
 
 	rtCfg := wazero.NewRuntimeConfig().
 		WithMemoryLimitPages(wasmMemoryLimitPages).
+		// 让 ctx 取消**真的**中断正在执行的模块（v0.108）。
+		//
+		// 没有这一行时，下面的 `_ = rt.Close(...)` 只是"关掉运行时"的请求：
+		// 一个在模块内部死循环、且不调用任何 host 函数的模块不会被它打断，
+		// 于是 `runErr = <-done` 永不返回——`ngm build` 就此挂死，
+		// 而 ctx 超时形同虚设（与 v0.11 那个 WaitDelay 缺陷同族：
+		// **上限只在它不需要生效时生效**）。
+		// WithCloseOnContextDone 让 wazero 自己在 ctx 到期时终止模块执行。
+		WithCloseOnContextDone(true).
 		WithCompilationCache(wasmCompileCache)
 	rt := wazero.NewRuntimeWithConfig(ctx, rtCfg)
 	defer func() { _ = rt.Close(context.Background()) }()

@@ -174,6 +174,13 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 
 	// 门禁在**构造请求之前**（与 git 的 run:git 同一条纪律：拒绝时不该留下任何副作用，
 	// 也不该让用户从"连不上"去猜"其实是我的配置不允许访问它"）。
+	// `CheckNet == nil` 表示"调用方没有策略"，是本包**已文档化**的语义
+	// （见 OSVConfig 的字段注释与 `nil CheckNet keeps the previous behaviour`）。
+	//
+	// v0.108 曾想把这里改成 fail-closed（nil ⇒ 内部错误），**已撤回**：那会推翻一条
+	// 有意的决定，而缺口不在本包——在于"忘了传"。与 v0.105 修 `git.Options.Policy`
+	// 时同样的判断：把 nil 变成错误会连"测试替身没有策略"这种合法用法一起打死，
+	// 正确的施力点是**调用方必须传**，并且用一条源码级判据钉住它。
 	if cfg.CheckNet != nil {
 		host, herr := hostOf(base)
 		if herr != nil {
