@@ -327,11 +327,25 @@ func (s *scanner) addPackage(dir string) error {
 				s.skipped++
 				return nil
 			}
-			mode := digest.ModeRegular
-			if info.Mode().Perm()&0o111 != 0 {
-				mode = digest.ModeExecutable
-			}
-			records = append(records, digest.Record{Path: rel, Mode: mode, BlobSHA256: sum})
+			// **一律 100644**，不看文件系统的可执行位（v0.110 修）。
+			//
+			// 上一版按可执行位记 100755，看起来"更忠实"——它让 POSIX 上的
+			// 摘要与 git 的 `archiveDigest` 逐字节可比。但它有一个致命的不对称：
+			// **Windows 上 Go 报告的文件 mode 恒为 0666**，可执行位根本观测不到。
+			// 于是同一棵 npm 树（`node_modules/rimraf/bin.js` 在 POSIX 上是 100755）
+			// 在 Windows 与 Linux 上会给出**两个不同的摘要**，而 `--check` 的
+			// 典型用法正是"本机写基线、CI（另一种系统）复核"——那会变成对每台机器
+			// 都报一次假漂移，且原因完全看不出来。
+			//
+			// 两个性质只能留一个：
+			//   (a) 同一棵树在任何系统上给出同一个摘要（跨机可比）——`--check` 依赖它；
+			//   (b) 摘要与 git 侧 archiveDigest 相等——没有任何命令在用。
+			// 留 (a)。代价说清楚：包里**有**可执行文件时，本摘要与 git 侧不等
+			// （git 记 100755）。这条边界先前在 ADR-040 里被写成了无条件的
+			// "可直接比较"，那是错的，已更正。
+			records = append(records, digest.Record{
+				Path: rel, Mode: digest.ModeRegular, BlobSHA256: sum,
+			})
 			bytes += size
 		case info.Mode()&os.ModeSymlink != 0:
 			target, terr := os.Readlink(p)

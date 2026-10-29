@@ -43,9 +43,17 @@ WHY --check EXISTS:
 WHAT IT DOES:
   Walks node_modules, and for every installed package computes a content digest
   in **ngm's own manifest format** (ADR-008: NUL-separated records, sorted by
-  UTF-8 byte order, sha256 over the listing). Those digests are byte-compatible
-  with the archiveDigest that ngm install/verify maintain, so both sides can be
-  compared directly.
+  UTF-8 byte order, sha256 over the listing) - the same function that produces
+  archiveDigest, so the format is identical.
+
+  The input is not: every regular file is recorded as mode 100644, whatever the
+  filesystem says. Permission bits are dropped on purpose - Windows cannot report
+  them, so including them would make the same tree hash differently on two
+  machines, which would turn --check into a false alarm for anyone developing on
+  Windows and verifying on Linux. The cost: for a package that contains an
+  executable, this digest does NOT equal a git-side archiveDigest (git records
+  100755). Nothing in ngm compares the two; --check only ever compares proofs
+  with proofs.
 
   Provenance comes from package-lock.json when it exists (npm lockfile v2/v3):
   a git dependency resolved to a 40-char commit is recorded as commit, a git

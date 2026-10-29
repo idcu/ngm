@@ -19,8 +19,9 @@ adopted 3 package(s): 1 with a git commit, 2 with registry integrity, 0 unknown
 wrote ngm.proof.json (source: npm package-lock.json, coverage 1/3 traceable)
 ```
 
-`ngm.proof.json` 里每个包带一个**与 `ngm verify` 的 `archiveDigest` 逐字节同构**的摘要
-（同一个函数算出来的），来源按 `package-lock.json` 标注：
+`ngm.proof.json` 里每个包带一个**与 `ngm verify` 同一套清单格式**的摘要
+（同一个函数；普通文件一律记 `100644`，不看可执行位——见 [ADR-040](../adr/adr-040-adopt-proof-layer.md)），
+来源按 `package-lock.json` 标注：
 
 ```json
 { "name": "@acme/core", "version": "2.1.0", "path": "node_modules/@acme/core",
@@ -31,6 +32,25 @@ wrote ngm.proof.json (source: npm package-lock.json, coverage 1/3 traceable)
 
 它**不做**什么（也写进 `notes`）：不安装、不写 `node_modules`、不改任何 lock；
 不判断代码是否安全；registry 条目的来源只有 `integrity`，ngm 不为它做来源解析。
+
+### 真实 npm 树上的实测（2026-10-30）
+
+上面那个夹具是手搭的。真正跑一次 `npm install is-number is-odd rimraf`（15 个包，
+真实 lockfile v3，含 `.bin` 与菱形依赖）之后：
+
+```
+adopted 15 package(s): 0 with a git commit, 15 with registry integrity, 0 unknown
+wrote ngm.proof.json (source: npm package-lock.json, coverage 0/15 traceable)
+```
+
+四个真实世界里必然出现、而夹具里没有的形状，都过了：
+
+| 形状 | 结果 |
+|---|---|
+| `node_modules/.package-lock.json`（npm 的隐藏锁）与 `.bin/` | 都不算包（点前缀跳过）|
+| **菱形依赖**：`is-number@7` 在顶层、`is-number@6` 在 `node_modules/is-odd/node_modules/` | **各成一条记录**，不同版本不合并 |
+| `node_modules/rimraf/bin.js`（POSIX 上是 `100755`） | 仍记 `100644`——可执行位跨系统不可观测，记进去会让同一棵树在 Windows 与 Linux 上给出不同摘要 |
+| 只改 mtime、内容不变 | 摘要不变（内容寻址，不是时间戳）|
 
 **代价**：0 行改动。**收益**：一份可 diff、可归档的内容清单。
 
