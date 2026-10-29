@@ -91,7 +91,15 @@ const (
 	// 同一棵依赖树，一份写对了摘要、一份故意写错一个。
 	setupAdoptClean = "adoptclean"
 	setupAdoptDrift = "adoptdrift"
+	// setupOutBlocked / setupOutBlockedNodeModules 是 v0.111 的"`--out` 写不进"夹具：
+	// 项目里放一个**普通文件**叫 `blocker`，于是 `--out=blocker/x.json` 在任何
+	// 平台上都写不进去（不必依赖 `/proc` 之类只存在于某个系统的路径）。
+	setupOutBlocked            = "outblocked"
+	setupOutBlockedNodeModules = "outblockednm"
 )
+
+// blockerName 是"用一个普通文件占住目录位置"的那个文件名。
+const blockerName = "blocker"
 
 // fakeEngine 是假引擎二进制的路径，由测试启动时构建一次。
 var fakeEngine string
@@ -139,6 +147,17 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "adopt", code: 3, args: nil, setup: setupProject},
 	// ---- 2：完整性失败（--check 发现树与证明不一致）----
 	{cmd: "adopt", code: 2, args: []string{"--check=" + adopt.FileName}, setup: setupAdoptDrift},
+
+	// ---- 3：`--out` 写不进（v0.111，把文档里那句话变成测量）----
+	//
+	// 这三个命令的用法都写着"unwritable --out ⇒ 3"，而全局表把码 6 写成
+	// "结论算出来了却写不出去"。ADR-026 枚举的是 stdout / 编码 / stdin 三种，
+	// 不含 `--out`——那条通道是"文件"，路径是调用方给的，报 3 才对
+	// （报 6 会让人去找 bug 而不是改路径）。
+	// 没有这条判据时，两个说法都能"看起来对"，而分歧要到真实故障那天才暴露。
+	{cmd: "sbom", code: 3, args: []string{"--out=" + blockerName + "/x.json"}, setup: setupOutBlocked},
+	{cmd: "attest", code: 3, args: []string{"--out=" + blockerName + "/x.json"}, setup: setupOutBlocked},
+	{cmd: "adopt", code: 3, args: []string{"--out=" + blockerName + "/x.json"}, setup: setupOutBlockedNodeModules},
 
 	// ---- 1：策略失败（非预期漂移 / 引擎运行失败 / 超阈值漏洞）----
 	{cmd: "verify", code: 1, args: nil, setup: setupDrift},
@@ -527,6 +546,16 @@ func buildFixture(t *testing.T, home, setup string) string {
 		seedNodeModules(t, p)
 		writeAdoptProof(t, p, setup == setupAdoptDrift)
 		return p
+	case setupOutBlocked:
+		p := newProject(t)
+		seedDep(t, p)
+		writeBlocker(t, p)
+		return p
+	case setupOutBlockedNodeModules:
+		p := newProject(t)
+		seedNodeModules(t, p)
+		writeBlocker(t, p)
+		return p
 	case setupCold:
 		p := newProject(t)
 		if code, out := runCaptureCode(t, "add", "github:x/cold@v1", "--ref-type=tag", "--dir="+p); code != 0 {
@@ -701,6 +730,15 @@ func seedNodeModules(t *testing.T, p string) {
 		`}}`
 	if err := os.WriteFile(filepath.Join(p, "package-lock.json"), []byte(lock), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// writeBlocker 在项目根放一个普通文件 `blocker`，让 `--out=blocker/x.json`
+// 在任何平台上都写不进去——不需要 `/proc` 这种只存在于某个系统的路径。
+func writeBlocker(t *testing.T, p string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(p, blockerName), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write blocker: %v", err)
 	}
 }
 
