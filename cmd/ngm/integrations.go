@@ -80,6 +80,39 @@ func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Write
 			"run `ngm install` to generate it"))
 	}
 
+	// 写别名之前先拒绝"指向 vendor 之外"的条目（v0.110）。
+	//
+	// 缺陷形态：`mappings validate` 会拒绝这类条目，而 integrations **从不校验**——
+	// 于是它拒绝的东西可以被直接写进 tsconfig 的 `paths` / vite 的 `resolve.alias`，
+	// 构建于是安静地消费 vendor 之外的代码。同一个缺陷在下一层复发，而这一层是
+	// **写**的那一层。
+	//
+	// 为什么只拒绝 `EscapesVendor`、不拒绝所有 Fatal：
+	//   · "`to` 目录还不存在"在"先提交 mappings、后 install"的顺序里是正常的，
+	//     把它也变成前置条件会让 CI 里"先生成配置"这一步永远失败；
+	//   · "别名指向 vendor 之外"从来没有任何正常解释。
+	if pf, perr := env.ReadManifest(); perr == nil && pf != nil {
+		findings, verr := mappings.Validate(f, mappings.ValidateEnvironment{
+			ProjectDir: env.ProjectDir,
+			VendorRoot: env.MappingsVendorRoot(pf),
+			// LockNames / SubPaths 留空：这里问的是"落点在不在 vendor 里"，
+			// 不是"条目还对不对得上 lock"——后者是 `mappings validate` 的职责。
+		})
+		if verr != nil {
+			return runErr(ctx, stdout, stderr, verr)
+		}
+		for _, fi := range findings {
+			if fi.Fatal && fi.EscapesVendor {
+				return runErr(ctx, stdout, stderr, errs.New(
+					errs.CodeConfigInvalid,
+					"refusing to write aliases: "+fi.Message,
+					"run `ngm mappings validate` for every finding, then `ngm install` to regenerate "+
+						mappings.FileName+" — an alias outside the vendored tree would make the build "+
+						"consume code ngm never verified"))
+			}
+		}
+	}
+
 	arts, warns, err := integrations.Plan(tool, f)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)

@@ -43,6 +43,16 @@ type Finding struct {
 	Message string
 	// Fatal 为 true 表示阻断（exit 3）；false 表示警告。
 	Fatal bool
+	// EscapesVendor 为 true 表示这条发现讲的是"某个路径跑到了它必须待在里面的
+	// 那棵树之外"（`to` 跑出 vendor 根，或 `main`/`types` 跑出 `to`）。
+	//
+	// 为什么要单独标出来（v0.110）：`integrations` 会**照着 mappings 写别名**，
+	// 而它此前不做任何校验——于是 `mappings validate` 拒绝的东西，可以直接被
+	// 写进 tsconfig 的 `paths`。但 integrations 不能因为"任何 Fatal"就停下：
+	//   · `to` 目录还不存在是**正常**的（先提交 mappings、后 install）；
+	//   · 而"别名指向 vendor 之外"**从不**正常。
+	// 区别就在这里，用一个布尔说清，而不是让调用方去匹配消息文本。
+	EscapesVendor bool
 }
 
 // Validate 校验 mappings 与 lock / vendor 的一致性。
@@ -118,9 +128,10 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 		toSlash := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(m.To)), "/")
 		if !strings.HasPrefix(toSlash+"/", vendorRoot+"/") {
 			findings = append(findings, Finding{
-				From:    m.From,
-				Message: "`to` must point inside " + vendorRoot + "/ (got " + m.To + ")",
-				Fatal:   true,
+				From:          m.From,
+				Message:       "`to` must point inside " + vendorRoot + "/ (got " + m.To + ")",
+				Fatal:         true,
+				EscapesVendor: true,
 			})
 			continue
 		}
@@ -166,7 +177,8 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 					From: m.From,
 					Message: "`" + kind + "` escapes the vendored directory: " + p +
 						" resolves outside " + m.To,
-					Fatal: true,
+					Fatal:         true,
+					EscapesVendor: true,
 				})
 				return
 			}
