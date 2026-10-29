@@ -76,6 +76,10 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() > 0 {
+		// v0.108：多出来的位置参数必须被**看见**（v0.39 的不变式），
+		// 且在 `--json` 下要留下信封而不是 0 字节的 stdout。
+		failEarly(args, stdout, "`ngm tree` takes no positional arguments",
+			"run `ngm tree`; use `--osv` to consult vulnerability data")
 		fmt.Fprint(stderr, treeUsage)
 		return 3
 	}

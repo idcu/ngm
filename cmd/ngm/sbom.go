@@ -59,6 +59,10 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	if fs.NArg() > 0 {
+		// 这里**不加** `failEarly`：`sbom` 不接受 `--json`——它的 stdout 本身就是
+		// 机器可读的文档（CycloneDX / SPDX）。`ngm sbom --json` 会在 `fs.Parse`
+		// 那一支失败，而按 v0.16 规则④，"命令不接受 --json 时 stdout 仍为空"
+		// 是**正确**的行为。加一行永远走不到的调用只会是死代码。
 		fmt.Fprint(stderr, sbomUsage)
 		return 3
 	}

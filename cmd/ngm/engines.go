@@ -77,6 +77,9 @@ func runEngines(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() < 1 {
+		// v0.108：`--json` 下也要给信封（此前 stdout 是 0 字节）。
+		failEarly(args, stdout, "missing subcommand",
+			"run `ngm engines list|info|validate`")
 		fmt.Fprint(stderr, enginesUsage)
 		return 3
 	}

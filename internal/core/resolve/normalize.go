@@ -193,10 +193,9 @@ func splitHostPath(raw string) (host, path string, err error) {
 	if i := strings.Index(raw, ":"); i > 0 {
 		host = raw[:i]
 		path = raw[i+1:]
-		// 单独的端口形式 `host.com:8080/x` 会被误判成 host=host.com, path=8080/x。
-		// 这里保守：host 段不含 `.` 时视为 shorthand（由 expandShorthand 校验）；
-		// 含 `.` 时也接受（github.com:org/repo）。
-		return host, path, nil
+		// host:path 与 host:port/path 在**语法上无法区分**，只能看 path 的
+		// 第一段是不是纯数字（v0.108）。
+		return stripPortFromPath(raw, host, path)
 	}
 
 	// 4) 裸 canonical（含点 host + `/`），保证 Normalize 幂等。
@@ -285,6 +284,51 @@ var defaultSchemePorts = map[string]string{
 	"ssh":   "22",
 }
 
+// stripPortFromPath 处理"端口被写进了路径"的那两种拼法（v0.108）。
+//
+// 缺陷形态（上一轮审计发现，实测复现）：`gitlab.corp:8443/team/repo` 会被读成
+// host=gitlab.corp, path=`8443/team/repo`，于是 clone 的地址变成
+// `https://gitlab.corp/8443/team/repo.git`——**另一个仓库**。而同一个地址的 URL
+// 形式（`https://gitlab.corp:8443/team/repo`）早就被明确拒绝了。
+// 两种拼法一个报错、一个悄悄指向别处，是最坏的那种不一致：用户看到的是"成功了"。
+//
+// 规则与 URL 形式**完全一致**（复用同一个判定）：默认端口等价于不写，其它端口
+// 明确拒绝。差别只在消息里多一句"你写的是 scp 形式"。
+func stripPortFromPath(raw, host, path string) (string, string, error) {
+	first, rest := path, ""
+	if i := strings.Index(path, "/"); i >= 0 {
+		first, rest = path[:i], path[i+1:]
+	}
+	if !isAllDigits(first) {
+		return host, path, nil
+	}
+	for _, def := range defaultSchemePorts {
+		if first == def {
+			// 默认端口：与不写是同一件事，丢掉它（路径可能就此为空，
+			// 那由 validateRepoPath 报"路径段不足"）。
+			return host, rest, nil
+		}
+	}
+	return "", "", invalidURL(raw, fmt.Sprintf(
+		"`%s` looks like host + port, but a non-default port cannot be represented: "+
+			"ngm identifies a repository by host and path only, so it cannot carry one into "+
+			"the lock file, the mirror layout or the slug. "+
+			"Write the URL form (`https://%s:%s/…`) to get a clear error, or drop the port",
+		host+":"+first, host, first))
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // splitSCPLike 处理 `[user@]host:path`（scp 语法，无 `://`）。
 func splitSCPLike(raw string) (host, path string, err error) {
 	at := strings.LastIndex(raw, "@")
@@ -299,7 +343,8 @@ func splitSCPLike(raw string) (host, path string, err error) {
 	if host == "" {
 		return "", "", invalidURL(raw, "scp-like address has empty host")
 	}
-	return host, path, nil
+	// scp 形式同样会把端口读成路径的第一段（`git@host:8443/org/repo`）。
+	return stripPortFromPath(raw, host, path)
 }
 
 // expandShorthand 把 shorthand host 展开为 canonical host。

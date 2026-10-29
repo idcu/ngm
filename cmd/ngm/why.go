@@ -64,6 +64,13 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() != 1 {
+		// v0.108：`--json` 下也要给信封。
+		//
+		// 此前这一支只打 usage 就 return，于是 `ngm why --json`（漏给依赖）
+		// 的 stdout 是 **0 字节**——用户明明要机器可读输出，却什么也没拿到。
+		// v0.54 修的是 `fs.Parse` 失败那一支，位置参数这一支它没有覆盖。
+		failEarly(args, stdout, "expected exactly one dependency slug",
+			"run `ngm why <dep>`; the slug is the one in ngm.json, e.g. `github:org/repo`")
 		fmt.Fprint(stderr, whyUsage)
 		return 3
 	}

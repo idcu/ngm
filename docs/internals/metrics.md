@@ -365,17 +365,32 @@ v0.18 加了一个可选的联网复核（`NGM_REAL_UPSTREAM=1`，默认跳过�
 
 ### 已知限制：非默认端口（v0.11 C 组实测）
 
-**自建 Git 若跑在非默认端口上，ngm 目前连不上**——`https://git.example.com:8443/org/repo`
-里的 `:8443` 会被静默丢弃，实际访问的是 `https://git.example.com/org/repo`。
+> **标题里的 v0.11 是这一节的起点，不是它的全部**：v0.12 与 v0.108 各更正过一次，
+> 明细在下面的沿革表里。标题刻意不改——三份**快照**（v0.11 复盘、v0.12 计划）
+> 按项目纪律不随之后的删改修订，而它们指向这个锚点；改标题会让那些链接静默跳到页首。
 
-根因在 `internal/resolve/normalize.go` 的 `splitURLForm`：它显式剥掉端口
-（`hostPart = hostPart[:c]`），而 `Canonical` 只存`Host` + `Path`，
-`CloneURL` 只能按 `Host` 重新拼 URL——**端口信息在建Canonical 时就丢了**。
+**自建 Git 跑在非默认端口上，ngm 连不上——但它不会连错。** 现在三种拼法
+（URL / `host:port/path` / `git@host:port/path`）**全部明确拒绝**，错误里点名端口；
+默认端口（443 / 80 / 9418 / 22）与不写等价。
 
-| 输入 | 期望访问 | 实际访问 |
-|------|---------|---------|
-| `https://git.example.com:8443/org/repo` | `:8443` | 默认端口（失败或连错服务） |
-| `git@git.example.com:org/repo` | ssh 默认端口 | 同（ssh 走 22，本就正常） |
+沿革（这段历史本身值得留，因为它是"静默错误"被逐个收口的样子）：
+
+| 当时的行为 | 始于 | 问题 |
+|-----------|------|------|
+| URL 形式把 `:8443` **静默剥掉** | v0.11 | 实际访问默认端口——失败，或连到另一个服务 |
+| URL 形式改为**明确拒绝** | v0.12 | "静默"这一半修掉；另外两种拼法没管 |
+| `host:port/path` 与 `git@host:port/path` 也拒绝 | **v0.108** | 此前它们把端口读成**路径的第一段**，于是 clone 到 `https://host/8443/org/repo.git`——**另一个仓库**，而且全程报成功 |
+
+真正的**支持**仍需给 `Canonical` 加字段（lock / mirror 布局 / slug 三处的共同基础）——
+schema 级变更，先有真实需求再做。
+
+| 输入 | 现在的行为 |
+|------|-----------|
+| `https://git.example.com:8443/org/repo` | 明确拒绝（v0.12） |
+| `git.example.com:8443/org/repo` | 明确拒绝（v0.108） |
+| `git@git.example.com:8443/org/repo` | 明确拒绝（v0.108） |
+| `git@git.example.com:org/repo` | 照常（ssh 默认端口） |
+| `git.example.com:443/org/repo` | 照常，等价于不写端口 |
 
 **为什么现在没修**：它需要给 `Canonical` 增加一个字段，而 `Canonical` 是
 lock file、mirror 路径、slug 与mappings 的共同基础——改它是一次

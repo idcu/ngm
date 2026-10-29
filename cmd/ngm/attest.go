@@ -67,6 +67,8 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return 3
 	}
 	if fs.NArg() > 0 {
+		// 同 `sbom`：不接受 `--json`（stdout 就是 in-toto 语句本身），
+		// 因此这里没有可给的信封，加 `failEarly` 会是死代码。
 		fmt.Fprint(stderr, attestUsage)
 		return 3
 	}
