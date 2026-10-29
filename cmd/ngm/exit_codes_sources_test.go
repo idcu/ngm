@@ -203,6 +203,14 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleSource, category: catInternal,
 		why: "`write proof: %v`——`--json` 的证明写不出去（v0.105 新增的出口）",
 	}},
+	// v0.109：`--check` 的 `--json` 出口（把**当前**证明写进 stdout 时）。
+	// 注意它同时是**码 2** 的来源，而码 2 走 `errs.CodeDigestMismatch.ExitCode()`，
+	// 不在本表的 `categoryCodes` 里——这张表管的是 1 与 6（ADR-026）。两件事分开：
+	// 这里登记的是"写不出去 ⇒ 6"，码 2 由错误模型给出，不写字面量。
+	"cmd/ngm/adopt.go :: runAdoptCheck": {{
+		role: roleSource, category: catInternal,
+		why: "`write proof: %v`——`--json --check` 的当前证明写不出去",
+	}},
 	"cmd/ngm/audit.go :: runAudit": {{
 		role: roleSource, category: catInternal, why: "`write report: %v`",
 	}},

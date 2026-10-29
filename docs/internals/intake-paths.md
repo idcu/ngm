@@ -33,7 +33,31 @@ wrote ngm.proof.json (source: npm package-lock.json, coverage 1/3 traceable)
 不判断代码是否安全；registry 条目的来源只有 `integrity`，ngm 不为它做来源解析。
 
 **代价**：0 行改动。**收益**：一份可 diff、可归档的内容清单。
-**代价的另一面**：它是一次性快照，没有 commit 绑定——**持续保证必须走路径 C 或 `ngm install`**。
+
+写下的证明**可以被复核**（否则它就只是一次性快照，而"没人再读的审计结论"
+与"从没做过审计"是同一件事）：
+
+```bash
+ngm adopt --check=ngm.proof.json
+```
+
+实测（同一棵树）：`unchanged: 3 package(s) match the proof in ngm.proof.json`，exit 0。
+改掉一个依赖里的一个字节之后再跑：
+
+```
+✗ node_modules/left-pad — content changed
+    was: sha256:cd040c09…
+    now: sha256:28d83c2d…
+
+1 difference(s) against ngm.proof.json — this tree is not the one the proof describes
+  → if the change is intended, run `ngm adopt` again to record a new baseline
+```
+
+exit **2**。它按**路径**比较而不是按包名——`node_modules/a/node_modules/b` 与
+`node_modules/b` 可以是不同版本，按名字比会把"嵌套依赖被换了"静默吞掉。
+
+**代价的另一面**：复核的仍然是**快照**。它回答"字节变了没有"，不回答
+"这些字节绑在哪个 commit 上"——后者需要 `ngm.lock`，也就是路径 B。
 
 ---
 

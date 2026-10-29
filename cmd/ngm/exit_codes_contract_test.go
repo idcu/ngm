@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/adopt"
 	"github.com/idcu/ngm/internal/testutils"
 )
 
@@ -86,6 +87,10 @@ const (
 	// setupNodeModules 是 v0.105 的 `adopt` 夹具：一个 node_modules（两个包）
 	// 加一份 package-lock.json（其中一个来源是 Git commit，另一个是 registry）。
 	setupNodeModules = "nodemodules"
+	// setupAdoptClean / setupAdoptDrift 是 v0.109 的 `adopt --check` 夹具：
+	// 同一棵依赖树，一份写对了摘要、一份故意写错一个。
+	setupAdoptClean = "adoptclean"
+	setupAdoptDrift = "adoptdrift"
 )
 
 // fakeEngine 是假引擎二进制的路径，由测试启动时构建一次。
@@ -128,8 +133,12 @@ var exitCodeMeasured = []exitCase{
 	// v0.105：adopt 读**别人的** node_modules 出具内容证明——它不需要 ngm.json，
 	// 也不需要 ngm.lock（这正是它的全部意义：不要求迁移）。
 	{cmd: "adopt", code: 0, args: []string{"--json"}, setup: setupNodeModules},
+	// v0.109：--check 与一份写对的证明比较 ⇒ 没有差异。
+	{cmd: "adopt", code: 0, args: []string{"--check=" + adopt.FileName}, setup: setupAdoptClean},
 	// 同一个命令的配置错误：没有 node_modules 就没什么可描述的。
 	{cmd: "adopt", code: 3, args: nil, setup: setupProject},
+	// ---- 2：完整性失败（--check 发现树与证明不一致）----
+	{cmd: "adopt", code: 2, args: []string{"--check=" + adopt.FileName}, setup: setupAdoptDrift},
 
 	// ---- 1：策略失败（非预期漂移 / 引擎运行失败 / 超阈值漏洞）----
 	{cmd: "verify", code: 1, args: nil, setup: setupDrift},
@@ -513,6 +522,11 @@ func buildFixture(t *testing.T, home, setup string) string {
 		p := newProject(t)
 		seedNodeModules(t, p)
 		return p
+	case setupAdoptClean, setupAdoptDrift:
+		p := newProject(t)
+		seedNodeModules(t, p)
+		writeAdoptProof(t, p, setup == setupAdoptDrift)
+		return p
 	case setupCold:
 		p := newProject(t)
 		if code, out := runCaptureCode(t, "add", "github:x/cold@v1", "--ref-type=tag", "--dir="+p); code != 0 {
@@ -687,6 +701,32 @@ func seedNodeModules(t *testing.T, p string) {
 		`}}`
 	if err := os.WriteFile(filepath.Join(p, "package-lock.json"), []byte(lock), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// writeAdoptProof 先真扫一遍这棵树，再把结果写成 ngm.proof.json；
+// tamper 为真时改坏第一个包的摘要。
+//
+// 用 `adopt.Run` 生成基线而不是手写 JSON：手写的证明会随着 schema 漂移
+// 变成一个假的夹具，而失败信息会指向比较逻辑——那是查错方向的反面。
+func writeAdoptProof(t *testing.T, p string, tamper bool) {
+	t.Helper()
+	pr, err := adopt.Run(adopt.Options{Dir: p, ToolVersion: "test"})
+	if err != nil {
+		t.Fatalf("adopt.Run: %v", err)
+	}
+	if len(pr.Packages) == 0 {
+		t.Fatal("the fixture produced an empty proof; the comparison would be vacuous")
+	}
+	if tamper {
+		pr.Packages[0].Digest = "sha256:" + strings.Repeat("0", 64)
+	}
+	data, merr := pr.Marshal()
+	if merr != nil {
+		t.Fatalf("Marshal: %v", merr)
+	}
+	if werr := os.WriteFile(filepath.Join(p, adopt.FileName), data, 0o644); werr != nil {
+		t.Fatalf("write proof: %v", werr)
 	}
 }
 
