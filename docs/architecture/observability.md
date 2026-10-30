@@ -306,11 +306,24 @@ verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 | branch 非快进（历史被改写 / force push） | 非预期漂移 | `unexpected` | 告警，exit 1，需人工确认（`--allow-drift` 可降级为 0） |
 | tag 被重打 | 非预期漂移 | `unexpected` | 同上（tag 的语义就是不可变） |
 | 声明的 ref 在上游消失（删除 / 改名） | 非预期漂移 | `unexpected` | 同上 |
+| **问不到**（网络失败 / 权限被拒 / mirror 缺失） | **不是结论** | 空 | `operational: true`，exit 4；`details` 里保留成因原文 |
 | digest 重放不匹配 | 严重事件 | `critical` | 阻断，exit 2，禁止构建（`--allow-drift` **不**降级） |
 | 落地内容与 content store 不一致 | 严重事件 | `critical` | 阻断，exit 2（`--deep` 追加逐文件字节比对） |
 
 > **无法证明快进时按 `unexpected` 处理**：祖先关系查不出来（对象缺失等）时，把结果当成快进
 > 会让一次 force push 悄悄通过门禁。保守方向是明确的取舍，不是遗漏。
+
+> **"没问到"不许冒充漂移（v0.112）**：上表倒数第三行与"问不到"曾经被混为一谈。
+> `refResolveFailure` 用的是**白名单**——只有 `CodeGitFetch` 算"没问到"，其余一律算
+> "ref 没了"；而权限拒绝是 `CodeConfigInvalid`，于是实测出现过
+> `detail: tag "…" can no longer be resolved: permission denied: net:gitee.com`
+> 配 `driftKind: unexpected`（exit 1）。CI 的读数是"上游漂了，去改 lock"，
+> 而真相是"补一条 `net:` 权限"。
+>
+> 现在只看**问到没有**：`resolve.IsRefNotFound(err)` 才是漂移结论，其余（含任何
+> 我们没预料到的解析失败）都是 `operational`。默认方向倒向"没查到"，
+> 因为**漂移是一个判断，而判断需要证据**；与 `TagSignature` 那条（把执行失败
+> 说成签名结论）是同一条纪律。
 
 ---
 

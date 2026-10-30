@@ -481,21 +481,36 @@ func resolveTargetRef(ctx context.Context, repo resolve.Canonical, d *lock.Depen
 	})
 }
 
-// refResolveFailure 把"ref 解析失败"分类：网络类 → 操作性失败；其余 → 非预期漂移。
+// refResolveFailure 把"ref 解析失败"分成两类：**结论**与**没查成**。
 //
-// 后者的唯一现实成因是"该 ref 已不存在于上游"（被删除/改名）——
-// 对 verify 而言这是"ref 没了"，不是配置错误。
+// 判据是**我们到底问到没有**，不是错误的种类（v0.112 修）：
+//
+//	问到了、ref 不存在（`resolve.IsRefNotFound`）⇒ unexpected 漂移
+//	其余（网络、权限、mirror 缺失、git 起不来、以及任何没预料到的解析错误）
+//	                                            ⇒ operational（我们没能判断）
+//
+// 此前用的是白名单：只有 `CodeGitFetch` 算"没问到"，其余一律算"ref 没了"。
+// 而权限拒绝是 `CodeConfigInvalid`，于是
+//
+//	detail: tag "packages-a-v1.0.0" can no longer be resolved:
+//	        ConfigInvalid: permission denied: net:gitee.com
+//
+// 被报成 `driftKind: unexpected`（exit 1）——CI 会让人去改 lock，而真相是
+// "补一条 net: 权限"。这与 `TagSignature` 把执行失败说成签名结论同族：
+// **一个操作失败被说成了一个判断**。
+//
+// 默认方向因此倒过来：**没查成**是安全的一侧，"上游漂了"必须有证据。
 func refResolveFailure(opts Options, d *lock.Dependency, err error) CheckResult {
-	if codeOf(err) == errs.CodeGitFetch {
-		where := "the local mirror"
-		if opts.ResolveRemoteRef != nil {
-			where = "the remote"
-		}
-		return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
-			Detail: "cannot read refs from " + where + ": " + err.Error()}
+	where := "the local mirror"
+	if opts.ResolveRemoteRef != nil {
+		where = "the remote"
 	}
-	return CheckResult{Check: CheckRef, Status: StatusFail, Drift: DriftUnexpected,
-		Detail: fmt.Sprintf("%s %q can no longer be resolved: %v", d.RefType, d.Ref, err)}
+	if resolve.IsRefNotFound(err) {
+		return CheckResult{Check: CheckRef, Status: StatusFail, Drift: DriftUnexpected,
+			Detail: fmt.Sprintf("%s %q can no longer be resolved: %v", d.RefType, d.Ref, err)}
+	}
+	return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
+		Detail: fmt.Sprintf("cannot resolve %s %q from %s: %v", d.RefType, d.Ref, where, err)}
 }
 
 // classifyRefDrift 把"ref 解析结果与 lock 不一致"分类。
@@ -979,14 +994,14 @@ func remediationFor(res *DepResult) string {
 	}
 }
 
-// codeOf 取出 NgmError 的错误码；非 NgmError 返回 CodeConfigInvalid。
+// 这里原本有一个 `codeOf`：按错误码把解析失败分成"网络类"与"其余"。
 //
-// 保守取配置错误：无法识别的失败不应被当成"网络问题"而给出 exit 4，
-// 那会让真正的缺陷被误判为可重试。
-func codeOf(err error) errs.Code {
-	var ne *errs.NgmError
-	if errors.As(err, &ne) {
-		return ne.Code
-	}
-	return errs.CodeConfigInvalid
-}
+// v0.112 把它删掉了，因为那条策略本身是错的：它把**未知失败的默认值**定成
+// "非预期漂移"（exit 1），理由是"别让真正的缺陷被当成可重试"。但漂移是一个
+// **结论**——它说"上游变了、你的树与 lock 对不上"——而结论必须有证据。
+// 权限拒绝恰恰不是网络码，于是落进"其余"，被说成漂移（实测：
+// `permission denied: net:gitee.com` ⇒ `driftKind: unexpected`）。
+//
+// 新规则只看**问到没有**（`resolve.IsRefNotFound`），其余一律 operational。
+// 代价是"未知失败"现在会被标成可重试——但那仍然是失败（exit 4），
+// 只是不再冒充一个我们没有证据的判断。

@@ -252,6 +252,34 @@ func decorateFetchError(err error, repo Canonical, lsURL string, isLocalMirror b
 		ne.Hint, err)
 }
 
+// RefNotFoundError 标记"我们**问到了**，答案是这个 ref 不存在"。
+//
+// 为什么需要它（v0.112）：`verify` 的 ref 检查必须在两种失败之间分开——
+//   - **问到了、没有**：上游删了/改了名 ⇒ 这是**漂移结论**（unexpected）；
+//   - **没问到**：网络不通、权限被拒、mirror 缺失、git 起不来 ⇒ 这**不是结论**。
+//
+// 此前 `verify` 用的是"白名单"：只有 `CodeGitFetch` 算"没问到"，其余一律算
+// "ref 没了"。而权限拒绝是 `CodeConfigInvalid`，于是
+// `permission denied: net:gitee.com` 被报成 `driftKind: unexpected`（exit 1）——
+// CI 会让人去改 lock，而真相是"补一条 net: 权限"。
+// 与 TagSignature 那个把执行失败说成签名结论的缺陷同族：
+// **一个操作失败被说成了一个判断**。
+//
+// 用类型而不是新错误码：新码要动"码 ↔ 退出号"的映射表，而这里需要的只是
+// 一个**标记**——错误码仍然是 3（配置类），只有"能不能据此下结论"变了。
+type RefNotFoundError struct{ Err error }
+
+func (e *RefNotFoundError) Error() string { return e.Err.Error() }
+
+// Unwrap 让 `errs.ExitCode` / `errs.Hint` 仍能穿透到 *errs.NgmError。
+func (e *RefNotFoundError) Unwrap() error { return e.Err }
+
+// IsRefNotFound 报告 err 是否是"问到了、ref 不存在"。
+func IsRefNotFound(err error) bool {
+	var target *RefNotFoundError
+	return errors.As(err, &target)
+}
+
 // refNotFoundError 构造 ref 不存在的错误，并附带"可用 ref 样例"以帮助纠错。
 func refNotFoundError(repo Canonical, lsURL, ref string, refType RefType, isLocalMirror bool, refs []git.RemoteRef) error {
 	source := "remote"
@@ -262,11 +290,11 @@ func refNotFoundError(repo Canonical, lsURL, ref string, refType RefType, isLoca
 	if samples := sampleRefs(refs, refType); len(samples) > 0 {
 		hint += fmt.Sprintf("; available %s refs include: %s", refType, strings.Join(samples, ", "))
 	}
-	return errs.New(
+	return &RefNotFoundError{Err: errs.New(
 		errs.CodeConfigInvalid,
 		fmt.Sprintf("%s: %s %q not found in %s", repo.Slug(), refType, ref, source),
 		hint,
-	)
+	)}
 }
 
 // sampleRefs 从 ls-remote 结果里取若干条同类型 ref 名（去掉前缀），用于错误提示。
