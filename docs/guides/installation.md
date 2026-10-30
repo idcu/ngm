@@ -140,6 +140,7 @@ ngm --help
 #
 # COMMANDS:
 #   init           初始化项目
+#   adopt          为**已安装**的依赖（npm/pnpm 装的）出具内容证明：不接管安装，只描述磁盘上的字节
 #   add            添加依赖
 #   install        解析并安装依赖
 #   update         更新依赖 ref
@@ -154,12 +155,16 @@ ngm --help
 #   typecheck      类型检查（adapter）
 #   typedecl       生成 .d.ts 声明（adapter）
 #   build          构建（adapter）
+#   transform      单文件转换（adapter）
 #   css            CSS 编译（adapter）
 #   mappings       mappings 管理
-#   integrations   构建工具集成脚手架（Vite / esbuild / Deno / Webpack）
+#   integrations   构建工具集成脚手架（v0.3）
 #   cache          缓存维护
+#   store          ngm 两层的磁盘占用报告与回收（mirror + content store，见 ADR-018/023/030）
 #   config         配置管理
 #   engines        引擎管理
+#   sbom           导出 SBOM（CycloneDX / SPDX，v0.69）
+#   attest         导出 in-toto / SLSA v1 语句（未签名，v0.70）
 #
 # FLAGS:
 #   --version      输出版本信息（含 git 短哈希与构建时间）

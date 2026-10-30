@@ -11,7 +11,8 @@ import (
 //
 // 当新增子命令、改名、调整 help 格式时，必须：
 //  1. 同步 guides/cli.md
-//  2. 同步 installation.md 中的 help 片段
+//  2. 同步 installation.md 中的 help 片段（**v0.115 起由 TestV115 逐条核对**——
+//     此前这条只是"记得去做"，于是它漂了五条命令而没人发现）
 //  3. 重生成 golden（`go test -update ./cmd/ngm`）并在 PR 说明
 //
 // 这是 development/README.md "文档-实现对照"纪律的机械化实现。
