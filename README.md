@@ -34,23 +34,29 @@ this time both columns were measured, and the tag column then **explained** the 
 
 | source | releases | tags | what the two columns say |
 |--------|----------|------|--------------------------|
-| GitHub | **60 of 101** | 65 | tags run `v0.1.0` … `v0.65.0` with no gaps; releases run through **`v0.64.0`**, the one above it (`v0.65.0`) ran the workflow and failed ✗ |
-| Gitee | **3 of 101** | not counted | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
+| GitHub | **60 of 101** | 101 | every version is tagged; releases run through **`v0.64.0`**, so 41 tags have no release |
+| Gitee | **3 of 101** | 101 (forwarded) | the three are `v0.2.0`, `v0.3.0`, `v0.4.0` — `v0.1.0` has no release there |
 
-Read together, the GitHub columns hold exactly: 65 tags − 4 that never ran the workflow
-(`v0.5.0` … `v0.8.0`, forwarded by the mirror) − 1 that ran and failed (`v0.65.0`) = **60 releases**.
-The 36 tags **GitHub** does not have are `v0.66.0` … `v0.101.0`: they were never pushed there.
-Two of them (`v0.100.0`, `v0.101.0`) are on Gitee, which is where this repository's branch and
-tags are pushed first — so they can be cloned today, while GitHub sees them on its next sync.
-The two hosts therefore disagree by two, on purpose and temporarily.
+Read together, the GitHub columns hold exactly: 101 tags − 41 without a release = **60 releases**.
+The 41 have three causes, and the third is the one worth knowing: 4 never ran the workflow
+(`v0.5.0` … `v0.8.0`), 1 ran and failed (`v0.65.0`), and 36 arrived through the mirror
+(`v0.66.0` … `v0.101.0`).
 
-**Why the GitHub gap stays a gap**: the machine that maintains this repository cannot reach
-`github.com:443` at all — `git ls-remote https://github.com/idcu/ngm` returns
-`Connection timed out` twice in a row, while `api.github.com` answers and Gitee answers
-(measured 2026-10-30). So the branch and tags go to Gitee first, where they are clonable
-immediately, and the GitHub mirror is updated from a network that can reach it. That is a
-property of the environment, not a decision — and it is the reason the two columns in this
-table differ, rather than the release process being abandoned.
+The 0 tags the mirror does not have: as of 2026-10-30 every one of the 101 versions is tagged on
+both hosts. The tag column is not where the gap lives any more.
+
+**A forwarded tag is not a push the workflow can see.** Gitee carries tags to GitHub on its own
+schedule — measured 2026-10-30: after `git push --tags` to Gitee, GitHub's tag count went
+67 → 101 within about a minute, while its release count stayed at 60. So `release.yml`, which
+hangs off `push: tags`, never fires for a mirrored tag. The v0.8 retrospective called this "the
+mirror forwarded the tag but never produced that push event" — it is not an incident, it is the
+normal behaviour, and it is why a tag and a release are different rows in this table.
+
+**Why this machine pushes to Gitee and not straight to GitHub**: `github.com:443` is unreachable
+here — `git ls-remote https://github.com/idcu/ngm` returns `Connection timed out`, twice in a row,
+while `api.github.com` answers (measured 2026-10-30). So commits and tags go to Gitee, and the
+mirror carries them onward. Only the release step is left undone, and it can only be done from a
+network that can reach GitHub.
 
 New versions are released by the tag push itself: that is how the releases through `v0.64.0` were
 produced — with one miss: `v0.28.0` first pushed with a red CI, and its tag was re-pointed at the fix.
