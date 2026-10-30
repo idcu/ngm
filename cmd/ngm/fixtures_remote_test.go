@@ -144,6 +144,46 @@ func lsRemote(t *testing.T, repo string) map[string]string {
 	return refs
 }
 
+// remoteHead 返回远端的默认分支（`ref: refs/heads/x` 里的 x）。
+//
+// 为什么值得单独一条判据：默认分支不是内容，是**宿主替你做的选择**。
+// 生成器若没有把裸仓库的 HEAD 指到 main，Gitee 会自己挑一个（实测挑了
+// 字母序靠前的 `legacy`），于是仓库首页展示的是另一个分支的两个文件——
+// 任何人点进去都会以为推送只成功了一半，而这些判据却全是绿的。
+// 一个"看起来坏了、其实没坏"的夹具，会让人开始不信任夹具。
+func remoteHead(t *testing.T, repo string) string {
+	t.Helper()
+	cmd := exec.Command("git", "ls-remote", "--symref", fixtureOrgURL+repo+".git", "HEAD")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git ls-remote --symref %s: %v\n%s", repo, err, out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "ref: ") && strings.HasSuffix(strings.TrimSpace(line), "HEAD") {
+			return strings.TrimPrefix(strings.Fields(line)[1], "refs/heads/")
+		}
+	}
+	return ""
+}
+
+// TestNetFixtureDefaultBranchIsMain：三个仓库的首页都必须是 main。
+func TestNetFixtureDefaultBranchIsMain(t *testing.T) {
+	requireNetFixtures(t)
+	for repo := range expectedFixtureRefs {
+		head := remoteHead(t, repo)
+		if head == "" {
+			t.Errorf("%s: could not read the remote HEAD", repo)
+			continue
+		}
+		if head != "main" {
+			t.Errorf("%s: the default branch is %q, want \"main\".\n"+
+				"    `git push --mirror` does not carry the HEAD symref, so this is set either\n"+
+				"    when the repository is created (generator) or in the host's repo settings.\n"+
+				"    A visitor would land on the wrong branch and see a half-empty tree.", repo, head)
+		}
+	}
+}
+
 // TestNetFixturesHaveNotBeenRewritten 是腐坏守卫，必须排在其他远端判据之前看。
 //
 // 它回答的问题与"ngm 能不能用"无关：**这些仓库还是当初那三个吗**。

@@ -92,9 +92,27 @@ git -C /tmp/ngm-fixtures/ngm-fixture-basic     push --mirror https://gitee.com/i
 git -C /tmp/ngm-fixtures/ngm-fixture-monorepo  push --mirror https://gitee.com/idcu/ngm-fixture-monorepo.git
 git -C /tmp/ngm-fixtures/ngm-fixture-content   push --mirror https://gitee.com/idcu/ngm-fixture-content.git
 
-# 3) 复核
-NGM_NET_FIXTURES=1 go test ./cmd/ngm -run TestNetFixturesHaveNotBeenRewritten -v
+# 3) 复核（含默认分支）
+NGM_NET_FIXTURES=1 go test ./cmd/ngm -run 'TestNetFixture' -v
 ```
+
+### 默认分支必须自己确认（一次）
+
+`git push --mirror` **不带 HEAD 这个符号引用**（远端非空时它不在 refspec 里）。
+所以裸仓库的 HEAD 若没在生成时指到 `main`，宿主会自己挑一个分支——
+实测 Gitee 挑了 `legacy`，于是 **`ngm-fixture-basic` 的首页只有 `legacy` 的两个文件**
+（`README.md`、`legacy.txt`），而 `main` 上其实有五个。任何人点进去都会以为推送
+只成功了一半，而当时所有判据都是绿的。
+
+两处处置：
+
+- **生成时**：`buildFixtures` 在 `init --bare` 之后执行
+  `git symbolic-ref HEAD refs/heads/main`（v0.112 起），重新生成即正确；
+- **已存在的仓库**：只能改宿主设置——Gitee → 仓库 → 管理 → 仓库设置 → **默认分支 → `main`**。
+  这一步 git 协议做不到（没有"设置远端 HEAD"这种命令）。
+
+判据 `TestNetFixtureDefaultBranchIsMain` 现在会盯住它：三个仓库的 HEAD 必须都是 `main`。
+一条"看起来坏了、其实没坏"的夹具，会让人开始不信任夹具——所以它值得一条网。
 
 生成器用**底层命令**（`hash-object` / `update-index` / `write-tree` / `commit-tree` /
 `update-ref`）把内容直接写进树里，而不是先落到文件系统再 `git add`。这不是风格问题：

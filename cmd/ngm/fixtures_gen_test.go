@@ -243,6 +243,12 @@ func buildFixtures(t *testing.T, root string) []*fixtureRepo {
 		}
 		fixtureGit(t, tmp, "", "init", "--bare", "-q", ".")
 		r := build(t, tmp)
+		// 裸仓库的 HEAD 默认指向 `refs/heads/master`（不存在），不显式指到 main，
+		// 宿主就会自己挑一个分支当默认分支——实测 Gitee 挑了 `legacy`，
+		// 于是**仓库首页只有 legacy 的两个文件**，而 main 上其实有五个。
+		// `push --mirror` 不会把 HEAD 这个符号引用带过去（远端非空时它不在
+		// refspec 里），所以这件事只能在生成时做对，或事后到仓库设置里改。
+		fixtureGit(t, tmp, "", "symbolic-ref", "HEAD", "refs/heads/main")
 		dir := filepath.Join(root, r.Name)
 		_ = os.RemoveAll(dir)
 		if err := os.Rename(tmp, dir); err != nil {
