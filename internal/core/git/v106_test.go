@@ -40,19 +40,19 @@ func TestV106NoExitCodeIsNotASignatureVerdict(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:   "签名有效",
-			res:    &Result{ExitCode: 0},
-			want:   SigGood,
+			name: "签名有效",
+			res:  &Result{ExitCode: 0},
+			want: SigGood,
 		},
 		{
-			name:   "签名损坏",
-			res:    &Result{ExitCode: 1, Stderr: []byte("gpg: BAD signature from ...")},
-			want:   SigBad,
+			name: "签名损坏",
+			res:  &Result{ExitCode: 1, Stderr: []byte("gpg: BAD signature from ...")},
+			want: SigBad,
 		},
 		{
-			name:   "有签名但我的密钥不认",
-			res:    &Result{ExitCode: 1, Stderr: []byte("gpg: Can't check signature: No public key")},
-			want:   SigUntrusted,
+			name: "有签名但我的密钥不认",
+			res:  &Result{ExitCode: 1, Stderr: []byte("gpg: Can't check signature: No public key")},
+			want: SigUntrusted,
 		},
 	}
 	for _, tc := range cases {

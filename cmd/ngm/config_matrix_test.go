@@ -349,7 +349,7 @@ var reReachedConfigLayer = regexp.MustCompile(`=\d+/(error|report)\|`)
 // 每个命令都必须有名字（可以是空的切片）——`TestV37` 第一段就断言这件事。
 // 它只是"怎么到达配置层"的桥：没有它，需要位置参数的命令会先打用法文本。
 var matrixArgs = map[string][]string{
-	"init":         {"github.com:x/app"},
+	"init": {"github.com:x/app"},
 	// adopt 的合法调用不需要参数（它读 --dir 下的 node_modules）；矩阵里给空表，
 	// 因为**配置形状**那八种错误要在它读到 node_modules 之前就打断它。
 	"adopt":        {},

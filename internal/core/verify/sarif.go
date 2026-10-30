@@ -263,14 +263,14 @@ func sarifURI(d *DepResult, c CheckResult) string {
 
 func sarifProperties(rep *Report, d *DepResult, c CheckResult) map[string]any {
 	p := map[string]any{
-		"name":      d.Name,
-		"ref":       d.Ref,
-		"refType":   d.RefType,
-		"commit":    d.Commit,
-		"check":     c.Check,
-		"exitCode":  rep.Summary.ExitCode,
-		"offline":   rep.Offline,
-		"strict":    rep.Strict,
+		"name":       d.Name,
+		"ref":        d.Ref,
+		"refType":    d.RefType,
+		"commit":     d.Commit,
+		"check":      c.Check,
+		"exitCode":   rep.Summary.ExitCode,
+		"offline":    rep.Offline,
+		"strict":     rep.Strict,
 		"allowDrift": rep.AllowDrift,
 	}
 	if d.DriftKind != DriftNone {

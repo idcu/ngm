@@ -14,7 +14,7 @@ import (
 
 func sarifFixture() *Report {
 	return &Report{
-		Version:    ReportVersion,
+		Version: ReportVersion,
 		Dependencies: []DepResult{
 			{
 				Name: "github:acme/ok", Ref: "v1.0.0", RefType: "tag",
@@ -23,7 +23,7 @@ func sarifFixture() *Report {
 			},
 			{
 				Name: "github:acme/moved", Ref: "v2.0.0", RefType: "tag",
-				Commit: "2222222222222222222222222222222222222222",
+				Commit:         "2222222222222222222222222222222222222222",
 				ResolvedCommit: "3333333333333333333333333333333333333333",
 				DriftKind:      DriftUnexpected,
 				Checks: []CheckResult{{
@@ -34,7 +34,7 @@ func sarifFixture() *Report {
 			},
 			{
 				Name: "github:acme/tampered", Ref: "main", RefType: "branch",
-				Commit: "4444444444444444444444444444444444444444",
+				Commit:     "4444444444444444444444444444444444444444",
 				VendorPath: "ngm.vendor/github.com/acme/tampered",
 				DriftKind:  DriftCritical,
 				Checks: []CheckResult{{
@@ -158,10 +158,10 @@ func TestV105SARIFMessageIsSingleLine(t *testing.T) {
 func TestV105GitHubAnnotationsAreEscaped(t *testing.T) {
 	rep := sarifFixture()
 	rep.Dependencies = append(rep.Dependencies, DepResult{
-		Name:   "github:acme/pct%0Ainject",
-		Ref:    "main",
-		RefType: "branch",
-		Commit: "6666666666666666666666666666666666666666",
+		Name:      "github:acme/pct%0Ainject",
+		Ref:       "main",
+		RefType:   "branch",
+		Commit:    "6666666666666666666666666666666666666666",
 		DriftKind: DriftCritical,
 		Checks: []CheckResult{{
 			Check: CheckLanding, Status: StatusFail, Drift: DriftCritical,

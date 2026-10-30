@@ -75,7 +75,7 @@ type Package struct {
 	Files  int    `json:"files"`
 	Bytes  int64  `json:"bytes"`
 	// Nested 是该包自带 node_modules 的子包数（它们各自成条目）。
-	Nested    int        `json:"nested,omitempty"`
+	Nested     int        `json:"nested,omitempty"`
 	Provenance Provenance `json:"provenance"`
 }
 
@@ -113,10 +113,10 @@ type Tool struct {
 
 // Proof 是 `ngm adopt` 的完整产物。
 type Proof struct {
-	Version  int      `json:"version"`
-	Tool     Tool     `json:"tool"`
-	Source   Source   `json:"source"`
-	Coverage Coverage `json:"coverage"`
+	Version  int       `json:"version"`
+	Tool     Tool      `json:"tool"`
+	Source   Source    `json:"source"`
+	Coverage Coverage  `json:"coverage"`
 	Packages []Package `json:"packages"`
 	// Notes 是**必须说出来**的边界：跳过了什么、为什么某类来源查不到。
 	Notes []string `json:"notes,omitempty"`
@@ -374,12 +374,12 @@ func (s *scanner) addPackage(dir string) error {
 	relDir = filepath.ToSlash(relDir)
 
 	p := Package{
-		Name:     readPackageName(dir, filepath.Base(dir)),
-		Version:  readPackageVersion(dir),
-		Path:     relDir,
-		Digest:   digest.Digest(digest.BuildManifest(records)),
-		Files:    len(records),
-		Bytes:    bytes,
+		Name:       readPackageName(dir, filepath.Base(dir)),
+		Version:    readPackageVersion(dir),
+		Path:       relDir,
+		Digest:     digest.Digest(digest.BuildManifest(records)),
+		Files:      len(records),
+		Bytes:      bytes,
 		Provenance: s.provenanceFor(relDir),
 	}
 	s.pkgs = append(s.pkgs, p)

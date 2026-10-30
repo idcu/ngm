@@ -180,8 +180,8 @@ func (e *subprocessEngine) Bundle(ctx context.Context, entry string, opts Bundle
 				detail = "that path is a directory"
 			}
 			return nil, annotate(&EngineError{
-				Code:    0,
-				Message: fmt.Sprintf("%s exited 0 but produced no bundle at %s (%s)", e.entry.Name, written, detail),
+				Code:     0,
+				Message:  fmt.Sprintf("%s exited 0 but produced no bundle at %s (%s)", e.entry.Name, written, detail),
 				Fallback: true,
 				Hint: "check the engine's output flags (`ngm engines validate`); " +
 					"ngm will not report a bundle it cannot see",
@@ -341,8 +341,8 @@ const artifactLimit = 64 << 20
 // artifactTooLarge 是产物超出上界时的错误（按引擎失败处理，exit 1）。
 func artifactTooLarge(program string, bytesKept int) error {
 	return &EngineError{
-		Code:     0,
-		Message:  fmt.Sprintf("%s produced more than %d bytes on stdout and was cut off", program, bytesKept),
+		Code:      0,
+		Message:   fmt.Sprintf("%s produced more than %d bytes on stdout and was cut off", program, bytesKept),
 		Retryable: false,
 		Fallback:  false,
 		Hint: "write the artifact to a file (`--outfile`) instead of stdout; " +
