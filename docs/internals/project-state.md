@@ -164,6 +164,7 @@ HMR / test runner / docs generator / LSP / Dev Server / CSS 编译器 / registry
 | **v0.98** | **对账用在另一对：入口路径规范化** | v0.97 的「两条实现必须一致」用在**另一对**（产品 `relPath` / 自检器 `rel_path`）。先挑对：`subPath` 校验 v0.82 已统一（不是成对）；`exports` 解析成对但读下来一致；**路径规范化光读代码就有两处分家**——① 反斜杠靠 `filepath.ToSlash`（**Windows 转、Linux 不转**）⇒ 同一份 `main` 在两台机器上得到不同入口；② 多前导斜杠只剥一个（`.//src/x.js`）vs 剥到不剩（`./src/x.js`）⇒ 同一文件、打印不同。两处**都在 Windows 上不可能被发现** ⇒ 修产品侧（产品是契约）+ `TestV98EntryPathsAreNormalised`（11 格，走公开 API 因此能进登记表）+ 对齐网 11 → 22 形态（27 子测试全绿）。**诚实边界**：反斜杠那格本机无法用行为分辨（价值在 Linux CI）；牙齿只对 `//` 两格有效。顺带补 v0.97 对账网漏登记。**一条一般的话**：**「逐字镜像」是一句承诺，而承诺不会自己检查自己** |
 | **v0.99** | **承诺账本** | 六个词（`逐字镜像` 等）扫 Go 非测试源码 + `scripts/*.sh|*.mjs` ⇒ 14 处承诺，逐条登记「被哪条判据对账 / 为什么验不了」。当场读出两处真洞：`wasmEngine.entryArgs` 把 `entry.Args` **前置两遍**（注释说着「必须一致」；现有测试比在两个 builder 的层级上 ⇒ 看不见），处置是**让它只剩一处** + 分层判据（行为层看不见第二次、结构层能）；`mappings.lockFileName` 的「由 CLI 的集成测试保证」**做不到**（常量未导出）⇒ 导出 + 可对账。另补两处无人守的承诺：SBOM 两格式的依赖图形一致 · `slugHosts`/`hostSlugs` 对偶。**一条一般的话**：**承诺自己不会检查自己——但它们可以进账本** |
 | **v0.100** | **层 1 的两笔看不见的账** | v0.7 起层 2 就有「占用可见 + 残骸可回收」，而层 1（mirror）的出路一直写着「用户自己跑 `git gc`」。先量再答那个很自然的问题（只用最新版却要为全历史付磁盘吗）⇒ **「提交多」几乎不是成本来源**：6181 提交 / 3982 ref 的 mirror **18.41 MiB**，最新版源码 **694.33 KiB**（约 26 倍；对「每提交一份快照」的 4.1 GiB 是约 **228 倍**压缩）。真正白占磁盘的两笔：① **非默认分支 ref 所带对象 21610/54155（约 40%）**——它是 tag/branch 声明的解析依据（ADR-004）⇒ **明确不动**；② **被中断的克隆留下的临时包**（实测 **66.82 MiB**、对象库为空、`packed-refs` 不存在，而 `HEAD`/`objects/`/`refs/` 全齐 ⇒ 长得像能用的 mirror），而 `git gc` **只清 14 天以上**的（实测 13 天存活 / 15 天被清 = `gc.pruneExpire` 默认 `2.weeks`）。处置：`store usage` 增报层 1（体积 / **packed history** / 残骸 / **`NO REFS`**）· `store prune` 增收残骸（门槛 **1 小时**）· 新增 `store gc [--dry-run]`（不触网、不删内容、跳过并点名没有 ref 的目录、部分失败退 **4** 且已整理好的照常打印）；ADR-030 **拒绝** `--single-branch` 与部分克隆。顺手修掉「只有层 1 的机器被告知没有可报告的东西」的既有缺陷。**一条一般的话**：**「提交多」不是成本——看不见的那两笔才是** |
+| **v0.101** | **三个承诺实测都不成立 + 证据链五处收口 + 三个真仓库** | 本版最贵的读数不是修好了什么，而是证明了**三个对外承诺与实现不符**，且各有一条复现命令：沙箱里 `import "npm:x"` 在 `--deny-net --no-remote --deny-*` 全给时**真的下载了包**（npm 解析不经 `fetch`）· 依赖自带的 `deno.json` **被自动加载** · 仅大小写不同的两个文件让 `install` **报成功却丢一个**、紧接着 `verify` 判 critical。另修：`run:git` 不覆盖 `ngm modules`（6 处无 Policy，且写 ref）· `deny:["env:X"]` 不到引擎子进程（三处共用一个实现）· `refType` 窄默认因值拷贝而端到端断层 · UTF-8 BOM 清单被拒。新增两个消费出口：`verify --format=sarif\|github`（渲染不引入新判定；对官方 schema 校验通过）与 `ngm adopt`（[ADR-040](../adr/adr-040-adopt-proof-layer.md)：不接管安装，只对磁盘上的字节说话）。证据链五处「输出正常但结论错」：`attest` 签名时读两次清单 · `TagSignature` 把执行失败说成签名结论 · `mappings` 入口可逃出 vendor · `why` 只约束命中不约束搜索 · `atomicfile` 不同步目录项。三个真实 Gitee 夹具覆盖本地 mirror 假不出来的那一层（ref 广播 / 真 clone / `net:` 门禁），SHA 由生成器钉死。**一条一般的话**：**结论写得比实现强时，没有任何判据会变红** |
 
 **发布状态**（2026-10-04 实测两个源的 API 复核；Gitee 侧即
 `scripts/check-gitee-release-status.sh` 的读数）：
@@ -359,7 +360,7 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 #   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
 #   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
 #    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 97 个版本，需 GITEE_TOKEN，见 §3.2）
+#   Gitee 侧目前只到 v0.4.0（缺 98 个版本，需 GITEE_TOKEN，见 §3.2）
 # 方式二：从源码
 git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
 ```
