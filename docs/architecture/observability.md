@@ -262,6 +262,17 @@ $ ngm audit
 没有产出报告时（lock 损坏、配置缺失）stdout **仍然为空**，错误走 stderr——
 SARIF 没有"我没有报告"这种表达方式，半份 SARIF 比空更糟。
 
+**对过官方 schema（2026-10-30，一次性外部校验）**：用
+`https://json.schemastore.org/sarif-2.1.0.json` 与 `ajv` 校验两份真实输出——
+全绿时（`results: 0`，6 条规则）与有一个 landing 失败时
+（`results: 1`、`level: error`、`ruleId: ngm/landing-integrity`、无 region）——
+**都 VALID**。
+
+这不是 CI 判据，也刻意不做成判据：它需要联网取 schema + 一个 JS 校验器，
+而"测试不依赖公网"是本仓库的硬规矩。它是**证据**，不是守卫——
+所以这条读数会随时间变旧。真要自动化，代价是在 CI 里引入 schema 校验器
+与一份随上游漂移的外部文件；当前收益不足以付这个代价。
+
 ### 输出
 
 ```
