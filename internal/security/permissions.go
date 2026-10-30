@@ -201,12 +201,22 @@ func (pol *Policy) Source() string {
 //
 // 失败用 exit 3（配置类）：这不是运行时故障，而是"配置没写"——
 // 提示里给出可以直接粘贴的那一行，用户改完重跑即可。
+//
+// v0.113 修：这句话此前**说得比做得多**。注释与 configuration.md 都承诺
+// "可以直接粘贴的那一行"，而实现给的是散文（"add \"net:host\" to
+// `permissions.allow` in ~/.ngm/config.json"）——用户还得自己把散文翻译成 JSON，
+// 而这是他第一次用 ngm 时撞到的第一面墙（`init` → `add` 都成功，
+// `install` 才 exit 3）。现在提示里带一个**完整对象**，可以直接落进
+// `~/.ngm/config.json`；文件已存在时把 allow 数组里的那一项并进去即可。
 func (pol *Policy) Check(p Permission) error {
 	if pol.Allows(p) {
 		return nil
 	}
 	key := p.String()
-	hint := "add " + quote(key) + " to `permissions.allow` in " + pol.Source()
+	// 这个片段是**完整可粘贴**的：粘贴到新建的 ~/.ngm/config.json 即可生效。
+	snippet := `{"permissions":{"allow":[` + quote(key) + `]}}`
+	hint := "add " + quote(key) + " to `permissions.allow` in " + pol.Source() +
+		"; paste " + snippet
 
 	switch {
 	case pol.isDenied(p):

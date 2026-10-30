@@ -281,8 +281,11 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 > （施加点与默认档位见[安全模型](../architecture/security-model.md)）。
 >
 > **升级注意**：`net:` 与 `run:` 的默认档位是"需配置"。升级后第一次访问远端会 `exit 3`，
-> 提示里给出可以直接粘贴的那一行；把 `net:<host>`（以及要用到的 `run:<engine>`）加进
-> `allow` 即可。本地 mirror 与 `file://` 路径不是网络访问，不受影响。
+> 提示里给出可以直接粘贴的那一行——形如
+> `{"permissions":{"allow":["net:gitee.com"]}}`（v0.113 起真的是 JSON，此前只是一句散文：
+> 注释与本文都承诺"可直接粘贴"，而用户拿到的是需要自己翻译的中文描述）。
+> 把 `net:<host>`（以及要用到的 `run:<engine>`）加进 `allow` 即可。
+> 本地 mirror 与 `file://` 路径不是网络访问，不受影响。
 >
 > **`net:` 不止一个主机**：除了要访问的 Git 主机，**漏洞查询**走的是另一个端点——
 > `ngm audit` / `ngm tree --osv` 需要 `net:api.osv.dev`（用 `NGM_OSV_URL` 指向自建镜像时，

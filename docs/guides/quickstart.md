@@ -44,11 +44,28 @@ ngm add github:my-org/legacy@abc123def --ref-type commit
 
 `--ref-type` 通常必填，因为 `@main` 无法区分是 tag 还是 branch；只有完整 40 位 commit hash 可以省略。
 
-### 3. 安装
+### 3. 安装（第一次要放行一个主机）
 
 ```bash
 ngm install
 ```
+
+**这一步第一次会失败，而且是设计如此**：`net:` 的默认档位是"需配置"——
+既没被 `allow` 也没被 `deny` 的权限按**拒绝**处理。所以第一次会看到：
+
+```
+ConfigInvalid: permission denied: net:github.com
+  hint:  add "net:github.com" to `permissions.allow` in ~/.ngm/config.json;
+         paste {"permissions":{"allow":["net:github.com"]}}
+```
+
+把提示里那个 JSON 落进 `~/.ngm/config.json`（文件不存在就新建；已存在就把
+`allow` 数组里加上这一项），再重跑 `ngm install`。要用多个主机就把它们都列进去，
+漏洞查询用的 `net:api.osv.dev` 也在这套规则里（见[配置详解](./configuration.md#全局配置-ngmconfigjson)）。
+
+> 为什么默认拒绝：ngm 的卖点是"能证明的东西才落地"，而"默认放行、出事了再收"
+> 与那条卖点相反。代价就是这里必须多一步——所以提示直接给可粘贴的 JSON，
+> 而不是让你自己翻译成配置。
 
 流程：
 

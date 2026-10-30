@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,6 +73,57 @@ func requireNetFixtures(t *testing.T) {
 	}
 }
 
+// writeGlobalPerms 把 `permissions` 写进**全局配置**（`<HOME>/.ngm/config.json`）。
+//
+// 路径必须用 `HOME`，不是 `NGM_HOME`：前者是全局配置的根（`config.GlobalPath`），
+// 后者只覆盖 mirror / content / cache 那一层（`vendor.Layout`）。
+// 写错地方的后果很隐蔽——配置读不到，于是"默认拒绝"会让判据**假绿**：
+// 它拒绝的理由不是你配的 deny，而是"什么都没配"。第一版就踩了这个坑。
+func writeGlobalPerms(t *testing.T, allow, deny []string) {
+	t.Helper()
+	home := os.Getenv("HOME")
+	if home == "" {
+		t.Fatal("isolateUserEnv did not set HOME")
+	}
+	dir := filepath.Join(home, ".ngm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	type perms struct {
+		Allow []string `json:"allow,omitempty"`
+		Deny  []string `json:"deny,omitempty"`
+	}
+	body, err := json.Marshal(map[string]perms{"permissions": {Allow: allow, Deny: deny}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if werr := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o644); werr != nil {
+		t.Fatalf("write global config: %v", werr)
+	}
+}
+
+// allowGitee 是"用户按提示配好之后"的状态：放行该主机。
+//
+// 每个远端判据都要先做这一步——否则它测的不是被测行为，而是**默认拒绝**。
+func allowGitee(t *testing.T) {
+	t.Helper()
+	writeGlobalPerms(t, []string{"net:gitee.com"}, nil)
+}
+
+// fixtureResolve 走"声明 + 解析"两步：`ngm add` 只改 ngm.json，真正碰网络的是 `update`。
+//
+// 这个区分本身值得写下来：如果判据只跑 `add` 就断言 commit，它会在**没有联网**
+// 的情况下通过（lock 根本不存在），于是"远端解析对不对"从来没被测过。
+func fixtureResolve(t *testing.T, dir, spec string) {
+	t.Helper()
+	if code, out := runCaptureCode(t, "add", spec, "--ref-type=tag", "--dir="+dir); code != 0 {
+		t.Fatalf("add %s: %s", spec, out)
+	}
+	if code, out := runCaptureCode(t, "update", "--all", "--dir="+dir); code != 0 {
+		t.Fatalf("update after add %s (this is the step that talks to the host): %s", spec, out)
+	}
+}
+
 // lsRemote 返回 ref → sha。annotated tag 的 `^{}` 行会原样保留——
 // 那两行的存在本身就是这条判据要看的东西之一。
 func lsRemote(t *testing.T, repo string) map[string]string {
@@ -130,11 +182,9 @@ func TestNetFixtureAnnotatedTagPeelsToTheCommit(t *testing.T) {
 	requireNetFixtures(t)
 
 	isolateUserEnv(t)
+	allowGitee(t)
 	p := newProject(t)
-	if code, out := runCaptureCode(t, "add", "gitee:idcu/ngm-fixture-basic@v1.0.0",
-		"--ref-type=tag", "--dir="+p); code != 0 {
-		t.Fatalf("add annotated tag: %s", out)
-	}
+	fixtureResolve(t, p, "gitee:idcu/ngm-fixture-basic@v1.0.0")
 
 	lf, err := lock.Read(filepath.Join(p, "ngm.lock"))
 	if err != nil {
@@ -159,11 +209,9 @@ func TestNetFixtureLightweightTagResolvesToItsCommit(t *testing.T) {
 	requireNetFixtures(t)
 
 	isolateUserEnv(t)
+	allowGitee(t)
 	p := newProject(t)
-	if code, out := runCaptureCode(t, "add", "gitee:idcu/ngm-fixture-basic@v1.1.0-light",
-		"--ref-type=tag", "--dir="+p); code != 0 {
-		t.Fatalf("add lightweight tag: %s", out)
-	}
+	fixtureResolve(t, p, "gitee:idcu/ngm-fixture-basic@v1.1.0-light")
 	lf, err := lock.Read(filepath.Join(p, "ngm.lock"))
 	if err != nil || lf == nil || len(lf.Dependencies) != 1 {
 		t.Fatalf("read lock: %v (%+v)", err, lf)
@@ -185,27 +233,41 @@ func TestNetFixtureNetworkGateRefusesBeforeConnecting(t *testing.T) {
 	isolateUserEnv(t)
 	p := newProject(t)
 
-	// 全局配置里拒掉该 host（项目级 ngm.json 的 permissions 也可以，但全局更贴近
-	// "CI 机器统一收紧"的真实用法）。
-	home := os.Getenv("NGM_HOME")
-	if home == "" {
-		t.Fatal("isolateUserEnv did not set NGM_HOME")
-	}
-	cfg := `{"permissions":{"deny":["net:gitee.com"]}}`
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o644); err != nil {
-		t.Fatalf("write global config: %v", err)
+	if code, out := runCaptureCode(t, "add", "gitee:idcu/ngm-fixture-basic@v1.0.0",
+		"--ref-type=tag", "--dir="+p); code != 0 {
+		t.Fatalf("add should not need the network: %s", out)
 	}
 
-	code, out := runCaptureCode(t, "add", "gitee:idcu/ngm-fixture-basic@v1.0.0",
-		"--ref-type=tag", "--dir="+p)
+	// 第一段：**放行**该 host 时必须成功（否则这一段什么都没证明——
+	// 默认档位本来就是"需配置"，任何配置都能让它失败）。
+	//
+	// 第一版把 deny 写进了 `NGM_HOME/config.json`，而全局配置在
+	// `<HOME>/.ngm/config.json`：配置根本没被读到，判据却是绿的，
+	// 因为它拒绝的理由是"什么都没配"。**假的绿比红危险**。
+	allowGitee(t)
+	if code, out := runCaptureCode(t, "update", "--all", "--dir="+p); code != 0 {
+		t.Fatalf("with the host allowed, update must reach gitee.com:\n%s", out)
+	}
+
+	// 第二段：allow 与 deny 同时在场 ⇒ **deny 胜**，且必须在出网之前。
+	// 用一个新的项目与一份新的用户态，避免上一段的 mirror 让第二段短路。
+	isolateUserEnv(t)
+	p2 := newProject(t)
+	writeGlobalPerms(t, []string{"net:gitee.com"}, []string{"net:gitee.com"})
+	if code, out := runCaptureCode(t, "add", "gitee:idcu/ngm-fixture-basic@v1.0.0",
+		"--ref-type=tag", "--dir="+p2); code != 0 {
+		t.Fatalf("add should not need the network: %s", out)
+	}
+	code, out := runCaptureCode(t, "update", "--all", "--dir="+p2)
 	if code == 0 {
-		t.Fatalf("a denied host must not succeed:\n%s", out)
+		t.Fatalf("`deny` must win over `allow` — the host was denied and the update succeeded:\n%s", out)
 	}
 	if !strings.Contains(out, "gitee.com") {
 		t.Errorf("the refusal must name the host it would have contacted:\n%s", out)
 	}
 	// 没有留下 mirror：连"悄悄连了一下再失败"都不允许。
-	if _, err := os.Stat(filepath.Join(home, "mirror", "gitee.com")); err == nil {
+	ngmHome := os.Getenv("NGM_HOME")
+	if _, err := os.Stat(filepath.Join(ngmHome, "mirror", "gitee.com")); err == nil {
 		t.Error("a denied network permission must not leave a partially cloned mirror behind")
 	}
 }
