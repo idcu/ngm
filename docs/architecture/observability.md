@@ -273,6 +273,24 @@ SARIF 没有"我没有报告"这种表达方式，半份 SARIF 比空更糟。
 所以这条读数会随时间变旧。真要自动化，代价是在 CI 里引入 schema 校验器
 与一份随上游漂移的外部文件；当前收益不足以付这个代价。
 
+### 另外两个机器出口：SBOM 与证明（同样的外部校验，2026-10-30）
+
+同一套办法（官方 schema + `ajv`）验了 `ngm sbom` 的两份产物：
+
+| 产物 | schema | 结果 |
+|------|--------|------|
+| `ngm sbom --format=cyclonedx` | `CycloneDX/specification` 的 `bom-1.5.schema.json`（含它引用的 `spdx.schema.json` / `jsf-0.82.schema.json` 子 schema） | **VALID** |
+| `ngm sbom --format=spdx` | `spdx/spdx-spec` 的 `v2.3/schemas/spdx-schema.json` | **VALID** |
+
+**没验的那一份，以及为什么**：`ngm attest` 的 `predicateType` 是
+`https://slsa.dev/provenance/v1`，而 SLSA v1 的 JSON Schema 在它文档给出的路径上
+取不到（`in-toto/attestation` 与 `slsa-framework/slsa` 的 raw 与 jsDelivr **都是 404**，
+两个仓库都挪过目录）。自己凭记忆写一份 schema 去校验自己的产物，等于自证——
+那比不验更坏，因为它会给出一个"已验证"的错觉。
+
+这条留到**出现第一个消费方**时一起做（与 `attest --sign` 同一条启动条件）：
+到那时才有真实的校验路径可对齐，而不是我对规范的理解。
+
 ### 输出
 
 ```
