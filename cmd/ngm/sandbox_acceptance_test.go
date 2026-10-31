@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,9 +83,7 @@ func TestV03SandboxAcceptance(t *testing.T) {
 // 与 internal/security 的沙箱测试分工：那里证明 flag 与逃逸阻断，
 // 这里证明**接线**——脚本从哪找、权限从哪来、失败如何变成退出码。
 func TestV03SandboxRealDeno(t *testing.T) {
-	if _, err := exec.LookPath("deno"); err != nil {
-		t.Skip("deno is not installed; TestV03SandboxAcceptance covers the wiring without it")
-	}
+	requireSupportedDeno(t, "TestV03SandboxAcceptance covers the wiring without it")
 
 	t.Run("a passing self-check keeps the verdict", func(t *testing.T) {
 		proj := v3SandboxProject(t, map[string]string{

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -132,9 +131,7 @@ func TestV03PostInstallAcceptance(t *testing.T) {
 
 // TestV03PostInstallRealDeno 用**真实 Deno**验收执行路径。
 func TestV03PostInstallRealDeno(t *testing.T) {
-	if _, err := exec.LookPath("deno"); err != nil {
-		t.Skip("deno is not installed; TestV03PostInstallAcceptance covers the policy wiring")
-	}
+	requireSupportedDeno(t, "TestV03PostInstallAcceptance covers the policy wiring")
 
 	t.Run("a passing hook runs and is reported", func(t *testing.T) {
 		proj := v3PostInstallProject(t, map[string]string{

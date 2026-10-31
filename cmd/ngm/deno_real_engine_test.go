@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -38,9 +37,7 @@ import (
 // 顺带观察到：deno 在非 TTY 下仍输出 ANSI 颜色码。它落在 stderr，不污染 `--json`
 // 的 stdout，因此本轮不动它；记在这里以免将来有人把它当成"输出没被正确处理"。
 func TestV05RealDenoTypeCheck(t *testing.T) {
-	if _, err := exec.LookPath("deno"); err != nil {
-		t.Skip("deno is not installed; the hermetic acceptance covers the argv translation")
-	}
+	requireSupportedDeno(t, "the hermetic acceptance covers the argv translation")
 	testutils.AllowEngines(t, "deno")
 	isolateUserEnv(t)
 

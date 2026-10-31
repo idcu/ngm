@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -87,9 +86,7 @@ func TestV03AuditHookAcceptance(t *testing.T) {
 
 // TestV03AuditHookRealDeno 用**真实 Deno**验收契约本身：报告真的从 stdin 进来。
 func TestV03AuditHookRealDeno(t *testing.T) {
-	if _, err := exec.LookPath("deno"); err != nil {
-		t.Skip("deno is not installed; TestV03AuditHookAcceptance covers the wiring")
-	}
+	requireSupportedDeno(t, "TestV03AuditHookAcceptance covers the wiring")
 
 	// 这是这套机制存在的理由：团队可以在 OSV 之上加自己的策略。
 	// 断言它真的**读到了报告**（而不是拿到一个空 stdin 也照样 exit 1）。
