@@ -63,6 +63,13 @@ func fixtureGitEnv() []string {
 		// 不因本地配置改变行为。
 		"GIT_CONFIG_NOSYSTEM=1",
 		"HOME="+fixtureConfigHome(),
+		// `ls-tree` 默认把非 ASCII 路径**转义**成 `\344\270\255...`：那样
+		// "夹具里真的有 中文名.js" 这条断言只在恰好没开 quotepath 的机器上成立
+		// （本地 Windows 过了，ubuntu CI 红了）。把引号策略钉成事实，
+		// 判据读到的就是夹具真实的文件名，而不是 git 的显示选择。
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.quotePath",
+		"GIT_CONFIG_VALUE_0=false",
 	)
 }
 

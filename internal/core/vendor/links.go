@@ -280,7 +280,9 @@ func validateEntryPaths(entries []ContentEntry) error {
 				"refusing to materialize gitlink "+e.Path+" (submodules are not supported)",
 				"pin a commit that vendors the submodule as regular files, or remove it upstream")
 		}
-		p := path.Clean(filepath.ToSlash(e.Path))
+		// 同 EscapesPackageTree：`\` 在 POSIX 上是普通字符，ToSlash 不归一它，
+		// 于是含反斜杠的条目路径会在 Linux/macOS 上绕过逃逸判定。
+		p := path.Clean(strings.ReplaceAll(e.Path, `\`, "/"))
 		if p == "." || p == ".." || strings.HasPrefix(p, "../") || looksLikeAbsPath(p) {
 			return errs.New(errs.CodeConfigInvalid,
 				"refusing to materialize an entry whose path escapes the vendor tree: "+e.Path,
@@ -384,11 +386,16 @@ func EscapesPackageTree(entryPath, target string) bool {
 	// 代价说明（保守拒绝）：POSIX 上 `\` 是合法的文件名字符，因此
 	// `..\..\x` 在那里是一个（极罕见的）合法文件名而非逃逸。这里统一按
 	// 分隔符处理 = 宁可拒掉一个罕见合法名，也不放过一个真实逃逸。
-	target = filepath.ToSlash(target)
+	//
+	// 必须用 ReplaceAll 而不是 filepath.ToSlash：后者在 POSIX 上是**恒等函数**，
+	// 于是同一条判据在 Linux/macOS 上会放行 `..\..\x`——2026-11-03 的 ubuntu CI
+	// 正是这样抓到的（本地 Windows 全绿）。判据的输入空间是清单口径，
+	// 不该随编译它的平台改变。
+	target = strings.ReplaceAll(target, `\`, "/")
 	if looksLikeAbsPath(target) {
 		return true
 	}
-	dir := path.Dir(path.Clean(filepath.ToSlash(entryPath)))
+	dir := path.Dir(path.Clean(strings.ReplaceAll(entryPath, `\`, "/")))
 	joined := path.Clean(path.Join(dir, target))
 	return joined == ".." || strings.HasPrefix(joined, "../")
 }
