@@ -28,6 +28,8 @@ type StoreReclaimItem struct {
 // 只读：Plan 不删任何东西。真正的删除在 ApplyStoreReclaim。
 type StoreReclaimPlan struct {
 	Root string
+	// Exists 为 false 表示 store 根还不存在（没有候选，也不是错误）。
+	Exists bool
 	// Items 按 digest 升序，保证输出可 diff。
 	Items []StoreReclaimItem
 	// TotalBytes 是**现在**能回收的字节合计（不含 YoungBlobBytes）。
@@ -54,6 +56,15 @@ func (p StoreReclaimPlan) Empty() bool { return len(p.Items) == 0 }
 // 调用方必须把这一取舍写进输出（`ngm gc` 的帮助与提示就是这么做的）。
 func (s *ContentStore) PlanStoreReclaim(reachable map[string]bool, now time.Time) (StoreReclaimPlan, error) {
 	plan := StoreReclaimPlan{Root: s.root}
+	if info, err := os.Stat(s.root); err != nil {
+		if os.IsNotExist(err) {
+			return plan, nil
+		}
+		return plan, errs.Wrap(errs.CodeConfigInvalid, "stat the content store", "", err)
+	} else if !info.IsDir() {
+		return plan, errs.New(errs.CodeConfigInvalid, s.root+" is not a directory", "")
+	}
+	plan.Exists = true
 
 	scan, err := s.scanManifests()
 	if err != nil {

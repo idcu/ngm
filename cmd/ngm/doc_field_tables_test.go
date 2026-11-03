@@ -43,6 +43,8 @@ var jsonShapeSourceFiles = map[string][]string{
 	// v0.66：两个写命令的报告结构体都在 install.go（update 共用同一形状）。
 	"install": {"./install.go"},
 	"update":  {"./install.go"},
+	// v0.102：gc 的报告结构体与命令实现写在同一个文件里。
+	"gc": {"./gc.go"},
 }
 
 // configSectionFiles 把 configuration.md 的**章节**映射到实现文件的 glob。

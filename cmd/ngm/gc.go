@@ -170,12 +170,30 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Lock:    env.LockPath(),
 	}
 
-	// ---- 层 2：content store
+	// ---- 先把三层的计划都算出来，再动手。
+	//
+	// 顺序很重要：任何一层的扫描失败都必须在**删除任何东西之前**退出——
+	// 否则一条读不出清单的 store 会让命令删掉 mirror，然后才报"无法判定"。
 	storePlan, err := env.Store.PlanStoreReclaim(reach.digests, now)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
-	rep.Store = gcClass{Root: storePlan.Root, Exists: true}
+	mu, err := env.Mirror.Usage()
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	vendorRoot := env.VendorRoot(pf)
+	mode := "local"
+	if pf != nil && pf.Vendor != nil && strings.EqualFold(strings.TrimSpace(pf.Vendor.Mode), "global") {
+		mode = "global"
+	}
+	vplan, err := vendor.PlanVendorReclaim(vendorRoot, reach.vendorPaths)
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+
+	// ---- 层 2：content store
+	rep.Store = gcClass{Root: storePlan.Root, Exists: storePlan.Exists}
 	for _, it := range storePlan.Items {
 		rep.Store.Candidates = append(rep.Store.Candidates, gcItem{ID: it.Digest, Bytes: it.Bytes, Layout: it.Layout})
 	}
@@ -191,10 +209,6 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	// ---- 层 1：mirror
-	mu, err := env.Mirror.Usage()
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
-	}
 	rep.Mirror = gcClass{Root: mu.Root, Exists: mu.Exists}
 	for _, e := range mu.Entries {
 		if reach.mirrors[e.Repo] {
@@ -223,15 +237,6 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	// ---- 层 3：vendor
-	vendorRoot := env.VendorRoot(pf)
-	mode := "local"
-	if pf != nil && pf.Vendor != nil && strings.EqualFold(strings.TrimSpace(pf.Vendor.Mode), "global") {
-		mode = "global"
-	}
-	vplan, err := vendor.PlanVendorReclaim(vendorRoot, reach.vendorPaths)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
-	}
 	rep.Vendor = gcClass{Root: vplan.Root, Exists: vplan.Exists, Mode: mode}
 	if mode == "global" {
 		// 无法判定别的项目是否引用：保留并 warning，不猜（用户决策）。

@@ -571,9 +571,13 @@ ngm verify --format=sarif > ngm.sarif
 - run: echo ok   # 先把 ngm 装到 PATH（发布产物或源码构建）
 - uses: idcu/ngm@<tag>
   with:
-    mode: verify          # verify | adopt | adopt-check
-    args: "--deep --strict"
+    mode: verify            # verify | adopt | adopt-check
+    verify-level: structure # 默认；发布门槛可改成 content
+    args: "--strict"
 ```
+
+`verify-level` 会被展开成 `--level=<值>`；若 `args` 里已经写了 `--content` / `--deep` /
+`--level=`，action 不再注入默认值（两种写法同时给出会被 ngm 拒绝）。
 
 | mode | 前提 | 作用 |
 |---|---|---|

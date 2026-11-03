@@ -177,7 +177,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 
 | 命令 | 顶层形状 | 带退出码字段 |
 |------|---------|------------|
-| `ngm verify --json` | 对象：`version` · `level`（`structure` / `content`） · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明）。`--content` 时每个依赖另有 `content`：`level` · `expectedDigest` · `computedDigest` · `expectedSource` · `files` · `symlinks` · `mismatches`（元素键 `path` · `kind` · `expected` · `actual`，哈希为完整 sha256） | ✅ `summary.exitCode` |
+| `ngm verify --json` | 对象：`version` · `level`（取值 structure / content） · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明）。`--content` 时每个依赖另有 `content`：`level` · `expectedDigest` · `computedDigest` · `expectedSource` · `files` · `symlinks` · `mismatches`（元素键 `path` · `kind` · `expected` · `actual`，哈希为完整 sha256） | ✅ `summary.exitCode` |
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
 | `ngm tree --json` | 对象：`project` · `source`（图来源：锁内的 requiredBy 图 / 回退解析，取值就是锁文件名或清单文件名） · `entries` · `drifted` · `dependencies` · `osvChecked` · `notes`（图来源之外没查成的项，例如 mirror 不完整导致漂移未比对）；（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
