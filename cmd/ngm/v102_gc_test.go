@@ -181,6 +181,12 @@ func TestV102GCReclaimsUnreachableOnly(t *testing.T) {
 	if !strings.Contains(hout, "nothing to reclaim") {
 		t.Errorf("second run should say there is nothing to reclaim:\n%s", hout)
 	}
+	// 被引用的对象必须在**两次运行之后**仍然在位（dry-run 不删，apply 也不碰它们）。
+	for _, p := range []string{keepMirror, keepDirs[1], keepVendor} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("reachable object %s did not survive both runs: %v", p, err)
+		}
+	}
 }
 
 // readGCReachableDigest 从 lock 里读回一个仍在引用的 digest。
