@@ -22,7 +22,7 @@
 > 发布是另一回事，且**2026-10-04 已直接问过两个源的 API**：
 > GitHub 有 65 个里的 **60 个**，Gitee 只有 **3 个**
 > （`v0.2.0`/`v0.3.0`/`v0.4.0`，各 7 个附件）——**`v0.1.0` 在 Gitee 上没有发行版**，
-> 而本文件此前把它算成了"两个源都可取到"。逐版状态见[发布状态](../milestones.md#发布状态)；
+> 而本文件此前把它算成了"两个源都可取到"。逐版状态见[发布状态](../milestones-b.md#发布状态)；
 > Gitee 侧随时可用 `bash scripts/check-gitee-release-status.sh` 复读（发布清单第 6 步；
 > Windows 用 `scripts/check-gitee-release-status.ps1`，它转调同一个实现）。
 >

@@ -9,11 +9,11 @@
 见[模块集合架构](./architecture/module-collections.md)、[语言无关核心](./architecture/core-and-adapters.md)
 与 [ADR-031](./adr/adr-031-module-collections.md)…[ADR-037](./adr/adr-037-per-module-publish-override.md)。
 v0.12 的主题是**把读数修准**——包括本页自己的读数：它此前把 `v0.1.0` 算作"Gitee 也可取到"。
-许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](milestones.md#发布状态)。
+许可证也已从"保留所有权利"改为 **MIT**（见[许可证](#许可证)），逐版见[发布状态](milestones-b.md#发布状态)。
 **"交付"与"发布"是两件事，这一页把它们分开写**：101 个 tag 里，GitHub 上有 **60 个** release
 （101 个 tag 现在都在两个主机上；release 的最新是 `v0.64.0`——`v0.65.0` 跑过工作流但失败了 ✗。
 镜像转发 tag **不会**触发 workflow，所以 `v0.66.0` 起的 tag 都没有 release），Gitee 上只有 **3 个**（`v0.2.0` · `v0.3.0` ·
-`v0.4.0`），而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](milestones.md#发布状态)
+`v0.4.0`），而 `v0.1.0` 在那里**没有发行版**。逐版状态与出处见[发布状态](milestones-b.md#发布状态)
 ——那张表的数字是 2026-10-10 **直接问两个源的 API** 得到的，不是本页的记忆
 （两个源的覆盖随时可复读：`bash scripts/check-mirror-coverage.sh` 与 `bash scripts/check-gitee-release-status.sh`；
 `bash scripts/write-readings-summary.sh --out FILE` 会把两段读数写成 markdown——CI 每次把它贴到 job summary 页。

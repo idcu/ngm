@@ -46,9 +46,9 @@ type milestoneLedger struct {
 }
 
 var milestoneLedgers = []milestoneLedger{
-	{"v0.1", []string{"../../docs/milestones.md"}},
-	{"v0.5", []string{"../../docs/development/ledger.md"}},
-	{"v0.56", []string{"../../docs/internals/progress.md"}},
+	{"v0.1", []string{"../../docs/milestones.md", "../../docs/milestones-b.md"}},
+	{"v0.5", []string{"../../docs/development/ledger.md", "../../docs/development/ledger-b.md"}},
+	{"v0.56", []string{"../../docs/internals/progress.md", "../../docs/internals/progress-b.md", "../../docs/internals/progress-c.md"}},
 }
 
 // parseVersion 把 `v0.57` 读成 57（只支持这条判据用到的形状）。

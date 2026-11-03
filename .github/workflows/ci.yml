@@ -561,3 +561,12 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: two installs must agree modulo resolvedAt
         run: go test -count=1 -run 'TestM3Acceptance/lock_is_reproducible' -v ./cmd/ngm
+
+  discipline:
+    # 十问看板（方法论 §8）：只回答"这个仓库几档、缺哪一条"，不改任何东西。
+    # --strict 在低于 L3 时退 1——防止新仓库悄悄从 L0 起步。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 十问看板
+        run: node scripts/check-discipline.mjs --strict

@@ -386,58 +386,43 @@ ngm attest --out=provenance.intoto.json
 
 ## 命令参考
 
-共 **27 个顶层命令**。`ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。根级只接受 `--help` / `-h` / `--version` 三个 token；命令自己的 flag 必须写在命令之后（`ngm --json verify` 会被拒绝，exit 3）。
+共 **27 个顶层命令**。逐条的用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
+`ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。
 
-| 命令 | 用法要点 | 实际退出码 |
-|---|---|---|
-| `init` | `ngm init <name> [--runtime=node\|deno] [--dir=] [--force]` | 0, 3 |
-| `adopt` | `ngm adopt [--dir=] [--out=] [--json]`；`--check=<proof>` 复核同一棵树，有差异 exit 2 | 0, 2, 3, 6 |
-| `add` | `ngm add <url>[@ref] [--ref-type=] [--infer-ref-type] [--path=] [--dry-run]` | 0, 3 |
-| `install` | `ngm install [--digest] [--frozen-lockfile] [--offline] [--json]` | 0, 1, 2, 3, 4, 5 |
-| `update` | `ngm update [<dep>] [--all] [--offline] [--digest] [--store] [--json]` | 0, 1, 2, 3, 4, 5 |
-| `remove` | `ngm remove <dep> [--dir=]`，只改声明；lock 由 install 刷新 | 0, 3 |
-| `modules` | `list` / `validate` / `index` / `changed` / `plan`；`--strict`、`--index=`、`--shards`、`--branch=ngm-index` | 0, 3 |
-| `doctor` | `ngm doctor [--dir=] [--json]`；诊断失败写进报告，命令仍退 0 | 0, 3 |
-| `verify` | `ngm verify [<dep>...] [--offline] [--content \| --level=structure\|content] [--deep] [--strict] [--allow-drift] [--json] [--format=sarif\|github] [--sandbox] [--signatures] [--require-signed]` | 0, 1, 2, 3, 4, 5, 6 |
-| `audit` | `ngm audit [<dep>...] [--offline] [--no-cache] [--json] [--hook=]`，按 commit 查 OSV.dev，缓存 24h | 0, 1, 3, 4, 5, 6 |
-| `why` | `ngm why <dep> [--json] [--all]`；默认最多 64 条路径，截断会明说 | 0, 3, 6 |
-| `tree` | `ngm tree [--osv] [--offline] [--json] [--all]`；优先读 lock 的 `requiredBy` 图，旧 lock 回退解析并标注来源；默认最多 4096 条 | 0, 1, 3, 4, 6 |
-| `outdated` | `ngm outdated [--offline] [--json]`；查不到报 `unknown`，不冒充「最新」 | 0, 3, 6 |
-| `typecheck` | `ngm typecheck [<entry>] [--engine=] [--tsconfig=] [--dry-run]`；内置 `typescript` 适配器为 optional，需要 `run:tsc` | 0, 1, 3, 5, 6 |
-| `typedecl` | `ngm typedecl [<entry>] --outdir=<dir> [--engine=] [--dry-run]`，`--outdir` 必填 | 0, 1, 3, 5 |
-| `build` | `ngm build [<entry>] [--engine=] [--outfile=] [--production] [--dry-run]` | 0, 1, 3, 5, 6 |
-| `transform` | `ngm transform [<file>] [--engine=] [--loader=] [--target=] [--format=] [--minify] [--sourcemap]`；默认 stdin → stdout | 0, 1, 3, 5, 6 |
-| `css` | `ngm css <input.css> [--engine=] [--outfile=] [--minify] [--dry-run]`；只接受一个输入 | 0, 1, 3, 5, 6 |
-| `mappings` | `ngm mappings validate`，校验 mappings 与 lock / vendor 的一致性 | 0, 3 |
-| `integrations` | `ngm integrations add <vite\|esbuild\|deno\|webpack> [--dry-run] [--json]`，不覆盖用户文件 | 0, 3, 6 |
-| `cache` | `ngm cache clean`，只清 `~/.ngm/cache` | 0, 3 |
-| `store` | `usage` / `prune [--dry-run] [--orphans] [--older-than=]` / `gc [--dry-run]` | 0, 3, 4 |
-| `gc` | `ngm gc [--dir=] [--apply] [--json]`；默认 dry-run；按当前 lock 回收 store/mirror/vendor 的不可达对象 | 0, 3, 4 |
-| `config` | `validate` / `show`，`--dir=` 只作用于目标项目 | 0, 3 |
-| `engines` | `list` / `info <name>` / `validate`；来源优先级为项目 → 全局 → 内置 | 0, 3, 5, 6 |
-| `sbom` | `ngm sbom [--format=cyclonedx\|spdx] [--out=] [--dir=]` | 0, 3, 6 |
-| `attest` | `ngm attest [--out=] [--dir=]`，in-toto / SLSA v1，未签名 | 0, 3, 6 |
+| 类别 | 命令 |
+|---|---|
+| 项目 | `init` `adopt` `config` |
+| 依赖 | `add` `install` `update` `remove` `verify` `why` `tree` `outdated` |
+| 模块集合 | `modules`（`list` / `validate` / `index` / `changed` / `plan`） |
+| 供应链 | `audit` `sbom` `attest` |
+| 引擎与构建 | `typecheck` `typedecl` `build` `transform` `css` `engines` |
+| 集成与缓存 | `integrations` `cache` `store` `gc` `mappings` |
+| 诊断 | `doctor` |
 
-补充约定：
+四条容易踩的：
 
-- `--json` 在 13 个命令可用：`verify` / `audit` / `tree` / `why` / `outdated` / `install` / `update` / `engines` / `integrations` / `doctor` / `modules` / `adopt` / `gc`。stdout 只放恰好一份 JSON 文档，人类文本与诊断走 stderr。
-- 子命令集合：`modules` 5 个、`store` 3 个、`engines` 3 个、`config` 2 个、`mappings` 1 个、`integrations` 1 个、`cache` 1 个。
-- 内置引擎：`esbuild`（bundle / transform）、`typescript`（typeCheck / typeDecl，optional）、`postcss`（css，optional）、`self`（仅 stub，不要用于生产 fallback）。
-- `remote` adapter 按 ADR-013 / ADR-020 **决定不发布**，声明它会得到「按决定排除」而非「待实现」。
+- `--json` 在 13 个命令可用，stdout 只放**恰好一份** JSON，人类文本与诊断走 stderr；
+- 命令自己的 flag 必须写在命令之后（`ngm --json verify` 会被拒绝，exit 3）；
+- 内置引擎 `esbuild`（bundle/transform）、`typescript`（optional）、`postcss`（optional）、`self`（stub，别用于生产）；
+- `remote` adapter 按 ADR-013 / ADR-020 **决定不发布**，声明它得到的是「按决定排除」而非「待实现」。
 
 ---
 
 ## 退出码
 
-| 码 | 含义 | 典型来源 |
+| 码 | 一句话 | 重试？ |
 |---:|---|---|
-| 0 | 成功 | 包括 verify 的「只有 expected 更新」、doctor 的「诊断完成但有问题」 |
-| 1 | 策略失败 | verify 非预期漂移；audit 超阈值漏洞；引擎运行了但失败；审计钩子否决 |
-| 2 | 完整性失败 | digest 重放不匹配、落地字节被篡改、依赖自带 `verify.js` 失败、`--require-signed` 未满足 |
-| 3 | 配置 / 策略 / lock / 用法错误 | `ngm.json` 非法、lock 过期、`--frozen-lockfile` 不一致、`--out` 写不进 |
-| 4 | Git 或网络失败 | clone/fetch 失败、`--offline` 缺资源 |
-| 5 | 引擎不可用 | 引擎未安装、adapter 未实现、`--sandbox` 缺 Deno |
-| 6 | 内部失败 | panic；结论算出来了却送不到：写 stdout 失败 / JSON 编码失败 / 读 stdin 失败 |
+| 0 | 成功 | — |
+| 1 | 策略失败（漂移 / 漏洞超阈值 / 引擎跑了但失败 / 钩子否决） | 否，要人看 |
+| 2 | 完整性失败（digest 不匹配、字节被篡改） | 否 |
+| 3 | 配置 / 策略 / lock / 用法错误 | 否 |
+| 4 | Git 或网络失败 | 是 |
+| 5 | 引擎不可用 | 是（装好引擎后） |
+| 6 | 内部失败（panic，或结论送不出去） | 是 |
+
+**机器可读版本**：[contracts/exit-codes.json](contracts/exit-codes.json) —— 含 `retryable`。
+脚本与 CI 判断"该不该重试"读它，**不要 grep 人类可读输出**（措辞一改就断）。
+逐码的典型来源见 [cli.md](docs/guides/cli.md)。
 
 三条容易记错的规则：
 
@@ -479,63 +464,33 @@ ngm attest --out=provenance.intoto.json
 {
   "schemaVersion": 1,
   "name": "github.com/my-org/my-app",
-  "version": "0.1.0",
   "runtime": "node",
   "main": "./src/index.ts",
-  "types": "./src/index.d.ts",
-  "publish": true,
   "dependencies": [
     { "name": "github:my-org/utils", "ref": "v1.2.3", "refType": "tag" },
     { "name": "github:my-org/core", "ref": "v2.0.0", "refType": "tag", "path": "packages/core" }
   ],
-  "engines": {
-    "bundle": "esbuild",
-    "typeCheck": { "primary": "typescript", "fallbacks": ["deno"] }
-  },
+  "engines": { "bundle": "esbuild", "typeCheck": { "primary": "typescript", "fallbacks": ["deno"] } },
   "vendor": { "mode": "local", "linkMode": "auto" },
-  "supplyChain": {
-    "allowedGitHosts": ["github.com", "gitee.com"],
-    "allowlistRepos": ["github.com/my-org/*"],
-    "minimumReleaseAge": "P3D",
-    "osvIgnoreSeverities": ["LOW"],
-    "postInstallPolicy": "deny",
-    "verifyOnLock": true
-  }
+  "supplyChain": { "allowedGitHosts": ["github.com", "gitee.com"], "minimumReleaseAge": "P3D", "verifyOnLock": true }
 }
 ```
 
-字段边界：
+字段边界（完整说明见 [configuration.md](docs/guides/configuration.md)）：
 
 - `name` / `version` / `runtime` / `dependencies` 必填；`version` 被回显但不参与解析。
-- `publish` 仅对模块集合有意义；nil 跟随 `modules index --releases`，显式布尔完全覆盖全局开关。
-- `vendor.mode=global` 时，`vendor.globalPath` **只能**指向 `~/.ngm/global-vendor` 或其子目录；相对路径、`..`、项目外路径会被 `config validate` 与 install/update 拒绝。
-- `vendor.commit` 已移除；写入会被 `DisallowUnknownFields` 拒绝（exit 3）。
-- `vendor.mode=global` 是多项目共享，因此不会因当前项目移除依赖而清理共享目录。
+- `vendor.mode=global` 时 `vendor.globalPath` **只能**指向 `~/.ngm/global-vendor` 或其子目录。
+- `vendor.commit` 已移除，写入会被 `DisallowUnknownFields` 拒绝（exit 3）。
 
 ### 全局配置
 
 ```json
-{
-  "git": {
-    "defaultProtocol": "ssh",
-    "tokenEnvVars": {
-      "github.com": "GITHUB_TOKEN",
-      "gitee.com": "GITEE_TOKEN"
-    }
-  },
-  "engines": {
-    "defaultBundle": "esbuild",
-    "defaultTypeCheck": "typescript"
-  },
-  "permissions": {
-    "allow": ["run:git", "run:esbuild", "run:tsc", "net:github.com"],
-    "deny": ["run:npm", "env:GITHUB_TOKEN"]
-  }
-}
+{ "git": { "defaultProtocol": "ssh", "tokenEnvVars": { "github.com": "GITHUB_TOKEN" } },
+  "engines": { "defaultBundle": "esbuild" },
+  "permissions": { "allow": ["run:git", "run:esbuild"], "deny": ["run:npm", "env:GITHUB_TOKEN"] } }
 ```
 
-默认 Git 协议是 **ssh**：内置默认、`ngm config show` 与实际解析现在一致。需要 HTTPS 时在
-`~/.ngm/config.json` 显式写 `"defaultProtocol": "https"`。
+默认协议是 **ssh**；需要 HTTPS 时在 `~/.ngm/config.json` 显式写 `"defaultProtocol": "https"`。
 
 ---
 
