@@ -27,10 +27,11 @@ func TestV10MissingBlobIsReportedWithAWayOut(t *testing.T) {
 		t.Fatalf("删掉 blob 以模拟 store 不完整: %v", err)
 	}
 
-	// 不完整**不该**被误判成"没有这份内容"：清单在，所以 Has 仍为真——
-	// 测试要照着真实链路走（install 就是被这条 `Has` 短路的）。
-	if !store.Has(dg) {
-		t.Fatal("清单还在时 Has 应当为真；否则测的不是这条路径")
+	// v0.102：Has 现在会逐个验证清单引用的 blob。因此 store 不完整时
+	// `ngm install` **不会**再短路——它会重新落地（或明确报缺哪个 blob）。
+	// 这条测试保留 Materialize/ReadFile 的"点名 + 出路"承诺。
+	if store.Has(dg) {
+		t.Fatal("blob 缺失时 Has 必须为假（否则 install 会跳过修复，v0.102）")
 	}
 
 	// 落地：报出**哪一个条目**缺失，以及出路。

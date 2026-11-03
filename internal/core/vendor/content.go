@@ -115,8 +115,13 @@ func (s *ContentStore) MetaPath(digestID string) string {
 
 // Has 报告某个 digest 的内容是否已就绪。
 //
-// v2：清单存在且 meta.json 可解析；v1：meta.json 可解析且 tree/ 目录存在。
-// 不做内容校验（那属于 verify 的职责，见 --deep）。
+// v2：清单存在、meta.json 可解析，且**清单引用的每个 blob 都在磁盘上**；
+// v1：meta.json 可解析且 tree/ 目录存在。
+//
+// 为什么 v2 要逐个验证 blob（v0.102）：旧实现只看清单与 meta，而清单是磁盘上的
+// JSON——中断的写入、手工删除或磁盘错误都可以留下"清单在、blob 不在"的状态。
+// 只查清单会让 `install` 短路（"已经存在"），随后 verify 才报资源缺失。
+// 这里不做**内容哈希**校验（那属于 verify 的职责，见 --deep），只确认字节位置存在。
 func (s *ContentStore) Has(digestID string) bool {
 	if digestID == "" {
 		return false
@@ -124,8 +129,26 @@ func (s *ContentStore) Has(digestID string) bool {
 	// v2 优先（清单 + meta），其次回落到 v1（meta + 已物化的树）——
 	// 读路径必须同时认两种布局，否则升级后旧项目会**立刻**验不过。
 	if s.hasManifest(digestID) {
-		_, err := s.readMetaV2(digestID)
-		return err == nil
+		if _, err := s.readMetaV2(digestID); err != nil {
+			return false
+		}
+		m, err := s.readManifest(digestID)
+		if err != nil {
+			return false
+		}
+		for _, e := range m.Entries {
+			if e.Mode == digest.ModeSymlink {
+				continue // symlink 的"内容"是 Target，没有 blob
+			}
+			blob := s.BlobPath(e.SHA)
+			if blob == "" {
+				return false
+			}
+			if _, err := os.Stat(blob); err != nil {
+				return false
+			}
+		}
+		return true
 	}
 	if _, err := s.readMetaV1(digestID); err != nil {
 		return false

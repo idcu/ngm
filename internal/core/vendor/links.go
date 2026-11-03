@@ -143,10 +143,15 @@ func (lt *LinkTree) materialize(digest, canonicalPath, subPath string, relative 
 		return LinkResult{}, errs.New(errs.CodeConfigInvalid, "empty vendor path", "")
 	}
 	if !lt.store.Has(digest) {
-		return LinkResult{}, errs.New(
-			errs.CodeDigestMismatch,
-			"content store has no entry for "+digest+"; cannot build the vendor tree",
-			"run `ngm install` to populate the content store first")
+		// Has 现在会逐个验证 blob（v0.102）。若清单/meta 还在、只是某个 blob
+		// 缺失，不能在这里用一句"没有这份内容"盖掉更精确的定位——
+		// 继续走 Entries/linkEntries，由它们点名缺的是哪个文件。
+		if _, metaErr := lt.store.ReadMeta(digest); metaErr != nil {
+			return LinkResult{}, errs.New(
+				errs.CodeDigestMismatch,
+				"content store has no entry for "+digest+"; cannot build the vendor tree",
+				"run `ngm install` to populate the content store first")
+		}
 	}
 
 	// 源：**条目集合**（v2 清单 / v1 扫描），不再假定 store 里有一棵目录树（ADR-019）。

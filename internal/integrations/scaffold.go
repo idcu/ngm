@@ -261,10 +261,33 @@ func Apply(projectDir string, arts []Artifact, dryRun bool) ([]Outcome, error) {
 			discard()
 			return nil, errs.Wrap(errs.CodeConfigInvalid, "create directory for "+a.Path, "", err)
 		}
-		tmp := abs + ".ngm-tmp"
-		if err := os.WriteFile(tmp, a.Content, 0o644); err != nil {
+		// 用 CreateTemp 而不是 `abs + ".ngm-tmp"`：固定后缀会和用户自己的
+		// 同名文件（或两个并发进程）冲突，而这里的写入本来就必须是唯一的。
+		tmpFile, terr := os.CreateTemp(filepath.Dir(abs), filepath.Base(abs)+".ngm-tmp-*")
+		if terr != nil {
 			discard()
-			return nil, errs.Wrap(errs.CodeConfigInvalid, "write "+a.Path, "", err)
+			return nil, errs.Wrap(errs.CodeConfigInvalid, "create temp file for "+a.Path,
+				"check directory permissions and free disk space", terr)
+		}
+		tmp := tmpFile.Name()
+		if _, werr := tmpFile.Write(a.Content); werr != nil {
+			tmpFile.Close()
+			_ = os.Remove(tmp)
+			discard()
+			return nil, errs.Wrap(errs.CodeConfigInvalid, "write "+a.Path,
+				"check free disk space", werr)
+		}
+		if cerr := tmpFile.Close(); cerr != nil {
+			_ = os.Remove(tmp)
+			discard()
+			return nil, errs.Wrap(errs.CodeConfigInvalid, "close temp file for "+a.Path,
+				"check free disk space", cerr)
+		}
+		if cerr := os.Chmod(tmp, 0o644); cerr != nil {
+			_ = os.Remove(tmp)
+			discard()
+			return nil, errs.Wrap(errs.CodeConfigInvalid, "chmod temp file for "+a.Path,
+				"check directory permissions", cerr)
 		}
 		stagedFiles = append(stagedFiles, staged{label: a.Path, dst: abs, tmp: tmp})
 	}

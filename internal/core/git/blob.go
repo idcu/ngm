@@ -25,7 +25,10 @@ func ReadFileAtCommit(ctx context.Context, opts Options, repoPath, commit, path 
 	o := opts
 	o.Dir = repoPath
 
-	res, err := Run(ctx, o, "ls-tree", "-z", commit, "--", path)
+	// `:(literal)` 是 Git 的 pathspec magic：不做 glob 展开。
+	// 不加它时，一个含 `*` / `?` / `[` 的子路径会被当成模式，可能匹配到
+	// **另一个**文件——而 ReadFileAtCommit 的调用方要的是"这个确切路径"。
+	res, err := Run(ctx, o, "ls-tree", "-z", commit, "--", ":(literal)"+path)
 	if err != nil {
 		return nil, false, err
 	}

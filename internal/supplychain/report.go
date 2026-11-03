@@ -119,14 +119,19 @@ func severitySummary(by map[string]int) string {
 			parts = append(parts, fmt.Sprintf("%d %s", n, s))
 		}
 	}
-	// 兜底：出现未知级别时也要显示，不能静默丢掉
+	// 兜底：出现未知级别时也要显示，不能静默丢掉。
+	// 只对**未知级别**排序；已知级别按固定顺序输出（CRITICAL → UNKNOWN）——
+	// 旧实现对整个 parts 做 sort.Strings，于是 "1 CRITICAL" 会排到
+	// "3 HIGH" 前面（按数字而非严重度），与上面刚写下的顺序相反。
+	var extras []string
 	for s, n := range by {
 		if n <= 0 || containsString(order, s) {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%d %s", n, s))
+		extras = append(extras, fmt.Sprintf("%d %s", n, s))
 	}
-	sort.Strings(parts)
+	sort.Strings(extras)
+	parts = append(parts, extras...)
 	return joinStrings(parts, ", ")
 }
 

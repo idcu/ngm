@@ -98,6 +98,14 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 	return out, nil
 }
 
+// maxCatFileObjectBytes 是 cat-file 单个对象允许的最大字节数（v0.102）。
+//
+// 旧实现按 header 里的 size 直接 `make([]byte, size)`：一个损坏或被改写的
+// mirror 只要在 header 里写一个巨大的数，就能让 ngm 尝试分配同样大的内存。
+// 256 MiB 远大于任何真实源码仓库中的单个 blob，同时把"读到一半 OOM"变成
+// 一条可诊断的 GitFetch 错误。
+const maxCatFileObjectBytes = 256 << 20
+
 // readCatFileBatch 按协议读取 n 个对象。
 func readCatFileBatch(r io.Reader, n int) ([][]byte, error) {
 	br := bufio.NewReaderSize(r, 64*1024)
@@ -131,6 +139,13 @@ func readCatFileBatch(r io.Reader, n int) ([][]byte, error) {
 		if perr != nil {
 			return nil, errs.Wrap(errs.CodeGitFetch,
 				fmt.Sprintf("cat-file: malformed size in %q", header), "", perr)
+		}
+		if size < 0 || size > maxCatFileObjectBytes {
+			return nil, errs.New(errs.CodeGitFetch,
+				fmt.Sprintf("cat-file: object %s is %d bytes, above the %d-byte limit",
+					parts[0], size, maxCatFileObjectBytes),
+				"the mirror reports an unusable object size; delete that mirror and re-fetch, "+
+					"or report the object to the upstream")
 		}
 
 		content := make([]byte, size)

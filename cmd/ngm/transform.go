@@ -170,10 +170,18 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 	var body []byte
 	if input == "" {
-		body, err = io.ReadAll(stdinReader)
+		// stdin 是**外部输入**：一个无限/巨大的管道不该让 ngm 无限分配内存。
+		// 上限与 adapter 的产物上界无关——这是"读进来"的限制，超限按 usage 错误报。
+		const maxTransformStdin = 64 << 20
+		body, err = io.ReadAll(io.LimitReader(stdinReader, maxTransformStdin+1))
 		if err != nil {
 			fmt.Fprintf(stderr, "read stdin: %v\n", err)
 			return errs.CodeInternal.ExitCode()
+		}
+		if len(body) > maxTransformStdin {
+			return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("stdin exceeds the %d-byte limit", maxTransformStdin),
+				"pass a file path instead of piping an unbounded stream into `ngm transform`"))
 		}
 	} else {
 		body, err = readInputFile(ec.env.ProjectDir, input)

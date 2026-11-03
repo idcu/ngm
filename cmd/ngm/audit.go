@@ -97,7 +97,7 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			"run `ngm install` to resolve dependencies and create the lock"))
 	}
 	if names := fs.Args(); len(names) > 0 {
-		filtered, ferr := filterLock(lf, names)
+		filtered, _, ferr := filterLock(lf, names)
 		if ferr != nil {
 			return runErr(ctx, stdout, stderr, ferr)
 		}

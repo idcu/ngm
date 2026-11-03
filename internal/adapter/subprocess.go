@@ -269,6 +269,24 @@ func (e *subprocessEngine) Compile(ctx context.Context, input []byte, opts CSSOp
 	// 而 ngm 的说明此前借用了 Warnings 这个字段名。
 	out := &CSSResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
+		// 与 Bundle 同一条纪律：引擎退出 0 不是"产物存在"的证据（v0.102）。
+		written := opts.Outfile
+		if !filepath.IsAbs(written) {
+			written = filepath.Join(e.dir, written)
+		}
+		if st, serr := os.Stat(written); serr != nil || st.IsDir() {
+			detail := "the file does not exist"
+			if serr == nil {
+				detail = "that path is a directory"
+			}
+			return nil, annotate(&EngineError{
+				Code:     0,
+				Message:  fmt.Sprintf("%s exited 0 but produced no CSS at %s (%s)", e.entry.Name, written, detail),
+				Fallback: true,
+				Hint: "check the engine's output flags (`ngm engines validate`); " +
+					"ngm will not report a file it cannot see",
+			}, e.entry, inv.Args)
+		}
 		out.Outfile = opts.Outfile
 	} else {
 		out.Code = res.Stdout
