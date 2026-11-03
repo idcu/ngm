@@ -170,7 +170,15 @@ func (e *projectEnv) RemoteRefResolver() func(context.Context, resolve.Canonical
 		// 对象**是否存在**，由必须读它的那一步负责（ADR-010 的按需取物：
 		// digest 重放会明确报"commit 不在本地 mirror 里"），不在这里假装知道。
 		if rt == resolve.RefTypeCommit {
-			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{})
+			// commit 型不需要 ref 广播，但仍需要在本地 mirror 里补齐短 hash
+			// （7~39 位）。只传 repo/ref 的语法校验会让 verify 拿到短 hash，
+			// 再与 lock 的完整 commit 比较时误报 drift（P1 回归）。
+			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{
+				MirrorDir: e.Layout.MirrorRoot(),
+				Protocol:  e.Protocol,
+				Secrets:   e.GitOpts.Secrets,
+				Policy:    e.Policy,
+			})
 		}
 
 		url, err := git.MirrorRemoteURL(ctx, e.GitOpts, e.Mirror.PathFor(repo))
@@ -261,7 +269,55 @@ func (e *projectEnv) LockPath() string { return lock.Find(e.ProjectDir) }
 
 // ReadManifest 读取并校验项目的 ngm.json。
 func (e *projectEnv) ReadManifest() (*config.ProjectFile, error) {
-	return config.ReadProjectFile(e.ManifestPath())
+	pf, err := config.ReadProjectFile(e.ManifestPath())
+	if err != nil {
+		return nil, err
+	}
+	if err := e.validateVendorLocation(pf); err != nil {
+		return nil, err
+	}
+	return pf, nil
+}
+
+// validateVendorLocation 限制项目清单能把 global vendor 指向哪里。
+//
+// 安全模型声明 ngm 只写 `$PROJECT/ngm.vendor`；`vendor.mode=global` 是
+// 一个例外，但 `vendor.globalPath` 写在**仓库里的 ngm.json**，是不可信输入。
+// 若不加限制，一个仓库可以把它指向项目外任意目录，install 会在那里
+// RemoveAll 并复制依赖文件（P1 回归）。
+//
+// 约束：globalPath 只能是 ngm 自己的全局 vendor 根（`~/.ngm/global-vendor`）
+// 或其子目录；相对路径、`..`、项目外绝对路径一律拒绝。需要自定义位置的用户
+// 应使用项目级 `vendor.mode=local`，或后续把路径放进用户级配置。
+func validateVendorLocation(layout vendor.Layout, pf *config.ProjectFile) error {
+	if pf == nil || pf.Vendor == nil || pf.Vendor.Mode != "global" {
+		return nil
+	}
+	raw := strings.TrimSpace(pf.Vendor.GlobalPath)
+	if raw == "" {
+		return nil // VendorRoot 回退到 layout.GlobalVendorRoot()
+	}
+	p := expandUserPath(raw)
+	if !filepath.IsAbs(p) {
+		return errs.New(errs.CodeConfigInvalid,
+			"vendor.globalPath must be an absolute path (or start with `~/`): "+raw,
+			"project files may only point at ngm's global vendor root; use `vendor.mode=local`, "+
+				"or move the path to user-level configuration")
+	}
+	root := layout.GlobalVendorRoot()
+	rel, err := filepath.Rel(root, p)
+	if err != nil || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return errs.New(errs.CodeConfigInvalid,
+			"vendor.globalPath is outside ngm's global vendor root: "+p,
+			"allowed root: "+root+"; a project manifest may not choose an arbitrary write location — "+
+				"use `vendor.mode=local`, or move the path to user-level configuration")
+	}
+	return nil
+}
+
+func (e *projectEnv) validateVendorLocation(pf *config.ProjectFile) error {
+	return validateVendorLocation(e.Layout, pf)
 }
 
 // toDepSpecs 把 ngm.json 的依赖声明转换为图解析用的规格。
@@ -344,6 +400,90 @@ type digestNode struct {
 	Digest  string
 	// Module 表示 Digest 是 moduleDigest，条目路径已经相对模块根。
 	Module bool
+}
+
+// cleanupStaleVendor 删除上一份 lock 中、本次已不再需要的 vendor 目录。
+//
+// 为什么需要它（P1 回归）：`ngm remove` 只改 ngm.json；下一次 `ngm install`
+// 检测到 lock 与声明不一致后会重新解析，但 LinkTree.Materialize 只会
+// 清理**本次目标目录**，不会清理旧依赖留下的目录。于是被删除的依赖仍留在
+// `ngm.vendor/` 里，构建工具仍能解析到旧代码。
+//
+// 只在"本次确实重建了依赖图"时调用（installFresh / update），并且：
+//   - 只删除**旧 lock 里记录过**、本次不再对应的路径；
+//   - 路径必须经 safeVendorChild 归一，绝不接受 `..`、绝对路径或盘符；
+//   - 删除发生在本次 Materialize **之前**，这样旧根目录被移除后，
+//     同仓库保留下来的模块子路径仍能由本次落地重新创建。
+func cleanupStaleVendor(env *projectEnv, pf *config.ProjectFile, previous *lock.File, items []digestNode) error {
+	if previous == nil || len(previous.Dependencies) == 0 {
+		return nil
+	}
+	// global vendor 是**多项目共享**的：当前项目移除一个依赖，不代表另一个
+	// 项目不再需要它。删除权只适用于项目自己的 ngm.vendor（local 模式）。
+	if pf != nil && pf.Vendor != nil && pf.Vendor.Mode == "global" {
+		return nil
+	}
+	root := env.VendorRoot(pf)
+	current := make(map[string]bool, len(items))
+	for _, dn := range items {
+		rel := vendor.VendorPathFor(dn.Repo.MirrorRelPath(), dn.SubPath)
+		if rel != "" {
+			current[rel] = true
+		}
+	}
+	for i := range previous.Dependencies {
+		d := &previous.Dependencies[i]
+		rel := vendor.VendorPathFor(d.VendorPath, d.SubPath)
+		if rel == "" || current[rel] {
+			continue
+		}
+		abs, ok := safeVendorChild(root, rel)
+		if !ok {
+			// 旧 lock 的 vendorPath 不可信时不要跟着它走；它本来就不该被
+			// 用来定位文件（见 lock.VendorPath 未校验的已知边界）。
+			continue
+		}
+		if _, err := os.Lstat(abs); err != nil {
+			continue // 已经不在磁盘上：幂等
+		}
+		if err := os.RemoveAll(abs); err != nil {
+			return errs.Wrap(errs.CodeConfigInvalid,
+				"remove stale vendor path "+abs,
+				"close any process holding files under ngm.vendor/", err)
+		}
+	}
+	return nil
+}
+
+// safeVendorChild 把 vendor 相对路径解析为 vendor 根下的绝对路径。
+//
+// 它只做**词法**边界检查；调用方（cleanupStaleVendor）用它删除旧目录，
+// 因此绝不接受绝对路径、`..` 段或 Windows 盘符形式。
+func safeVendorChild(root, rel string) (string, bool) {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		return "", false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", false
+		}
+	}
+	if filepath.IsAbs(rel) || strings.Contains(rel, ":") {
+		return "", false
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	abs := filepath.Join(rootAbs, filepath.FromSlash(rel))
+	back, err := filepath.Rel(rootAbs, abs)
+	if err != nil || back == "." || back == ".." ||
+		strings.HasPrefix(back, ".."+string(filepath.Separator)) ||
+		filepath.IsAbs(back) {
+		return "", false
+	}
+	return abs, true
 }
 
 // digestNodeFromResolved 把图节点转为落地输入。

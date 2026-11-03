@@ -2,6 +2,7 @@ package resolve_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/idcu/ngm/internal/core/resolve"
@@ -32,9 +33,14 @@ func TestV68CrossLayerDiamondIsResolvedOnce(t *testing.T) {
 
 	base := w.opts()
 	calls := map[string]int{}
+	var callsMu sync.Mutex
 	opts := base
 	opts.EnsureMirror = func(ctx context.Context, repo resolve.Canonical) (string, error) {
+		// resolveBatch 会并发调用 EnsureMirror；计数表必须加锁，
+		// 否则 -race 会把测试自己的 map 写读报成数据竞争。
+		callsMu.Lock()
 		calls[repo.Slug()]++
+		callsMu.Unlock()
 		return base.EnsureMirror(ctx, repo)
 	}
 

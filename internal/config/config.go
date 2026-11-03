@@ -146,7 +146,7 @@ func (e *EnginesConfig) AsMap() map[string]any {
 type VendorConfig struct {
 	Mode       string `json:"mode,omitempty"`       // global | local（默认 local）
 	LinkMode   string `json:"linkMode,omitempty"`   // auto | hardlink | copy | symlink
-	GlobalPath string `json:"globalPath,omitempty"` // mode=global 时使用
+	GlobalPath string `json:"globalPath,omitempty"` // mode=global 时使用；只能指向 ngm 全局 vendor 根或其子目录
 }
 
 // SupplyChainConfig v0.2 供应链策略。字段集在 v0.1 期间保留为空结构以便向后兼容。

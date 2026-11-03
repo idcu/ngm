@@ -213,6 +213,25 @@ func (ec *engineContext) mappingsAlias() (map[string]string, error) {
 	}
 
 	alias := make(map[string]string, len(mf.Mappings))
+	// 写 alias 之前拒绝“指向 vendor 之外”的条目（P1 回归）。
+	// `ngm build` 是读取 mappings 的另一层，不能假设 integrations 已经校验过；
+	// 这里只拦 EscapesVendor，不因为“to 目录暂时不存在”而阻断构建。
+	findings, verr := mappings.Validate(mf, mappings.ValidateEnvironment{
+		ProjectDir: ec.env.ProjectDir,
+		VendorRoot: ec.env.MappingsVendorRoot(ec.pf),
+	})
+	if verr != nil {
+		return nil, verr
+	}
+	for _, fi := range findings {
+		if fi.EscapesVendor {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				"refusing to build with an alias outside the vendored tree: "+fi.Message,
+				"run `ngm mappings validate`, then `ngm install` to regenerate "+
+					mappings.FileName+" — a build alias outside ngm.vendor would consume "+
+					"code ngm never proved")
+		}
+	}
 	for _, m := range mf.Mappings {
 		key := m.Specifier()
 		to := strings.TrimSpace(m.To)

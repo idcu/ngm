@@ -29,15 +29,47 @@ type AddSpec struct {
 	Ref string
 }
 
+// splitRefSuffix 从 `<url>[@<ref>]` 中拆出 ref。
+//
+// 判定规则：
+//   - `@` 之后为空或含 `:`（Git ref 名不允许 `:`）⇒ 不是 ref；
+//   - 含 `://` 的 URL：`@` 位于 authority 段内（第一个 `/` 之前）⇒ userinfo；
+//   - 无 scheme 的 scp/shorthand：`@` 位于第一个 `:` 之前 ⇒ userinfo；
+//   - 其余位置的最后一个 `@` ⇒ ref（ref 可以含 `/`）。
+//
+// 这样 `https://user@host/org/repo` 不会被当成 ref，
+// 而 `github:org/repo@feature/x`、`git@host:org/repo@release/1.0` 都会被正确拆开。
+func splitRefSuffix(raw string) (base, ref string) {
+	at := strings.LastIndex(raw, "@")
+	if at < 0 {
+		return raw, ""
+	}
+	tail := raw[at+1:]
+	if tail == "" || strings.Contains(tail, ":") {
+		return raw, ""
+	}
+	if scheme := strings.Index(raw, "://"); scheme >= 0 {
+		start := scheme + 3
+		if slash := strings.IndexByte(raw[start:], '/'); slash >= 0 {
+			authEnd := start + slash
+			if at < authEnd {
+				return raw, ""
+			}
+		} else {
+			// 没有路径段：整个剩余部分都是 authority。
+			return raw, ""
+		}
+	} else if colon := strings.IndexByte(raw, ':'); colon >= 0 && at <= colon {
+		return raw, ""
+	}
+	return raw[:at], tail
+}
+
 // ParseAddSpec 解析 `ngm add` 的位置参数。
 //
-// 解析顺序很关键——`@ref` 必须**先于** `#path=` 剥离，因为 `#path=` 片段可能
-// 位于 `@ref` 之前（`github:org/mono#path=pkg/core@v1.0.0`）：
-//
-//  1. `@<ref>` 后缀——仅当最后一个 `@` 之后不含 `/` 与 `:` 时才认定为 ref，
-//     否则视为 URL 的 userinfo（如 `git@host:org/repo`）
-//  2. `#path=<sub>` 片段
-//  3. 剩余部分交给 Normalize 归一化
+// 语法：`<git-url>[#path=<sub/path>][@<ref>]`。`@ref` 先于 `#path=` 剥离，
+// 因为 `#path=` 片段可能位于 `@ref` 之前（`github:org/mono#path=pkg/core@v1.0.0`）；
+// ref 可以包含 `/`（例如 `feature/x`、`release/1.0`）。
 func ParseAddSpec(input string) (AddSpec, error) {
 	raw := strings.TrimSpace(input)
 	if raw == "" {
@@ -49,13 +81,14 @@ func ParseAddSpec(input string) (AddSpec, error) {
 
 	var spec AddSpec
 
-	// 1) 剥离 `@ref`（仅当尾部片段像 ref 时）
-	if at := strings.LastIndex(raw, "@"); at >= 0 {
-		tail := raw[at+1:]
-		if tail != "" && !strings.ContainsAny(tail, "/:") {
-			spec.Ref = tail
-			raw = raw[:at]
-		}
+	// 1) 剥离 `@ref`。严格来说要区分两种 `@`：
+	//    - URL authority 里的 userinfo（`https://user@host/org/repo`）
+	//    - 真正位于仓库地址之后的 ref 分隔符（`github:org/repo@feature/x`）
+	// 既不能因为 ref 含 `/` 就拒绝（feature/x 是最常见的分支名），
+	// 也不能把 userinfo 里的 `@` 误当成 ref。
+	if base, ref := splitRefSuffix(raw); ref != "" {
+		spec.Ref = ref
+		raw = base
 	}
 
 	// 2) 剥离 `#path=...`

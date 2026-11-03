@@ -434,6 +434,14 @@ func BuildModuleMaterials(ctx context.Context, opts Options, repoPath, commit st
 		acc[m] = &moduleAcc{}
 	}
 	for _, e := range entries {
+		// 模块作用域与根作用域使用**同一套**条目校验。此前这里直接构造
+		// digest.Record，于是 gitlink / 未知 mode 会进入模块清单，而
+		// verify 的 modproof 会拒绝它——install 成功、verify 永远失败（P1）。
+		if !isTreeMode(e.Mode) {
+			if err := validateTreeEntry(e, commit); err != nil {
+				return nil, err
+			}
+		}
 		if a, ok := acc[e.Path]; ok {
 			if !isTreeMode(e.Mode) {
 				return nil, errs.New(errs.CodeConfigInvalid,

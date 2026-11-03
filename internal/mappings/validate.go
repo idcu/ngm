@@ -121,12 +121,30 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 		//
 		// v0.66：根不再硬编码为 `./ngm.vendor`——global 模式下它是绝对路径，
 		// 而 `ToJoin` 正是那样写出 `to` 的（评估报告 P2#14）。
+		//
+		// P1 修复：不能用字符串前缀判断。`./ngm.vendor/../../outside` 以
+		// `./ngm.vendor` 开头，但解析后根本不在 vendor 根下；旧检查会放行，
+		// integrations 与 ngm build 就会把别名写到 vendor 之外。这里改为
+		// 先拒绝 `..` 段，再用 filepath.Rel 做规范化后的边界判断。
 		vendorRoot := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(env.VendorRoot)), "/")
 		if vendorRoot == "" {
 			vendorRoot = VendorRelRoot
 		}
+		vendorRootAbs := resolveToAbs(env.ProjectDir, vendorRoot)
 		toSlash := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(m.To)), "/")
-		if !strings.HasPrefix(toSlash+"/", vendorRoot+"/") {
+		if hasDotDotSegment(toSlash) {
+			findings = append(findings, Finding{
+				From:          m.From,
+				Message:       "`to` must not contain `..` segments (got " + m.To + ")",
+				Fatal:         true,
+				EscapesVendor: true,
+			})
+			continue
+		}
+		toAbs := resolveToAbs(env.ProjectDir, m.To)
+		rel, relErr := filepath.Rel(vendorRootAbs, toAbs)
+		if relErr != nil || rel == "." || rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 			findings = append(findings, Finding{
 				From:          m.From,
 				Message:       "`to` must point inside " + vendorRoot + "/ (got " + m.To + ")",
@@ -135,7 +153,6 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 			})
 			continue
 		}
-		toAbs := resolveToAbs(env.ProjectDir, m.To)
 		toInfo, err := os.Lstat(toAbs)
 		if err != nil {
 			findings = append(findings, Finding{
@@ -248,6 +265,20 @@ func resolveToAbs(projectDir, to string) string {
 func containsString(list []string, want string) bool {
 	for _, v := range list {
 		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDotDotSegment 报告路径里是否有 `..` 段（两种分隔符都按分隔符处理）。
+//
+// `to` 是 vendor 根下的相对/绝对路径，生成器从不写 `..`；出现它只可能是
+// 手改或恶意 mappings。规整后再判断边界不够——规整可能把 `..` 吃掉，
+// 从而让一条越界路径“看起来”在 vendor 内。
+func hasDotDotSegment(p string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+		if part == ".." {
 			return true
 		}
 	}

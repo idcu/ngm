@@ -1,0 +1,1068 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 0a8a1b60935162c8c0414eb1cb92d5a2156ec5ec..e00c4875674ebccdec28b7503fc06bf9fdb1c61d 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -203,6 +203,9 @@ jobs:
+ 
+   # 数据竞争检测：涉及 mirror 懒加载与 argparse 的代码在多 goroutine 下有共享状态，
+   # 单一 job 跑 -race 即可（-race 需要 cgo，ubuntu 镜像自带 gcc）。
++  #
++  # 超时与普通 job 一样显式放宽到 40m：`cmd/ngm` 串行非 race 约 7~8 分钟，
++  # -race 会把 Go 侧放大数倍；默认 10m 会让"慢"被读成"坏"。
+   race:
+     name: go test -race
+     runs-on: ubuntu-latest
+@@ -213,7 +216,7 @@ jobs:
+           go-version: ${{ env.GO_VERSION }}
+           cache: true
+       - name: go test -race ./...
+-        run: go test -count=1 -race ./...
++        run: go test -count=1 -race -timeout 40m ./...
+ 
+   # 阶段可执行验收（每个里程碑一个 TestMXAcceptance）。
+   # 验收以 Go 测试实现（cmd/ngm/acceptance_mX_test.go），因此三平台一致可跑：
+diff --git a/cmd/ngm/acceptance_m3_test.go b/cmd/ngm/acceptance_m3_test.go
+index d9471bffd075454d5e41375d0b904458b0523378..e3daf0518c2ae1ee4a772c3ddf814ba1880960b6 100644
+--- a/cmd/ngm/acceptance_m3_test.go
++++ b/cmd/ngm/acceptance_m3_test.go
+@@ -3,6 +3,7 @@ package main
+ import (
+ 	"context"
+ 	"os"
++	"path/filepath"
+ 	"regexp"
+ 	"strings"
+ 	"testing"
+@@ -373,17 +374,27 @@ func TestM3Acceptance(t *testing.T) {
+ 		if !strings.Contains(out, "ngm install") {
+ 			t.Errorf("remove should point at `ngm install`:\n%s", out)
+ 		}
+-		// 声明已移除，但 lock 未动（remove 是声明编辑，lock 由 install/update 负责）
++		// remove 仍是声明编辑：lock 不动（lock 只由 install/update 负责）。
+ 		if lf, _ := lock.Read(lock.Find(proj)); len(lf.Dependencies) != 1 {
+ 			t.Errorf("remove must not touch the lock")
+ 		}
+ 
+-		// install 尊重 lock：声明为空也不清理 lock（lock 记录的是"上次解析结果"）
++		// P1 回归：lock 里的根声明已不在 ngm.json 中，--frozen-lockfile 必须失败。
++		if code, out := runCaptureCode(t, "install", "--frozen-lockfile", "--dir="+proj); code != 3 {
++			t.Errorf("frozen-lockfile with an undeclared lock root should exit 3, got %d: %s", code, out)
++		}
++
++		// 普通 install 检测到“lock 有、声明没有”的根后重新解析并清理 lock/vendor。
+ 		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
+ 			t.Fatalf("install after remove: %s", out)
+ 		}
+-		if lf, _ := lock.Read(lock.Find(proj)); len(lf.Dependencies) != 1 {
+-			t.Errorf("install must respect the lock, got %d entries", len(lf.Dependencies))
++		if lf, _ := lock.Read(lock.Find(proj)); len(lf.Dependencies) != 0 {
++			t.Errorf("install must rebuild the lock when the manifest no longer declares a root; got %d entries",
++				len(lf.Dependencies))
++		}
++		staleVendor := filepath.Join(proj, vendor.VendorDirName, "github.com", "m3", "rm")
++		if _, err := os.Stat(staleVendor); !os.IsNotExist(err) {
++			t.Errorf("removed dependency must be cleaned from vendor, but %s still exists", staleVendor)
+ 		}
+ 
+ 		// update --all 重新计算锁定 → 孤儿条目被清理
+diff --git a/cmd/ngm/config.go b/cmd/ngm/config.go
+index d23c043702c6f216fa2c670665d1dae411cb284a..7f1c71e6311f9ed7e50bbe50313b9560afaa8c8e 100644
+--- a/cmd/ngm/config.go
++++ b/cmd/ngm/config.go
+@@ -11,6 +11,7 @@ import (
+ 
+ 	"github.com/idcu/ngm/internal/config"
+ 	"github.com/idcu/ngm/internal/core/errs"
++	"github.com/idcu/ngm/internal/core/vendor"
+ )
+ 
+ // configUsage 是 `ngm config --help` 的简短说明。
+@@ -95,6 +96,15 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
+ 		return runErr(ctx, stdout, stderr, errs.WrapUnlessHinted(errs.CodeConfigInvalid,
+ 			"validate ngm.json", "fix the reported field or remove unknown fields", err))
+ 	}
++	// 项目清单可以把 vendor 指向项目外吗？运行期 install/update 会拒绝；
++	// validate 必须给出**同一份**判定，否则 CI 会在 validate 上绿、在 install 上红。
++	layout, lerr := vendor.DefaultLayout()
++	if lerr != nil {
++		return runErr(ctx, stdout, stderr, lerr)
++	}
++	if verr := validateVendorLocation(layout, r.Project); verr != nil {
++		return runErr(ctx, stdout, stderr, verr)
++	}
+ 	fmt.Fprintln(stdout, "ngm.json OK")
+ 
+ 	// 权限列表也要校验。`config.Load` 不会看它的内容（字段类型是 []string），
+diff --git a/cmd/ngm/engine.go b/cmd/ngm/engine.go
+index 833e88777e83393b267d00ef1d9edc2b315b4524..d83606ee8b7ad6926bb79ff560eb5d229bbf1352 100644
+--- a/cmd/ngm/engine.go
++++ b/cmd/ngm/engine.go
+@@ -213,6 +213,25 @@ func (ec *engineContext) mappingsAlias() (map[string]string, error) {
+ 	}
+ 
+ 	alias := make(map[string]string, len(mf.Mappings))
++	// 写 alias 之前拒绝“指向 vendor 之外”的条目（P1 回归）。
++	// `ngm build` 是读取 mappings 的另一层，不能假设 integrations 已经校验过；
++	// 这里只拦 EscapesVendor，不因为“to 目录暂时不存在”而阻断构建。
++	findings, verr := mappings.Validate(mf, mappings.ValidateEnvironment{
++		ProjectDir: ec.env.ProjectDir,
++		VendorRoot: ec.env.MappingsVendorRoot(ec.pf),
++	})
++	if verr != nil {
++		return nil, verr
++	}
++	for _, fi := range findings {
++		if fi.EscapesVendor {
++			return nil, errs.New(errs.CodeConfigInvalid,
++				"refusing to build with an alias outside the vendored tree: "+fi.Message,
++				"run `ngm mappings validate`, then `ngm install` to regenerate "+
++					mappings.FileName+" — a build alias outside ngm.vendor would consume "+
++					"code ngm never proved")
++		}
++	}
+ 	for _, m := range mf.Mappings {
+ 		key := m.Specifier()
+ 		to := strings.TrimSpace(m.To)
+diff --git a/cmd/ngm/env.go b/cmd/ngm/env.go
+index 9ec57518106b62c10aa27d34a81c5c08ad3c4322..0305ff3c883b2e1b353b59ee98274fce9e306c6f 100644
+--- a/cmd/ngm/env.go
++++ b/cmd/ngm/env.go
+@@ -170,7 +170,15 @@ func (e *projectEnv) RemoteRefResolver() func(context.Context, resolve.Canonical
+ 		// 对象**是否存在**，由必须读它的那一步负责（ADR-010 的按需取物：
+ 		// digest 重放会明确报"commit 不在本地 mirror 里"），不在这里假装知道。
+ 		if rt == resolve.RefTypeCommit {
+-			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{})
++			// commit 型不需要 ref 广播，但仍需要在本地 mirror 里补齐短 hash
++			// （7~39 位）。只传 repo/ref 的语法校验会让 verify 拿到短 hash，
++			// 再与 lock 的完整 commit 比较时误报 drift（P1 回归）。
++			return resolve.ResolveRef(ctx, repo, ref, rt, resolve.ResolveOptions{
++				MirrorDir: e.Layout.MirrorRoot(),
++				Protocol:  e.Protocol,
++				Secrets:   e.GitOpts.Secrets,
++				Policy:    e.Policy,
++			})
+ 		}
+ 
+ 		url, err := git.MirrorRemoteURL(ctx, e.GitOpts, e.Mirror.PathFor(repo))
+@@ -261,7 +269,55 @@ func (e *projectEnv) LockPath() string { return lock.Find(e.ProjectDir) }
+ 
+ // ReadManifest 读取并校验项目的 ngm.json。
+ func (e *projectEnv) ReadManifest() (*config.ProjectFile, error) {
+-	return config.ReadProjectFile(e.ManifestPath())
++	pf, err := config.ReadProjectFile(e.ManifestPath())
++	if err != nil {
++		return nil, err
++	}
++	if err := e.validateVendorLocation(pf); err != nil {
++		return nil, err
++	}
++	return pf, nil
++}
++
++// validateVendorLocation 限制项目清单能把 global vendor 指向哪里。
++//
++// 安全模型声明 ngm 只写 `$PROJECT/ngm.vendor`；`vendor.mode=global` 是
++// 一个例外，但 `vendor.globalPath` 写在**仓库里的 ngm.json**，是不可信输入。
++// 若不加限制，一个仓库可以把它指向项目外任意目录，install 会在那里
++// RemoveAll 并复制依赖文件（P1 回归）。
++//
++// 约束：globalPath 只能是 ngm 自己的全局 vendor 根（`~/.ngm/global-vendor`）
++// 或其子目录；相对路径、`..`、项目外绝对路径一律拒绝。需要自定义位置的用户
++// 应使用项目级 `vendor.mode=local`，或后续把路径放进用户级配置。
++func validateVendorLocation(layout vendor.Layout, pf *config.ProjectFile) error {
++	if pf == nil || pf.Vendor == nil || pf.Vendor.Mode != "global" {
++		return nil
++	}
++	raw := strings.TrimSpace(pf.Vendor.GlobalPath)
++	if raw == "" {
++		return nil // VendorRoot 回退到 layout.GlobalVendorRoot()
++	}
++	p := expandUserPath(raw)
++	if !filepath.IsAbs(p) {
++		return errs.New(errs.CodeConfigInvalid,
++			"vendor.globalPath must be an absolute path (or start with `~/`): "+raw,
++			"project files may only point at ngm's global vendor root; use `vendor.mode=local`, "+
++				"or move the path to user-level configuration")
++	}
++	root := layout.GlobalVendorRoot()
++	rel, err := filepath.Rel(root, p)
++	if err != nil || rel == ".." ||
++		strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
++		return errs.New(errs.CodeConfigInvalid,
++			"vendor.globalPath is outside ngm's global vendor root: "+p,
++			"allowed root: "+root+"; a project manifest may not choose an arbitrary write location — "+
++				"use `vendor.mode=local`, or move the path to user-level configuration")
++	}
++	return nil
++}
++
++func (e *projectEnv) validateVendorLocation(pf *config.ProjectFile) error {
++	return validateVendorLocation(e.Layout, pf)
+ }
+ 
+ // toDepSpecs 把 ngm.json 的依赖声明转换为图解析用的规格。
+@@ -346,6 +402,90 @@ type digestNode struct {
+ 	Module bool
+ }
+ 
++// cleanupStaleVendor 删除上一份 lock 中、本次已不再需要的 vendor 目录。
++//
++// 为什么需要它（P1 回归）：`ngm remove` 只改 ngm.json；下一次 `ngm install`
++// 检测到 lock 与声明不一致后会重新解析，但 LinkTree.Materialize 只会
++// 清理**本次目标目录**，不会清理旧依赖留下的目录。于是被删除的依赖仍留在
++// `ngm.vendor/` 里，构建工具仍能解析到旧代码。
++//
++// 只在"本次确实重建了依赖图"时调用（installFresh / update），并且：
++//   - 只删除**旧 lock 里记录过**、本次不再对应的路径；
++//   - 路径必须经 safeVendorChild 归一，绝不接受 `..`、绝对路径或盘符；
++//   - 删除发生在本次 Materialize **之前**，这样旧根目录被移除后，
++//     同仓库保留下来的模块子路径仍能由本次落地重新创建。
++func cleanupStaleVendor(env *projectEnv, pf *config.ProjectFile, previous *lock.File, items []digestNode) error {
++	if previous == nil || len(previous.Dependencies) == 0 {
++		return nil
++	}
++	// global vendor 是**多项目共享**的：当前项目移除一个依赖，不代表另一个
++	// 项目不再需要它。删除权只适用于项目自己的 ngm.vendor（local 模式）。
++	if pf != nil && pf.Vendor != nil && pf.Vendor.Mode == "global" {
++		return nil
++	}
++	root := env.VendorRoot(pf)
++	current := make(map[string]bool, len(items))
++	for _, dn := range items {
++		rel := vendor.VendorPathFor(dn.Repo.MirrorRelPath(), dn.SubPath)
++		if rel != "" {
++			current[rel] = true
++		}
++	}
++	for i := range previous.Dependencies {
++		d := &previous.Dependencies[i]
++		rel := vendor.VendorPathFor(d.VendorPath, d.SubPath)
++		if rel == "" || current[rel] {
++			continue
++		}
++		abs, ok := safeVendorChild(root, rel)
++		if !ok {
++			// 旧 lock 的 vendorPath 不可信时不要跟着它走；它本来就不该被
++			// 用来定位文件（见 lock.VendorPath 未校验的已知边界）。
++			continue
++		}
++		if _, err := os.Lstat(abs); err != nil {
++			continue // 已经不在磁盘上：幂等
++		}
++		if err := os.RemoveAll(abs); err != nil {
++			return errs.Wrap(errs.CodeConfigInvalid,
++				"remove stale vendor path "+abs,
++				"close any process holding files under ngm.vendor/", err)
++		}
++	}
++	return nil
++}
++
++// safeVendorChild 把 vendor 相对路径解析为 vendor 根下的绝对路径。
++//
++// 它只做**词法**边界检查；调用方（cleanupStaleVendor）用它删除旧目录，
++// 因此绝不接受绝对路径、`..` 段或 Windows 盘符形式。
++func safeVendorChild(root, rel string) (string, bool) {
++	rel = strings.TrimSpace(rel)
++	if rel == "" {
++		return "", false
++	}
++	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
++		if part == "" || part == "." || part == ".." {
++			return "", false
++		}
++	}
++	if filepath.IsAbs(rel) || strings.Contains(rel, ":") {
++		return "", false
++	}
++	rootAbs, err := filepath.Abs(root)
++	if err != nil {
++		return "", false
++	}
++	abs := filepath.Join(rootAbs, filepath.FromSlash(rel))
++	back, err := filepath.Rel(rootAbs, abs)
++	if err != nil || back == "." || back == ".." ||
++		strings.HasPrefix(back, ".."+string(filepath.Separator)) ||
++		filepath.IsAbs(back) {
++		return "", false
++	}
++	return abs, true
++}
++
+ // digestNodeFromResolved 把图节点转为落地输入。
+ func digestNodeFromResolved(n *resolve.Node, archiveDigest, moduleDigest string) digestNode {
+ 	dn := digestNode{Name: n.Name, Repo: n.Repo, SubPath: n.SubPath, Digest: archiveDigest}
+diff --git a/cmd/ngm/install.go b/cmd/ngm/install.go
+index c5e9301d1df03e3835e77da983ad7e985e7f8da8..769da28dc5a62ae24f11223e94ed236d8240ce50 100644
+--- a/cmd/ngm/install.go
++++ b/cmd/ngm/install.go
+@@ -150,7 +150,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
+ 			strings.Join(missing, ", "))
+ 	}
+ 
+-	code := installFresh(ctx, env, pf, roots, *digestFlag, *offline, rep, humanOut, stderr)
++	code := installFresh(ctx, env, pf, roots, lf, *digestFlag, *offline, rep, humanOut, stderr)
+ 	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
+ }
+ 
+@@ -166,8 +166,15 @@ func materializeVendor(
+ 	env *projectEnv,
+ 	pf *config.ProjectFile,
+ 	items []digestNode,
++	previous *lock.File,
+ 	stdout, stderr io.Writer,
+ ) error {
++	// 先清理上一次 lock 中、本次已不再需要的 vendor 目录。必须在落地之前：
++	// 旧根依赖被移除、但同仓库的模块子路径仍保留时，删掉旧根再落地模块，
++	// 才不会把旧根文件留在模块目录旁（见 P1 回归：remove 后 install）。
++	if err := cleanupStaleVendor(env, pf, previous, items); err != nil {
++		return err
++	}
+ 	mr, err := env.MaterializeVendorAndMappings(pf, items)
+ 	if err != nil {
+ 		return err
+@@ -188,9 +195,17 @@ func materializeVendor(
+ // 判定口径：根声明必须在 lock 中存在，且 ref / refType 一致——
+ // 否则说明 ngm.json 被改动过，lock 已过期。
+ //
+-// 只检查**根声明**：lock 还包含传递依赖，它们的增减由重新解析决定。
++// 反过来也要检查：lock 里标记为“根声明”的条目，如果 ngm.json 已经不再声明，
++// 这份 lock 同样过期。没有这一半，`ngm remove` 之后 `ngm install` 会继续按旧
++// lock 安装被删掉的依赖（P1 回归）。
++//
++// 只检查**直接根声明**：lock 还包含传递依赖，它们的增减由重新解析决定。
+ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
+ 	var out []string
++	declared := make(map[string]bool, len(roots))
++	for _, r := range roots {
++		declared[r.Key()] = true
++	}
+ 	for _, r := range roots {
+ 		d, ok := lf.Find(r.Name, r.SubPath)
+ 		if !ok {
+@@ -201,11 +216,32 @@ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
+ 			out = append(out, r.Name+" ("+d.Ref+" ("+d.RefType+") → "+r.Ref+" ("+string(r.RefType)+"))")
+ 		}
+ 	}
++	for i := range lf.Dependencies {
++		d := &lf.Dependencies[i]
++		if !requiredByRoot(d) || declared[d.Key()] {
++			continue
++		}
++		label := d.Name
++		if d.SubPath != "" {
++			label += "#" + d.SubPath
++		}
++		out = append(out, label+" (in ngm.lock but no longer declared)")
++	}
+ 	return out
+ }
+ 
++// requiredByRoot 报告该 lock 条目是否由项目根直接声明。
++func requiredByRoot(d *lock.Dependency) bool {
++	for _, from := range d.RequiredBy {
++		if from == lock.RootRequirer {
++			return true
++		}
++	}
++	return false
++}
++
+ // installFresh 从 ngm.json 完整解析并生成 lock。
+-func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
++func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
+ 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
+ 	pol, perr := projectPolicy(pf)
+ 	if perr != nil {
+@@ -324,7 +360,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile,
+ 	}
+ 
+ 	// vendor 落地 + mappings（从同一份 content 派生，保证指向一致）
+-	if err := materializeVendor(ctx, env, pf, items, stdout, stderr); err != nil {
++	if err := materializeVendor(ctx, env, pf, items, previous, stdout, stderr); err != nil {
+ 		return runErr(ctx, stdout, stderr, err)
+ 	}
+ 
+@@ -489,7 +525,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
+ 	}
+ 
+ 	// vendor 落地 + mappings（沿用 lock 的 digest，不重新解析）
+-	if err := materializeVendor(ctx, env, pf, items, stdout, stderr); err != nil {
++	if err := materializeVendor(ctx, env, pf, items, nil, stdout, stderr); err != nil {
+ 		return runErr(ctx, stdout, stderr, err)
+ 	}
+ 
+diff --git a/cmd/ngm/p1_regressions_test.go b/cmd/ngm/p1_regressions_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..67d45403839b95679fac3bdcff006c778ab05603
+--- /dev/null
++++ b/cmd/ngm/p1_regressions_test.go
+@@ -0,0 +1,86 @@
++package main
++
++import (
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/idcu/ngm/internal/config"
++	"github.com/idcu/ngm/internal/core/lock"
++	"github.com/idcu/ngm/internal/core/vendor"
++	"github.com/idcu/ngm/internal/testutils"
++)
++
++// TestP1ShortCommitVerifyResolvesThePinnedCommit 是短 commit 的回归：
++// `ngm add github:org/repo@abc1234 --ref-type=commit` 写的是短 ref、完整 commit；
++// verify 必须先把短 hash 在本地 mirror 里补齐，再与 lock 比较。
++// 修复前它会把 7 位字符串与 40 位 commit 比较，报成 unexpected drift。
++func TestP1ShortCommitVerifyResolvesThePinnedCommit(t *testing.T) {
++	testutils.MustHaveGit(t)
++	isolateUserEnv(t)
++
++	up := testutils.NewGitRepo(t)
++	up.WriteFile("index.ts", "export const x = 1\n")
++	up.Commit("feat: short commit")
++	seedMirror(t, "github:p1/short", up.Dir)
++
++	short := up.Head()[:7]
++	proj := t.TempDir()
++	if code, out := runCaptureCode(t, "init", "github.com:p1/short-app", "--runtime=node", "--dir="+proj); code != 0 {
++		t.Fatalf("init: %s", out)
++	}
++	if code, out := runCaptureCode(t, "add", "github:p1/short@"+short,
++		"--ref-type=commit", "--dir="+proj); code != 0 {
++		t.Fatalf("add short commit: %s", out)
++	}
++	if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
++		t.Fatalf("install: %s", out)
++	}
++
++	lf, err := lock.Read(lock.Find(proj))
++	if err != nil || lf == nil {
++		t.Fatalf("read lock: %v", err)
++	}
++	d, ok := lf.Find("github:p1/short", "")
++	if !ok {
++		t.Fatalf("short dependency missing from lock:\n%s", readLockFile(t, proj))
++	}
++	if d.Ref != short {
++		t.Errorf("lock ref=%q, want the declared short hash %q", d.Ref, short)
++	}
++	if d.Commit != up.Head() {
++		t.Errorf("lock commit=%q, want full %q", d.Commit, up.Head())
++	}
++
++	code, out := runCaptureCode(t, "verify", "--offline", "--dir="+proj)
++	if code != 0 {
++		t.Fatalf("verify must not report a short commit as drift; exit=%d\n%s", code, out)
++	}
++	if strings.Contains(out, "unexpected drift") {
++		t.Fatalf("short commit must not self-drift:\n%s", out)
++	}
++}
++
++// TestP1ProjectGlobalPathStaysInNgmGlobalVendor 是 globalPath 的边界回归：
++// 项目内的 ngm.json 不能把 vendor 指到 ~/.ngm/global-vendor 之外。
++func TestP1ProjectGlobalPathStaysInNgmGlobalVendor(t *testing.T) {
++	layout := vendor.Layout{Home: t.TempDir()}
++
++	outside := filepath.Join(t.TempDir(), "outside")
++	pf := &config.ProjectFile{Vendor: &config.VendorConfig{
++		Mode:       "global",
++		GlobalPath: outside,
++	}}
++	if err := validateVendorLocation(layout, pf); err == nil {
++		t.Fatalf("globalPath outside %s must be rejected", layout.GlobalVendorRoot())
++	}
++
++	inside := filepath.Join(layout.GlobalVendorRoot(), "custom")
++	pf = &config.ProjectFile{Vendor: &config.VendorConfig{
++		Mode:       "global",
++		GlobalPath: inside,
++	}}
++	if err := validateVendorLocation(layout, pf); err != nil {
++		t.Fatalf("globalPath inside the ngm global vendor root must be accepted: %v", err)
++	}
++}
+diff --git a/cmd/ngm/update.go b/cmd/ngm/update.go
+index 33f95e4d87df06bcd415fe778b05b2afd5922833..489490097ab690dd3c5041b25b9bb19d8094bd20 100644
+--- a/cmd/ngm/update.go
++++ b/cmd/ngm/update.go
+@@ -101,6 +101,14 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
+ 	if err != nil {
+ 		return runErr(ctx, stdout, stderr, err)
+ 	}
++	// 旧 lock 用于清理本次重建后不再需要的 vendor 目录。读失败不阻断 update：
++	// update 的职责就是从声明重建 lock，它必须能修复一份坏掉的旧 lock；
++	// 只是这次没有可安全清理的旧 vendor 路径。
++	previous, lerr := lock.Read(env.LockPath())
++	if lerr != nil {
++		fmt.Fprintf(stderr, "warning: ignoring unreadable ngm.lock for vendor cleanup: %v\n", lerr)
++		previous = nil
++	}
+ 
+ 	// --json 时人类文本改走 stderr（与 install 同一约定），stdout 只留一份 JSON。
+ 	humanOut := stdout
+@@ -148,6 +156,11 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
+ 	}
+ 
+ 	if len(g.Nodes) == 0 {
++		// 空依赖也要走一次 vendor 清理与 mappings 生成：否则 remove 之后
++		// 旧的 ngm.vendor 与 ngm.mappings.json 会原样留下（P1 回归）。
++		if merr := materializeVendor(ctx, env, pf, nil, previous, humanOut, stderr); merr != nil {
++			return runErr(ctx, stdout, stderr, merr)
++		}
+ 		lf := lock.NewFile()
+ 		if werr := writeLockChecked(env, lf); werr != nil {
+ 			return runErr(ctx, stdout, stderr, werr)
+@@ -270,7 +283,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
+ 	}
+ 
+ 	// vendor 落地 + mappings
+-	if merr := materializeVendor(ctx, env, pf, items, humanOut, stderr); merr != nil {
++	if merr := materializeVendor(ctx, env, pf, items, previous, humanOut, stderr); merr != nil {
+ 		return runErr(ctx, stdout, stderr, merr)
+ 	}
+ 
+diff --git a/docs/architecture/vendor-layers.md b/docs/architecture/vendor-layers.md
+index e6232556b191df7cefdb5d5eda4f34739c1c2f95..8e05bcb92fde1deb5b46ef34ab29f254c5311b80 100644
+--- a/docs/architecture/vendor-layers.md
++++ b/docs/architecture/vendor-layers.md
+@@ -199,6 +199,10 @@ project/ngm.vendor/
+ | 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 重新引入 pnpm 式缓存管理问题，削弱隔离收益 |
+ | 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
+ 
++> 项目清单里的 `vendor.globalPath` 只允许指向 ngm 自己的全局 vendor 根
++> （`~/.ngm/global-vendor`）或其子目录；项目外的绝对路径、相对路径与 `..`
++> 会被 `config validate` / `install` / `update` 拒绝（P1 安全修复）。
++
+ **是否把 `ngm.vendor/` 提交进仓库是 Git 侧的选择**（`git add ngm.vendor`），
+ 不是 ngm 的配置项：ngm 从不执行 `git add` / `git commit`。配置项 `vendor.commit`
+ 因此从未有过任何读取点，已于 v0.5 移除（见[配置详解 §vendor](../guides/configuration.md)）。
+diff --git a/docs/guides/configuration.md b/docs/guides/configuration.md
+index 5e318c51d59e5618387c1ef9d70507a8c48dd7a6..9201f15645916204a13e18603117a2a0d07f653a 100644
+--- a/docs/guides/configuration.md
++++ b/docs/guides/configuration.md
+@@ -195,6 +195,12 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
+ | 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 削弱隔离收益 |
+ | 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
+ 
++> **`vendor.globalPath` 的边界（P1 修复）**：这个字段写在项目的 `ngm.json` 里，
++> 属于仓库可控输入。ngm 只接受 `~/.ngm/global-vendor` 或其子目录；相对路径、
++> `..`、项目外的绝对路径都会被 `ngm config validate` 与 `install` / `update` 拒绝。
++> 需要把共享 vendor 放到其他磁盘的用户应使用 `vendor.mode=local`；自定义全局位置
++> 目前没有用户级配置项（后续再引入）。
++
+ **是否把 `ngm.vendor/` 提交进仓库由你的 Git 侧决定**（`git add ngm.vendor` 或
+ `.gitignore` 里排除它），**不是** ngm 的配置项：ngm 从不执行 `git add` / `git commit`。
+ 
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 99b1fd0837f5d18c0a948b83321382835b901d96..742f24c7917fd56c70eca8e8b6b8ab0725c4e509 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -146,7 +146,7 @@ func (e *EnginesConfig) AsMap() map[string]any {
+ type VendorConfig struct {
+ 	Mode       string `json:"mode,omitempty"`       // global | local（默认 local）
+ 	LinkMode   string `json:"linkMode,omitempty"`   // auto | hardlink | copy | symlink
+-	GlobalPath string `json:"globalPath,omitempty"` // mode=global 时使用
++	GlobalPath string `json:"globalPath,omitempty"` // mode=global 时使用；只能指向 ngm 全局 vendor 根或其子目录
+ }
+ 
+ // SupplyChainConfig v0.2 供应链策略。字段集在 v0.1 期间保留为空结构以便向后兼容。
+diff --git a/internal/core/git/archive_test.go b/internal/core/git/archive_test.go
+index 8ade2534134c315c19bffd51a19cdd7ed8606ed4..96b5066aceadf07dd2dfdc62a6526a97b36e54cd 100644
+--- a/internal/core/git/archive_test.go
++++ b/internal/core/git/archive_test.go
+@@ -505,6 +505,26 @@ func TestBuildArchive_SortedByPath(t *testing.T) {
+ 	}
+ }
+ 
++// TestBuildModuleMaterialsRejectsGitlink 是模块作用域的回归：
++// 根作用域会拒绝 gitlink，模块批量路径此前却直接把它写进 digest 记录；
++// install 会成功、verify 的 modproof 永远无法完成。
++func TestBuildModuleMaterialsRejectsGitlink(t *testing.T) {
++	repo := testutils.NewGitRepo(t)
++	repo.WriteFile("packages/mod/index.ts", "export const m = 1\n")
++	base := repo.Commit("feat: module base")
++	repo.AddGitlink("packages/mod/sub", base)
++	head := repo.Commit("feat: module with gitlink")
++
++	_, err := BuildModuleMaterials(context.Background(), Options{}, repo.Dir, head,
++		[]string{"packages/mod"})
++	if err == nil {
++		t.Fatal("a gitlink inside a module must be rejected before it reaches the digest")
++	}
++	if !strings.Contains(err.Error(), "gitlink") && !strings.Contains(err.Error(), "submodule") {
++		t.Errorf("error must name the gitlink cause, got: %v", err)
++	}
++}
++
+ // assertErrCode 断言错误是 NgmError 且退出码符合预期。
+ func assertErrCode(t *testing.T, err error, want errs.Code) {
+ 	t.Helper()
+diff --git a/internal/core/git/tree.go b/internal/core/git/tree.go
+index dd01dbf28c4758f81b88c8d6b741a331cd7fa30f..a26281fa8afaf877268a8ea6c36c2ee565ee51f0 100644
+--- a/internal/core/git/tree.go
++++ b/internal/core/git/tree.go
+@@ -434,6 +434,14 @@ func BuildModuleMaterials(ctx context.Context, opts Options, repoPath, commit st
+ 		acc[m] = &moduleAcc{}
+ 	}
+ 	for _, e := range entries {
++		// 模块作用域与根作用域使用**同一套**条目校验。此前这里直接构造
++		// digest.Record，于是 gitlink / 未知 mode 会进入模块清单，而
++		// verify 的 modproof 会拒绝它——install 成功、verify 永远失败（P1）。
++		if !isTreeMode(e.Mode) {
++			if err := validateTreeEntry(e, commit); err != nil {
++				return nil, err
++			}
++		}
+ 		if a, ok := acc[e.Path]; ok {
+ 			if !isTreeMode(e.Mode) {
+ 				return nil, errs.New(errs.CodeConfigInvalid,
+diff --git a/internal/core/resolve/addspec.go b/internal/core/resolve/addspec.go
+index 15fe67cc90281f427190c30b1d5f4ec3015bb8ee..3a79953aad90aff862794139f067407bf8e80184 100644
+--- a/internal/core/resolve/addspec.go
++++ b/internal/core/resolve/addspec.go
+@@ -29,15 +29,47 @@ type AddSpec struct {
+ 	Ref string
+ }
+ 
+-// ParseAddSpec 解析 `ngm add` 的位置参数。
++// splitRefSuffix 从 `<url>[@<ref>]` 中拆出 ref。
+ //
+-// 解析顺序很关键——`@ref` 必须**先于** `#path=` 剥离，因为 `#path=` 片段可能
+-// 位于 `@ref` 之前（`github:org/mono#path=pkg/core@v1.0.0`）：
++// 判定规则：
++//   - `@` 之后为空或含 `:`（Git ref 名不允许 `:`）⇒ 不是 ref；
++//   - 含 `://` 的 URL：`@` 位于 authority 段内（第一个 `/` 之前）⇒ userinfo；
++//   - 无 scheme 的 scp/shorthand：`@` 位于第一个 `:` 之前 ⇒ userinfo；
++//   - 其余位置的最后一个 `@` ⇒ ref（ref 可以含 `/`）。
+ //
+-//  1. `@<ref>` 后缀——仅当最后一个 `@` 之后不含 `/` 与 `:` 时才认定为 ref，
+-//     否则视为 URL 的 userinfo（如 `git@host:org/repo`）
+-//  2. `#path=<sub>` 片段
+-//  3. 剩余部分交给 Normalize 归一化
++// 这样 `https://user@host/org/repo` 不会被当成 ref，
++// 而 `github:org/repo@feature/x`、`git@host:org/repo@release/1.0` 都会被正确拆开。
++func splitRefSuffix(raw string) (base, ref string) {
++	at := strings.LastIndex(raw, "@")
++	if at < 0 {
++		return raw, ""
++	}
++	tail := raw[at+1:]
++	if tail == "" || strings.Contains(tail, ":") {
++		return raw, ""
++	}
++	if scheme := strings.Index(raw, "://"); scheme >= 0 {
++		start := scheme + 3
++		if slash := strings.IndexByte(raw[start:], '/'); slash >= 0 {
++			authEnd := start + slash
++			if at < authEnd {
++				return raw, ""
++			}
++		} else {
++			// 没有路径段：整个剩余部分都是 authority。
++			return raw, ""
++		}
++	} else if colon := strings.IndexByte(raw, ':'); colon >= 0 && at <= colon {
++		return raw, ""
++	}
++	return raw[:at], tail
++}
++
++// ParseAddSpec 解析 `ngm add` 的位置参数。
++//
++// 语法：`<git-url>[#path=<sub/path>][@<ref>]`。`@ref` 先于 `#path=` 剥离，
++// 因为 `#path=` 片段可能位于 `@ref` 之前（`github:org/mono#path=pkg/core@v1.0.0`）；
++// ref 可以包含 `/`（例如 `feature/x`、`release/1.0`）。
+ func ParseAddSpec(input string) (AddSpec, error) {
+ 	raw := strings.TrimSpace(input)
+ 	if raw == "" {
+@@ -49,13 +81,14 @@ func ParseAddSpec(input string) (AddSpec, error) {
+ 
+ 	var spec AddSpec
+ 
+-	// 1) 剥离 `@ref`（仅当尾部片段像 ref 时）
+-	if at := strings.LastIndex(raw, "@"); at >= 0 {
+-		tail := raw[at+1:]
+-		if tail != "" && !strings.ContainsAny(tail, "/:") {
+-			spec.Ref = tail
+-			raw = raw[:at]
+-		}
++	// 1) 剥离 `@ref`。严格来说要区分两种 `@`：
++	//    - URL authority 里的 userinfo（`https://user@host/org/repo`）
++	//    - 真正位于仓库地址之后的 ref 分隔符（`github:org/repo@feature/x`）
++	// 既不能因为 ref 含 `/` 就拒绝（feature/x 是最常见的分支名），
++	// 也不能把 userinfo 里的 `@` 误当成 ref。
++	if base, ref := splitRefSuffix(raw); ref != "" {
++		spec.Ref = ref
++		raw = base
+ 	}
+ 
+ 	// 2) 剥离 `#path=...`
+diff --git a/internal/core/resolve/addspec_test.go b/internal/core/resolve/addspec_test.go
+index 7306845f341085ee03ffee41aa338a67a788e051..16c40a9530e7cf92374bb7bdbf89c8eef7efa262 100644
+--- a/internal/core/resolve/addspec_test.go
++++ b/internal/core/resolve/addspec_test.go
+@@ -91,6 +91,29 @@ func TestParseAddSpec(t *testing.T) {
+ 			path: "pkg/core",
+ 			ref:  "v1",
+ 		},
++		{
++			name: "branch ref with slash",
++			in:   "github:org/repo@feature/x",
++			repo: "github.com/org/repo",
++			ref:  "feature/x",
++		},
++		{
++			name: "scp-like with slash ref",
++			in:   "git@github.com:org/repo.git@release/1.0",
++			repo: "github.com/org/repo",
++			ref:  "release/1.0",
++		},
++		{
++			name: "https url with userinfo but no ref",
++			in:   "https://user@github.com/org/repo",
++			repo: "github.com/org/repo",
++		},
++		{
++			name: "https url with userinfo and slash ref",
++			in:   "https://user@github.com/org/repo@feature/x",
++			repo: "github.com/org/repo",
++			ref:  "feature/x",
++		},
+ 	}
+ 	for _, tc := range cases {
+ 		t.Run(tc.name, func(t *testing.T) {
+diff --git a/internal/core/resolve/graph_diamond_test.go b/internal/core/resolve/graph_diamond_test.go
+index 326be1c265a9221347c65ef94dea92d2b72140db..ce3bbc9fcbab5b3e6f3ef5eb3547d61bc6501cb1 100644
+--- a/internal/core/resolve/graph_diamond_test.go
++++ b/internal/core/resolve/graph_diamond_test.go
+@@ -2,6 +2,7 @@ package resolve_test
+ 
+ import (
+ 	"context"
++	"sync"
+ 	"testing"
+ 
+ 	"github.com/idcu/ngm/internal/core/resolve"
+@@ -32,9 +33,14 @@ func TestV68CrossLayerDiamondIsResolvedOnce(t *testing.T) {
+ 
+ 	base := w.opts()
+ 	calls := map[string]int{}
++	var callsMu sync.Mutex
+ 	opts := base
+ 	opts.EnsureMirror = func(ctx context.Context, repo resolve.Canonical) (string, error) {
++		// resolveBatch 会并发调用 EnsureMirror；计数表必须加锁，
++		// 否则 -race 会把测试自己的 map 写读报成数据竞争。
++		callsMu.Lock()
+ 		calls[repo.Slug()]++
++		callsMu.Unlock()
+ 		return base.EnsureMirror(ctx, repo)
+ 	}
+ 
+diff --git a/internal/core/resolve/policy_gate_test.go b/internal/core/resolve/policy_gate_test.go
+index 1d2007ae8a675f7b8eb082bd5ac0a1824f2aa473..5009978f182deee0eb66ace5818ab0e86d428d5a 100644
+--- a/internal/core/resolve/policy_gate_test.go
++++ b/internal/core/resolve/policy_gate_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"strings"
++	"sync"
+ 	"testing"
+ 
+ 	"github.com/idcu/ngm/internal/core/errs"
+@@ -43,9 +44,13 @@ func TestPolicyGate_TransitiveDependencyIsRejected(t *testing.T) {
+ 	// 记录 mirror 请求：用来证明门禁发生在**触网之前**
+ 	base := w.opts()
+ 	var ensured []string
++	var ensuredMu sync.Mutex
+ 	opts := base
+ 	opts.EnsureMirror = func(ctx context.Context, repo resolve.Canonical) (string, error) {
++		// resolveBatch 会并发调用 EnsureMirror；这里的记录切片必须加锁。
++		ensuredMu.Lock()
+ 		ensured = append(ensured, repo.Slug())
++		ensuredMu.Unlock()
+ 		return base.EnsureMirror(ctx, repo)
+ 	}
+ 	opts.CheckRepo = denied(t, "github.com/w/evil")
+@@ -80,9 +85,12 @@ func TestPolicyGate_TransitiveDependencyIsRejected(t *testing.T) {
+ 	}
+ 
+ 	// **触网之前**判定：违规仓库的 mirror 不该被请求
+-	for _, s := range ensured {
++	ensuredMu.Lock()
++	allEnsured := append([]string(nil), ensured...)
++	ensuredMu.Unlock()
++	for _, s := range allEnsured {
+ 		if strings.Contains(s, "evil") {
+-			t.Errorf("the gate must run before any remote access, but %q was ensured (all: %v)", s, ensured)
++			t.Errorf("the gate must run before any remote access, but %q was ensured (all: %v)", s, allEnsured)
+ 		}
+ 	}
+ }
+diff --git a/internal/core/resolve/reftype.go b/internal/core/resolve/reftype.go
+index d38962f937395f935d78c747102cb76c47806355..0d51cddbac543f190f220ca163901ea06186e415 100644
+--- a/internal/core/resolve/reftype.go
++++ b/internal/core/resolve/reftype.go
+@@ -66,7 +66,7 @@ func ResolveRef(ctx context.Context, repo Canonical, ref string, refType RefType
+ 		if err != nil {
+ 			return "", err
+ 		}
+-		return expandShortCommit(ctx, full, opts)
++		return expandShortCommit(ctx, repo, full, opts)
+ 	case RefTypeTag, RefTypeBranch:
+ 		return resolveNamedRef(ctx, repo, ref, refType, opts)
+ 	default:
+@@ -109,21 +109,31 @@ type RefSpec struct {
+ //     （换 refType、或换成完整 hash）。
+ //   - 没有可用的本地仓库（如纯语法校验场景）→ 原样返回：那类调用不做
+ //     "对象是否存在"的判定，也不写 lock（见 ResolveRef 文档）。
+-func expandShortCommit(ctx context.Context, full string, opts ResolveOptions) (string, error) {
++func expandShortCommit(ctx context.Context, repo Canonical, full string, opts ResolveOptions) (string, error) {
+ 	if len(full) == 40 {
+ 		return full, nil
+ 	}
+-	if opts.GitURL == "" {
++	gitURL := opts.GitURL
++	if gitURL == "" && opts.MirrorDir != "" {
++		// 离线 verify 只给 MirrorDir（它不走 ls-remote，也不需要 GitURL 的
++		// 覆盖语义）。短 hash 仍必须在本地 mirror 里补齐：否则调用方会拿到
++		// 一个 7 位字符串，与 lock 里的完整 commit 比较时被误判成漂移。
++		candidate := filepath.Join(opts.MirrorDir, filepath.FromSlash(repo.MirrorRelPath()+".git"))
++		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
++			gitURL = candidate
++		}
++	}
++	if gitURL == "" {
+ 		return full, nil
+ 	}
+-	if _, err := os.Stat(opts.GitURL); err != nil {
++	if _, err := os.Stat(gitURL); err != nil {
+ 		return full, nil
+ 	}
+-	expanded, err := git.RevParse(ctx, git.Options{Secrets: opts.Secrets, Policy: opts.Policy}, opts.GitURL, full)
++	expanded, err := git.RevParse(ctx, git.Options{Secrets: opts.Secrets, Policy: opts.Policy}, gitURL, full)
+ 	if err != nil {
+ 		return "", errs.New(
+ 			errs.CodeConfigInvalid,
+-			fmt.Sprintf("commit %q cannot be resolved in %s", full, opts.GitURL),
++			fmt.Sprintf("commit %q cannot be resolved in %s", full, gitURL),
+ 			"use a full 40-character hash, or a refType of `tag`/`branch`; "+
+ 				"if the commit was pushed to a ref, re-fetch the mirror once")
+ 	}
+diff --git a/internal/core/vendor/links.go b/internal/core/vendor/links.go
+index 2b653d288724f76a9fd3cb9980dbb0194b42c5cc..f45480964b514a871d941be680a901da83d076f8 100644
+--- a/internal/core/vendor/links.go
++++ b/internal/core/vendor/links.go
+@@ -9,6 +9,7 @@ import (
+ 	"runtime"
+ 	"strings"
+ 
++	"github.com/idcu/ngm/internal/core/digest"
+ 	"github.com/idcu/ngm/internal/core/errs"
+ )
+ 
+@@ -261,6 +262,19 @@ func (lt *LinkTree) materialize(digest, canonicalPath, subPath string, relative
+ // （目标不在 vendor 里），构建工具跟随它只会读到包外文件。
+ func validateEntryPaths(entries []ContentEntry) error {
+ 	for _, e := range entries {
++		// 目录与 gitlink 不是可落地的文件条目。根作用域在 digest 层就会
++		// 拒绝它们；这里是落地层的纵深防御，防止一份被改写/旧版的
++		// content manifest 把 gitlink 当作普通文件复制出来（P1）。
++		switch e.Mode {
++		case digest.ModeTree:
++			return errs.New(errs.CodeConfigInvalid,
++				"refusing to materialize directory entry "+e.Path,
++				"the manifest contains a tree entry for a non-module dependency; re-run `ngm install`")
++		case digest.ModeGitlink:
++			return errs.New(errs.CodeConfigInvalid,
++				"refusing to materialize gitlink "+e.Path+" (submodules are not supported)",
++				"pin a commit that vendors the submodule as regular files, or remove it upstream")
++		}
+ 		p := path.Clean(filepath.ToSlash(e.Path))
+ 		if p == "." || p == ".." || strings.HasPrefix(p, "../") || looksLikeAbsPath(p) {
+ 			return errs.New(errs.CodeConfigInvalid,
+diff --git a/internal/core/vendor/v066_safety_test.go b/internal/core/vendor/v066_safety_test.go
+index 57c126c8cb79e78a92efee5e163b5ed4f299561d..0b45a0ce42279a0eaee3d85644e0ceae7ef5a691 100644
+--- a/internal/core/vendor/v066_safety_test.go
++++ b/internal/core/vendor/v066_safety_test.go
+@@ -85,6 +85,16 @@ func TestV66ValidateEntryPaths(t *testing.T) {
+ 			t.Errorf("错误必须点名条目与成因，got: %v", err)
+ 		}
+ 	})
++
++	t.Run("gitlink 不得被当作普通文件落地", func(t *testing.T) {
++		err := validateEntryPaths([]ContentEntry{{Path: "sub", Mode: digest.ModeGitlink}})
++		if err == nil {
++			t.Fatal("gitlink 必须在落地层被拒绝")
++		}
++		if !strings.Contains(err.Error(), "gitlink") && !strings.Contains(err.Error(), "submodule") {
++			t.Errorf("错误必须点名 gitlink/submodule，got: %v", err)
++		}
++	})
+ }
+ 
+ // escapeManifest 构造一份含逃逸 symlink 的清单并发布进 store，返回 digest。
+diff --git a/internal/core/verify/verify.go b/internal/core/verify/verify.go
+index 0bbd58c4540ed2152fa65f62de28137227eab4bd..dc0a5538d9de9e88cee3da87dd4644fb7f3088c5 100644
+--- a/internal/core/verify/verify.go
++++ b/internal/core/verify/verify.go
+@@ -251,7 +251,7 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
+ 	}
+ 
+ 	// ---- 检查一：ref → commit（只读 ref 广播，不传对象）
+-	refCheck, resolved := checkRef(ctx, repo, d, opts)
++	refCheck, resolved := checkRef(ctx, repo, d, opts, objectPath)
+ 	res.ResolvedCommit = resolved
+ 	res.Checks = append(res.Checks, refCheck)
+ 
+@@ -436,7 +436,7 @@ var errCommitMissing = errors.New("commit missing from the local mirror")
+ //
+ // **它自己不取对象**——除非 ref 已经变了（那时判漂移性质需要祖先关系）。
+ // 这是 ADR-010 的关键：把"判性质"从"解析"里拆出来，因为只有前者需要对象。
+-func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, opts Options) (CheckResult, string) {
++func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, opts Options, objectPath string) (CheckResult, string) {
+ 	rt := resolve.RefType(d.RefType)
+ 	if !rt.IsValid() {
+ 		return CheckResult{Check: CheckRef, Status: StatusFail,
+@@ -448,6 +448,24 @@ func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, o
+ 		return refResolveFailure(opts, d, err), ""
+ 	}
+ 
++	// commit 型的 ref 可能是 7~39 位短 hash（声明保留原样，lock 存完整 hash）。
++	// 解析器若没有补齐（例如在线 commit 型只传了 repo/ref，或对象不在 mirror），
++	// 这里必须先在本地对象库里补齐再比较；补不齐是“没查成”（operational），
++	// 不是“漂移结论”。否则 `5b28ce4` 会与自己比较失败，报成 unexpected drift。
++	if rt == resolve.RefTypeCommit && resolved != d.Commit {
++		if objectPath == "" {
++			return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
++				Detail: "cannot resolve the short commit without a local object store"}, resolved
++		}
++		expanded, xerr := git.RevParse(ctx, opts.GitOpts, objectPath, resolved)
++		if xerr != nil {
++			return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
++				Detail: fmt.Sprintf("cannot resolve commit %q from %s: %v",
++					resolved, objectPath, xerr)}, resolved
++		}
++		resolved = expanded
++	}
++
+ 	if resolved == d.Commit {
+ 		return CheckResult{Check: CheckRef, Status: StatusOK,
+ 			Detail: fmt.Sprintf("%s %s still resolves to %s", d.RefType, d.Ref, git.ShortSHA(d.Commit))}, resolved
+diff --git a/internal/mappings/v106_test.go b/internal/mappings/v106_test.go
+index f9b08b5bde605f0e9d05161313d9c5a2282c0b12..46f0f3ef03ac2ea5d39f4407f53b14134adfab41 100644
+--- a/internal/mappings/v106_test.go
++++ b/internal/mappings/v106_test.go
+@@ -7,6 +7,43 @@ import (
+ 	"testing"
+ )
+ 
++// TestP1MappingsToCannotEscapeTheVendorRoot 是 `to` 路径的回归：
++// `./ngm.vendor/../../outside` 以 `./ngm.vendor` 开头，但不是 vendor 内的路径。
++// 旧实现用字符串前缀判断，因而 mappings validate / integrations 都会放行。
++func TestP1MappingsToCannotEscapeTheVendorRoot(t *testing.T) {
++	proj := t.TempDir()
++	outside := filepath.Join(proj, "outside")
++	if err := os.MkdirAll(outside, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(outside, "index.js"), []byte("x"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++
++	f := &File{Version: 1, Mappings: []Mapping{{
++		From: "github:x/dep",
++		To:   "./ngm.vendor/../../outside",
++		Main: "./index.js",
++	}}}
++	findings, err := Validate(f, ValidateEnvironment{
++		ProjectDir: proj,
++		LockNames:  map[string]bool{"github:x/dep": true},
++		VendorRoot: "./ngm.vendor",
++	})
++	if err != nil {
++		t.Fatalf("Validate: %v", err)
++	}
++	var escaped bool
++	for _, fi := range findings {
++		if fi.EscapesVendor && fi.Fatal {
++			escaped = true
++		}
++	}
++	if !escaped {
++		t.Fatalf("a `to` with `..` outside the vendor root must be a fatal escape; got %+v", findings)
++	}
++}
++
+ // v0.106：`main` / `types` 不能逃出被 vendor 的目录。
+ //
+ // 缺陷形态：`checkEntry` 用 `filepath.Join(toAbs, p)` 拼路径，而 Join 会老实
+diff --git a/internal/mappings/validate.go b/internal/mappings/validate.go
+index db79e7bf6dd314c6d84d298b1464915a4c69153e..cfd1c4ef76fe902229809f6df6b2e8320c72862a 100644
+--- a/internal/mappings/validate.go
++++ b/internal/mappings/validate.go
+@@ -121,21 +121,38 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
+ 		//
+ 		// v0.66：根不再硬编码为 `./ngm.vendor`——global 模式下它是绝对路径，
+ 		// 而 `ToJoin` 正是那样写出 `to` 的（评估报告 P2#14）。
++		//
++		// P1 修复：不能用字符串前缀判断。`./ngm.vendor/../../outside` 以
++		// `./ngm.vendor` 开头，但解析后根本不在 vendor 根下；旧检查会放行，
++		// integrations 与 ngm build 就会把别名写到 vendor 之外。这里改为
++		// 先拒绝 `..` 段，再用 filepath.Rel 做规范化后的边界判断。
+ 		vendorRoot := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(env.VendorRoot)), "/")
+ 		if vendorRoot == "" {
+ 			vendorRoot = VendorRelRoot
+ 		}
++		vendorRootAbs := resolveToAbs(env.ProjectDir, vendorRoot)
+ 		toSlash := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(m.To)), "/")
+-		if !strings.HasPrefix(toSlash+"/", vendorRoot+"/") {
++		if hasDotDotSegment(toSlash) {
+ 			findings = append(findings, Finding{
+ 				From:          m.From,
+-				Message:       "`to` must point inside " + vendorRoot + "/ (got " + m.To + ")",
++				Message:       "`to` must not contain `..` segments (got " + m.To + ")",
+ 				Fatal:         true,
+ 				EscapesVendor: true,
+ 			})
+ 			continue
+ 		}
+ 		toAbs := resolveToAbs(env.ProjectDir, m.To)
++		rel, relErr := filepath.Rel(vendorRootAbs, toAbs)
++		if relErr != nil || rel == "." || rel == ".." ||
++			strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
++			findings = append(findings, Finding{
++				From:          m.From,
++				Message:       "`to` must point inside " + vendorRoot + "/ (got " + m.To + ")",
++				Fatal:         true,
++				EscapesVendor: true,
++			})
++			continue
++		}
+ 		toInfo, err := os.Lstat(toAbs)
+ 		if err != nil {
+ 			findings = append(findings, Finding{
+@@ -254,6 +271,20 @@ func containsString(list []string, want string) bool {
+ 	return false
+ }
+ 
++// hasDotDotSegment 报告路径里是否有 `..` 段（两种分隔符都按分隔符处理）。
++//
++// `to` 是 vendor 根下的相对/绝对路径，生成器从不写 `..`；出现它只可能是
++// 手改或恶意 mappings。规整后再判断边界不够——规整可能把 `..` 吃掉，
++// 从而让一条越界路径“看起来”在 vendor 内。
++func hasDotDotSegment(p string) bool {
++	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
++		if part == ".." {
++			return true
++		}
++	}
++	return false
++}
++
+ // lockedSubpathsHint 在"`path` 不被锁定时"给出可操作的提示：
+ // 把 lock 里实际记着的子路径列出来，用户一眼能看出是不是写错了。
+ func lockedSubpathsHint(locked []string) string {

@@ -505,6 +505,26 @@ func TestBuildArchive_SortedByPath(t *testing.T) {
 	}
 }
 
+// TestBuildModuleMaterialsRejectsGitlink 是模块作用域的回归：
+// 根作用域会拒绝 gitlink，模块批量路径此前却直接把它写进 digest 记录；
+// install 会成功、verify 的 modproof 永远无法完成。
+func TestBuildModuleMaterialsRejectsGitlink(t *testing.T) {
+	repo := testutils.NewGitRepo(t)
+	repo.WriteFile("packages/mod/index.ts", "export const m = 1\n")
+	base := repo.Commit("feat: module base")
+	repo.AddGitlink("packages/mod/sub", base)
+	head := repo.Commit("feat: module with gitlink")
+
+	_, err := BuildModuleMaterials(context.Background(), Options{}, repo.Dir, head,
+		[]string{"packages/mod"})
+	if err == nil {
+		t.Fatal("a gitlink inside a module must be rejected before it reaches the digest")
+	}
+	if !strings.Contains(err.Error(), "gitlink") && !strings.Contains(err.Error(), "submodule") {
+		t.Errorf("error must name the gitlink cause, got: %v", err)
+	}
+}
+
 // assertErrCode 断言错误是 NgmError 且退出码符合预期。
 func assertErrCode(t *testing.T, err error, want errs.Code) {
 	t.Helper()

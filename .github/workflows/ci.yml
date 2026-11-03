@@ -203,6 +203,9 @@ jobs:
 
   # 数据竞争检测：涉及 mirror 懒加载与 argparse 的代码在多 goroutine 下有共享状态，
   # 单一 job 跑 -race 即可（-race 需要 cgo，ubuntu 镜像自带 gcc）。
+  #
+  # 超时与普通 job 一样显式放宽到 40m：`cmd/ngm` 串行非 race 约 7~8 分钟，
+  # -race 会把 Go 侧放大数倍；默认 10m 会让"慢"被读成"坏"。
   race:
     name: go test -race
     runs-on: ubuntu-latest
@@ -213,7 +216,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - name: go test -race ./...
-        run: go test -count=1 -race ./...
+        run: go test -count=1 -race -timeout 40m ./...
 
   # 阶段可执行验收（每个里程碑一个 TestMXAcceptance）。
   # 验收以 Go 测试实现（cmd/ngm/acceptance_mX_test.go），因此三平台一致可跑：

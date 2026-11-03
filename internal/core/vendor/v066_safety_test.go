@@ -85,6 +85,16 @@ func TestV66ValidateEntryPaths(t *testing.T) {
 			t.Errorf("错误必须点名条目与成因，got: %v", err)
 		}
 	})
+
+	t.Run("gitlink 不得被当作普通文件落地", func(t *testing.T) {
+		err := validateEntryPaths([]ContentEntry{{Path: "sub", Mode: digest.ModeGitlink}})
+		if err == nil {
+			t.Fatal("gitlink 必须在落地层被拒绝")
+		}
+		if !strings.Contains(err.Error(), "gitlink") && !strings.Contains(err.Error(), "submodule") {
+			t.Errorf("错误必须点名 gitlink/submodule，got: %v", err)
+		}
+	})
 }
 
 // escapeManifest 构造一份含逃逸 symlink 的清单并发布进 store，返回 digest。

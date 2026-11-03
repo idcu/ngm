@@ -251,7 +251,7 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 	}
 
 	// ---- 检查一：ref → commit（只读 ref 广播，不传对象）
-	refCheck, resolved := checkRef(ctx, repo, d, opts)
+	refCheck, resolved := checkRef(ctx, repo, d, opts, objectPath)
 	res.ResolvedCommit = resolved
 	res.Checks = append(res.Checks, refCheck)
 
@@ -436,7 +436,7 @@ var errCommitMissing = errors.New("commit missing from the local mirror")
 //
 // **它自己不取对象**——除非 ref 已经变了（那时判漂移性质需要祖先关系）。
 // 这是 ADR-010 的关键：把"判性质"从"解析"里拆出来，因为只有前者需要对象。
-func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, opts Options) (CheckResult, string) {
+func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, opts Options, objectPath string) (CheckResult, string) {
 	rt := resolve.RefType(d.RefType)
 	if !rt.IsValid() {
 		return CheckResult{Check: CheckRef, Status: StatusFail,
@@ -446,6 +446,24 @@ func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, o
 	resolved, err := resolveTargetRef(ctx, repo, d, rt, opts)
 	if err != nil {
 		return refResolveFailure(opts, d, err), ""
+	}
+
+	// commit 型的 ref 可能是 7~39 位短 hash（声明保留原样，lock 存完整 hash）。
+	// 解析器若没有补齐（例如在线 commit 型只传了 repo/ref，或对象不在 mirror），
+	// 这里必须先在本地对象库里补齐再比较；补不齐是“没查成”（operational），
+	// 不是“漂移结论”。否则 `5b28ce4` 会与自己比较失败，报成 unexpected drift。
+	if rt == resolve.RefTypeCommit && resolved != d.Commit {
+		if objectPath == "" {
+			return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
+				Detail: "cannot resolve the short commit without a local object store"}, resolved
+		}
+		expanded, xerr := git.RevParse(ctx, opts.GitOpts, objectPath, resolved)
+		if xerr != nil {
+			return CheckResult{Check: CheckRef, Status: StatusFail, Operational: true,
+				Detail: fmt.Sprintf("cannot resolve commit %q from %s: %v",
+					resolved, objectPath, xerr)}, resolved
+		}
+		resolved = expanded
 	}
 
 	if resolved == d.Commit {

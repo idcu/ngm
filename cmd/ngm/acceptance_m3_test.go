@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -373,17 +374,27 @@ func TestM3Acceptance(t *testing.T) {
 		if !strings.Contains(out, "ngm install") {
 			t.Errorf("remove should point at `ngm install`:\n%s", out)
 		}
-		// 声明已移除，但 lock 未动（remove 是声明编辑，lock 由 install/update 负责）
+		// remove 仍是声明编辑：lock 不动（lock 只由 install/update 负责）。
 		if lf, _ := lock.Read(lock.Find(proj)); len(lf.Dependencies) != 1 {
 			t.Errorf("remove must not touch the lock")
 		}
 
-		// install 尊重 lock：声明为空也不清理 lock（lock 记录的是"上次解析结果"）
+		// P1 回归：lock 里的根声明已不在 ngm.json 中，--frozen-lockfile 必须失败。
+		if code, out := runCaptureCode(t, "install", "--frozen-lockfile", "--dir="+proj); code != 3 {
+			t.Errorf("frozen-lockfile with an undeclared lock root should exit 3, got %d: %s", code, out)
+		}
+
+		// 普通 install 检测到“lock 有、声明没有”的根后重新解析并清理 lock/vendor。
 		if code, out := runCaptureCode(t, "install", "--dir="+proj); code != 0 {
 			t.Fatalf("install after remove: %s", out)
 		}
-		if lf, _ := lock.Read(lock.Find(proj)); len(lf.Dependencies) != 1 {
-			t.Errorf("install must respect the lock, got %d entries", len(lf.Dependencies))
+		if lf, _ := lock.Read(lock.Find(proj)); len(lf.Dependencies) != 0 {
+			t.Errorf("install must rebuild the lock when the manifest no longer declares a root; got %d entries",
+				len(lf.Dependencies))
+		}
+		staleVendor := filepath.Join(proj, vendor.VendorDirName, "github.com", "m3", "rm")
+		if _, err := os.Stat(staleVendor); !os.IsNotExist(err) {
+			t.Errorf("removed dependency must be cleaned from vendor, but %s still exists", staleVendor)
 		}
 
 		// update --all 重新计算锁定 → 孤儿条目被清理

@@ -195,6 +195,12 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 | 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 削弱隔离收益 |
 | 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
 
+> **`vendor.globalPath` 的边界（P1 修复）**：这个字段写在项目的 `ngm.json` 里，
+> 属于仓库可控输入。ngm 只接受 `~/.ngm/global-vendor` 或其子目录；相对路径、
+> `..`、项目外的绝对路径都会被 `ngm config validate` 与 `install` / `update` 拒绝。
+> 需要把共享 vendor 放到其他磁盘的用户应使用 `vendor.mode=local`；自定义全局位置
+> 目前没有用户级配置项（后续再引入）。
+
 **是否把 `ngm.vendor/` 提交进仓库由你的 Git 侧决定**（`git add ngm.vendor` 或
 `.gitignore` 里排除它），**不是** ngm 的配置项：ngm 从不执行 `git add` / `git commit`。
 

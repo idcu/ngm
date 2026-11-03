@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/idcu/ngm/internal/core/errs"
@@ -43,9 +44,13 @@ func TestPolicyGate_TransitiveDependencyIsRejected(t *testing.T) {
 	// 记录 mirror 请求：用来证明门禁发生在**触网之前**
 	base := w.opts()
 	var ensured []string
+	var ensuredMu sync.Mutex
 	opts := base
 	opts.EnsureMirror = func(ctx context.Context, repo resolve.Canonical) (string, error) {
+		// resolveBatch 会并发调用 EnsureMirror；这里的记录切片必须加锁。
+		ensuredMu.Lock()
 		ensured = append(ensured, repo.Slug())
+		ensuredMu.Unlock()
 		return base.EnsureMirror(ctx, repo)
 	}
 	opts.CheckRepo = denied(t, "github.com/w/evil")
@@ -80,9 +85,12 @@ func TestPolicyGate_TransitiveDependencyIsRejected(t *testing.T) {
 	}
 
 	// **触网之前**判定：违规仓库的 mirror 不该被请求
-	for _, s := range ensured {
+	ensuredMu.Lock()
+	allEnsured := append([]string(nil), ensured...)
+	ensuredMu.Unlock()
+	for _, s := range allEnsured {
 		if strings.Contains(s, "evil") {
-			t.Errorf("the gate must run before any remote access, but %q was ensured (all: %v)", s, ensured)
+			t.Errorf("the gate must run before any remote access, but %q was ensured (all: %v)", s, allEnsured)
 		}
 	}
 }

@@ -7,6 +7,43 @@ import (
 	"testing"
 )
 
+// TestP1MappingsToCannotEscapeTheVendorRoot 是 `to` 路径的回归：
+// `./ngm.vendor/../../outside` 以 `./ngm.vendor` 开头，但不是 vendor 内的路径。
+// 旧实现用字符串前缀判断，因而 mappings validate / integrations 都会放行。
+func TestP1MappingsToCannotEscapeTheVendorRoot(t *testing.T) {
+	proj := t.TempDir()
+	outside := filepath.Join(proj, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "index.js"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &File{Version: 1, Mappings: []Mapping{{
+		From: "github:x/dep",
+		To:   "./ngm.vendor/../../outside",
+		Main: "./index.js",
+	}}}
+	findings, err := Validate(f, ValidateEnvironment{
+		ProjectDir: proj,
+		LockNames:  map[string]bool{"github:x/dep": true},
+		VendorRoot: "./ngm.vendor",
+	})
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	var escaped bool
+	for _, fi := range findings {
+		if fi.EscapesVendor && fi.Fatal {
+			escaped = true
+		}
+	}
+	if !escaped {
+		t.Fatalf("a `to` with `..` outside the vendor root must be a fatal escape; got %+v", findings)
+	}
+}
+
 // v0.106：`main` / `types` 不能逃出被 vendor 的目录。
 //
 // 缺陷形态：`checkEntry` 用 `filepath.Join(toAbs, p)` 拼路径，而 Join 会老实

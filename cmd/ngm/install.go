@@ -150,7 +150,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			strings.Join(missing, ", "))
 	}
 
-	code := installFresh(ctx, env, pf, roots, *digestFlag, *offline, rep, humanOut, stderr)
+	code := installFresh(ctx, env, pf, roots, lf, *digestFlag, *offline, rep, humanOut, stderr)
 	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
 }
 
@@ -166,8 +166,15 @@ func materializeVendor(
 	env *projectEnv,
 	pf *config.ProjectFile,
 	items []digestNode,
+	previous *lock.File,
 	stdout, stderr io.Writer,
 ) error {
+	// 先清理上一次 lock 中、本次已不再需要的 vendor 目录。必须在落地之前：
+	// 旧根依赖被移除、但同仓库的模块子路径仍保留时，删掉旧根再落地模块，
+	// 才不会把旧根文件留在模块目录旁（见 P1 回归：remove 后 install）。
+	if err := cleanupStaleVendor(env, pf, previous, items); err != nil {
+		return err
+	}
 	mr, err := env.MaterializeVendorAndMappings(pf, items)
 	if err != nil {
 		return err
@@ -188,9 +195,17 @@ func materializeVendor(
 // 判定口径：根声明必须在 lock 中存在，且 ref / refType 一致——
 // 否则说明 ngm.json 被改动过，lock 已过期。
 //
-// 只检查**根声明**：lock 还包含传递依赖，它们的增减由重新解析决定。
+// 反过来也要检查：lock 里标记为“根声明”的条目，如果 ngm.json 已经不再声明，
+// 这份 lock 同样过期。没有这一半，`ngm remove` 之后 `ngm install` 会继续按旧
+// lock 安装被删掉的依赖（P1 回归）。
+//
+// 只检查**直接根声明**：lock 还包含传递依赖，它们的增减由重新解析决定。
 func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
 	var out []string
+	declared := make(map[string]bool, len(roots))
+	for _, r := range roots {
+		declared[r.Key()] = true
+	}
 	for _, r := range roots {
 		d, ok := lf.Find(r.Name, r.SubPath)
 		if !ok {
@@ -201,11 +216,32 @@ func lockManifestMismatch(lf *lock.File, roots []resolve.DepSpec) []string {
 			out = append(out, r.Name+" ("+d.Ref+" ("+d.RefType+") → "+r.Ref+" ("+string(r.RefType)+"))")
 		}
 	}
+	for i := range lf.Dependencies {
+		d := &lf.Dependencies[i]
+		if !requiredByRoot(d) || declared[d.Key()] {
+			continue
+		}
+		label := d.Name
+		if d.SubPath != "" {
+			label += "#" + d.SubPath
+		}
+		out = append(out, label+" (in ngm.lock but no longer declared)")
+	}
 	return out
 }
 
+// requiredByRoot 报告该 lock 条目是否由项目根直接声明。
+func requiredByRoot(d *lock.Dependency) bool {
+	for _, from := range d.RequiredBy {
+		if from == lock.RootRequirer {
+			return true
+		}
+	}
+	return false
+}
+
 // installFresh 从 ngm.json 完整解析并生成 lock。
-func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
+func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
@@ -324,7 +360,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	}
 
 	// vendor 落地 + mappings（从同一份 content 派生，保证指向一致）
-	if err := materializeVendor(ctx, env, pf, items, stdout, stderr); err != nil {
+	if err := materializeVendor(ctx, env, pf, items, previous, stdout, stderr); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
@@ -489,7 +525,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 	}
 
 	// vendor 落地 + mappings（沿用 lock 的 digest，不重新解析）
-	if err := materializeVendor(ctx, env, pf, items, stdout, stderr); err != nil {
+	if err := materializeVendor(ctx, env, pf, items, nil, stdout, stderr); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 

@@ -91,6 +91,29 @@ func TestParseAddSpec(t *testing.T) {
 			path: "pkg/core",
 			ref:  "v1",
 		},
+		{
+			name: "branch ref with slash",
+			in:   "github:org/repo@feature/x",
+			repo: "github.com/org/repo",
+			ref:  "feature/x",
+		},
+		{
+			name: "scp-like with slash ref",
+			in:   "git@github.com:org/repo.git@release/1.0",
+			repo: "github.com/org/repo",
+			ref:  "release/1.0",
+		},
+		{
+			name: "https url with userinfo but no ref",
+			in:   "https://user@github.com/org/repo",
+			repo: "github.com/org/repo",
+		},
+		{
+			name: "https url with userinfo and slash ref",
+			in:   "https://user@github.com/org/repo@feature/x",
+			repo: "github.com/org/repo",
+			ref:  "feature/x",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

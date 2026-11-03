@@ -101,6 +101,14 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
+	// 旧 lock 用于清理本次重建后不再需要的 vendor 目录。读失败不阻断 update：
+	// update 的职责就是从声明重建 lock，它必须能修复一份坏掉的旧 lock；
+	// 只是这次没有可安全清理的旧 vendor 路径。
+	previous, lerr := lock.Read(env.LockPath())
+	if lerr != nil {
+		fmt.Fprintf(stderr, "warning: ignoring unreadable ngm.lock for vendor cleanup: %v\n", lerr)
+		previous = nil
+	}
 
 	// --json 时人类文本改走 stderr（与 install 同一约定），stdout 只留一份 JSON。
 	humanOut := stdout
@@ -148,6 +156,11 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	if len(g.Nodes) == 0 {
+		// 空依赖也要走一次 vendor 清理与 mappings 生成：否则 remove 之后
+		// 旧的 ngm.vendor 与 ngm.mappings.json 会原样留下（P1 回归）。
+		if merr := materializeVendor(ctx, env, pf, nil, previous, humanOut, stderr); merr != nil {
+			return runErr(ctx, stdout, stderr, merr)
+		}
 		lf := lock.NewFile()
 		if werr := writeLockChecked(env, lf); werr != nil {
 			return runErr(ctx, stdout, stderr, werr)
@@ -270,7 +283,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	// vendor 落地 + mappings
-	if merr := materializeVendor(ctx, env, pf, items, humanOut, stderr); merr != nil {
+	if merr := materializeVendor(ctx, env, pf, items, previous, humanOut, stderr); merr != nil {
 		return runErr(ctx, stdout, stderr, merr)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -261,6 +262,19 @@ func (lt *LinkTree) materialize(digest, canonicalPath, subPath string, relative 
 // （目标不在 vendor 里），构建工具跟随它只会读到包外文件。
 func validateEntryPaths(entries []ContentEntry) error {
 	for _, e := range entries {
+		// 目录与 gitlink 不是可落地的文件条目。根作用域在 digest 层就会
+		// 拒绝它们；这里是落地层的纵深防御，防止一份被改写/旧版的
+		// content manifest 把 gitlink 当作普通文件复制出来（P1）。
+		switch e.Mode {
+		case digest.ModeTree:
+			return errs.New(errs.CodeConfigInvalid,
+				"refusing to materialize directory entry "+e.Path,
+				"the manifest contains a tree entry for a non-module dependency; re-run `ngm install`")
+		case digest.ModeGitlink:
+			return errs.New(errs.CodeConfigInvalid,
+				"refusing to materialize gitlink "+e.Path+" (submodules are not supported)",
+				"pin a commit that vendors the submodule as regular files, or remove it upstream")
+		}
 		p := path.Clean(filepath.ToSlash(e.Path))
 		if p == "." || p == ".." || strings.HasPrefix(p, "../") || looksLikeAbsPath(p) {
 			return errs.New(errs.CodeConfigInvalid,

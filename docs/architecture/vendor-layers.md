@@ -199,6 +199,10 @@ project/ngm.vendor/
 | 全局缓存 | `"mode": "global"` | 节省磁盘，多项目共享 | 重新引入 pnpm 式缓存管理问题，削弱隔离收益 |
 | 本地 vendor/ | `"mode": "local"`（默认） | 隔离清晰，CI 可复现 | 跨项目重复存储 |
 
+> 项目清单里的 `vendor.globalPath` 只允许指向 ngm 自己的全局 vendor 根
+> （`~/.ngm/global-vendor`）或其子目录；项目外的绝对路径、相对路径与 `..`
+> 会被 `config validate` / `install` / `update` 拒绝（P1 安全修复）。
+
 **是否把 `ngm.vendor/` 提交进仓库是 Git 侧的选择**（`git add ngm.vendor`），
 不是 ngm 的配置项：ngm 从不执行 `git add` / `git commit`。配置项 `vendor.commit`
 因此从未有过任何读取点，已于 v0.5 移除（见[配置详解 §vendor](../guides/configuration.md)）。

@@ -66,7 +66,7 @@ func ResolveRef(ctx context.Context, repo Canonical, ref string, refType RefType
 		if err != nil {
 			return "", err
 		}
-		return expandShortCommit(ctx, full, opts)
+		return expandShortCommit(ctx, repo, full, opts)
 	case RefTypeTag, RefTypeBranch:
 		return resolveNamedRef(ctx, repo, ref, refType, opts)
 	default:
@@ -109,21 +109,31 @@ type RefSpec struct {
 //     （换 refType、或换成完整 hash）。
 //   - 没有可用的本地仓库（如纯语法校验场景）→ 原样返回：那类调用不做
 //     "对象是否存在"的判定，也不写 lock（见 ResolveRef 文档）。
-func expandShortCommit(ctx context.Context, full string, opts ResolveOptions) (string, error) {
+func expandShortCommit(ctx context.Context, repo Canonical, full string, opts ResolveOptions) (string, error) {
 	if len(full) == 40 {
 		return full, nil
 	}
-	if opts.GitURL == "" {
+	gitURL := opts.GitURL
+	if gitURL == "" && opts.MirrorDir != "" {
+		// 离线 verify 只给 MirrorDir（它不走 ls-remote，也不需要 GitURL 的
+		// 覆盖语义）。短 hash 仍必须在本地 mirror 里补齐：否则调用方会拿到
+		// 一个 7 位字符串，与 lock 里的完整 commit 比较时被误判成漂移。
+		candidate := filepath.Join(opts.MirrorDir, filepath.FromSlash(repo.MirrorRelPath()+".git"))
+		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+			gitURL = candidate
+		}
+	}
+	if gitURL == "" {
 		return full, nil
 	}
-	if _, err := os.Stat(opts.GitURL); err != nil {
+	if _, err := os.Stat(gitURL); err != nil {
 		return full, nil
 	}
-	expanded, err := git.RevParse(ctx, git.Options{Secrets: opts.Secrets, Policy: opts.Policy}, opts.GitURL, full)
+	expanded, err := git.RevParse(ctx, git.Options{Secrets: opts.Secrets, Policy: opts.Policy}, gitURL, full)
 	if err != nil {
 		return "", errs.New(
 			errs.CodeConfigInvalid,
-			fmt.Sprintf("commit %q cannot be resolved in %s", full, opts.GitURL),
+			fmt.Sprintf("commit %q cannot be resolved in %s", full, gitURL),
 			"use a full 40-character hash, or a refType of `tag`/`branch`; "+
 				"if the commit was pushed to a ref, re-fetch the mirror once")
 	}

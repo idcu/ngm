@@ -11,6 +11,7 @@ import (
 
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 // configUsage 是 `ngm config --help` 的简短说明。
@@ -94,6 +95,15 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 	if err != nil {
 		return runErr(ctx, stdout, stderr, errs.WrapUnlessHinted(errs.CodeConfigInvalid,
 			"validate ngm.json", "fix the reported field or remove unknown fields", err))
+	}
+	// 项目清单可以把 vendor 指向项目外吗？运行期 install/update 会拒绝；
+	// validate 必须给出**同一份**判定，否则 CI 会在 validate 上绿、在 install 上红。
+	layout, lerr := vendor.DefaultLayout()
+	if lerr != nil {
+		return runErr(ctx, stdout, stderr, lerr)
+	}
+	if verr := validateVendorLocation(layout, r.Project); verr != nil {
+		return runErr(ctx, stdout, stderr, verr)
 	}
 	fmt.Fprintln(stdout, "ngm.json OK")
 
