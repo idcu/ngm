@@ -21,12 +21,27 @@
   逐对象删除失败汇总为 exit 4，不中途退出。
 - `action.yml` 新增 `verify-level` 输入（默认 `structure`）；`args` 里已经写了级别
   flag 时不再注入默认值。
+- `ngm doctor` 新增 `vendor` 读数：`present` / `ignored-by-git` / `absent`。**只读、
+  不改变退出码语义**——它回答的是"配置意图与 Git 状态是否错配"（打算随仓库分发、却被
+  `.gitignore` 排除），而那种错配在冷克隆里表现为 `install --offline` 的 exit 4，
+  错误信息却指向"缺内容"。不执行任何 Git 写操作。
+- `scripts/check-docs-links.sh` 新增**本机绝对路径告警**：`.md` 里出现盘符路径或
+  `/home/<name>/`、`/Users/<name>/`、`/root/` 时打印 `LOCAL PATH in …` 并计数，
+  **不阻断**（引用外部环境有时是必要的，但它对任何其它机器都不可复现）。
+  `https://` 前缀不会误命中；本机路径作为链接目标时也不再被判成坏链。
 
 ### Changed
 
 - `store usage` / `store prune` 的说明更新：自动/全局的可达性删除仍然没有，显式、
   项目范围的那类由 `ngm gc` 提供（ADR-041）。
 - `verify` 的结构级汇总提示改为指向 `--content`（`--deep` 仍可用）。
+- `ngm mappings validate` 的两条失败提示补充"生成后要提交"：mappings 是 `ngm.lock`
+  的确定性投影，只修本机不提交，冷克隆的 CI 会在同一处再失败一次。
+- 文档：`docs/practice/pivoise-methodology.md` 重写为通用的
+  [工程纪律方法论](./docs/practice/engineering-discipline.md)（枢衡降为一个样本）；
+  `observability.md` 补上一直缺失的 `ngm doctor` 小节；
+  `vendor-layers.md` 增"层的下游：二次分发与证明边界"；
+  `configuration.md` 给 `ngm.mappings.json` 补上"必须提交 + 理由"。
 
 ### Notes
 

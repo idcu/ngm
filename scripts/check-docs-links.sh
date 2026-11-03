@@ -14,6 +14,13 @@
 #      此前按扩展名过滤，导致 `.go` / 无扩展名 / 目录这三类链接（全仓 16 处）
 #      烂掉也没人知道。存在性判据分两档：`.md`/`.txt` 要求是文件，其余存在即可（目录合法）。
 #   4. CI 友好：打印每个坏链接（文件:行号）并在最后 exit 1
+#   5. 本机绝对路径**只告警、不阻断**（v0.117）：`.md` 里出现盘符路径
+#      （`X:\…` 或 `X:/…`）或 `/home/<name>/` `/Users/<name>/` `/root/` 时
+#      打印 `LOCAL PATH in …` 并计入告警数。理由：引用外部环境有时是必要的
+#      （例如 ADR 里讨论 Windows 路径的引号问题），但它对**任何其它机器都不可复现**，
+#      而"不可复现的路径"曾以"文档看起来是对的、复制到别人机器上就断"的形式收账。
+#      判据的软硬是语境的属性：这里选择**可见**而不是**失败**。
+#      注意前缀排除：`https://` 里的 `s:/` 不是盘符（要求 `/` 后紧跟非 `/`）。
 #
 # 用法：scripts/check-docs-links.sh [root ...]
 #   默认 `docs README.md`——**根 README 也要查**：它是最多人读的一份文档，
@@ -137,6 +144,10 @@ link_scan() {
         }
         if (t == "" || substr(t, 1, 1) == "#") continue
         if (t ~ /^(http|https|mailto|tel|file):/) continue
+        # 本机绝对路径的 target 不是"仓库内链接"：存在性判不了，由 abspath_scan 告警。
+        # 不加这条，`[x](C:/…)` 会被拼到文件所在目录去，误报成 broken link。
+        if (t ~ /^[A-Za-z]:[\\]/ || t ~ /^[A-Za-z]:\/[^\/]/) continue
+        if (t ~ /^\/(home|Users|root)\//) continue
         sub(/#.*$/, "", t)
         # **根相对链接**（以 `/` 开头）：Markdown 里它相对**仓库根**，不是相对文件所在目录
         # （v0.97 修掉的一处语义错：此前按 base 拼，于是 `/LICENSE` 会去找
@@ -161,6 +172,32 @@ link_scan() {
         }
         print normalize(joined) "\t" FILENAME "\t" FNR "\t" m
       }
+    }
+  ' "$@"
+}
+
+# abspath_scan：找出**本机绝对路径**（只告警）。与 link_scan 同一套围栏块状态机，
+# 但**不剥行内代码**——泄漏常常正躲在示例命令里（`cd D:\repos\… && npm test`）。
+#
+# 排除 `https://` 这类伪命中：要求盘符后的 `/` 后面还有非 `/` 的字符
+# （`https://` 的 `s:/` 后面紧跟 `/`）。`/home/<user>/` 用尖括号占位**不**命中——
+# 占位符是可复现的写法，真用户名不是。
+abspath_scan() {
+  awk '
+    function localpath(s) {
+      if (s ~ /[A-Za-z]:[\\]/) return 1
+      if (s ~ /[A-Za-z]:\/[^\/]/) return 1
+      if (s ~ /(^|[^A-Za-z0-9._-])\/home\/[A-Za-z0-9._-]+\//) return 1
+      if (s ~ /(^|[^A-Za-z0-9._-])\/Users\/[A-Za-z0-9._-]+\//) return 1
+      if (s ~ /(^|[^A-Za-z0-9._-])\/root\//) return 1
+      return 0
+    }
+    {
+      if (FILENAME != prevfile) { inblock = 0; prevfile = FILENAME }
+      raw = $0
+      if (raw ~ /^[ \t]*```/) { inblock = !inblock; next }
+      if (inblock) next
+      if (localpath(raw)) print FILENAME "\t" FNR "\t" substr(raw, 1, 160)
     }
   ' "$@"
 }
@@ -190,6 +227,17 @@ while IFS=$'\t' read -r resolved f lineno match; do
     ;;
   esac
 done < <(link_scan "${files[@]}")
+
+# 本机绝对路径：**告警**（不改变退出码）。放在链接检查之后，输出顺序稳定。
+warned=0
+while IFS=$'\t' read -r wf wline wtext; do
+  [ -n "$wf" ] || continue
+  echo "LOCAL PATH in $wf: $wline: $wtext"
+  warned=$((warned + 1))
+done < <(abspath_scan "${files[@]}")
+if [ "$warned" -gt 0 ]; then
+  echo "warning: $warned line(s) contain a machine-local absolute path (not blocking; prefer repo-relative paths)"
+fi
 
 if [ "$bad" -gt 0 ]; then
   echo "found $bad broken links"

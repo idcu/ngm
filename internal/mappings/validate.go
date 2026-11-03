@@ -306,7 +306,11 @@ func lockedSubpathsHint(locked []string) string {
 const LockFileName = "ngm.lock"
 
 // ErrInvalid 构造校验失败的统一错误（exit 3）。
+//
+// 建议里点明"重新生成后要提交"：mappings 是 lock 的确定性投影（见 configuration.md），
+// 只修本机不提交，下一次冷克隆的 CI 会在同一处再失败一遍。
 func ErrInvalid(summary string) error {
 	return errs.New(errs.CodeConfigInvalid, summary,
-		"fix the reported mappings or run `ngm install` to regenerate "+FileName)
+		"fix the reported mappings or run `ngm install` to regenerate "+FileName+
+			", then commit it (it is derived from ngm.lock, so a cold clone must not have to regenerate it)")
 }

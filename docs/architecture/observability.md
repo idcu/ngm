@@ -34,6 +34,54 @@
 
 ---
 
+## ngm doctor
+
+> **done (v0.104)**；`vendor` 读数 **v0.117**。本节此前不存在——`cli.md` 让读者"详见可观测性"，
+> 而那个落点没有对应章节（文档指向了自己没有的东西）。
+
+`ngm doctor` 只回答一个问题：**这台机器、这个目录，现在能不能正常干活**。
+它是**诊断型**命令：发现写进报告，命令本身恒退 **0**（用法错误退 3）。
+判定在报告里，不在退出码里——"哪里坏了"由 `status: fail` 的条目说，
+而不是让 CI 从"命令失败了"去猜。
+
+### 检查项
+
+| 检查 | 读数 | 什么时候值得看 |
+|------|------|----------------|
+| `git` | 可执行文件与版本 | 版本过低（< 2.30）或不在 PATH 上，后面的失败都会长得像网络问题 |
+| `project` | `ngm.json` 的 `name` / `version` | 读不出来 ⇒ 后面的每一项都不可信 |
+| `lock` | 依赖条数 | 缺 lock 是 **warn**：还没装过，不是坏了 |
+| `layout` | `~/.ngm` 是否存在 | 缺是 **warn**：`install` 会创建它 |
+| `store` | mirror / module-cache / content 三层的仓库数 | 与 `ngm store usage` 同一套口径，这里只给条数 |
+| `vendor` | `present` / `ignored-by-git` / `absent` | 见下节：**配置意图与 Git 状态的错配** |
+| `modules` | 嵌套模块清单的条数 | 集合仓库里 `modules validate` 之前的快速体检 |
+
+### vendor 读数：为什么它只是读数
+
+同一个 `ngm.vendor/`，两种做法都合法：
+
+- **随仓库分发**（部署机不装 npm、不联网）⇒ 必须提交，冷克隆才装得出来；
+- **由 `.gitignore` 排除**（CI 现场 `install`）⇒ 不提交，工作树更干净。
+
+ngm 不替用户选，也**不执行任何 Git 写操作**（[ADR-038](../adr/adr-038-no-own-git.md)）：
+`check-ignore` 是一次只读探测，读的是 Git 自己的判定，不是 ngm 自研的 `.gitignore` 解析器。
+
+错的只有第三种情况：**打算分发、却被 Git 忽略**。它的表现极具误导性——冷克隆的 CI 在
+`install --frozen-lockfile --offline` 处以 **exit 4** 失败，报告说"缺内容"，指向不了
+"你的 `.gitignore` 排除了整棵树"。所以 doctor 把它**说出来**，并且用 `warn` 而不是 `fail`：
+
+```
+vendor   warn  present (3 entries) but ignored by Git — if you intend to ship it, check .gitignore and `git add ngm.vendor/`
+```
+
+`global` 模式（`vendor.mode=global`）落在项目工作树之外，Git 本来就管不到它，读数是 `ok` 加一句说明——
+不制造一条恒亮的告警。
+
+**不做的两件事**：不读 `.gitignore` 自己算一份（两份真相），也不因为"忽略"就变红
+（那会把一个合法的部署形态判成错误）。
+
+---
+
 ## ngm why
 
 > **done (v0.2)**。下面的输出即当前真实行为。同一依赖被多个父节点引入时会列出

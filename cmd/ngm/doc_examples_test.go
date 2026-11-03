@@ -151,9 +151,10 @@ var docExampleExceptions = []struct {
 	{"docs/guides/cli.md", "ngm verify --json --bogus",
 		"这一行是**实测记录**：散文说的是「解析阶段的失败也该有机器可读的形态」——" +
 			"那条调用会被拒绝，正是它的要点"},
-	{"docs/internals/project-state.md", "ngm verify --json --bogus",
+	{"docs/internals/progress.md", "ngm verify --json --bogus",
 		"同上：v0.54 那一行记的是**实测读数**（exit 3 · stdout 0 字节），" +
-			"这条调用被拒绝正是读数本身"},
+			"这条调用被拒绝正是读数本身。2026-11-03 该行随 §2 逐版表搬到 progress.md，" +
+			"例外条目跟着搬——否则它会变成一条指向旧坐标的空规则"},
 }
 
 // docExceptionFor 返回命中的例外条目下标。

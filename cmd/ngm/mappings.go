@@ -69,10 +69,13 @@ func runMappingsValidate(ctx context.Context, dirFlag string, stdout, stderr io.
 		return runErr(ctx, stdout, stderr, err)
 	}
 	if f == nil {
+		// v0.117：建议里补上"提交"。它是 lock 的确定性投影（configuration.md
+		// §`ngm.mappings.json` 为什么必须提交），只在本机生成等于让别人重新踩一次。
 		return runErr(ctx, stdout, stderr, errs.New(
 			errs.CodeConfigInvalid,
 			mappings.FileName+" not found in "+env.ProjectDir,
-			"run `ngm install` to generate it"))
+			"run `ngm install` to generate it, then commit it: it is derived from ngm.lock, "+
+				"so a cold clone must not have to regenerate it"))
 	}
 
 	// 从 lock 构造"已锁定依赖集合"（不强制要求 lock 存在：

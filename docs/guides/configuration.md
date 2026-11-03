@@ -6,7 +6,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 |------|------|------|
 | `ngm.json` | 依赖声明（refType 条件必填）+ 引擎选择 + 供应链策略 + 运行时 | 项目根目录 |
 | `ngm.lock` | 锁定文件：commit + 内容 digest（根 archiveDigest / 模块 moduleDigest）+ resolvedAt | 项目根目录，**必须提交** |
-| `ngm.mappings.json` | 构建工具映射（供外部构建工具读取裸导入） | 项目根目录 |
+| `ngm.mappings.json` | 构建工具映射（供外部构建工具读取裸导入） | 项目根目录，**必须提交**（理由见下） |
 | `ngm.engines.json` | 引擎清单（可选，覆盖内置清单） | 项目根目录或全局 `~/.ngm/` |
 | `~/.ngm/config.json` | 全局配置（Git 凭证、默认引擎、权限） | 用户主目录 |
 
@@ -27,6 +27,22 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 >
 > 执行依赖代码这件事的边界见[供应链防护 · postInstallPolicy](../architecture/supply-chain.md)——
 > **`allow` 也只在沙箱里跑，且钩子没有写权限**。
+
+### `ngm.mappings.json` 为什么必须提交
+
+它与 `ngm.lock` 是同一类东西：**由 lock + vendor 布局确定的投影**，不是本机状态的记录。三条理由：
+
+1. **确定性**：同一份 `ngm.lock`、同一个 `linkMode` ⇒ 逐字节相同的 `ngm.mappings.json`。
+   不提交，每次 `install` 都会在工作树里留下同一份 diff，评审再也分不清
+   "依赖真的变了" 与 "工具又写了一遍"。
+2. **有消费方**：Vite / esbuild / Deno / tsconfig paths 直接读它（[构建指南](./build.md#mappings-文件)）。
+   多阶段镜像、CI 的 build job 通常**不跑 `ngm install`**——那时文件必须已经在仓库里。
+3. **可校验**：`ngm mappings validate` 做的是"文件 ↔ lock ↔ vendor 树"三方对账。
+   文件不入库，这条判据在别人的克隆上就没有输入，等于没有。
+
+**边界不变**：`ngm.vendor/` 是否提交仍然由 Git 侧决定（[vendor 4 层](../architecture/vendor-layers.md#vendor-的落地位置与是否提交)），
+ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor 是内容**：清单进版本库才有意义，
+内容进不进取决于部署形态。
 
 ---
 

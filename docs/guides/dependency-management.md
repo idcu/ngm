@@ -212,6 +212,10 @@ ngm 只管 Git 依赖。registry 包交给 pnpm：
 
 `ngm install` 后自动生成 `ngm.mappings.json`，把裸导入（如 `github:my-org/utils`）映射到 vendor 路径。
 
+**它必须提交**（与 `ngm.lock` 同级）：同一份 lock 与同一个 `linkMode` 生成逐字节相同的文件，
+而多阶段镜像 / CI 的 build job 通常不跑 `install`，那时构建工具读到的只能是仓库里的那份。
+理由与反例见[配置详解 §`ngm.mappings.json` 为什么必须提交](./configuration.md#ngmmappingsjson-为什么必须提交)。
+
 - schema 与生成规则：[P4 — 生态与协议](../modules/p4-ecosystem.md)
 - 接入示例（Vite / esbuild / Deno）：[构建指南](./build.md)
 

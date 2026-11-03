@@ -42,9 +42,14 @@ var reMilestoneRow = regexp.MustCompile(`^>? ?\| (?:> )?\*{0,2}(v0\.\d+)\*{0,2} 
 //   - `docs/internals/project-state.md` 从 **v0.56** 起（§2 的机制登记：更早那些机制
 //     变更在 v0.56 之前的表里另有记法，这里只认这一段）。
 var milestoneTableStartsAt = map[string]string{
-	"docs/README.md":                  "v0.1",
-	"docs/development/README.md":      "v0.5",
-	"docs/internals/project-state.md": "v0.56",
+	// 2026-11-03：逐版表按"入口/账本"分离，从三份大文件里拆出四份账本
+	// （docs/README 118KB、development/README 148KB、project-state 149KB）。
+	// 表搬到哪，这条判据就跟到哪——否则"搬走"等于"没人看"。
+	"docs/milestones.md":         "v0.1",
+	"docs/development/ledger.md": "v0.5",
+	"docs/internals/progress.md": "v0.56",
+	// `docs/development/stages.md`（原 §阶段地图）**没有**逐版行——它是阶段表，
+	// 不是账本。它不在上面，也不该在：声明一个没有版本行的文件等于给判据加一条空规则。
 }
 
 // parseVersion 把 `v0.57` 读成 57（只支持这条判据用到的形状）。
@@ -68,9 +73,13 @@ func TestV63MilestoneTablesListEveryVersionExactlyOnce(t *testing.T) {
 
 	docs := livingDocs(t)
 	// `docs/development/` 整体是**快照**（复盘与计划不随之后的删改修订），
-	// 但那个目录的**索引**是活的——它的逐版表与 `docs/README.md` 是同一种东西，
-	// 因此和 v0.58 那条判据一样单独加进来。
-	docs = append(docs, "../../docs/development/README.md")
+	// 但那里有两张**活**表（逐版账本与阶段地图），必须单独加进来。
+	docs = append(docs,
+		"../../docs/development/ledger.md",
+		"../../docs/development/stages.md",
+	)
+	// 里程碑账本已从 `docs/README.md` 独立出来（118KB→20KB），它是活文档，必须继续被扫到。
+	docs = append(docs, "../../docs/milestones.md")
 
 	declared := 0
 	for _, doc := range docs {

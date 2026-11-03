@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/vendor"
@@ -26,6 +27,7 @@ CHECKS:
   lock      ngm.lock can be read (missing lock is a warning, not a failure)
   layout    ~/.ngm root exists (missing is a warning; install creates it)
   store     mirror / module-cache / content-store usage
+  vendor    vendor tree readout: present / ignored-by-git / absent (read-only)
   modules   nested module manifests can be scanned
 
 EXIT CODES:
@@ -83,11 +85,15 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		add("git", "ok", oneLine(string(res.Stdout)))
 	}
 
-	if pf, perr := env.ReadManifest(); perr != nil {
+	pf, perr := env.ReadManifest()
+	if perr != nil {
 		add("project", "fail", "cannot read ngm.json; run `ngm config validate`")
+		pf = nil
 	} else {
 		add("project", "ok", pf.Name+" "+pf.Version)
 	}
+	vendorStatus, vendorDetail := doctorVendorReadout(ctx, env, pf)
+	add("vendor", vendorStatus, vendorDetail)
 
 	lf, lerr := lock.Read(env.LockPath())
 	switch {
@@ -134,6 +140,52 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintln(stdout, "\nFAIL")
 	}
 	return 0
+}
+
+// doctorVendorReadout 报告 `ngm.vendor/` 的存在性与 Git 可见性。
+//
+// 同一个 vendor 目录，有的项目随仓库分发（部署机不装 npm、不联网），有的项目
+// 由 `.gitignore` 排除并靠 `install` 重建，两种都对。错的只有一种：**打算分发、
+// 却被 Git 忽略**——冷克隆的 CI 会在 `install --frozen-lockfile --offline` 处以
+// exit 4 失败，而错误信息指向"缺内容"，指不到"你的 .gitignore 排除了整棵树"。
+//
+// 因此这里只**报告**、不判定：present / ignored-by-git / absent 三种读数都不改变
+// 退出码语义（doctor 恒 0），也不执行任何 Git 写操作——ADR-038 规定
+// internal/core/git 是唯一网关，这里只用 `check-ignore` 这个只读探测。
+func doctorVendorReadout(ctx context.Context, env *projectEnv, pf *config.ProjectFile) (string, string) {
+	root := env.VendorRoot(pf)
+	if pf != nil && pf.Vendor != nil && pf.Vendor.Mode == "global" {
+		if info, err := os.Stat(root); err != nil || !info.IsDir() {
+			return "warn", "global vendor absent at " + root + "; run `ngm install`"
+		}
+		return "ok", "global vendor at " + root + " (outside the project work tree; Git cannot track it)"
+	}
+
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return "warn", "absent at ./" + vendor.VendorDirName + "; run `ngm install`"
+	}
+	count := 0
+	if entries, rerr := os.ReadDir(root); rerr == nil {
+		count = len(entries)
+	}
+
+	opts := env.GitOpts
+	opts.Dir = env.ProjectDir
+	res, gerr := git.RunAllowFailure(ctx, opts, "check-ignore", "-q", "--", vendor.VendorDirName)
+	if gerr != nil {
+		return "ok", fmt.Sprintf("present (%d entries); Git state unknown: %v", count, gerr)
+	}
+	switch res.ExitCode {
+	case 0:
+		return "warn", fmt.Sprintf(
+			"present (%d entries) but ignored by Git — if you intend to ship it, check .gitignore and `git add %s/`",
+			count, vendor.VendorDirName)
+	case 1:
+		return "ok", fmt.Sprintf("present (%d entries); Git does not ignore it", count)
+	default:
+		return "ok", fmt.Sprintf("present (%d entries); Git could not answer (not a work tree?)", count)
+	}
 }
 
 func oneLine(s string) string {
