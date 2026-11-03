@@ -6,6 +6,31 @@
 
 只记录**用户可观察的行为**；逐版工程细节见 `docs/development/` 的计划与复盘。
 
+## [0.102.0-dev.2] - 2026-11-03
+
+开发版本。它与 `0.102.0-dev.1` 是同一批功能，差别只在**发布链路本身**：
+dev.1 的发布 run 在当时的 CI 环境上失败，而 tag 指向的提交不可变；这一版把
+发布前必须先绿的测试与本项目自己的跨平台判据修好，作为可下载的固定点。
+
+### Fixed
+
+- 预发布 tag（`vX.Y.Z-<suffix>`）不再被 tag ⇄ 复盘门禁要求配对复盘；
+  附注 tag 与 `--published`（真的发布）仍然适用。
+- `release-dryrun.sh` / `release-notes.sh` 增加 Windows 入口；dry-run 进入 CI
+  （ubuntu 跑 `.sh`，windows 跑 `.ps1`），每次推送都真构建、真校验和、真读版本。
+- 十个 `.ps1` 入口在 POSIX 上不再因 `Join-Path $null` 直接失败；macOS 自带
+  bash 3.2 与 BSD `sort` 的兼容问题修掉（`globstar` → `find`，`sort -V` → 数值排序）。
+- `go test` 在 Windows 显式走 bash：默认 PowerShell 下 `set -o pipefail` 是
+  找不到的命令，测试根本没跑却被记成失败。
+- 反斜杠形态的 symlink 目标在所有平台都按分隔符判定；夹具的
+  `core.quotePath` 固定为 false，非 ASCII 文件名不再是平台相关的读数。
+- 回填工作流只做编译冒烟（历史 tag 当年已过 CI），发布前仍强制校验
+  `SHA256SUMS`、版本注入与版本化别名。
+
+### Notes
+
+- 其余历史 tag 不回填，见 `docs/guides/release-pipeline.md` 的范围与理由。
+
 ## [0.102.0-dev.1] - 2026-11-03
 
 开发版本，供 `ngm-repo` 的集合校验固定使用（`.ngm-version`）。
