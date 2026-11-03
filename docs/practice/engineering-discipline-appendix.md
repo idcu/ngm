@@ -65,7 +65,7 @@ jobs:
 | 级别 | **L4** | L3 | L3 | L3 |
 | 依赖 | 9 个 Git 模块，全部按 tag 锁定 | 10 个，`linkMode: copy` | 6 个 | 自身是包仓库 |
 | 契约 | `contracts/` 9 份（表所有权、域边界、FK、字段单一源、查询预算、品牌、兼容计划、读写白名单） | `contracts/conventions.json`（版本号 / i18n 键 / 文件头 / 枚举同源） | `js/data/contracts.js`（运行时断言）+ `ngm.json` + DEVELOPMENT.md §0 的版本读数表 | `ngm.json` + `ngm.collection.json` |
-| 模块化装配 | **L4**：`module.json` × 14（id/requires/entry/tables/routePrefixes/permissions/ui 插槽）+ `config/modules.json` 装配清单；拓扑排序、路由冲突即失败、热启停只反注册、失败回滚 | **L2**：`contracts/plugin-api.json` 守 `PlotPin` 的 13 个键（双向比对：泄漏与落空都报） | **L3**：81 个 `<script>` 的层顺序（入口最后 / 配置最先 / 无孤儿） | —（包仓库只做清单与 tag 校验） |
+| 模块化装配 | **L4**：`module.json` × 14（id/requires/entry/tables/routePrefixes/permissions/ui 插槽）+ `config/modules.json` 装配清单；拓扑排序、路由冲突即失败、热启停只反注册、失败回滚 | **L2**：`js/common` → `js/core` → `js/features` 三层 + 入口，判据守目录白名单与层序非递减（`docs/modules.md`）；另有 `contracts/plugin-api.json` 守对外 13 个键 | **L3**：`contracts/modules.json` 是 81 个 `<script>` 的唯一事实源，`index.html` 的 src 序列必须与清单逐条相等（`docs/modules.md`） | —（包仓库只做清单与 tag 校验） |
 | 单项判据 | 23 个 `check-*.js` + 1 个 `.mjs`（文档、契约巡检、所有权、字段、预算、兼容…） | `check.mjs`（语法 / 资源双向 / 读数回写）+ `check-contracts.mjs` + `check-plugin-api.mjs` | 25 个测试套件 + 3 个检查脚本 + `docs-links.mjs` + `check-modules.mjs` | `check-collection.mjs`（7 项）+ `ngm-validate.sh` |
 | 总闸门 | `npm run verify` | `npm run ci`（= `check.mjs`） | `npm run verify`（本地与 CI 同一条） | 两个脚本并行（`check-collection` + `ngm-validate`） |
 | 判据的牙齿 | 每条 `check-*` 都配过负例 | `contracts:selftest` 造一棵必然违约的临时树 | `docs-check` 的 live/static 双模式互为对照 | 三条新判据落地时各红过一次（见下） |
