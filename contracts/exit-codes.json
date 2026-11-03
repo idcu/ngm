@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "description": "ngm 的退出码契约：脚本、CI、包装器读这一份，不要去 grep 人类可读输出。数值由 internal/core/errs 的常量定义，本文件与它由 TestV119ExitCodeContractMatchesCode 对账；改码必须同时改这里。",
+  "codes": [
+    {
+      "code": 0,
+      "name": "OK",
+      "meaning": "成功。退出码 0 不通过 Code 类型表达，由 main 直接返回。",
+      "retryable": false,
+      "source": "internal/core/errs.CodeOK"
+    },
+    {
+      "code": 1,
+      "name": "RefDrift",
+      "meaning": "策略失败（要人看）：verify 发现非预期漂移、引擎运行了但失败、漏洞超阈值、审计钩子否决或超时。",
+      "retryable": false,
+      "source": "internal/core/errs.CodeRefDrift"
+    },
+    {
+      "code": 2,
+      "name": "DigestMismatch",
+      "meaning": "完整性失败：verify 重放 digest 与 lock 不符（内容被篡改或包不完整）。",
+      "retryable": false,
+      "source": "internal/core/errs.CodeDigestMismatch"
+    },
+    {
+      "code": 3,
+      "name": "ConfigInvalid",
+      "meaning": "配置 / 策略 / lock 错误：清单或锁文件不合法，用法错误也走这里。",
+      "retryable": false,
+      "source": "internal/core/errs.CodeConfigInvalid"
+    },
+    {
+      "code": 4,
+      "name": "GitFetch",
+      "meaning": "Git 或网络失败（含 --offline 下资源缺失）。资源恢复后重跑可能成功。",
+      "retryable": true,
+      "source": "internal/core/errs.CodeGitFetch"
+    },
+    {
+      "code": 5,
+      "name": "EngineNotFound",
+      "meaning": "引擎不可用：deno/node 等工具缺失或版本不满足。装上引擎后重跑可能成功。",
+      "retryable": true,
+      "source": "internal/core/errs.CodeEngineNotFound"
+    },
+    {
+      "code": 6,
+      "name": "InternalFailure",
+      "meaning": "内部失败：ngm 自己没走完（panic），或结论算出来了却写不出去（stdout / JSON 编码 / stdin）。重跑可能就好。",
+      "retryable": true,
+      "source": "internal/core/errs.CodeInternal"
+    }
+  ]
+}

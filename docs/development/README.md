@@ -392,6 +392,18 @@ v0.2 ~ v0.4 的补发，一次做完，作为第 0 步的反面证据：
 
 ---
 
+## 纪律自评（十问看板）
+
+```bash
+node scripts/check-discipline.mjs
+```
+
+它读的是 `docs/practice/engineering-discipline.md` §8 的十问：判据有没有、在不在 CI、
+本地与 CI 是否同一条、契约、生成物、依赖锁定、文档分层、删除记录、牙齿。
+**它不替代 `go test`**——它只回答"这个仓库现在几档、缺哪一条"。
+
+当前：**10/10 → L4**。
+
 ## 相关文档
 
 - [v0.1 实施计划](./v0.1-plan.md) / [v0.2](./v0.2-plan.md) / [v0.3](./v0.3-plan.md) / [v0.4](./v0.4-plan.md) / [v0.5](./v0.5-plan.md) / [v0.6](./v0.6-plan.md) / [v0.7](./v0.7-plan.md) / [v0.8](./v0.8-plan.md) / [v0.9](./v0.9-plan.md) / [v0.10](./v0.10-plan.md) / **[v0.11](./v0.11-plan.md)**

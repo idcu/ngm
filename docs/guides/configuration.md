@@ -386,3 +386,11 @@ ngm engines validate
 - [架构：信任模型](../architecture/trust-model.md)
 - [架构：引擎 adapter](../architecture/engine-adapter.md)
 - [ADR-005：为什么引擎统一接口动态选择](../adr/adr-005-engine-interface.md)
+
+## 退出码契约（`contracts/exit-codes.json`）
+
+退出码有了一份**机器可读**的对外契约：`{code, name, meaning, retryable, source}`。
+
+- 脚本与 CI 判断"这个码该不该重试"，读 `retryable`，不要去 grep 人类可读输出；
+- 数值与名字由 `internal/core/errs` 的常量定义，`TestV119ExitCodesJsonContract` 逐条对账；
+- 改码必须同时改这里——判据会当场指出"契约写 Internal、代码是 InternalFailure"这类不一致。
