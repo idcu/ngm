@@ -43,8 +43,12 @@ cd "$(git rev-parse --show-toplevel)"
 
 # 已交付版本数 = 复盘文件数（与既有的两支读法同源：文件系统派生，不靠记忆）。
 delivered="$(ls -1 docs/development/v*-retrospective.md 2>/dev/null | wc -l | tr -d ' ')"
+# 不用 `sort -V`：那是 GNU 扩展，macOS 的 BSD sort 不认识（CI 实测）。
+# 版本只有 vX.Y 两段，按两段数值排序即可，语义与原命令一致。
 latest="$(ls -1 docs/development/v*-retrospective.md 2>/dev/null \
-  | sed -e 's#.*/##' -e 's/-retrospective\.md$//' | sort -V | tail -1)"
+  | sed -e 's#.*/##' -e 's/-retrospective\.md$//' \
+  | awk '{ v=$0; sub(/^v/, "", v); split(v, p, "."); printf "%010d.%010d %s\n", p[1]+0, p[2]+0, $0 }' \
+  | sort -k1,1 | tail -1 | awk '{ print $2 }')"
 
 if [ -z "$REPO_SLUG" ]; then
   origin="$(git remote get-url origin 2>/dev/null || true)"

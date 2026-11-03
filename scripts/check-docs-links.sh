@@ -32,13 +32,16 @@ else
   strict=0
 fi
 
-shopt -s globstar nullglob
-
 bad=0
 files=()
 for r in "${roots[@]}"; do
   if [ -d "$r" ]; then
-    files+=( "$r"/**/*.md )
+    # 不用 `shopt -s globstar`：macOS 自带的 bash 是 3.2，它不认识 globstar，
+    # `set -e` 会让整条检查在第二行就失败（2026-11-03 的 macOS CI 实测）。
+    # `find` 在三个平台都是同一个语义；过滤规则仍由 awk 那一层负责。
+    while IFS= read -r f; do
+      files+=( "$f" )
+    done < <(find "$r" -type f -name '*.md')
   elif [ -f "$r" ]; then
     files+=( "$r" )
   elif [ "$strict" -eq 1 ]; then

@@ -20,6 +20,10 @@ jobs:
   build-test:
     name: build/vet/test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # 只为失败诊断：把 go test 的尾部作为 commit comment 发出来。
+    # Actions 的 job log 对未登录访问者返回 403；commit comment 是公开可读的。
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -111,6 +115,32 @@ jobs:
           if [ -s "$RUNNER_TEMP/annotation.txt" ]; then
             echo "::error title=go test tail::$(cat "$RUNNER_TEMP/annotation.txt")"
           fi
+
+      # annotation 对超长/多行消息的处理不可靠（实测 2026-11-03：只有测试名出现，
+      # 日志尾部那条没进 Annotations 列表）。commit comment 是另一个公开通道：
+      # 未登录也能通过 API 读到，且不依赖 job summary 的渲染。
+      - name: failure tail -> commit comment (public)
+        if: failure()
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          body="$(tail -n 60 "$RUNNER_TEMP/go-test.log" 2>/dev/null || true)"
+          [ -n "$body" ] || body="(no go test log)"
+          py="$(command -v python3 || command -v python || true)"
+          if [ -z "$py" ]; then
+            echo "no python on this runner; skipping the commit comment"
+            exit 0
+          fi
+          BODY="$body" "$py" -c 'import json,os; print(json.dumps({"body":"```\n"+os.environ["BODY"][:8000]+"\n```"}))' > "$RUNNER_TEMP/comment.json"
+          curl -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/commits/$SHA/comments" \
+            --data @"$RUNNER_TEMP/comment.json" >/dev/null
+          echo "posted the go test tail as a commit comment"
 
       # 测试跑完，仓库必须还是干净的（v0.85）。
       #
