@@ -29,19 +29,20 @@ import (
 // `milestoneTableStartsAt` 里声明起点（没声明即红，新表不会漏网）。
 //
 // 起点为什么要声明：表不是从 v0.1 起时，"少了开头几行"与"本来就从那里起"
-// 从外面看不出区别；把起点写下来，缺口才是可查的。四张表的起点都是**量出来的现状**。
+// 从外面看不出区别；把起点写下来，缺口才是可查的。三张表的起点都是**量出来的现状**。
+//
+// 2026-11-03：根 README.md 重写为面向使用者的说明，不再承载逐版表；
+// 逐版账本保留在三份开发文档中（本判据的覆盖集随之从四张变为三张）。
 var reMilestoneRow = regexp.MustCompile(`^>? ?\| (?:> )?\*{0,2}(v0\.\d+)\*{0,2} `)
 
 // milestoneTableStartsAt：活文档 → 它的逐版表起点（仓库相对路径为键）。
 //
 //   - `docs/README.md` 从 v0.1 起（中文全量里程碑表）；
-//   - `README.md` 从 **v0.9** 起（英文表只回溯到 v0.9——v0.5~v0.8 只有中文行，这是现状）；
 //   - `docs/development/README.md` 从 **v0.5** 起（v0.1~v0.4 的复盘在仓库里，但表从 v0.5 起）；
 //   - `docs/internals/project-state.md` 从 **v0.56** 起（§2 的机制登记：更早那些机制
 //     变更在 v0.56 之前的表里另有记法，这里只认这一段）。
 var milestoneTableStartsAt = map[string]string{
 	"docs/README.md":                  "v0.1",
-	"README.md":                       "v0.9",
 	"docs/development/README.md":      "v0.5",
 	"docs/internals/project-state.md": "v0.56",
 }
@@ -150,7 +151,7 @@ func TestV63MilestoneTablesListEveryVersionExactlyOnce(t *testing.T) {
 		}
 	}
 
-	if declared < 4 {
+	if declared < 3 {
 		t.Fatalf("只核对到 %d 张逐版表——这条判据的范围缩了", declared)
 	}
 	t.Logf("milestone tables: %d table(s) · %d version(s) · latest %s", declared, total, latest)
