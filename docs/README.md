@@ -70,8 +70,8 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | 看 ngm 与竞品的差异 | [竞品分析](./COMPETITIVE-ANALYSIS.md) | 评估者 |
 | **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
 | **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
-| **给自己的项目上一套"结构可控、变更可核"的纪律** | [工程纪律方法论](./practice/engineering-discipline.md)（8 条可迁移做法 + 接入顺序 + 失效边界） | 项目维护者 |
-| **看真实项目怎么把约定变成判据** | [四个样本的成熟度对照](./practice/engineering-discipline.md#附四个样本的成熟度对照)（枢衡 · PlotPin · 淬题 · ngm-repo） | 评估者 · 项目维护者 |
+| **给自己的项目上一套"结构可控、变更可核"的纪律** | [工程纪律方法论](./practice/engineering-discipline.md)（九条可迁移做法 + 接入顺序 + 失效边界） | 项目维护者 |
+| **看真实项目怎么把约定变成判据** | [四个样本的成熟度对照](./practice/engineering-discipline-appendix.md#附四个样本的成熟度对照)（枢衡 · PlotPin · 淬题 · ngm-repo） | 评估者 · 项目维护者 |
 | 参与开发 | [开发总览](./development/README.md) | 维护者 |
 
 ---

@@ -64,8 +64,22 @@ const add = (id, ask, ok, note) => {
 const checkScripts = walk('scripts').filter((f) => /(^|\/)check-[^/]+\.(mjs|js|sh)$/.test(f));
 const goTests = walk('cmd').filter((f) => f.endsWith('_test.go')).length;
 const gateCount = checkScripts.length + goTests;
+// 判据的"年龄"：最后一次 git 修改距今多久。它不是删除依据，是**可能腐坏**的信号——
+// 一条两年没动过的判据，要么守的东西早就不变了，要么它已经和代码脱节而没人发现。
+// 方法论 §8 说"三个月没红过、也没人看得懂它在守什么，就应该删掉"；这里给出前半个数据。
+const gitStamp = (f, fmt) => {
+  try {
+    return execFileSync('git', ['log', '-1', `--format=${fmt}`, '--', f], { cwd: ROOT, encoding: 'utf8' }).trim();
+  } catch { return ''; }
+};
+const dated = checkScripts
+  .map((f) => ({ f, ts: Number(gitStamp(f, '%ct')) || 0 }))
+  .filter((x) => x.ts > 0)
+  .map((x) => ({ f: path.basename(x.f), days: Math.round((Date.now() / 1000 - x.ts) / 86400) }));
+const oldest = dated.sort((a, b) => b.days - a.days)[0];
 add(1, '有一条会变红的判据', gateCount > 0,
-  checkScripts.length + ' 个 check-*' + (goTests ? ` + ${goTests} 个 Go 判据文件` : ''));
+  checkScripts.length + ' 个 check-*' + (goTests ? ` + ${goTests} 个 Go 判据文件` : '')
+  + (oldest ? `（最久未改动：${oldest.f} ${oldest.days} 天）` : ''));
 
 /* 2. 判据在 CI 上跑 */
 const ciRunsGates = /(node scripts\/check-|node scripts\/verify|npm run (ci|verify|test)|go test|go vet|ngm-validate)/.test(workflows);
