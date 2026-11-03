@@ -27,7 +27,8 @@ const (
 const verifyUsage = `ngm verify — check ref drift and replay the content digest
 
 USAGE:
-  ngm verify [<dep>...] [--dir=<dir>] [--offline] [--deep] [--strict] [--allow-drift] [--json]
+  ngm verify [<dep>...] [--dir=<dir>] [--offline] [--content | --level=structure|content]
+             [--strict] [--allow-drift] [--json]
              [--format=sarif|github] [--sandbox] [--signatures] [--require-signed]
 
 ARGS:
@@ -37,9 +38,19 @@ FLAGS:
   --dir          project directory containing ngm.json/ngm.lock (default: .)
   --offline      never touch the network; compare against the local mirror snapshot.
                  Results are marked stale, and a cold mirror fails with exit 4.
-  --deep         also verify bytes: replay the digest from the installed content
-                 tree and hash every vendor file against it
-                 (default only compares structure: paths, symlink targets, sizes)
+  --content      verify bytes, not just structure: replay archiveDigest/moduleDigest
+                 from the installed content tree, hash every vendor file and compare
+                 it with the content store, and report path + expected/actual hash
+                 for the first mismatches. Fully local; no network.
+                 Cost scales with the number of files (one read per file on both
+                 sides). Use it for release gates / post-restore audits; keep the
+                 default (structure) for per-push CI.
+  --level        explicit spelling of the same switch:
+                   structure  paths + symlink targets + sizes (default; no byte reads)
+                   content    same as --content
+                 --content and --level=content are aliases; do not give
+                 --content together with --level=structure.
+  --deep         deprecated alias for --content (kept for existing scripts)
   --strict       treat expected updates (a branch that advanced) as failures
   --allow-drift  do not fail on unexpected drift (critical still returns 2)
   --json         write a machine-readable report to stdout (CI should use this)
@@ -72,7 +83,8 @@ CHECK LEVELS (architecture/observability.md):
   ref      re-resolve refType and compare with the commit pinned in ngm.lock
   digest   rebuild the manifest from the local mirror at that commit and replay
            archiveDigest (root) or moduleDigest (subPath); fully local, works offline
-  landing  content store metadata + vendor tree structure; --deep adds byte hashes
+  landing  content store metadata + vendor tree structure; --content/--level=content
+           adds digest replay + per-file byte hashes
   signature
            Git signature of the pinned commit (or of the tag it came from). Reported
            only with --signatures; a gate only with --require-signed. Fully local.
@@ -103,7 +115,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := newFlagSet("verify", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
-	deep := fs.Bool("deep", false, "hash every vendor file against the content store")
+	content := fs.Bool("content", false, "verify bytes: replay the digest and hash every vendor file")
+	level := fs.String("level", "", "verification level: structure or content")
+	deep := fs.Bool("deep", false, "deprecated alias for --content")
 	strict := fs.Bool("strict", false, "treat expected updates as failures")
 	allowDrift := fs.Bool("allow-drift", false, "do not fail on unexpected drift")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
@@ -117,6 +131,8 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "dir"},
 		{Name: "offline", Bool: true},
+		{Name: "content", Bool: true},
+		{Name: "level"},
 		{Name: "deep", Bool: true},
 		{Name: "strict", Bool: true},
 		{Name: "allow-drift", Bool: true},
@@ -162,6 +178,39 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"keep one: --json for ngm's own schema, --format=sarif|github for a consumer's"))
 	}
 
+	// --content / --level 是**同一个开关**的两种写法（决策：不搞两套开关）。
+	// 默认 structure 保持既有 CI 的成本契约；--deep 作为旧写法继续工作。
+	levelSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "level" {
+			levelSet = true
+		}
+	})
+	if levelSet && strings.TrimSpace(*level) == "" {
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"`--level` was given an empty value",
+			"use --level=structure or --level=content"))
+	}
+	effectiveLevel := "structure"
+	if *content || *deep {
+		effectiveLevel = "content"
+	}
+	switch {
+	case *level == "":
+		// 保持 effectiveLevel
+	case *level == "structure", *level == "content":
+		if (*content || *deep) && *level == "structure" {
+			return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+				"--content/--deep and --level=structure ask for different levels",
+				"keep one: --level=content (or --content) for byte checks, --level=structure for the default"))
+		}
+		effectiveLevel = *level
+	default:
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"unknown --level "+strconv.Quote(*level),
+			"supported: structure, content"))
+	}
+
 	ctx = markJSONIfRequested(ctx, *jsonOut)
 
 	env, err := newProjectEnv(*dirFlag)
@@ -200,7 +249,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	opts := verify.Options{
 		Offline:         *offline,
-		Deep:            *deep,
+		Deep:            effectiveLevel == "content",
 		Strict:          *strict,
 		AllowDrift:      *allowDrift,
 		MirrorRoot:      env.Layout.MirrorRoot(),
@@ -370,6 +419,22 @@ func renderVerifyDep(w io.Writer, d *verify.DepResult) {
 		}
 		fmt.Fprintf(w, "    %s: %s\n", c.Check, c.Detail)
 	}
+	if d.Content != nil {
+		// 内容级证明：把“证明到了哪一层”和“第一处不符在哪”直接摆出来。
+		// 哈希截断到 12 位用于定位；完整值在 --json 的 content.mismatches。
+		fmt.Fprintf(w, "    content: %d file(s), %d symlink(s) checked; digest %s\n",
+			d.Content.Files, d.Content.Symlinks, shortHash(d.Content.ComputedDigest))
+		const maxDetail = 20
+		for i, m := range d.Content.Mismatches {
+			if i >= maxDetail {
+				fmt.Fprintf(w, "    content: ... %d more mismatch(es) in --json\n",
+					len(d.Content.Mismatches)-maxDetail)
+				break
+			}
+			fmt.Fprintf(w, "    content mismatch: %s (%s) expected %s actual %s\n",
+				m.Path, m.Kind, shortHash(m.Expected), shortHash(m.Actual))
+		}
+	}
 	if d.Err != "" {
 		fmt.Fprintf(w, "    error: %s\n", d.Err)
 	}
@@ -389,6 +454,14 @@ func renderVerifyDep(w io.Writer, d *verify.DepResult) {
 			fmt.Fprintf(w, "  → %s\n", d.Remediation)
 		}
 	}
+}
+
+// shortHash 把哈希截断到 12 位用于人类输出；短标记（present/missing/字节数）原样返回。
+func shortHash(s string) string {
+	if len(s) <= 12 {
+		return s
+	}
+	return s[:12]
 }
 
 // verifySummaryLine 生成末行汇总。
@@ -417,6 +490,9 @@ func verifySummaryLine(rep verify.Report, offline bool) string {
 		s.Total, strings.Join(parts, ", "), s.ExitCode)
 	if offline {
 		out += "\nnote: --offline — refs were compared against the local mirror snapshot (stale)"
+	}
+	if rep.Deep {
+		out += "\nnote: content-level — every vendor file was hashed and compared with the content store"
 	}
 	if !rep.Deep {
 		// v0.66：把浅校验的边界**说出来**（评估报告 P2#17）。

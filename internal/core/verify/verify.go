@@ -134,8 +134,13 @@ type Options struct {
 // 单个依赖的网络/资源失败记录在该依赖的 Err 字段，并让整体退出码为 4——
 // 这样一次 --json 调用能同时呈现"哪几条断定失败"与"哪几条没查完"。
 func Run(ctx context.Context, lf *lock.File, opts Options) (Report, error) {
+	level := "structure"
+	if opts.Deep {
+		level = "content"
+	}
 	rep := Report{
 		Version:      ReportVersion,
+		Level:        level,
 		Offline:      opts.Offline,
 		Deep:         opts.Deep,
 		Strict:       opts.Strict,
@@ -348,8 +353,9 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 		}
 	}
 
-	// ---- 检查三：落地完整性（完全本地；--deep 的重放需要层 1 的形状信息）
-	landing := checkLanding(ctx, mirrorPath, d, store, opts)
+	// ---- 检查三：落地完整性（完全本地；content 的重放需要层 1 的形状信息）
+	landing, proof := checkLanding(ctx, mirrorPath, d, store, opts)
+	res.Content = proof
 	res.Checks = append(res.Checks, landing)
 	// landing 的"未能比对"也必须让整体退出码变成 4（v0.102）：
 	// 它此前只体现在 CheckResult.Operational 上，而 DepResult.Err / Summary
@@ -427,7 +433,9 @@ func finishSkippingRefAndDigest(res DepResult, merr error, mirrorPath string,
 		Operational: true,
 		Detail:      "not attempted: the local mirror is unavailable",
 	})
-	res.Checks = append(res.Checks, checkLanding(context.Background(), mirrorPath, d, store, opts))
+	landing, proof := checkLanding(context.Background(), mirrorPath, d, store, opts)
+	res.Content = proof
+	res.Checks = append(res.Checks, landing)
 	res.DriftKind = aggregateDrift(res.Checks)
 	res.Remediation = remediationFor(&res)
 	return res, nil
@@ -719,10 +727,19 @@ func moduleVersionAt(ctx context.Context, mirrorPath string, d *lock.Dependency,
 // 任何不一致都按完整性失败处理（driftKind: critical → exit 2）。
 // 依据：observability.md 的全局退出码表把 `2` 定义为"完整性失败"，
 // digest 重放不匹配只是它的典型来源。
-func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, store *vendor.ContentStore, opts Options) CheckResult {
+func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, store *vendor.ContentStore, opts Options) (CheckResult, *ContentProof) {
 	var critical []string    // 内容已确证不符：只能由"比对得出不同"产生
 	var operational []string // 资源缺失/未安装：没能完成比对，不是"不符"
 	var notes []string
+	var proof *ContentProof
+	if opts.Deep {
+		proof = &ContentProof{
+			Level:          "content",
+			ExpectedDigest: d.ContentDigest(),
+			ExpectedSource: "ngm.lock aggregate digest; per-file expected hashes come from the installed content store",
+			Mismatches:     []ContentMismatch{},
+		}
+	}
 
 	// 1) content store 的存在性与 meta 一致性
 	storeKey := d.ContentDigest()
@@ -746,11 +763,13 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	// （ADR-019），因此下面两处都吃条目，不吃路径。
 	var allEntries []vendor.ContentEntry
 	var storeEntries []vendor.ContentEntry
+	entriesOK := false
 	if hasStore {
 		all, eerr := store.Entries(storeKey)
 		if eerr != nil {
 			operational = append(operational, "cannot read the content store: "+eerr.Error())
 		} else {
+			entriesOK = true
 			allEntries = all
 			storeEntries = all
 			if !d.IsModule() {
@@ -771,13 +790,24 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 			critical = append(critical, fmt.Sprintf(
 				"symlink %s escapes the dependency tree (target %q): the vendored link resolves "+
 					"against files that are not part of this dependency", e.Path, e.LinkTarget))
+			if proof != nil {
+				proof.Mismatches = append(proof.Mismatches, ContentMismatch{
+					Path: e.Path, Kind: "symlink-escape", Expected: "within the dependency tree",
+					Actual: e.LinkTarget,
+				})
+			}
 		}
 	}
 
 	if opts.Deep {
 		switch {
 		case mirrorPath == "" && !d.IsModule():
-			notes = append(notes, "the content digest could not be replayed because the local mirror is unavailable")
+			// 内容级承诺要求聚合 digest 真的与 lock 对齐。根条目的 shape 来自
+			// mirror 的 Git tree；没有它，store 里的字节就算全对，也无法证明
+			// “这份内容还是 lock 钉的那一份”。因此这是**未完成**（exit 4），
+			// 不是一条可以忽略的 note。
+			operational = append(operational,
+				"cannot replay archiveDigest without the local mirror; run `ngm install` to restore it")
 		case hasStore && allEntries != nil:
 			var got string
 			var derr error
@@ -790,12 +820,25 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 				// subPath 收窄，只适合 vendor 比对与逃逸 symlink 检查。
 				got, derr = replayDigestFromEntries(ctx, mirrorPath, allEntries, d, opts)
 			}
+			if proof != nil {
+				proof.ComputedDigest = got
+			}
 			if derr != nil {
 				operational = append(operational, "cannot replay the digest from the content store: "+derr.Error())
 			} else if got != d.ContentDigest() {
 				critical = append(critical, fmt.Sprintf(
 					"content store digest mismatch: the installed tree hashes to %s but ngm.lock says %s",
 					got, d.ContentDigest()))
+				if proof != nil {
+					kind := "digest"
+					if d.IsModule() {
+						kind = "module-digest"
+					}
+					proof.Mismatches = append(proof.Mismatches, ContentMismatch{
+						Path: ".", Kind: kind,
+						Expected: d.ContentDigest(), Actual: got,
+					})
+				}
 			}
 		}
 	}
@@ -809,8 +852,8 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 		// "lock 在、mirror 不在、vendor 也没装"三类资源缺失同时出现。
 		operational = append(operational, "vendor path is missing: "+vendorTree+
 			"; run `ngm install` to materialize it")
-	} else if !hasStore {
-		// 有 vendor 但没有 content store：没有**可比对**的另一侧。
+	} else if !hasStore || !entriesOK {
+		// 有 vendor 但没有可比对的另一侧：没有 store 条目，或条目读不出来。
 		// 这仍然只是资源不全——不能因为"找不到参照物"就说内容被改了。
 		operational = append(operational, "cannot compare the vendor tree: the content store entry is missing")
 	} else {
@@ -820,18 +863,29 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 			operational = append(operational, "cannot compare vendor with the content store: "+verr.Error())
 		} else {
 			critical = append(critical, vr.Mismatches...)
+			if proof != nil {
+				for _, m := range vr.Details {
+					proof.Mismatches = append(proof.Mismatches, ContentMismatch{
+						Path: m.Path, Kind: m.Kind, Expected: m.Expected, Actual: m.Actual,
+					})
+				}
+			}
 		}
+	}
+	if proof != nil {
+		proof.Files = vr.Files
+		proof.Symlinks = vr.Symlinks
 	}
 
 	switch {
 	case len(critical) > 0:
 		return CheckResult{Check: CheckLanding, Status: StatusFail, Drift: DriftCritical,
-			Detail: strings.Join(critical, "; ")}
+			Detail: strings.Join(critical, "; ")}, proof
 	case len(operational) > 0:
 		// Operational 为 true：这表示"没能完成比对"，不是"比对结果不符"。
 		// Report.ExitCode 据此退 4，而不是 2。
 		return CheckResult{Check: CheckLanding, Status: StatusFail, Operational: true,
-			Detail: strings.Join(operational, "; ")}
+			Detail: strings.Join(operational, "; ")}, proof
 	}
 
 	mode := "structure only"
@@ -843,7 +897,7 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	if len(notes) > 0 {
 		detail += "; note: " + strings.Join(notes, "; ")
 	}
-	return CheckResult{Check: CheckLanding, Status: StatusOK, Detail: detail}
+	return CheckResult{Check: CheckLanding, Status: StatusOK, Detail: detail}, proof
 }
 
 // replayDigestFromStore 用「Git 权威的形状 + content store 的实际字节」重算 digest。

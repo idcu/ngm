@@ -44,8 +44,15 @@ inputs:
       compare against.
     required: false
     default: "ngm.proof.json"
+  verify-level:
+    description: >-
+      For mode=verify only: structure (default; no byte reads) or content
+      (replay the digest and hash every vendor file). content is slower and
+      should be used for release / post-restore audits, not every push.
+    required: false
+    default: "structure"
   args:
-    description: Extra arguments forwarded to the ngm command (e.g. "--deep --strict")
+    description: Extra arguments forwarded to the ngm command (e.g. "--content --strict")
     required: false
     default: ""
   fail-on-error:
@@ -76,16 +83,23 @@ runs:
         NGM_SARIF: ${{ inputs.sarif-file }}
         NGM_PROOF: ${{ inputs.proof-file }}
         NGM_ARGS: ${{ inputs.args }}
+        NGM_LEVEL: ${{ inputs.verify-level }}
         NGM_FAIL: ${{ inputs.fail-on-error }}
       run: |
         set -o pipefail
         code=0
+        # args 里已经写了级别开关时不再注入默认值：--content 与 --level=structure
+        # 同时给会被 ngm 拒绝（两种写法指向不同级别），而用户的显式写法应当赢。
+        level_arg="--level=$NGM_LEVEL"
+        case " $NGM_ARGS " in
+          *" --content "*|*" --content="*|*" --deep "*|*" --level "*|*" --level="*) level_arg="" ;;
+        esac
         case "$NGM_MODE" in
           verify)
             if [ "$NGM_FORMAT" = "sarif" ]; then
-              ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=sarif > "$NGM_SARIF" || code=$?
+              ngm verify --dir "$NGM_DIR" $level_arg $NGM_ARGS --format=sarif > "$NGM_SARIF" || code=$?
             else
-              ngm verify --dir "$NGM_DIR" $NGM_ARGS --format=github || code=$?
+              ngm verify --dir "$NGM_DIR" $level_arg $NGM_ARGS --format=github || code=$?
             fi
             ;;
           adopt)

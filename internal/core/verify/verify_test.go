@@ -252,7 +252,7 @@ func TestV66LandingFlagsEscapingSymlinkAsCritical(t *testing.T) {
 		ArchiveDigest: dg,
 		VendorPath:    "github.com/x/dep",
 	}
-	res := checkLanding(context.Background(), "", dep, store,
+	res, _ := checkLanding(context.Background(), "", dep, store,
 		Options{ContentRoot: contentRoot, VendorRoot: vendorRoot})
 
 	if res.Status != StatusFail || res.Drift != DriftCritical {
@@ -283,7 +283,7 @@ func TestV66LandingDoesNotFlagInTreeSymlink(t *testing.T) {
 		ArchiveDigest: dg,
 		VendorPath:    "github.com/x/dep",
 	}
-	res := checkLanding(context.Background(), "", dep, store,
+	res, _ := checkLanding(context.Background(), "", dep, store,
 		Options{ContentRoot: contentRoot, VendorRoot: vendorRoot})
 
 	if strings.Contains(res.Detail, "escapes the dependency tree") {

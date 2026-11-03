@@ -100,6 +100,34 @@ type CheckResult struct {
 	Operational bool `json:"operational,omitempty"`
 }
 
+// ContentMismatch 是内容级对账里的一条可定位差异。
+//
+// Expected/Actual 对普通文件是完整 sha256；Human 渲染会截断到 12 位。
+// Kind 取值：content / size / type / symlink-target / missing-in-vendor /
+// missing-in-store / symlink-escape / meta / digest。
+type ContentMismatch struct {
+	Path     string `json:"path"`
+	Kind     string `json:"kind"`
+	Expected string `json:"expected,omitempty"`
+	Actual   string `json:"actual,omitempty"`
+}
+
+// ContentProof 是一次内容级（--content / --level=content）对账的读数。
+//
+// 取舍必须写在数据里：lock 只有**聚合** digest（archiveDigest/moduleDigest），
+// 没有逐 blob 的哈希清单。因此 ExpectedDigest 来自 lock；逐文件 Expected 来自
+// content store 的**已安装字节**（ExpectedSource）。只有聚合 digest 能证明
+// "store 与 lock 一致"；逐文件哈希只能证明"vendor 与 store 一致"并定位文件。
+type ContentProof struct {
+	Level          string            `json:"level"`
+	ExpectedDigest string            `json:"expectedDigest"`
+	ComputedDigest string            `json:"computedDigest,omitempty"`
+	ExpectedSource string            `json:"expectedSource"`
+	Files          int               `json:"files"`
+	Symlinks       int               `json:"symlinks"`
+	Mismatches     []ContentMismatch `json:"mismatches,omitempty"`
+}
+
 // DepResult 是单个依赖的三级检查汇总。
 type DepResult struct {
 	// Name / Ref / RefType / SubPath / Commit / content digest / VendorPath 回显 lock 声明，
@@ -129,6 +157,8 @@ type DepResult struct {
 	Remediation string `json:"remediation,omitempty"`
 	// Err 是操作性失败的描述。非空表示校验未能完成，整体退出码为 4。
 	Err string `json:"error,omitempty"`
+	// Content 是内容级对账的读数；仅 --content / --level=content 时出现。
+	Content *ContentProof `json:"content,omitempty"`
 	// ErrHint 是**那个错误自己带的建议**（沿包装链找第一条非空的）。
 	//
 	// 为什么要有这个字段（v0.35）：`res.Err = merr.Error()` 只留 message，
@@ -158,6 +188,7 @@ type Summary struct {
 // Report 是一次 verify 的完整结果。
 type Report struct {
 	Version      int         `json:"version"`
+	Level        string      `json:"level"` // structure | content
 	Offline      bool        `json:"offline"`
 	Deep         bool        `json:"deep"`
 	Strict       bool        `json:"strict"`

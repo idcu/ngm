@@ -15,14 +15,33 @@ import (
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
+// Mismatch 是一条可定位的结构化差异。
+//
+// 为什么在 Mismatches（人类文本）之外再留一份：`verify --content --json`
+// 需要让脚本知道“哪个 path、期望什么、实际什么”，而文本会被渲染层改写。
+// Expected/Actual 对普通文件是完整 sha256（渲染层再截断），对 size 是字节数，
+// 对缺失/类型差异是短标记。
+type Mismatch struct {
+	Path     string
+	Kind     string
+	Expected string
+	Actual   string
+}
+
 // VerifyResult 是一次 vendor ↔ content 一致性校验的结果。
 type VerifyResult struct {
-	// Files 是校验通过的文件数。
+	// Files 是参与比对的文件数（**含不一致的条目**）。
+	//
+	// 口径取"比对过"而不是"通过"：`verify --content` 要用它报告本次证明覆盖
+	// 了多少字节级对象（成本证据），而"通过数 + 差异数"让用户自己相加既易错，
+	// 也掩盖了"整棵树只比了 0 个文件"这种异常。
 	Files int
-	// Symlinks 是校验通过的 symlink 数。
+	// Symlinks 是参与比对的 symlink 数（含不一致的条目）。
 	Symlinks int
 	// Mismatches 是差异描述（空表示完全一致）。
 	Mismatches []string
+	// Details 与 Mismatches 一一对应，但带 path/kind/expected/actual。
+	Details []Mismatch
 }
 
 // OK 报告是否一致。
@@ -114,12 +133,18 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 		if _, ok := right[path]; !ok {
 			res.Mismatches = append(res.Mismatches,
 				fmt.Sprintf("%s: present in vendor but missing from the content store", path))
+			res.Details = append(res.Details, Mismatch{
+				Path: path, Kind: "missing-in-store", Expected: "present", Actual: "missing",
+			})
 		}
 	}
 	for path := range right {
 		if _, ok := left[path]; !ok {
 			res.Mismatches = append(res.Mismatches,
 				fmt.Sprintf("%s: present in the content store but missing from vendor", path))
+			res.Details = append(res.Details, Mismatch{
+				Path: path, Kind: "missing-in-vendor", Expected: "present", Actual: "missing",
+			})
 		}
 	}
 
@@ -146,6 +171,7 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 	// 为它起 goroutine 的调度成本比它本身还大。
 	type outcome struct {
 		mismatch string
+		detail   Mismatch
 		symlink  bool
 		file     bool
 		err      error
@@ -160,11 +186,21 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 		if a.symlink || b.symlink {
 			if a.symlink != b.symlink {
 				results[i].mismatch = fmt.Sprintf("%s: one side is a symlink and the other is not", path)
+				results[i].detail = Mismatch{
+					Path: path, Kind: "type",
+					Expected: map[bool]string{true: "symlink", false: "file"}[b.symlink],
+					Actual:   map[bool]string{true: "symlink", false: "file"}[a.symlink],
+				}
 				return
 			}
 			if a.linkTarget != b.linkTarget {
 				results[i].mismatch = fmt.Sprintf("%s: symlink target differs (%q vs %q)",
 					path, a.linkTarget, b.linkTarget)
+				results[i].detail = Mismatch{
+					Path: path, Kind: "symlink-target",
+					Expected: b.linkTarget, Actual: a.linkTarget,
+				}
+				results[i].symlink = true // 已比对过（计数口径见 VerifyResult.Symlinks）
 				return
 			}
 			results[i].symlink = true
@@ -174,6 +210,11 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 		// 长度不同 → 无需读内容即可判定（浅校验的主要检出能力）
 		if a.size != b.size {
 			results[i].mismatch = fmt.Sprintf("%s: size differs (%d vs %d bytes)", path, a.size, b.size)
+			results[i].detail = Mismatch{
+				Path: path, Kind: "size",
+				Expected: fmt.Sprintf("%d", b.size), Actual: fmt.Sprintf("%d", a.size),
+			}
+			results[i].file = true // 已比对过（计数口径见 VerifyResult.Files）
 			return
 		}
 
@@ -195,6 +236,10 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 		if sumA != sumB {
 			results[i].mismatch = fmt.Sprintf("%s: content differs (sha256 %s vs %s)",
 				path, sumA[:12], sumB[:12])
+			results[i].detail = Mismatch{
+				Path: path, Kind: "content", Expected: sumB, Actual: sumA,
+			}
+			results[i].file = true // 已比对过（计数口径见 VerifyResult.Files）
 			return
 		}
 		results[i].file = true
@@ -227,15 +272,17 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 		if results[i].err != nil {
 			return res, results[i].err
 		}
-		if results[i].mismatch != "" {
-			res.Mismatches = append(res.Mismatches, results[i].mismatch)
-			continue
-		}
+		// 计数先于"是否差异"：条目已经比对过，就要计入覆盖面。
 		if results[i].symlink {
 			res.Symlinks++
 		}
 		if results[i].file {
 			res.Files++
+		}
+		if results[i].mismatch != "" {
+			res.Mismatches = append(res.Mismatches, results[i].mismatch)
+			res.Details = append(res.Details, results[i].detail)
+			continue
 		}
 	}
 
