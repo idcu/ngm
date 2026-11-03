@@ -97,10 +97,21 @@ fi
 # （v0.86 的判据就是这样把它抓出来的：假 API 回的是紧凑 JSON）。
 tags="$(awk '{ n += gsub(/"ref":/, "") } END { print n + 0 }' "$body_tags")"
 releases="$(awk '{ n += gsub(/"tag_name":/, "") } END { print n + 0 }' "$body_rel")"
-newest_release="$(awk 'match($0, /"tag_name": *"([^"]+)"/, m) { print m[1]; exit }' "$body_rel" 2>/dev/null || true)"
-if [ -z "$newest_release" ]; then
-  newest_release="$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$body_rel" | head -1)"
-fi
+# 用 POSIX awk 的两参数 match + RSTART/RLENGTH，不用 `match(..., m)`：
+# 第三参数是 gawk 扩展，macOS 的 BWK awk 不支持；退回 sed 时 `.*` 又是贪婪的，
+# 在**紧凑 JSON** 上会取到最后一个 release（2026-11-03 的 macOS CI 实测：
+# 最新 release 被报成 v0.5.0 而不是 v0.64.0）。
+newest_release="$(awk '
+  {
+    if (match($0, /"tag_name": *"[^"]+"/)) {
+      s = substr($0, RSTART, RLENGTH)
+      sub(/^"tag_name": *"/, "", s)
+      sub(/"$/, "", s)
+      print s
+      exit
+    }
+  }
+' "$body_rel")"
 rm -f "$body_tags" "$body_rel"
 
 unpushed=$((delivered - tags))

@@ -201,7 +201,7 @@ mono_raw=$(node -e '
 			}
 			process.stdout.write(String(n));
 		' "$DIR" "$MONO_PATTERNS" 2>/dev/null)
-		skip must nested-monorepo "它是 monorepo 根（声明：$declared；约 $nested_children 个子包**没有被体检**）—— 嵌套 monorepo 是**未验证的形态**，本工具不递归：与其假装查过，不如把没查过的说出来"
+		skip must nested-monorepo "它是 monorepo 根（声明：${declared}；约 ${nested_children} 个子包**没有被体检**）—— 嵌套 monorepo 是**未验证的形态**，本工具不递归：与其假装查过，不如把没查过的说出来"
 		# 这一次体检**不完整**：结论句不许说"符合标准"（见汇总段）。
 		NESTED=1
 	fi
@@ -429,7 +429,7 @@ if [ "$ROLE" = "mono-root" ]; then
 		skip must entry-resolvable "monorepo 根不是包——入口由各子包自己声明（子包逐个体检，见下）"
 	fi
 elif [ -n "$entry_main" ]; then
-	pass must entry-resolvable "入口 $entry_main（来自 $entry_layer，与 InferEntry 三层同口径）"
+	pass must entry-resolvable "入口 ${entry_main}（来自 ${entry_layer}，与 InferEntry 三层同口径）"
 else
 	fail must entry-resolvable "三层都没找到入口（ngm.json 的 main、package.json 的 exports/main、./index.ts|js|mjs|cjs）；mappings 会只剩一个目录"
 fi
@@ -466,14 +466,14 @@ elif [ -n "$entry_main" ]; then
 			ignored_in="$DIR"
 		elif [ -n "${NGM_LIB_STD_MONO_ROOT:-}" ] && [ -f "$NGM_LIB_STD_MONO_ROOT/.gitignore" ] &&
 			grep -Eq '(^|/)(dist|build|lib)/?([[:space:]]|$)' "$NGM_LIB_STD_MONO_ROOT/.gitignore"; then
-			ignored_in="$NGM_LIB_STD_MONO_ROOT（仓库根）"
+			ignored_in="${NGM_LIB_STD_MONO_ROOT}（仓库根）"
 		else
 			ignored_in=""
 		fi
 		if [ -n "$ignored_in" ]; then
-			fail must dist-committed "入口指向构建产物（$entry_main），但它被 .gitignore 排除了（$ignored_in/.gitignore）—— ngm 不替依赖构建（钩子默认 deny），产物必须提交"
+			fail must dist-committed "入口指向构建产物（${entry_main}），但它被 .gitignore 排除了（${ignored_in}/.gitignore）—— ngm 不替依赖构建（钩子默认 deny），产物必须提交"
 		else
-			pass must dist-committed "入口指向构建产物（$entry_main）且未被 .gitignore 排除"
+			pass must dist-committed "入口指向构建产物（${entry_main}）且未被 .gitignore 排除"
 		fi
 		;;
 	esac
@@ -622,7 +622,7 @@ elif [ -n "$entry_types" ]; then
 	# v0.88：口径与产品的 `Entry.Types` 一致，并把路径**打印出来**（对齐网逐条对账用）。
 	# 旧写法只判"有没有根级 .d.ts"——Go 的第 3 层只认 `index.d.ts|d.mts|d.cts`，
 	# 于是 `foo.d.ts` 这种包上两侧必然分歧（一侧说"有类型"，产品说"没有"）。
-	pass should types-provided "类型入口 $entry_types（来自 $entry_layer，与 InferEntry 三层同口径）"
+	pass should types-provided "类型入口 ${entry_types}（来自 ${entry_layer}，与 InferEntry 三层同口径）"
 else
 	fail should types-provided "没有类型入口（ngm.json 的 types、exports.types / types 字段、index.d.ts|d.mts|d.cts）—— TS 消费者只能靠约定"
 fi

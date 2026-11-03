@@ -66,7 +66,7 @@ tmp=$(mktemp)
 	echo '```'
 	echo
 	if [ "$mirror_code" -ne 0 ]; then
-		echo "⚠️ 这一段**没读成**（exit $mirror_code）—— 没读成就说没读成，不当成\"没问题\"。"
+		echo "⚠️ 这一段**没读成**（exit ${mirror_code}）—— 没读成就说没读成，不当成\"没问题\"。"
 		echo
 	fi
 	echo "### Gitee"
@@ -76,7 +76,7 @@ tmp=$(mktemp)
 	echo '```'
 	echo
 	if [ "$gitee_code" -ne 0 ]; then
-		echo "⚠️ 这一段**没读成**（exit $gitee_code：通常是匿名限流或网络限制；退 3 时它把不确定的 tag 标成 NOT CHECKED）—— 同上。"
+		echo "⚠️ 这一段**没读成**（exit ${gitee_code}：通常是匿名限流或网络限制；退 3 时它把不确定的 tag 标成 NOT CHECKED）—— 同上。"
 		echo
 	fi
 	if [ -z "$timeout_bin" ]; then

@@ -103,6 +103,57 @@ func TestV102PrereleaseTagsDoNotRequireARetrospective(t *testing.T) {
 	}
 }
 
+// TestV102ShellVariablesBeforeNonASCIIUseBraces 钉住一个只在 bash 3.2 上现形的解析坑：
+// `"$entry_main（"` 里的中文括号紧贴变量名，bash 3.2 在 C locale 下会把多字节
+// 字节当成名字的一部分 ⇒ `entry_main<garbage>: unbound variable`（`set -u` 直接退出）。
+// bash 5 / Windows 全绿，macOS CI 才红——所以这条网在**所有平台**读源码，而不是等 CI。
+func TestV102ShellVariablesBeforeNonASCIIUseBraces(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(repoRoot(t), "scripts", "*.sh"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no scripts/*.sh (err=%v) —— 这条网会静默地什么都不守", err)
+	}
+	ident := func(c byte) bool {
+		return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			for j := 0; j < len(line); j++ {
+				if line[j] != '$' {
+					continue
+				}
+				k := j + 1
+				if k >= len(line) {
+					continue
+				}
+				c := line[k]
+				// 这些前缀已经有明确边界，或者不是变量。
+				if c == '{' || c == '(' || c == '!' || c == '#' {
+					continue
+				}
+				if !(c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+					continue
+				}
+				k++
+				for k < len(line) && ident(line[k]) {
+					k++
+				}
+				if k < len(line) && line[k] >= 0x80 {
+					name := line[j+1 : k]
+					t.Errorf("%s:%d: `$%s` 紧贴非 ASCII 字符；bash 3.2 会把后面的字节当成变量名的一部分（改成 `${%s}`）",
+						filepath.Base(f), i+1, name, name)
+				}
+			}
+		}
+	}
+}
+
 // TestV102SchemaVersionTwoIsReadEverywhere 钉住决策 1：
 // 读取器接受 v1/v2；modules validate 与 config validate 使用同一判据。
 func TestV102SchemaVersionTwoIsReadEverywhere(t *testing.T) {
