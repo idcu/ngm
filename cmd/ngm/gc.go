@@ -391,16 +391,16 @@ func renderGCClass(w io.Writer, title string, c gcClass, dryRun bool) {
 		fmt.Fprintf(w, "%s: %s does not exist (nothing to reclaim)\n", title, c.Root)
 		return
 	}
-	verb := "would reclaim"
-	if !dryRun {
-		verb = "reclaimed"
-	}
 	fmt.Fprintf(w, "%s: %s\n", title, c.Root)
 	if c.Objects == 0 {
 		fmt.Fprintln(w, "  nothing to reclaim")
 		return
 	}
-	fmt.Fprintf(w, "  %s %d object(s), %s:\n", verb, c.Objects, storeBytes(c.Bytes))
+	if dryRun {
+		fmt.Fprintf(w, "  would reclaim %d object(s), %s:\n", c.Objects, storeBytes(c.Bytes))
+	} else {
+		fmt.Fprintf(w, "  removed %d object(s), freeing %s:\n", c.Removed, storeBytes(c.BytesFreed))
+	}
 	const show = 10
 	for i, it := range c.Candidates {
 		if i == show {
