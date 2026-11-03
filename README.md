@@ -595,7 +595,7 @@ ngm verify --format=sarif > ngm.sarif
    101 个 tag 中，GitHub release 与 Gitee 附件都远未覆盖；文档中的安装地址停留在早期版本。
    下游 `ngm-repo` 的 `.ngm-version` 固定为 `0.102.0-dev.1`，但没有任何可下载的对应产物，
    因此其 CI 的 `ngm-validate` job 默认需要在本地构建二进制（见 ngm-repo 的 workflow）。
-   依据：ngm-repo 的 `.github/workflows/ci.yml`、`d:\repos\mine\ngm-repo\.ngm-version`、
+   依据：ngm-repo 的 `.github/workflows/ci.yml` 与其仓库根的 `.ngm-version`、
    [installation.md](docs/guides/installation.md)。
 
 ### 设计性限制（不是缺陷）

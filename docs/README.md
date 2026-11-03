@@ -71,6 +71,7 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
 | **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
 | **把整改方案交给某个项目** | [四份交接方案](./handover/README.md)（qforge / plotpin / lytjs / ngm 各一份） | 各项目维护者 |
+| **看一个真实项目怎么把约定变成判据** | [枢衡案例：方法论与对 ngm 的反向要求](./practice/pivoise-methodology.md) | 评估者 · 项目维护者 |
 | 参与开发 | [开发总览](./development/README.md) | 维护者 |
 
 ---
@@ -492,6 +493,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
 | [development/](./development/) | 开发总览 / v0.1 ~ v0.12 实施计划与复盘 / v0.5 复核 | 维护者 |
+| [practice/](./practice/) | 真实项目案例：工程方法论、与 ngm 的对接方式、对 ngm 的反向要求 | 评估者 · 项目维护者 |
 | [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比（**能力矩阵与竞品表的引用方**） | 评估者 |
 
 ### 单一事实源（SSOT）约定
