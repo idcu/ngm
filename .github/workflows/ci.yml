@@ -65,6 +65,11 @@ jobs:
         run: go vet ./...
 
       - name: go test ./...
+        # Windows 的默认 shell 是 PowerShell：`set -o pipefail` 在那里是一条
+        # 找不到的命令，Actions 把 $ErrorActionPreference 设为 Stop ⇒ **go test
+        # 根本没跑**，而 job 仍以“失败”收场（2026-11-03 的 Windows CI 实测，
+        # commit comment 里连日志文件都不存在）。显式用 bash，三平台同一段脚本。
+        shell: bash
         # 超时显式放宽到 40m（Go 默认 10m）。
         #
         # 为什么必须显式写：`cmd/ngm` 有 97 个顶层测试函数、大量 git 子进程与
