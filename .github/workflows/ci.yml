@@ -75,8 +75,11 @@ jobs:
           set -o pipefail
           go test -count=1 -timeout 40m ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
 
-      # 失败时把**测试名**写进 job summary：公开页面上能直接读到，
-      # 不必登录下载日志。它不改变判定，只让"哪条测试红了"可见。
+      # 失败时把**测试名**变成 annotation：Actions 日志对未登录访问者不可见
+      # （`/actions/jobs/<id>/logs` 匿名 403），而 check-runs annotations 是公开可读的
+      # （`/repos/{owner}/{repo}/check-runs/<id>/annotations`）。因此这里同时写两处：
+      # job summary 给登录的人，annotation 给没有凭据的复核者。
+      # 它不改变判定，只让"哪条测试红了"可见。
       - name: failing tests -> job summary
         if: failure()
         shell: bash
@@ -87,6 +90,12 @@ jobs:
             grep -E '^--- FAIL|^FAIL|^panic:' "$RUNNER_TEMP/go-test.log" | head -80 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^--- FAIL' "$RUNNER_TEMP/go-test.log" 2>/dev/null \
+            | sed -E 's/^--- FAIL: ([^ ]+).*/\1/' | head -10 \
+            | while IFS= read -r name; do
+                [ -n "$name" ] || continue
+                echo "::error title=failing test::$name"
+              done
 
       # 测试跑完，仓库必须还是干净的（v0.85）。
       #
@@ -392,6 +401,45 @@ jobs:
           done
           rm -f js-yaml.err
           exit "$fail"
+
+  # 发布 dry-run：把"可离线验证的部分"变成每次推送都真的跑一遍。
+  #
+  # 只跑两个轴：ubuntu（`.sh` 实现）与 windows（`.ps1` 入口）。macOS 的
+  # `sha256sum` 不是系统自带（GNU coreutils 的安装位置不保证在 PATH），
+  # 把"缺工具"混进"流水线坏了"没有价值；macOS 的真实构建由 release.yml 覆盖。
+  #
+  # 这一步也把 v0.89 的"交付脚本必须被跑或登记"落到实处：dry-run 与
+  # release-notes 的 Windows 入口从此有真实的执行者，不是只躺在仓库里。
+  release-dryrun:
+    name: release dry-run (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: dry-run via bash
+        if: runner.os != 'Windows'
+        run: bash scripts/release-dryrun.sh v0.102.0-dev.1
+
+      - name: dry-run via PowerShell entry
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/release-dryrun.ps1 v0.102.0-dev.1
+
+      - name: release notes via PowerShell entry
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/release-notes.ps1 v0.101.0 -Out "$env:RUNNER_TEMP\notes.md"
+          if (-not (Test-Path "$env:RUNNER_TEMP\notes.md")) { exit 1 }
+          if ((Get-Item "$env:RUNNER_TEMP\notes.md").Length -eq 0) { exit 1 }
 
   # 发布状态检查：**有复盘 ⇔ 有 tag**（按 vX.Y 配对），见 scripts/check-release-status.sh。
   #

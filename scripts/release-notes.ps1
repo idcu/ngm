@@ -1,4 +1,4 @@
-# scripts/release-notes.ps1 —— release-notes.sh 的 Windows 入口。
+﻿# scripts/release-notes.ps1 —— release-notes.sh 的 Windows 入口。
 #
 # 唯一实现是 scripts/release-notes.sh（CHANGELOG 的取段规则只有一种写法）；
 # 本文件只转发参数并把退出码原样传回，避免"Windows 上取不到发布说明"。

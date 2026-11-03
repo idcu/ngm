@@ -1,4 +1,4 @@
-# scripts/release-dryrun.ps1 —— release-dryrun.sh 的 Windows 入口。
+﻿# scripts/release-dryrun.ps1 —— release-dryrun.sh 的 Windows 入口。
 #
 # 唯一实现是 scripts/release-dryrun.sh（构建 / 校验 / 版本注入只有一种写法）；
 # 本文件只负责找到 Git for Windows 的 bash 并转调，退出码原样传回。
