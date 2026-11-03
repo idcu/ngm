@@ -181,7 +181,22 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/check-release-status.sh --drift-guard --repo "${{ github.repository }}"
+        run: |
+          set -o pipefail
+          bash scripts/check-release-status.sh --drift-guard --repo "${{ github.repository }}" \
+            2>&1 | tee "$RUNNER_TEMP/drift-guard.log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            {
+              echo '### release drift guard failed'
+              echo
+              echo '```'
+              grep -E 'MISSING|INCOMPLETE|COULD NOT CHECK|ERROR:|drift guard' \
+                "$RUNNER_TEMP/drift-guard.log" | head -60 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
 
       - name: docs links
         run: bash scripts/check-docs-links.sh
