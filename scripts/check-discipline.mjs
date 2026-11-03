@@ -221,6 +221,15 @@ for (const f of cmdDocs) {
     }
   }
 }
+// package.json 里的 script 也常常直接指向脚本文件（`"build": "node scripts/build.mjs"`）。
+// 光查"名字在不在 scripts 里"不够：改名后 `npm run build` 仍能匹配上，跑起来才报 ENOENT。
+for (const [name, cmd] of Object.entries(scripts)) {
+  for (const m of String(cmd).matchAll(/(scripts\/[\w./-]+\.(?:mjs|js|sh))/g)) {
+    cmdCount++;
+    if (!exists(m[1])) missingCmds.push(`package.json scripts.${name}: ${m[1]}`);
+  }
+}
+
 add(13, '文档里的命令都指向真实存在的脚本', missingCmds.length === 0,
   missingCmds.length
     ? '断 ' + missingCmds.length + ' 条（如 ' + missingCmds[0] + '）'
