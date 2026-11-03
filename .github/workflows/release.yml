@@ -158,23 +158,56 @@ jobs:
               dist/ngm-* dist/SHA256SUMS
           fi
 
-  # Gitee 是可选通道：同一个 release 的**同一批字节**由 upload-gitee-assets.ps1
-  # 从 GitHub 下载、按 SHA256SUMS 逐字节校验后再上传。没有 GITEE_TOKEN 时本 job
-  # 不运行（仓库变量 GITEE_UPLOAD=true 才启用），因此不会假装"双通道已发布"。
+  # Gitee 是可选通道。**先 gate、再上传**：缺变量/缺 token 时 gate 在 summary
+  # 里写明缺什么，上传 job 显示 skipped；有凭据时上传失败就是失败，没有
+  # continue-on-error 把它糊过去。
+  gitee-gate:
+    name: Gitee channel gate
+    needs: release
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - name: explain skip or enable
+        id: gate
+        shell: bash
+        env:
+          GITEE_UPLOAD: ${{ vars.GITEE_UPLOAD }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ "$GITEE_UPLOAD" != "true" ]; then
+            echo '**Gitee skipped** — repository variable `GITEE_UPLOAD` is not `true`.' >> "$GITHUB_STEP_SUMMARY"
+            echo "Gitee skipped: GITEE_UPLOAD != true"
+            exit 0
+          fi
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo '**Gitee skipped** — secret `GITEE_TOKEN` is empty.' >> "$GITHUB_STEP_SUMMARY"
+            echo "Gitee skipped: GITEE_TOKEN is empty"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo 'Gitee channel enabled — the same GitHub bytes will be uploaded.' >> "$GITHUB_STEP_SUMMARY"
+
   gitee-assets:
     name: mirror the same assets to Gitee (optional)
-    needs: release
-    if: ${{ vars.GITEE_UPLOAD == 'true' }}
-    runs-on: windows-latest
+    needs: [release, gitee-gate]
+    if: needs.gitee-gate.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: upload the GitHub release assets to Gitee
-        shell: powershell
+
+      # 先下载 GitHub 上已经发布的字节：两个源必须是同一份字节，Gitee 侧
+      # 不重新构建，也不从本机产物复制。
+      - name: download the published GitHub assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: gh release download "$TAG" --dir dist
+
+      - name: upload and verify on Gitee
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           TAG: ${{ needs.release.outputs.tag }}
-        run: |
-          if (-not $env:GITEE_TOKEN) { Write-Error "GITEE_UPLOAD is true but GITEE_TOKEN is empty"; exit 1 }
-          powershell -NoProfile -File scripts/upload-gitee-assets.ps1 -Tag $env:TAG
+        run: bash scripts/gitee-release.sh --tag "$TAG" --assets dist

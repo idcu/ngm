@@ -49,16 +49,13 @@ func TestV89ScriptsArtifactsAreEitherRunOrExplained(t *testing.T) {
 // "缺环境/缺凭据"或"它是某个已被跑的实现的入口"这两类之一——
 // "忘了接"不是原因，它正是这条网要抓的东西。
 var explainedNotAutomated = map[string]string{
-	// 需要凭据：CI 里没有 GITEE_TOKEN，只有人工回填历史发行版时才跑。
-	"upload-gitee-assets.ps1": "需要 GITEE_TOKEN（只在人工回填时跑）；静态部分由 v0.88 的 ps1 解析网守着",
-	// 唯一剩下的一条：**需要凭据**，所以判据跑不了它（而它做的事就是把资产传上去，
-	// 没有假 API 能替代）。它的静态部分（能否解析、参数是否被吞）由 ps1 解析网与
-	// 入口参数对齐网守着；真正的"传得对不对"只能在回填时人工验。
+	// 现在没有需要登记的文件：Gitee 上传脚本已有假 API 判据
+	// （TestV102GiteeRelease*：创建/更新/跳过/强制替换/dry-run 零请求），
+	// 不再靠“跑不了”留在表里。
 	//
-	// 这一条曾经有五个同伴（v0.89），v0.90 把其中四个接进了 TestV90…（真的跑），
+	// 这张表曾经有五个条目（v0.89）：v0.90 把其中四个接进 TestV90…（真的跑），
 	// v0.91 把 `check-gitee-release-status.ps1` 也接了进去——**它当时写的理由是错的**：
-	// "该读数没有离线模式（无 --api-base）"，而实现里一直有 `GITEE_API_BASE` 环境变量，
-	// 也就是说它一直可以对着假 API 跑。写下理由时没人验过它；接进去才两分钟。
+	// "该读数没有离线模式（无 --api-base）"，而实现里一直有 `GITEE_API_BASE` 环境变量。
 }
 
 // auditArtifacts 返回（既跑不到也没登记的文件，登记表里已不存在的键）。

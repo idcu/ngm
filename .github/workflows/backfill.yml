@@ -121,28 +121,52 @@ jobs:
             fi
           done
 
+  gitee-gate:
+    name: Gitee channel gate
+    needs: backfill
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - name: explain skip or enable
+        id: gate
+        shell: bash
+        env:
+          GITEE_UPLOAD: ${{ vars.GITEE_UPLOAD }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ "$GITEE_UPLOAD" != "true" ]; then
+            echo '**Gitee skipped** — repository variable `GITEE_UPLOAD` is not `true`.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo '**Gitee skipped** — secret `GITEE_TOKEN` is empty.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
   gitee:
     name: mirror the same assets to Gitee (optional)
-    needs: backfill
-    if: ${{ vars.GITEE_UPLOAD == 'true' }}
-    runs-on: windows-latest
+    needs: [backfill, gitee-gate]
+    if: needs.gitee-gate.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: upload each tag's GitHub assets to Gitee
-        shell: powershell
+      - name: download and upload each tag
+        shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           INPUT_TAGS: ${{ inputs.tags }}
           PUSH_TAGS: 'v0.99.0 v0.100.0 v0.101.0'
           EVENT: ${{ github.event_name }}
         run: |
-          if (-not $env:GITEE_TOKEN) { Write-Error "GITEE_UPLOAD is true but GITEE_TOKEN is empty"; exit 1 }
-          $tags = $env:INPUT_TAGS
-          if ($env:EVENT -ne 'workflow_dispatch') { $tags = $env:PUSH_TAGS }
-          foreach ($tag in $tags.Split(' ')) {
-            if ($tag.Trim() -eq '') { continue }
-            powershell -NoProfile -File scripts/upload-gitee-assets.ps1 -Tag $tag.Trim()
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+          set -euo pipefail
+          TAGS="$INPUT_TAGS"
+          if [ "$EVENT" != "workflow_dispatch" ]; then TAGS="$PUSH_TAGS"; fi
+          for tag in $TAGS; do
+            gh release download "$tag" --dir "dist-$tag"
+            bash scripts/gitee-release.sh --tag "$tag" --assets "dist-$tag"
+          done

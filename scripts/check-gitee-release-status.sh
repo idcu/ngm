@@ -12,7 +12,7 @@
 # 本检查调用的那个端点证伪的）。**一条读数胜过一句"已发布"。**
 #
 # 它**只读公开 API、不需要 token**，因此随时可跑；而"补发附件"仍然需要 GITEE_TOKEN
-# （那是 upload-gitee-assets.ps1 的事）。
+# （那是 gitee-release.sh 的事）。
 #
 # 判据与 GitHub 侧有一处不同：Gitee 会给每个 release **自动附两个源码包**
 # （<tag>.zip / <tag>.tar.gz），所以 API 里看到的是 9 个 asset，而我们自己传的是 7 个。
@@ -66,7 +66,7 @@ fi
 
 # 把一个 release 响应折成两段信息：状态 + asset 名单。
 # 三种形态都要接住：有 id（PRESENT）· JSON null / 没有 id（MISSING）· 根本不是 JSON（UNPARSEABLE）。
-# 前两种的判据与 upload-gitee-assets.ps1 的 Get-GiteeRelease 一致——那个坑已经踩过一次。
+# 前两种的判据与 gitee-release.sh 的 json_id 一致——那个坑已经踩过一次。
 read_release() {
   python3 -c '
 import json, sys
@@ -117,7 +117,7 @@ for tag in "${tags[@]}"; do
     MISSING)
       missing+=("$tag")
       printf '%-9s %s\n' "$tag" 'MISSING (no release)'
-      echo "          fix: powershell -File scripts/upload-gitee-assets.ps1 -Tag $tag"
+      echo "          fix: bash scripts/gitee-release.sh --tag $tag --assets <release-assets-dir>"
       continue
       ;;
   esac
@@ -140,7 +140,7 @@ for tag in "${tags[@]}"; do
     missing+=("$tag")
     printf '%-9s %s\n' "$tag" "INCOMPLETE (missing ${#absent[@]})"
     echo "          missing: ${absent[*]}"
-    echo "          fix: powershell -File scripts/upload-gitee-assets.ps1 -Tag $tag"
+    echo "          fix: bash scripts/gitee-release.sh --tag $tag --assets <release-assets-dir>"
   fi
 done
 

@@ -1,0 +1,8 @@
+# 发布目标矩阵（唯一声明）：构建脚本按它产出产物，漂移守卫按它核对附件。
+# 一行一个 GOOS/GOARCH；注释与空行忽略。
+linux/amd64
+linux/arm64
+darwin/amd64
+darwin/arm64
+windows/amd64
+windows/arm64
