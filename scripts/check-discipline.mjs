@@ -197,6 +197,35 @@ if (orphanChecks.length === 0) {
     '孤立 ' + forgot.length + ' 个：' + forgot.slice(0, 3).map((f) => path.basename(f)).join('、'));
 }
 
+/* 13. 文档里的命令都指向真实存在的东西 */
+// 只扫代码块：散文里提到 `scripts/xxx` 是叙述，代码块里的才是"照着敲就会跑"。
+// 查两件事：`scripts/*.{mjs,js,sh}` 的路径存在；`npm run <script>` 在 package.json 里有。
+const cmdDocs = ['README.md', ...walk('docs').filter((f) => f.endsWith('.md'))].filter((f) => exists(f));
+const missingCmds = [];
+let cmdCount = 0;
+for (const f of cmdDocs) {
+  const text = read(f);
+  for (const block of text.matchAll(/```[a-zA-Z]*\n([\s\S]*?)```/g)) {
+    for (const line of block[1].split('\n')) {
+      for (const m of line.matchAll(/(?:^|\s)(scripts\/[\w./-]+\.(?:mjs|js|sh))/g)) {
+        cmdCount++;
+        if (!exists(m[1])) missingCmds.push(`${f}: ${m[1]}`);
+      }
+      for (const m of line.matchAll(/npm\s+run\s+([\w:-]+)/g)) {
+        // 没有 package.json 的项目（Go 仓库、纯脚本仓库），文档里的 `npm run` 是
+        // **别的项目**的示例（方法论、迁移指南），不该按本仓库解析。
+        if (!pkg) continue;
+        cmdCount++;
+        if (!(m[1] in scripts)) missingCmds.push(`${f}: npm run ${m[1]}`);
+      }
+    }
+  }
+}
+add(13, '文档里的命令都指向真实存在的脚本', missingCmds.length === 0,
+  missingCmds.length
+    ? '断 ' + missingCmds.length + ' 条（如 ' + missingCmds[0] + '）'
+    : cmdCount + ' 条命令全部可解析');
+
 /* ---------------- 成熟度 ---------------- */
 const okCount = checks.filter((c) => c.state === 'ok').length;
 const applicable = checks.filter((c) => c.state !== 'na').length;
