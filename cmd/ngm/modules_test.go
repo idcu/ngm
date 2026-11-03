@@ -27,10 +27,10 @@ func TestModulesListAndValidate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "ngm.json"), []byte(`{"schemaVersion":1,"name":"app","version":"0.1.0","runtime":"node"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writeModuleFixture(t, root, "packages/a", `{"name":"a","version":"1.0.0"}`)
+	writeModuleFixture(t, root, "packages/a", `{"name":"a","version":"1.0.0","runtime":"node"}`)
 	writeModuleFixture(t, root, "packages/b", `{"name":"b"}`)
 	writeModuleFixture(t, root, "packages/c", `{not json`)
-	writeModuleFixture(t, root, "packages/d", `{"name":"a","version":"2.0.0"}`)
+	writeModuleFixture(t, root, "packages/d", `{"name":"a","version":"2.0.0","runtime":"node"}`)
 
 	code, out := runCaptureCode(t, "modules", "list", "--dir="+root, "--json")
 	if code != 0 {
@@ -204,8 +204,8 @@ func TestModulesIndexUpdatesLocalBranch(t *testing.T) {
 
 func TestModulesValidateIndexConsistency(t *testing.T) {
 	root := t.TempDir()
-	writeModuleFixture(t, root, "packages/a", `{"name":"a","version":"1.0.0"}`)
-	writeModuleFixture(t, root, "packages/b", `{"name":"b","version":"2.0.0"}`)
+	writeModuleFixture(t, root, "packages/a", `{"name":"a","version":"1.0.0","runtime":"node"}`)
+	writeModuleFixture(t, root, "packages/b", `{"name":"b","version":"2.0.0","runtime":"node"}`)
 	if code, out := runCaptureCode(t, "modules", "index", "--dir="+root); code != 0 {
 		t.Fatalf("modules index exit=%d:\n%s", code, out)
 	}
@@ -214,7 +214,7 @@ func TestModulesValidateIndexConsistency(t *testing.T) {
 	}
 
 	// 目录新增模块而索引没跟上 → 必须红，而不是让索引漂移。
-	writeModuleFixture(t, root, "packages/c", `{"name":"c","version":"3.0.0"}`)
+	writeModuleFixture(t, root, "packages/c", `{"name":"c","version":"3.0.0","runtime":"node"}`)
 	code, out := runCaptureCode(t, "modules", "validate", "--dir="+root, "--index=ngm.collection.json")
 	if code != 3 || !strings.Contains(out, "packages/c") {
 		t.Fatalf("missing index module should fail, got %d:\n%s", code, out)

@@ -8,15 +8,15 @@ import (
 func TestModulesValidateStrictSharedDependencyAlignment(t *testing.T) {
 	root := t.TempDir()
 	writeModuleFixture(t, root, "packages/a", `{
-  "name":"a","version":"1.0.0",
+  "name":"a","version":"1.0.0","runtime":"node",
   "dependencies":[{"name":"github:acme/lib","ref":"v1.0.0","refType":"tag"}]
 }`)
 	writeModuleFixture(t, root, "packages/b", `{
-  "name":"b","version":"1.0.0",
+  "name":"b","version":"1.0.0","runtime":"node",
   "dependencies":[{"name":"github:acme/lib","ref":"v2.0.0","refType":"tag"}]
 }`)
 	writeModuleFixture(t, root, "packages/c", `{
-  "name":"c","version":"1.0.0",
+  "name":"c","version":"1.0.0","runtime":"node",
   "dependencies":[{"name":"github:acme/lib","ref":"v1.0.0","refType":"tag"}]
 }`)
 
@@ -39,11 +39,11 @@ func TestModulesValidateStrictSharedDependencyAlignment(t *testing.T) {
 func TestModulesValidateStrictSharedDependencyAligned(t *testing.T) {
 	root := t.TempDir()
 	writeModuleFixture(t, root, "packages/a", `{
-  "name":"a","version":"1.0.0",
+  "name":"a","version":"1.0.0","runtime":"node",
   "dependencies":[{"name":"github:acme/lib","ref":"v1.0.0","refType":"tag"}]
 }`)
 	writeModuleFixture(t, root, "packages/b", `{
-  "name":"b","version":"1.0.0",
+  "name":"b","version":"1.0.0","runtime":"node",
   "dependencies":[{"name":"github:acme/lib","ref":"v1.0.0","refType":"tag"}]
 }`)
 

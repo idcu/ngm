@@ -1,4 +1,6 @@
 github.com:my-org/app
 github:snap/parent@v1 (tag) → <sha>
 │   github:snap/leaf@v1 (tag) → <sha>
+
+source: ngm.lock (requiredBy graph; no re-resolution)
 vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)

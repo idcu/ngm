@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,33 @@ import (
 	"github.com/idcu/ngm/internal/adopt"
 	"github.com/idcu/ngm/internal/testutils"
 )
+
+// stripLockGraph 把 lock 里的 requiredBy 删掉，模拟旧版 ngm 写出的 lock。
+func stripLockGraph(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "ngm.lock")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	deps, _ := doc["dependencies"].([]any)
+	for _, d := range deps {
+		if m, ok := d.(map[string]any); ok {
+			delete(m, "requiredBy")
+		}
+	}
+	body, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // reExitCodeLine 匹配 EXIT CODES 段里的一条声明：`<码> <说明>`。
 var reExitCodeLine = regexp.MustCompile(`^([0-9])\s+(\S.*)$`)
@@ -77,13 +105,16 @@ const (
 	setupDep      = "dep"      // 有依赖 + lock + vendor
 	setupCold     = "cold"     // 有依赖声明、但没有本地 mirror、也没有 lock
 	setupNoMirror = "nomirror" // 有 lock + vendor，但本地 mirror 被删掉
-	setupDrift    = "drift"    // 上游把 tag 挪到新提交（非预期漂移）
-	setupDrifted  = "drifted"  // 漂移 + verifyOnLock（install/update 的策略路径）
-	setupTampered = "tampered" // lock 里的 archiveDigest 被改成全零
-	setupOsvClean = "osvclean" // OSV 走本地替身（无发现）
-	setupOsvVuln  = "osvvuln"  // OSV 走本地替身（一个 HIGH 发现）
-	setupGhost    = "ghost"    // 引擎目录里声明了一个"没装"的引擎
-	setupEngine   = "engine"   // 真实可跑的假引擎（FAKE_EXIT 控制成功/失败）
+	// setupLegacyLock 是 v0.102 的 `tree` 回退夹具：lock **没有** requiredBy
+	//（旧版 ngm 写的），本地 mirror 也被删掉——tree 只能走重新解析，于是 exit 4。
+	setupLegacyLock = "legacylock"
+	setupDrift      = "drift"    // 上游把 tag 挪到新提交（非预期漂移）
+	setupDrifted    = "drifted"  // 漂移 + verifyOnLock（install/update 的策略路径）
+	setupTampered   = "tampered" // lock 里的 archiveDigest 被改成全零
+	setupOsvClean   = "osvclean" // OSV 走本地替身（无发现）
+	setupOsvVuln    = "osvvuln"  // OSV 走本地替身（一个 HIGH 发现）
+	setupGhost      = "ghost"    // 引擎目录里声明了一个"没装"的引擎
+	setupEngine     = "engine"   // 真实可跑的假引擎（FAKE_EXIT 控制成功/失败）
 	// setupNodeModules 是 v0.105 的 `adopt` 夹具：一个 node_modules（两个包）
 	// 加一份 package-lock.json（其中一个来源是 Git commit，另一个是 registry）。
 	setupNodeModules = "nodemodules"
@@ -206,7 +237,7 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "install", code: 4, args: []string{"--offline"}, setup: setupCold},
 	{cmd: "update", code: 4, args: []string{"--offline", "--all"}, setup: setupCold},
 	{cmd: "verify", code: 4, args: []string{"--offline"}, setup: setupNoMirror},
-	{cmd: "tree", code: 4, args: []string{"--offline"}, setup: setupNoMirror},
+	{cmd: "tree", code: 4, args: []string{"--offline"}, setup: setupLegacyLock},
 	{cmd: "audit", code: 4, args: []string{"--offline"}, setup: setupDep},
 
 	// ---- 5：引擎不可用 ----
@@ -568,6 +599,14 @@ func buildFixture(t *testing.T, home, setup string) string {
 		if err := os.RemoveAll(mirrorDirForTest(t, "github:x/dep")); err != nil {
 			t.Fatal(err)
 		}
+		return p
+	case setupLegacyLock:
+		p := newProject(t)
+		seedDep(t, p)
+		if err := os.RemoveAll(mirrorDirForTest(t, "github:x/dep")); err != nil {
+			t.Fatal(err)
+		}
+		stripLockGraph(t, p)
 		return p
 	case setupDrift, setupDrifted:
 		r := scUpstream(t, "github:x/drift", "export const a = 1\n", "")

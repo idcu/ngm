@@ -349,7 +349,16 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 	}
 
 	// ---- 检查三：落地完整性（完全本地；--deep 的重放需要层 1 的形状信息）
-	res.Checks = append(res.Checks, checkLanding(ctx, mirrorPath, d, store, opts))
+	landing := checkLanding(ctx, mirrorPath, d, store, opts)
+	res.Checks = append(res.Checks, landing)
+	// landing 的"未能比对"也必须让整体退出码变成 4（v0.102）：
+	// 它此前只体现在 CheckResult.Operational 上，而 DepResult.Err / Summary
+	// 都只认 Err——于是"vendor 被删、store 也没有"的报告会显示 1 ok（exit 0）。
+	// 只有 Err 非空才补：critical 的 landing（内容已确证不符）走 DriftKind，优先级更高。
+	if landing.Operational && res.Err == "" {
+		res.Err = landing.Detail
+		res.ErrHint = "run `ngm install` to materialize the missing resources"
+	}
 
 	// ---- 聚合：取最严重的分类
 	res.DriftKind = aggregateDrift(res.Checks)
@@ -711,20 +720,21 @@ func moduleVersionAt(ctx context.Context, mirrorPath string, d *lock.Dependency,
 // 依据：observability.md 的全局退出码表把 `2` 定义为"完整性失败"，
 // digest 重放不匹配只是它的典型来源。
 func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, store *vendor.ContentStore, opts Options) CheckResult {
-	var problems []string
+	var critical []string    // 内容已确证不符：只能由"比对得出不同"产生
+	var operational []string // 资源缺失/未安装：没能完成比对，不是"不符"
 	var notes []string
 
 	// 1) content store 的存在性与 meta 一致性
 	storeKey := d.ContentDigest()
 	hasStore := store.Has(storeKey)
 	if !hasStore {
-		problems = append(problems, fmt.Sprintf(
-			"content store has no usable entry for %s (looked in %s)",
+		operational = append(operational, fmt.Sprintf(
+			"content store has no usable entry for %s (looked in %s); run `ngm install` to populate it",
 			storeKey, store.Root()))
 	} else if meta, err := store.ReadMeta(storeKey); err != nil {
-		problems = append(problems, "content store meta.json is unreadable: "+err.Error())
+		operational = append(operational, "content store meta.json is unreadable: "+err.Error())
 	} else {
-		problems = append(problems, metaMismatches(d, meta)...)
+		critical = append(critical, metaMismatches(d, meta)...)
 	}
 
 	// 2) --deep：用「Git 权威的路径与模式 + 落地字节」重算 digest，与 lock 比对。
@@ -739,7 +749,7 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	if hasStore {
 		all, eerr := store.Entries(storeKey)
 		if eerr != nil {
-			problems = append(problems, "cannot read the content store: "+eerr.Error())
+			operational = append(operational, "cannot read the content store: "+eerr.Error())
 		} else {
 			allEntries = all
 			storeEntries = all
@@ -758,7 +768,7 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	// 迟早在某个边界上分叉。
 	for _, e := range storeEntries {
 		if e.Symlink && vendor.EscapesPackageTree(e.Path, e.LinkTarget) {
-			problems = append(problems, fmt.Sprintf(
+			critical = append(critical, fmt.Sprintf(
 				"symlink %s escapes the dependency tree (target %q): the vendored link resolves "+
 					"against files that are not part of this dependency", e.Path, e.LinkTarget))
 		}
@@ -781,9 +791,9 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 				got, derr = replayDigestFromEntries(ctx, mirrorPath, allEntries, d, opts)
 			}
 			if derr != nil {
-				problems = append(problems, "cannot replay the digest from the content store: "+derr.Error())
+				operational = append(operational, "cannot replay the digest from the content store: "+derr.Error())
 			} else if got != d.ContentDigest() {
-				problems = append(problems, fmt.Sprintf(
+				critical = append(critical, fmt.Sprintf(
 					"content store digest mismatch: the installed tree hashes to %s but ngm.lock says %s",
 					got, d.ContentDigest()))
 			}
@@ -794,20 +804,34 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	vendorTree := filepath.Join(opts.VendorRoot, filepath.FromSlash(vendor.VendorPathFor(d.VendorPath, d.SubPath)))
 	vr := vendor.VerifyResult{}
 	if _, err := os.Stat(vendorTree); err != nil {
-		problems = append(problems, "vendor path is missing: "+vendorTree)
+		// "没有落地"不是"内容被改"：它是一次未完成的安装（exit 4），
+		// 而不是已确证的篡改（exit 2）。--offline 冷 mirror 的实测形态正是
+		// "lock 在、mirror 不在、vendor 也没装"三类资源缺失同时出现。
+		operational = append(operational, "vendor path is missing: "+vendorTree+
+			"; run `ngm install` to materialize it")
+	} else if !hasStore {
+		// 有 vendor 但没有 content store：没有**可比对**的另一侧。
+		// 这仍然只是资源不全——不能因为"找不到参照物"就说内容被改了。
+		operational = append(operational, "cannot compare the vendor tree: the content store entry is missing")
 	} else {
 		var verr error
 		vr, verr = vendor.VerifyVendorAgainstEntries(vendorTree, storeEntries, opts.Deep)
 		if verr != nil {
-			problems = append(problems, "cannot compare vendor with the content store: "+verr.Error())
+			operational = append(operational, "cannot compare vendor with the content store: "+verr.Error())
 		} else {
-			problems = append(problems, vr.Mismatches...)
+			critical = append(critical, vr.Mismatches...)
 		}
 	}
 
-	if len(problems) > 0 {
+	switch {
+	case len(critical) > 0:
 		return CheckResult{Check: CheckLanding, Status: StatusFail, Drift: DriftCritical,
-			Detail: strings.Join(problems, "; ")}
+			Detail: strings.Join(critical, "; ")}
+	case len(operational) > 0:
+		// Operational 为 true：这表示"没能完成比对"，不是"比对结果不符"。
+		// Report.ExitCode 据此退 4，而不是 2。
+		return CheckResult{Check: CheckLanding, Status: StatusFail, Operational: true,
+			Detail: strings.Join(operational, "; ")}
 	}
 
 	mode := "structure only"

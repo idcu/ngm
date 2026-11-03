@@ -63,7 +63,7 @@ func TestFilterLockDistinguishesSubPaths(t *testing.T) {
 	}
 
 	t.Run("full target selects one", func(t *testing.T) {
-		got, err := filterLock(lf, []string{"github:acme/modules#path=packages/a"})
+		got, _, err := filterLock(lf, []string{"github:acme/modules#path=packages/a"})
 		if err != nil {
 			t.Fatalf("filterLock: %v", err)
 		}
@@ -73,7 +73,7 @@ func TestFilterLockDistinguishesSubPaths(t *testing.T) {
 	})
 
 	t.Run("bare repo with multiple sub-paths is ambiguous", func(t *testing.T) {
-		_, err := filterLock(lf, []string{"github:acme/modules"})
+		_, _, err := filterLock(lf, []string{"github:acme/modules"})
 		if err == nil {
 			t.Fatal("expected ambiguity error")
 		}
@@ -86,7 +86,7 @@ func TestFilterLockDistinguishesSubPaths(t *testing.T) {
 	})
 
 	t.Run("bare repo with one module is fine", func(t *testing.T) {
-		got, err := filterLock(lf, []string{"github:acme/lib"})
+		got, _, err := filterLock(lf, []string{"github:acme/lib"})
 		if err != nil {
 			t.Fatalf("filterLock: %v", err)
 		}

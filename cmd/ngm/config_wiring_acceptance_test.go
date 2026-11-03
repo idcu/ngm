@@ -303,7 +303,7 @@ func TestUnsupportedSchemaVersionIsRejected(t *testing.T) {
 
 	const valid = `{"schemaVersion":1,"name":"github.com:wiring/sv","version":"0.1.0","runtime":"node","dependencies":[]}`
 
-	writeProjectManifest(t, proj, strings.Replace(valid, `"schemaVersion":1`, `"schemaVersion":2`, 1))
+	writeProjectManifest(t, proj, strings.Replace(valid, `"schemaVersion":1`, `"schemaVersion":3`, 1))
 	pCode, pOut := runCaptureCode(t, "config", "validate")
 	if pCode != 3 {
 		t.Fatalf("an unsupported project schemaVersion must exit 3, got %d:\n%s", pCode, pOut)
@@ -313,7 +313,7 @@ func TestUnsupportedSchemaVersionIsRejected(t *testing.T) {
 	}
 
 	writeProjectManifest(t, proj, valid)
-	writeGlobalConfig(t, home, `{"schemaVersion":2}`)
+	writeGlobalConfig(t, home, `{"schemaVersion":3}`)
 	gCode, gOut := runCaptureCode(t, "config", "validate")
 	if gCode != 3 {
 		t.Fatalf("an unsupported global schemaVersion must exit 3, got %d:\n%s", gCode, gOut)

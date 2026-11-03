@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
@@ -277,7 +279,9 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
-	errsList := validateModules(mods, *strict)
+	errsList := validateModuleManifests(*dir, mods)
+	errsList = append(errsList, validateModules(mods, *strict)...)
+	sort.Strings(errsList)
 	if *indexPath != "" {
 		indexErrs, ierr := validateIndexAgainstModules(*dir, *indexPath, mods)
 		if ierr != nil {
@@ -588,9 +592,12 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 			idx.Releases = rel
 		}
 	}
-	src, serr := collectSource(ctx, gitOpts, *dir)
+	src, warnings, serr := collectSource(ctx, gitOpts, *dir)
 	if serr != nil {
 		return runErr(ctx, stdout, stderr, serr)
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(stderr, "warning: %s\n", w)
 	}
 	idx.Source = src
 	data, merr := json.MarshalIndent(idx, "", "  ")
@@ -772,16 +779,21 @@ func isGitDir(ctx context.Context, gitOpts git.Options) bool {
 }
 
 // collectSource 把索引锚到代码 commit；不是 Git 仓库或无 HEAD 时省略。
-func collectSource(ctx context.Context, gitOpts git.Options, dir string) (*collectionSource, error) {
+//
+// 返回的 warnings 是"索引仍然生成，但有一部分来源读不出来"的情况
+// （v0.102）：旧实现在 remote 解析失败时静默省略 source.repo，读者只看到
+// 一个空字段，无法区分"没有 remote"与"remote 读不懂"。
+func collectSource(ctx context.Context, gitOpts git.Options, dir string) (*collectionSource, []string, error) {
 	if !isGitDir(ctx, gitOpts) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	commit, err := git.RevParse(ctx, gitOpts, dir, "HEAD")
 	if err != nil {
 		// 空仓库（还没有 commit）可以生成索引，但没有可锚定的源码状态。
-		return nil, nil
+		return nil, nil, nil
 	}
 	src := &collectionSource{Commit: commit}
+	var warnings []string
 	if res, rerr := git.Run(ctx, gitOpts, "rev-parse", "--abbrev-ref", "HEAD"); rerr == nil {
 		if b := strings.TrimSpace(string(res.Stdout)); b != "" && b != "HEAD" {
 			src.Branch = b
@@ -789,11 +801,20 @@ func collectSource(ctx context.Context, gitOpts git.Options, dir string) (*colle
 	}
 	if res, rerr := git.Run(ctx, gitOpts, "remote", "get-url", "origin"); rerr == nil {
 		url := strings.TrimSpace(string(res.Stdout))
-		if slug, perr := resolve.ParseSlug(url); perr == nil {
+		// 正常 remote 是 URL（https/ssh/scp-like），不是 slug；ParseSlug 会
+		// 明确拒绝 `://`。先走 Normalize，再退回 ParseSlug（兼容 `gitee:org/repo`）。
+		if canon, nerr := resolve.Normalize(url); nerr == nil {
+			src.Repo = canon.Slug()
+		} else if slug, perr := resolve.ParseSlug(url); perr == nil {
 			src.Repo = slug.Slug()
+		} else {
+			warnings = append(warnings, fmt.Sprintf(
+				"cannot parse origin remote %q: source.repo is left empty (%v)", url, nerr))
 		}
+	} else {
+		warnings = append(warnings, fmt.Sprintf("cannot read origin remote: %v", rerr))
 	}
-	return src, nil
+	return src, warnings, nil
 }
 
 // writeIndexBranch 在本地创建/更新一个只含索引文件的树（根索引 + 可选分片）。
@@ -811,6 +832,14 @@ func writeIndexBranch(ctx context.Context, gitOpts git.Options, dir, branch stri
 		return "", errs.New(errs.CodeConfigInvalid,
 			"index branch would be empty",
 			"this is an internal error; report the empty index file set")
+	}
+	// 拒绝**移动当前分支**（v0.102）：`update-ref` 会成功，但用户的 checkout
+	// 会悄悄指向一个只含索引文件的 commit，工作树与 HEAD 从此不一致。
+	if res, err := git.RunAllowFailure(ctx, gitOpts, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil &&
+		res.ExitCode == 0 && strings.TrimSpace(string(res.Stdout)) == branch {
+		return "", errs.New(errs.CodeConfigInvalid,
+			"refusing to move the current branch "+branch+" to the index commit",
+			"check out another branch, or pass --branch=<name> for the index branch")
 	}
 
 	paths := make([]string, 0, len(files))
@@ -910,7 +939,7 @@ func writeIndexBranch(ctx context.Context, gitOpts git.Options, dir, branch stri
 	}
 
 	msg := "ngm index"
-	if src, _ := collectSource(ctx, gitOpts, dir); src != nil && src.Commit != "" {
+	if src, _, _ := collectSource(ctx, gitOpts, dir); src != nil && src.Commit != "" {
 		msg += ": " + src.Commit
 	}
 	commitArgs := []string{"commit-tree", tree, "-m", msg}
@@ -1087,6 +1116,49 @@ func skipModuleWalkDir(name string) bool {
 	default:
 		return false
 	}
+}
+
+// validateModuleManifests 用**与消费方完全相同**的 ProjectFile.Validate 校验每个模块清单。
+//
+// 为什么必须复用（v0.102）：`modules list/index/plan` 只读 name/version/publish，
+// 那是"发现"所需的字段；但生产方 CI 的 `modules validate` 若也只看这几个字段，
+// 一份 schemaVersion 不被 ngm 支持、或 dependencies 字段写坏的清单就会：
+//
+//   - 在生产者端通过（`modules validate` 说 OK）；
+//   - 在消费方失败（`ngm config validate` / `install` 读同一份文件时报 exit 3）。
+//
+// 实测过的实例：ngm-repo 的模块清单写 schemaVersion 2，而 ngm 只接受 v1。
+// 修法不是把生产方降回 v1，而是读取器接受 v1..v2，并让 validate 使用同一判据。
+func validateModuleManifests(root string, mods []moduleInfo) []string {
+	var out []string
+	for i := range mods {
+		if mods[i].Err != "" {
+			continue // 原始 JSON 已经坏了，ProjectFile 读它只会得到同一条错
+		}
+		manifest := filepath.Join(root, filepath.FromSlash(mods[i].Path), config.FileName)
+		pf, err := config.ReadProjectFile(manifest)
+		if err != nil {
+			msg := err.Error()
+			var ne *errs.NgmError
+			if errors.As(err, &ne) && ne.Message != "" {
+				msg = ne.Message
+			}
+			out = append(out, mods[i].Path+": "+msg)
+			continue
+		}
+		// 校验成功的清单才更新字段：失败时保留原始读数，便于同时报告
+		// "schema 不合法"与"缺 name/version"两类问题。
+		mods[i].Name = pf.Name
+		mods[i].Version = pf.Version
+		mods[i].Publish = pf.Publish
+		mods[i].Deps = mods[i].Deps[:0]
+		for _, d := range pf.Dependencies {
+			mods[i].Deps = append(mods[i].Deps, moduleDependency{
+				Name: d.Name, Ref: d.Ref, RefType: string(d.RefType), Path: d.Path,
+			})
+		}
+	}
+	return out
 }
 
 func validateModules(mods []moduleInfo, strict bool) []string {

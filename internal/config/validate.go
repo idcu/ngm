@@ -42,11 +42,12 @@ func (p *ProjectFile) Validate() error {
 		// 例外（登记在 TestV49… 里）：这不是用户能写出来的状态——它是调用方的编程错误。
 		return errors.New("project file is nil")
 	}
-	if p.SchemaVersion != 0 && p.SchemaVersion != SchemaVersion {
+	if !SupportedSchemaVersion(p.SchemaVersion) {
 		return fieldErr(
-			fmt.Sprintf("schemaVersion %d not supported; this build supports v%d",
-				p.SchemaVersion, SchemaVersion),
-			fmt.Sprintf("set `schemaVersion` to %d in ngm.json, or upgrade ngm", SchemaVersion),
+			fmt.Sprintf("schemaVersion %d not supported; this build supports v%d..v%d",
+				p.SchemaVersion, SchemaVersion, MaxSchemaVersion),
+			fmt.Sprintf("set `schemaVersion` to %d..%d in ngm.json, or upgrade ngm",
+				SchemaVersion, MaxSchemaVersion),
 		)
 	}
 	if strings.TrimSpace(p.Name) == "" {
@@ -74,6 +75,14 @@ func (p *ProjectFile) Validate() error {
 			return fmt.Errorf("dependencies[%d]: %w", i, err)
 		}
 	}
+	// 重复的根声明必须拒绝（v0.102）。
+	//
+	// 旧行为是"最后一条赢"：解析阶段 rootSet 按顺序覆盖，于是同一份 ngm.json 里
+	// `github:acme/lib@v1` 与 `github:acme/lib@v2` 会静默锁到后者，而用户在文件里
+	// 看到的仍是两条声明。它没有任何合法用途——同一依赖只能有一个被验证的版本。
+	if err := validateUniqueRootDependencies(p.Dependencies); err != nil {
+		return err
+	}
 	if p.SupplyChain != nil {
 		if err := p.SupplyChain.Validate(); err != nil {
 			return fmt.Errorf("supplyChain: %w", err)
@@ -83,6 +92,34 @@ func (p *ProjectFile) Validate() error {
 		if err := p.Vendor.Validate(); err != nil {
 			return fmt.Errorf("vendor: %w", err)
 		}
+	}
+	return nil
+}
+
+// validateUniqueRootDependencies 拒绝同一个 (仓库, 子路径) 被声明两次。
+//
+// 判据与 lock.validateUnique 同源：仓库身份用 resolve.ParseSlug 归一化，
+// 子路径用 normalizeSubPath（`a/b` 与 `a\b` 视为同一路径）。
+func validateUniqueRootDependencies(deps []Dependency) error {
+	seen := make(map[string]int, len(deps))
+	for i := range deps {
+		d := &deps[i]
+		canon, err := resolve.ParseSlug(d.Name)
+		if err != nil {
+			continue // 非法 name 已由 Dependency.Validate 报过
+		}
+		key := canon.Slug() + "\x00" + normalizeSubPath(d.Path)
+		if prev, ok := seen[key]; ok {
+			label := d.Name
+			if d.Path != "" {
+				label += "#path=" + normalizeSubPath(d.Path)
+			}
+			return fieldErr(
+				fmt.Sprintf("duplicate dependency declaration %q: dependencies[%d] (%s@%s) and dependencies[%d] (%s@%s)",
+					label, prev, deps[prev].Name, deps[prev].Ref, i, d.Name, d.Ref),
+				"remove one of the two declarations; one dependency may have exactly one declared version")
+		}
+		seen[key] = i
 	}
 	return nil
 }
@@ -316,11 +353,12 @@ func (g *GlobalFile) Validate() error {
 	if g == nil {
 		return nil
 	}
-	if g.SchemaVersion != 0 && g.SchemaVersion != SchemaVersion {
+	if !SupportedSchemaVersion(g.SchemaVersion) {
 		return fieldErr(
-			fmt.Sprintf("global schemaVersion %d not supported; this build supports v%d",
-				g.SchemaVersion, SchemaVersion),
-			fmt.Sprintf("set `schemaVersion` to %d in ~/.ngm/config.json, or upgrade ngm", SchemaVersion),
+			fmt.Sprintf("global schemaVersion %d not supported; this build supports v%d..v%d",
+				g.SchemaVersion, SchemaVersion, MaxSchemaVersion),
+			fmt.Sprintf("set `schemaVersion` to %d..%d in ~/.ngm/config.json, or upgrade ngm",
+				SchemaVersion, MaxSchemaVersion),
 		)
 	}
 	if g.Git != nil && g.Git.DefaultProtocol != "" {

@@ -253,9 +253,19 @@ func ResolveGraph(ctx context.Context, roots []DepSpec, opts GraphOptions) (*Gra
 		conc = DefaultConcurrency
 	}
 
-	// 根声明集合：root wins 的裁决依据
+	// 根声明集合：root wins 的裁决依据。
+	//
+	// 重复 Key 必须在这里拒绝（v0.102）：调用方可能绕过 config.Validate
+	//（测试、库用法、未来其它清单格式），而"最后一条赢"会让同一个依赖
+	// 静默换成另一个 ref。冲突要报出两条声明，不能只报一个 Key。
 	rootSet := make(map[string]DepSpec, len(roots))
 	for _, r := range roots {
+		if prev, ok := rootSet[r.Key()]; ok {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("conflicting root declarations for %s: %s@%s (%s) and %s@%s (%s)",
+					r.Key(), prev.Name, prev.Ref, prev.RefType, r.Name, r.Ref, r.RefType),
+				"remove one of the two root declarations; a dependency may have exactly one declared ref")
+		}
 		rootSet[r.Key()] = r
 	}
 

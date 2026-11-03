@@ -164,6 +164,12 @@ type Report struct {
 	AllowDrift   bool        `json:"allowDrift"`
 	Dependencies []DepResult `json:"dependencies"`
 	Summary      Summary     `json:"summary"`
+	// Notes 是"这份报告怎么来的"的补充说明（v0.102）。
+	//
+	// 第一个使用者是选择性 verify：过滤 lock 时会把 requiredBy 裁剪到子集内，
+	// 被丢掉几条边必须说出来——否则 `--json` 的消费者会把一份裁剪过的图
+	// 当成完整图。人读那侧打印同样的句子。
+	Notes []string `json:"notes,omitempty"`
 }
 
 // ExitCode 依据 observability.md 的退出码契约计算最终退出码。
@@ -229,10 +235,13 @@ func (r *Report) Summarize() {
 	s := Summary{Total: len(r.Dependencies)}
 	for i := range r.Dependencies {
 		d := &r.Dependencies[i]
-		if d.Err != "" {
-			s.Operational++
-			continue
-		}
+		// 先按 driftKind 归类，再单独累加 operational。
+		//
+		// 旧实现（v0.105 之前）在 `d.Err != ""` 时先 continue，于是同一个依赖
+		// 若既"已确证被篡改"又"另有检查没完成"，`critical` 会停在 0，
+		// 而 ExitCode 仍是 2——汇总与退出码自相矛盾。
+		// 两个计数描述的是**不同问题**（内容对不对 / 检查有没有做完），
+		// 允许同一个依赖同时落入两类，因此 Critical + Operational 之和可以大于 Total。
 		switch d.DriftKind {
 		case DriftCritical:
 			s.Critical++
@@ -241,7 +250,12 @@ func (r *Report) Summarize() {
 		case DriftExpected:
 			s.Expected++
 		default:
-			s.OK++
+			if d.Err == "" {
+				s.OK++
+			}
+		}
+		if d.Err != "" {
+			s.Operational++
 		}
 	}
 	s.ExitCode = r.ExitCode()

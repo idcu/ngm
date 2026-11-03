@@ -173,7 +173,7 @@ var surfaceCases = []surfaceCase{
 	{"manifest-schema-version-is-too-new", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 2,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
 				"  \"runtime\": \"node\"\n}\n")
 		return p
 	}, []string{"verify"}, ""},

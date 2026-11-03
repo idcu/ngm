@@ -29,8 +29,25 @@ import (
 // SchemaVersion 是 ngm.json / ngm.lock / ngm.mappings.json 等所有协议文件的
 // 当前 schema 大版本。版本演进规则见 guides/configuration.md 的"schema 版本策略"。
 //
-// 注意：本常量同时也是配置文件中的 "schemaVersion" 字段。当前仅 v1。
+// 注意：本常量同时也是配置文件中的 "schemaVersion" 字段。**写入**仍使用 v1；
+// **读取**同时接受 v1 与 v2（v0.102 起）——v2 目前只增加可选语义，不改变
+// 已有字段的形状，因此旧文件无需迁移，新文件也不会被旧读取器误判为损坏。
+//
+// 为什么默认写入仍是 v1：v2 尚未定义任何 v1 无法表达的必填字段；让 init/add
+// 写 v2 会把"读取向后兼容"变成又一次无收益的格式变更。
 const SchemaVersion = 1
+
+// MaxSchemaVersion 是当前读取器能接受的最高项目清单 schema 版本。
+//
+// 接受区间是 [1, MaxSchemaVersion]；0（字段缺失）按 SchemaVersion 处理。
+const MaxSchemaVersion = 2
+
+// SupportedSchemaVersion 报告某个 schemaVersion 是否可被本构建读取。
+//
+// 0 表示文件没写这个字段：按 SchemaVersion 处理，因此也算支持。
+func SupportedSchemaVersion(v int) bool {
+	return v == 0 || (v >= 1 && v <= MaxSchemaVersion)
+}
 
 // FileName 是项目清单的文件名（用户可编辑，必须提交进 Git）。
 //

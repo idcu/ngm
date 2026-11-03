@@ -28,10 +28,11 @@ FLAGS:
   --all       expand every entry, lifting the default budget (see below)
 
 HOW IT WORKS:
-  ngm.lock is a flat list and carries no topology, so "who pulled in whom"
-  only exists while resolving. tree rebuilds the graph from ngm.json by
-  reading each dependency's manifest from the local mirror - with a warm
-  mirror this needs no network at all.
+  Since v0.73 ngm.lock carries the direct dependency graph in its requiredBy
+  fields. tree reads that graph when it is complete: no mirror, no re-resolution
+  and no network. A lock written by an older ngm (no graph) falls back to reading
+  each dependency's manifest from the local mirror, and the report says which
+  source it used ("ngm.lock" or "ngm.json").
 
   The tree is expanded PER PATH, so the same dependency appears once for every
   route that reaches it - and the entry count can be EXPONENTIAL in a wide graph
@@ -97,23 +98,72 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
-	// 重建依赖图：tree 要的是"谁引入了谁"，lock 里没有这个信息
+	// 图来源：lock 有完整 requiredBy 就直接用（v0.102）。
 	//
-	// `--offline` 必须**穿进图解析**：解析要读上游 manifest，而离线时它只能来自
-	// 本地 mirror。不穿它的后果实测过（v0.21）：解析仍会发起取数意图，权限层于是
-	// 把它判成"权限被拒"（exit 3）——而 tree 自己的 EXIT CODES 承诺的是 4
-	// （"Git or network failure，含 --offline 且冷 mirror"）。
-	// 于是 `ngm tree --offline` 在最该用它的场景（CI 里禁网）反而退了错的码。
-	opts := env.GraphOptions()
-	if *offline {
-		opts.EnsureMirror = offlineEnsureMirror(env)
-	}
-	g, err := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
-	}
-	for _, w := range g.Warnings {
-		fmt.Fprintf(stderr, "warning: %s\n", w)
+	// 为什么不再无条件重解析：lock 自 v0.73 已带图，重新解析要读 mirror 里
+	// 每个上游的 ngm.json——冷 mirror 下 `tree --offline` 会失败，而它本该
+	// 只要 lock 就能回答"谁引入了谁"。旧 lock（没有图）才回退，并且回退
+	// 必须写进报告：读者要知道这份树的形状来自哪份事实源。
+	source := observability.TreeSourceResolved
+	g := (*resolve.Graph)(nil)
+	var treeNotes []string
+	if lf.HasGraph() {
+		g = observability.GraphFromLock(lf)
+		source = observability.TreeSourceLock
+		// 图来自 lock，但 *漂移* 仍要看当前 ref 指向哪里。这里只读本地 mirror
+		//（不 fetch、不 ls-remote）：树是只读视图，不该为了画 ⚠ 去改 mirror。
+		// 读不到的节点保持 lock 里的 commit（不画漂移），并在报告里说明。
+		unresolved := 0
+		firstErr := ""
+		for _, n := range g.Nodes {
+			repo, perr := resolve.ParseSlug(n.Name)
+			if perr != nil {
+				unresolved++
+				if firstErr == "" {
+					firstErr = perr.Error()
+				}
+				continue
+			}
+			cur, rerr := resolve.ResolveRef(ctx, repo, n.Ref, n.RefType, resolve.ResolveOptions{
+				MirrorDir: env.Layout.MirrorRoot(),
+				Protocol:  env.Protocol,
+				Secrets:   env.GitOpts.Secrets,
+				Policy:    env.GitOpts.Policy,
+			})
+			if rerr != nil {
+				unresolved++
+				if firstErr == "" {
+					firstErr = rerr.Error()
+				}
+				continue
+			}
+			if cur != "" {
+				n.Commit = cur
+			}
+		}
+		if unresolved > 0 {
+			treeNotes = append(treeNotes, fmt.Sprintf(
+				"drift was not checked for %d dependency(ies): the local mirror is incomplete (%s)",
+				unresolved, firstErr))
+		}
+	} else {
+		// `--offline` 必须**穿进图解析**：解析要读上游 manifest，而离线时它只能来自
+		// 本地 mirror。不穿它的后果实测过（v0.21）：解析仍会发起取数意图，权限层于是
+		// 把它判成"权限被拒"（exit 3）——而 tree 自己的 EXIT CODES 承诺的是 4
+		// （"Git or network failure，含 --offline 且冷 mirror"）。
+		// 于是 `ngm tree --offline` 在最该用它的场景（CI 里禁网）反而退了错的码。
+		opts := env.GraphOptions()
+		if *offline {
+			opts.EnsureMirror = offlineEnsureMirror(env)
+		}
+		var rerr error
+		g, rerr = resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
+		if rerr != nil {
+			return runErr(ctx, stdout, stderr, rerr)
+		}
+		for _, w := range g.Warnings {
+			fmt.Fprintf(stderr, "warning: %s\n", w)
+		}
 	}
 
 	// 展开默认有预算（见 MaxTreeEntries 与 ADR-024）：树是**按路径展开**的，
@@ -126,6 +176,8 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	entries, truncated := observability.BuildTree(g, lf, limit)
 	rep := &observability.TreeReport{
 		Project:          projectLabel(pf),
+		Source:           source,
+		Notes:            treeNotes,
 		Entries:          entries,
 		Dependencies:     g.Len(),
 		Drifted:          observability.CountDrifted(entries),

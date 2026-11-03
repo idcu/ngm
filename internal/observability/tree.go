@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
@@ -44,9 +45,24 @@ type TreeEntry struct {
 	Children []*TreeEntry       `json:"children,omitempty"`
 }
 
+// 图来源（TreeReport.Source）。它们是**对外可见的读数**：读者据此判断
+// "这份树是 lock 的事实，还是重新解析的结果"。
+const (
+	TreeSourceLock = "ngm.lock"
+	// 值仍是 `ngm.json`（config.FileName），写成引用而不是字面量：
+	// 这份来源标识与项目清单文件名是同一个事实，且避免被
+	// "schema 文件派生"判据误认为本文件在定义配置文件 schema。
+	TreeSourceResolved = config.FileName
+)
+
 // TreeReport 是 `ngm tree` 的报告。
 type TreeReport struct {
 	Project string `json:"project"`
+	// Source 是本次树的图来源：ngm.lock（requiredBy 完整）或 ngm.json（旧 lock 回退解析）。
+	Source string `json:"source"`
+	// Notes 是"这份树哪里没查成"的补充说明（例如本地 mirror 读取失败，
+	// 于是漂移无法比对）。它不改变树的结构，只是拒绝静默省略。
+	Notes []string `json:"notes,omitempty"`
 	// Dependencies 是图里的**节点总数**——它来自解析结果，不受展开预算影响。
 	//
 	// 注意它与 Entries 的区别：Entries 是展开后的**条目**（同一个节点会被
@@ -101,11 +117,11 @@ func (b *treeBudget) take() bool {
 	return true
 }
 
-// BuildTree 从已解析的依赖图构造树。
+// BuildTree 从已解析（或从 lock 重建）的依赖图构造树。
 //
-// 为什么必须重建图而不是读 lock：lock 里没有拓扑（它是扁平列表），
-// 而"谁引入了谁"只在解析过程中存在。因此 tree / why 都走 ResolveGraph，
-// 读取的是 mirror 里各依赖的 ngm.json——mirror 已就绪时**不需要网络**。
+// 为什么可以吃 lock 图：lock 自 v0.73 带 requiredBy（ADR-028），`why` 已经
+// 只读 lock 就能回答来源。tree 在 lock 图完整时同样不需要 mirror；
+// 旧 lock 没有图时才回退到 ResolveGraph，并由调用方在报告里写明来源。
 //
 // 环的处理：依赖图原则上无环，但上游写坏 manifest 时可能出现。
 // 这里沿路径记录已访问节点并停止展开（标记 Cycle），绝不无限递归。
@@ -241,6 +257,14 @@ func (r *TreeReport) Render(w io.Writer) {
 	for _, e := range r.Entries {
 		renderEntry(w, e, "")
 	}
+	if r.Source != "" {
+		// 来源必须可见：旧 lock 的回退解析会读 mirror，读者不该以为
+		// "锁文件里就有这张图"。
+		fmt.Fprintf(w, "\nsource: %s\n", treeSourceLabel(r.Source))
+	}
+	for _, note := range r.Notes {
+		fmt.Fprintf(w, "note: %s\n", note)
+	}
 	if r.EntriesTruncated {
 		// 截断必须说出来：否则"树到这儿就是全部"会被读成事实。
 		fmt.Fprintf(w, "\n（展开达到上限 %d，树不完整；用 --all 展开全部）\n", r.EntriesLimit)
@@ -284,6 +308,14 @@ func VulnCount(entries []*TreeEntry) int {
 		n += VulnCount(e.Children)
 	}
 	return n
+}
+
+// treeSourceLabel 把来源常量翻成给人看的一句话。
+func treeSourceLabel(source string) string {
+	if source == TreeSourceLock {
+		return "ngm.lock (requiredBy graph; no re-resolution)"
+	}
+	return config.FileName + " (ngm.lock has no graph; re-resolved from the local mirror)"
 }
 
 func renderEntry(w io.Writer, e *TreeEntry, prefix string) {

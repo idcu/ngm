@@ -184,12 +184,18 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"run `ngm install` to resolve dependencies and create the lock"))
 	}
 
+	var filterNotes []string
 	if names := fs.Args(); len(names) > 0 {
-		filtered, ferr := filterLock(lf, names)
+		filtered, dropped, ferr := filterLock(lf, names)
 		if ferr != nil {
 			return runErr(ctx, stdout, stderr, ferr)
 		}
 		lf = filtered
+		if dropped > 0 {
+			filterNotes = append(filterNotes, fmt.Sprintf(
+				"requiredBy was trimmed to the selected subset: %d edge(s) "+
+					"point outside this verify set and were removed", dropped))
+		}
 	}
 
 	opts := verify.Options{
@@ -217,6 +223,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if verr != nil {
 		return runErr(ctx, stdout, stderr, verr)
 	}
+	rep.Notes = append(rep.Notes, filterNotes...)
 
 	// 三种渲染共享同一份判定（`rep` 与 `rep.Summary.ExitCode`），差别只在字节上。
 	// 这也是"判定与渲染分离"的可测形态：三个出口的退出码必然相同。
@@ -258,6 +265,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	for i := range rep.Dependencies {
 		renderVerifyDep(stdout, &rep.Dependencies[i])
+	}
+	for _, note := range rep.Notes {
+		fmt.Fprintf(stdout, "note: %s\n", note)
 	}
 	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline))
 	return finishVerify(ctx, env, pf, lf,
@@ -427,12 +437,21 @@ func verifySummaryLine(rep verify.Report, offline bool) string {
 // 用于 `ngm verify <dep>...`：CI 可以只对变更的依赖做门禁。
 // 未在 lock 中出现的名字按配置错误处理（exit 3）——静默忽略会让
 // "我验过了"变成假象。只给仓库名且它对应多个子路径时，报歧义而不是全选。
-func filterLock(lf *lock.File, names []string) (*lock.File, error) {
+//
+// 返回的 int 是被裁掉的 requiredBy 边数（v0.102）。
+//
+// 为什么裁剪而不是"跳过边校验"：过滤后的 lock 仍要通过 lock.Validate，
+// 而它的幽灵边判据要求每个 requiredBy 都指向本 lock 里的条目。跳过校验
+// 等于让一份**损坏的**子集也能通过；裁剪则是把"这份子集真实的图"写出来。
+// 被裁掉的边（父节点不在子集内）无法在子集内表达，于是它们被移除，
+// 数量由调用方写进报告——"少了什么"必须可见。
+func filterLock(lf *lock.File, names []string) (*lock.File, int, error) {
 	out := lock.NewFile()
+	selected := map[string]bool{}
 	for _, name := range names {
 		target, err := resolve.ParseTarget(name)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		var matches []lock.Dependency
@@ -453,7 +472,7 @@ func filterLock(lf *lock.File, names []string) (*lock.File, error) {
 
 		switch {
 		case len(matches) == 0:
-			return nil, errs.New(
+			return nil, 0, errs.New(
 				errs.CodeConfigInvalid,
 				fmt.Sprintf("dependency %q is not present in ngm.lock", name),
 				"run `ngm install` first, or omit the argument to verify every dependency")
@@ -462,13 +481,34 @@ func filterLock(lf *lock.File, names []string) (*lock.File, error) {
 			for _, d := range matches {
 				keys = append(keys, d.Key())
 			}
-			return nil, errs.New(
+			return nil, 0, errs.New(
 				errs.CodeConfigInvalid,
 				fmt.Sprintf("%s is ambiguous: %v", name, keys),
 				fmt.Sprintf("pass the full target, e.g. %q", target.Repo.Slug()+"#path="+matches[0].SubPath))
 		default:
-			out.Dependencies = append(out.Dependencies, matches...)
+			for _, d := range matches {
+				if selected[d.Key()] {
+					continue // 同一个 dep 被重复点名：去重，避免 lock 出现重复条目
+				}
+				selected[d.Key()] = true
+				out.Dependencies = append(out.Dependencies, d)
+			}
 		}
 	}
-	return out, nil
+
+	dropped := 0
+	for i := range out.Dependencies {
+		d := &out.Dependencies[i]
+		kept := make([]string, 0, len(d.RequiredBy))
+		for _, from := range d.RequiredBy {
+			// `(root)` 永远保留：它表示这份子集里的条目仍由项目根声明。
+			if from == lock.RootRequirer || selected[from] {
+				kept = append(kept, from)
+				continue
+			}
+			dropped++
+		}
+		d.RequiredBy = kept
+	}
+	return out, dropped, nil
 }
