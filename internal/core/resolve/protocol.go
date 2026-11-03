@@ -5,7 +5,8 @@ import "strings"
 // Protocol 是访问远端 Git 仓库时使用的传输协议。
 //
 // 默认值来自全局配置 `~/.ngm/config.json` 的 `git.defaultProtocol`（见
-// guides/configuration.md）；缺省为 ssh。
+// guides/configuration.md）；缺省为 ssh——这与内置 BuiltinDefaults.GitProtocol
+// 和 `ngm config show` 的读数保持一致（v0.102 统一）。
 type Protocol string
 
 const (

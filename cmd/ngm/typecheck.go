@@ -26,9 +26,14 @@ FLAGS:
   --dir=<dir>         project directory (default: .)
 
 NOTE:
-  This build adapts no type-checking engine. esbuild is NOT a substitute —
-  it strips type annotations without checking them, so ` + "`ngm build`" + ` passing
-  says nothing about types. Declare a real checker in ngm.engines.json:
+  The built-in catalog adapts "typescript" for type checking (optional):
+  it runs "tsc" and requires the "run:tsc" permission in ~/.ngm/config.json.
+  Declare it in ngm.json ("typeCheck": "typescript") or pass
+  --engine=typescript. If it is declared but not installed, the exit code is 5.
+  esbuild is NOT a substitute — it strips type annotations without checking them,
+  so ` + "`ngm build`" + ` passing says nothing about types.
+
+  A custom checker can still be declared in ngm.engines.json:
 
     {"version": 1, "engines": [
       {"name": "typescript", "kind": "typeCheck", "adapter": "subprocess",

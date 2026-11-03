@@ -95,6 +95,8 @@ archiveDigest: sha256:<digest>
 github.com:my-org/app
 github:snap/parent@v1 (tag) → <sha>
 │   github:snap/leaf@v1 (tag) → <sha>
+
+source: ngm.lock (requiredBy graph; no re-resolution)
 vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)
 ```
 
@@ -306,6 +308,11 @@ $ ngm verify
 
 verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 ```
+
+> `tree` 在 v0.102 起会在输出末尾写一行 `source: ngm.lock (requiredBy graph; no re-resolution)`
+>（旧 lock 回退解析时写 `source: ngm.json (…re-resolved from the local mirror)`）。
+> 若本地 mirror 不足以比对漂移，还会写一行 `note: drift was not checked for N dependency(ies): …`，
+> 而不是静默把"没查"读成"没漂移"。
 
 细节：
 

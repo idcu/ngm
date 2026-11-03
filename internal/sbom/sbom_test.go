@@ -193,11 +193,11 @@ func TestV69CycloneDXCarriesHashesAndPurls(t *testing.T) {
 		if len(c.Hashes) != 1 || c.Hashes[0].Alg != "SHA-256" || c.Hashes[0].Content != testHex {
 			t.Errorf("%s：哈希段不对: %+v（SBOM 的价值就在这一行）", c.Name, c.Hashes)
 		}
-		if !strings.HasPrefix(c.Purl, "pkg:git/") || !strings.Contains(c.Purl, "@"+testCommit) {
+		if !strings.HasPrefix(c.Purl, "pkg:github/") || !strings.Contains(c.Purl, "@"+testCommit) {
 			t.Errorf("%s：purl 形态不对: %q", c.Name, c.Purl)
 		}
-		if c.BomRef != c.Purl {
-			t.Errorf("%s：bom-ref 应当就是 purl（可解析、唯一）", c.Name)
+		if !strings.HasPrefix(c.BomRef, "pkg:git/") || c.BomRef == c.Purl {
+			t.Errorf("%s：bom-ref 应保留稳定的旧形态且与 purl 分开: %q", c.Name, c.BomRef)
 		}
 		if c.Version != testCommit {
 			t.Errorf("%s：version 应当是 commit（内容锚点），got %q", c.Name, c.Version)
@@ -295,7 +295,7 @@ func TestV69SPDXCarriesHashesPurlsAndNoAssertion(t *testing.T) {
 		}
 		var hasPurl bool
 		for _, r := range p.ExternalRefs {
-			if r.ReferenceType == "purl" && strings.HasPrefix(r.ReferenceLocator, "pkg:git/") {
+			if r.ReferenceType == "purl" && strings.HasPrefix(r.ReferenceLocator, "pkg:github/") {
 				hasPurl = true
 			}
 		}

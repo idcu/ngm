@@ -209,7 +209,7 @@ ngm build --engine=esbuild
 ```json
 {
   "version": 1,
-  "lockfileVersion": "1.0.0",
+  "lockfileVersion": "2.0.0",
   "dependencies": [
     {
       "name": "github:my-org/utils",
@@ -218,7 +218,8 @@ ngm build --engine=esbuild
       "commit": "abc123def4567890abcdef1234567890abcdef12",
       "archiveDigest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
       "resolvedAt": "2026-09-29T10:00:00Z",
-      "vendorPath": "github.com/my-org/utils"
+      "vendorPath": "github.com/my-org/utils",
+      "requiredBy": ["(root)"]
     }
   ]
 }

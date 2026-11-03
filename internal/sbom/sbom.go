@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -106,25 +107,59 @@ func (e Entry) Key() string {
 	return e.Slug
 }
 
-// Puri 返回该依赖的 purl（purl-spec 的 git 类型）。
+// Puri 返回该依赖的 purl（purl-spec 的包类型，按 host 分流）。
 //
-// 形如 `pkg:git/github.com/x/dep@<commit>`；带子路径时在其后加 `#<subPath>`
-// （purl 的 subpath 段）——与 lock 的口径一致：子路径是**同一个包的不同切片**。
+// v0.102 起不再一律使用 `pkg:git`：主流 SBOM 工具认识的是
+// `pkg:github/<owner>/<repo>`、`pkg:gitlab/...`、`pkg:gitee/...`；
+// 自建 host 没有注册类型，使用 `pkg:generic` 并带 `vcs_url` 限定符。
+// 形状：`pkg:<type>/<namespace>/<name>@<commit>[?vcs_url=...][#<subPath>]`。
+//
+// `bom-ref` **不跟着变**：见 BomRef。
 func (e Entry) Purl() string {
-	p := "pkg:git/" + e.Canonical + "@" + e.Commit
+	host, path := e.hostAndPath()
+	var p string
+	switch host {
+	case "github.com":
+		p = "pkg:github/" + path + "@" + e.Commit
+	case "gitlab.com":
+		p = "pkg:gitlab/" + path + "@" + e.Commit
+	case "gitee.com":
+		p = "pkg:gitee/" + path + "@" + e.Commit
+	default:
+		// generic 的 namespace/name 仍保留 host/path，vcs_url 是权威来源。
+		p = "pkg:generic/" + host + "/" + path + "@" + e.Commit +
+			"?vcs_url=" + url.QueryEscape("git+"+e.VCSURL())
+	}
 	if e.SubPath != "" {
-		// v0.82：subpath 段按 purl 规则百分号编码。
-		//
-		// subPath 是**上游可控**的字符串（它来自依赖自己的 ngm.json）。
-		// 一个含空格、`?`、`#`、`%` 的子路径会让 purl 语法失效——
-		// 而 purl 是 SBOM 与 attestation 共同的**引用键**：它一旦不合法，
-		// CycloneDX 的 bom-ref 与 SPDX 的引用就无法被工具解析。
-		// 空格在真实仓库的子目录名里并不罕见。
-		// canonical 与 commit 不需要：前者由 ParseSlug 归一、后者是 40 位 hex
-		// （且 lock.Validate 保证），都不是自由文本。
-		p += "#" + purlSubPath(e.SubPath)
+		p += subPathFragment(e.SubPath)
 	}
 	return p
+}
+
+// BomRef 返回该依赖在 SBOM 文档内的稳定引用键。
+//
+// 为什么与 purl 分开：v0.102 把 purl 改成标准类型后，`bom-ref` 若也换掉，
+// 所有已归档的 SBOM 会失去可比的组件 ID。这里保留 v0.82 起的旧形态
+// `pkg:git/<canonical>@<commit>[#sub]`——它是文档内的标识，不负责对外解析。
+func (e Entry) BomRef() string {
+	p := "pkg:git/" + e.Canonical + "@" + e.Commit
+	if e.SubPath != "" {
+		p += subPathFragment(e.SubPath)
+	}
+	return p
+}
+
+func (e Entry) hostAndPath() (host, path string) {
+	canonical := strings.TrimSpace(e.Canonical)
+	if i := strings.IndexByte(canonical, '/'); i >= 0 {
+		return canonical[:i], canonical[i+1:]
+	}
+	return canonical, ""
+}
+
+// subPathFragment 渲染 purl 的 subpath 段（含前导 `#`）。
+func subPathFragment(sub string) string {
+	return "#" + purlSubPath(sub)
 }
 
 // purlSubPath 编码 purl 的 subpath 段：段内百分号编码，`/` 作为分隔符保留。

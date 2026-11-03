@@ -20,7 +20,7 @@ ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `
 - [退出码](#退出码)
 - [配置文件](#配置文件)
 - [CI 与自动化](#ci-与自动化)
-- [局限与已知问题](#局限与已知问题)
+- [已知问题与限制](#已知问题与限制)
 - [开发与测试](#开发与测试)
 - [相关文档](#相关文档)
 
@@ -98,6 +98,13 @@ ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `
 
 根依赖写 `archiveDigest`；带 `path` 的模块依赖写 `moduleDigest` + `subtreeOid`（`<commit>:<subPath>` 的 Git tree 对象 ID，支持 sha1 / sha256）。两者互斥，见 [ADR-032](docs/adr/adr-032-scoped-content-proof.md)。
 
+### ngm.json 的 schemaVersion
+
+`ngm init` / `ngm add` 写出的 `schemaVersion` 是 **1**；读取器（`config validate`、`install`、
+`modules validate` 等全链路）接受 **1..2**。v2 目前只增加可选语义，不改变已有字段形状，
+因此旧项目无需迁移，ngm-repo 这类生产方也可以继续使用 v2 清单。超出范围的版本（如 3）
+会以 exit 3 拒绝并写出支持区间。
+
 ### ngm.lock（lock v2）
 
 `ngm.lock` 是唯一事实源，必须提交。顶层结构：
@@ -124,6 +131,11 @@ ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `
 | `unexpected` | tag 被移动、分支历史被改写 | 1 | 0 | 1 |
 | `critical` | digest 重放不匹配、落地字节被篡改 | 2 | **仍为 2** | 2 |
 
+资源缺失（未安装、冷 mirror、content store 缺条目）**不产生 `driftKind`**：该依赖被标为
+`operational`，报告里的 `summary.operational` 加一，退出码为 **4**。只有「比对得出不同」
+才是 `critical`。`verify --json` 的 `summary` 会同时统计这两类，因此
+`critical + operational` 可能大于 `total`。
+
 退出码优先级：**2（已确证篡改）压过 4（没查成）**。这是 ADR-039 的结论：把「已证明被篡改」当成「资源缺失、可重试」会让 CI 重试而不阻断。
 
 ### 离线重放
@@ -135,7 +147,7 @@ ngm install --frozen-lockfile --offline   # 只落地 lock 已钉住的内容
 ngm verify --offline                      # 只比对本地快照，结果标记为 stale
 ```
 
-`--offline` 禁止一切网络访问；缺 lock、缺 mirror、缺对象都会失败（按设计应为 exit 4）。`--deep` 还会逐文件比对字节；不带 `--deep` 时只比结构与大小，**等长字节篡改检不出来**（hardlink 下 vendor 与 blob 可能共享 inode）。
+`--offline` 禁止一切网络访问；缺 lock、缺 mirror、缺对象都会失败（exit 4）。`--deep` 还会逐文件比对字节；不带 `--deep` 时只比结构与大小，**等长字节篡改检不出来**（hardlink 下 vendor 与 blob 可能共享 inode）。
 
 ### 四层磁盘布局
 
@@ -169,7 +181,10 @@ ngm verify --offline                      # 只比对本地快照，结果标记
 | `ngm sbom` | CycloneDX 1.5 或 SPDX 2.3 JSON | 只读 `ngm.lock`；每个依赖带 commit、内容 digest 与 purl；SPDX 的许可证写 `NOASSERTION`（不猜） |
 | `ngm attest` | in-toto Statement v1，谓词为 SLSA provenance v1 | subject 是依赖的 git purl + 内容摘要；inputs 是 `ngm.json` / `ngm.lock` 的字节 sha256；materials 是 commit + 声明的 ref；**无时间戳、无随机 ID**，同一 lock 产出相同字节 |
 
-两者的 purl 目前是 `pkg:git/<host>/<path>@<commit>`；这是项目自定义的 purl 类型，下游解析器未必认识（见[已知问题](#局限与已知问题)）。attestation **不签名**，也**不覆盖依赖图**（图看 SBOM）。
+两者的 purl 按 host 分流：`pkg:github/<owner>/<repo>`、`pkg:gitlab/...`、`pkg:gitee/...`；
+自建 host 使用 `pkg:generic/<host>/<path>?vcs_url=...`。CycloneDX 的 `bom-ref` 仍保留
+稳定的旧形态 `pkg:git/<canonical>@<commit>`，与可对外解析的 purl 分开。
+attestation **不签名**，也**不覆盖依赖图**（图看 SBOM）。
 
 ### 权限与沙箱
 
@@ -381,9 +396,9 @@ ngm attest --out=provenance.intoto.json
 | `verify` | `ngm verify [<dep>...] [--offline] [--deep] [--strict] [--allow-drift] [--json] [--format=sarif\|github] [--sandbox] [--signatures] [--require-signed]` | 0, 1, 2, 3, 4, 5, 6 |
 | `audit` | `ngm audit [<dep>...] [--offline] [--no-cache] [--json] [--hook=]`，按 commit 查 OSV.dev，缓存 24h | 0, 1, 3, 4, 5, 6 |
 | `why` | `ngm why <dep> [--json] [--all]`；默认最多 64 条路径，截断会明说 | 0, 3, 6 |
-| `tree` | `ngm tree [--osv] [--offline] [--json] [--all]`；默认最多 4096 条，`✗` 标记漏洞 | 0, 1, 3, 4, 6 |
+| `tree` | `ngm tree [--osv] [--offline] [--json] [--all]`；优先读 lock 的 `requiredBy` 图，旧 lock 回退解析并标注来源；默认最多 4096 条 | 0, 1, 3, 4, 6 |
 | `outdated` | `ngm outdated [--offline] [--json]`；查不到报 `unknown`，不冒充「最新」 | 0, 3, 6 |
-| `typecheck` | `ngm typecheck [<entry>] [--engine=] [--tsconfig=] [--dry-run]` | 0, 1, 3, 5, 6 |
+| `typecheck` | `ngm typecheck [<entry>] [--engine=] [--tsconfig=] [--dry-run]`；内置 `typescript` 适配器为 optional，需要 `run:tsc` | 0, 1, 3, 5, 6 |
 | `typedecl` | `ngm typedecl [<entry>] --outdir=<dir> [--engine=] [--dry-run]`，`--outdir` 必填 | 0, 1, 3, 5 |
 | `build` | `ngm build [<entry>] [--engine=] [--outfile=] [--production] [--dry-run]` | 0, 1, 3, 5, 6 |
 | `transform` | `ngm transform [<file>] [--engine=] [--loader=] [--target=] [--format=] [--minify] [--sourcemap]`；默认 stdin → stdout | 0, 1, 3, 5, 6 |
@@ -513,7 +528,8 @@ ngm attest --out=provenance.intoto.json
 }
 ```
 
-注意：内置默认 `GitProtocol` 显示为 `ssh`，但 `newProjectEnv` 在**没有任何全局配置**时以 HTTPS 起步；两者不一致是已知问题（见下节）。需要确定性时请在 `~/.ngm/config.json` 显式写 `git.defaultProtocol`。
+默认 Git 协议是 **ssh**：内置默认、`ngm config show` 与实际解析现在一致。需要 HTTPS 时在
+`~/.ngm/config.json` 显式写 `"defaultProtocol": "https"`。
 
 ---
 
@@ -561,70 +577,28 @@ ngm verify --format=sarif > ngm.sarif
 
 ---
 
-## 局限与已知问题
+## 已知问题与限制
 
-以下均为源码与可复现实验确认的问题，不是规划清单。
+### 仍然存在
 
-### 高优先级
-
-1. **选择性 `ngm verify <dep>` 会对传递依赖报幽灵边。**
-   `filterLock` 保留完整 `requiredBy`，而 `lock.Validate` 拒绝父节点不在子集里的边。复现：一份含 `lib → dep` 的 lock 上执行 `ngm verify github:acme/dep --offline`，得到 exit 3 `requiredBy references github:acme/lib, which is not in this lock (a ghost edge)`；不带参数的同一次 verify 则正常执行。依据：[verify.go](cmd/ngm/verify.go#L430-L474)、[schema.go](internal/core/lock/schema.go#L221-L239)。修法：过滤时裁掉或清空 `RequiredBy`，或给 `Run` 跳过边校验的选项。
-
-2. **冷 mirror + 未落地的项目，`verify --offline` 退 2 而不是帮助承诺的 4。**
-   ref/digest 因缺 mirror 被标记为操作性失败，但 `checkLanding` 把「vendor 路径不存在」直接记为 `critical`，最终 `ExitCode` 走 2。复现：仅有 lock、无 mirror、无 vendor 的项目上执行 `ngm verify --offline`，输出 2 个 incomplete、`driftKind: critical`、exit 2。依据：[verify.go](internal/core/verify/verify.go#L404-L424)、[verify.go](internal/core/verify/verify.go#L808-L810)、[report.go](internal/core/verify/report.go#L192-L223)。修法：区分「从未安装」与「安装后被篡改」，让 landing 在缺 mirror/未落地时保持 operational。
-
-3. **`verify --json` 的 `summary` 与 `exitCode` 可能自相矛盾。**
-   `Summarize` 在 `d.Err != ""` 时先 `continue`，不再统计 `DriftKind`；于是同一份报告可能出现 `critical: 0` 而 `exitCode: 2`。依据：[report.go](internal/core/verify/report.go#L228-L248)。修法：先计数 driftKind，再单独累加 operational。
-
-4. **重复的根声明被接受，并静默「最后一条赢」。**
-   `ProjectFile.Validate` 不检查同一 `(name, path)` 是否重复；解析阶段 `rootSet` 按顺序覆盖。复现：同一 `github:demo/lib` 以 `v1.0.0` 与 `v2.0.0` 各声明一次，`ngm config validate` 输出 `ngm.json OK`（exit 0）。依据：[validate.go](internal/config/validate.go#L72-L76)、[graph.go](internal/core/resolve/graph.go#L257-L259)。修法：配置校验拒绝重复根声明，或解析时报冲突并列出两条声明。
-
-5. **`ngm modules validate` 不校验模块清单的 `schemaVersion`，与 `config validate` 结论相反。**
-   扫描模块时只读 `name` / `version` / `publish`。实测：`d:\repos\mine\ngm-repo` 的 15 个模块清单写 `schemaVersion: 2`，`ngm modules validate --strict` 报 `OK: 15 module(s)`，而 `ngm config validate --dir=packages/format/zip` 报 `schemaVersion 2 not supported; this build supports v1`（exit 3）。依据：[modules.go](cmd/ngm/modules.go#L1049-L1053)、[config.go](internal/config/config.go#L33)、[validate.go](internal/config/validate.go#L45-L50)。修法：`modules validate` 复用 `ProjectFile.Validate`，或统一两边的 schemaVersion。
-
-### 中优先级
-
-6. **`tree` 的帮助与实现都已过时。**
-   帮助仍写「ngm.lock 是扁平列表，没有拓扑」，但 v0.73 起 lock 带 `requiredBy`，`why` 已用 `GraphFromLock`；`tree` 仍从 `ngm.json` 重新解析，冷 mirror 下更容易失败。依据：[tree.go](cmd/ngm/tree.go#L30-L34)、[tree.go](cmd/ngm/tree.go#L100-L111)、[why.go](cmd/ngm/why.go#L101-L107)。修法：像 `why` 一样优先 lock 图，旧 lock 再回退解析，并在报告里说明来源。
-
-7. **`typecheck` 的帮助说「没有类型检查引擎」，但内置清单已有 `typescript`。**
-   实测 `ngm engines list` 列出 `typescript / typeCheck / tsc`，状态为 ok。依据：[typecheck.go](cmd/ngm/typecheck.go#L28-L33)、[catalog.go](internal/adapter/catalog.go#L207-L217)。修法：帮助改为说明 `typescript` 是 optional、需要 `run:tsc`。
-
-8. **默认 Git 协议声明与实际行为不一致。**
-   内置 `GitProtocol` 是 `ssh`，`ngm config show` 也显示 `ssh`；但 `newProjectEnv` 的初始值是 HTTPS，只有全局配置显式写了才采用配置值。没有任何全局配置的用户会看到 `ssh`、实际走 HTTPS。依据：[config.go](internal/config/config.go#L221-L230)、[env.go](cmd/ngm/env.go#L79-L93)、[protocol.go](internal/core/resolve/protocol.go#L7-L8)。
-
-9. **SBOM / attestation 使用非标准 `pkg:git` purl。**
-   `Entry.Purl()` 生成 `pkg:git/<host>/<path>@<commit>`；主流 purl 类型是 `github` / `gitlab` / `generic` 等，下游解析器可能无法识别。依据：[sbom.go](internal/sbom/sbom.go#L109-L127)。修法：按 host 分流，或使用 `pkg:generic/...?vcs_url=git+<url>@<commit>`；保留 `bom-ref` 作为稳定 ID。
-
-10. **发布链路不完整。**
-    101 个 tag 中，GitHub release 与 Gitee 附件都远未覆盖；文档中的安装地址停留在早期版本。下游 `ngm-repo` 的 `.ngm-version` 固定为 `0.102.0-dev.1`，但没有任何可下载的对应产物，其 CI 的 `ngm-validate` job 只有配置了 `NGM_BIN_URL` / `NGM_BIN_SHA256` 才会运行，因此该仓库的 `ngm modules validate --strict` 实际上默认被跳过。依据：ngm-repo 的 `.github/workflows/ci.yml`（`ngm-validate` job）、`d:\repos\mine\ngm-repo\.ngm-version`、[installation.md](docs/guides/installation.md)（“安装方式”一节）。修法：为每个 tag 自动发布资产，或允许按 `.ngm-version` 从源码构建。
-
-11. **文档与实现存在多处漂移。**
-    - `docs/guides/quickstart.md` 的 lock 示例仍是 `lockfileVersion: "1.0.0"`，实际写 `2.0.0`。
-    - `docs/guides/cli.md` 称 `--json` 支持 9 个命令，实际为 12 个。
-    - `docs/guides/installation.md` 写 Go ≥ 1.22，而 `go.mod` 声明 `go 1.25.0`。
-    - `action.yml` 的 `exit-code` 描述列出 `0/1/2/3/4/6`，漏了 `5`（`--sandbox` 缺 Deno）。
-
-### 低优先级 / 边界硬化
-
-| 问题 | 依据 | 建议 |
-|---|---|---|
-| `cat-file --batch` 无对象大小上限 | [catfile.go](internal/core/git/catfile.go#L130-L136) | 加上限，超限报错 |
-| `ContentStore.Has` 只查清单，不验 blob 存在 | [content.go](internal/core/vendor/content.go#L120-L135) | 增加 blob 存在性检查 |
-| `css` 的 `--outfile` 不校验产物存在 | [subprocess.go](internal/adapter/subprocess.go#L257-L277) | 与 `bundle` 一样 `os.Stat` |
-| `transform` 的 stdin `io.ReadAll` 无上限 | [transform.go](cmd/ngm/transform.go#L171-L183) | 使用 `io.LimitReader` |
-| 漏洞严重度摘要被 `sort.Strings` 打乱顺序 | [report.go](internal/supplychain/report.go#L114-L130) | 按固定严重度顺序输出 |
-| `ReadFileAtCommit` 把路径当 pathspec | [blob.go](internal/core/git/blob.go#L28) | 用 `--literal-pathspecs` 或先 `ls-tree` 精确匹配 |
-| `integrations` 临时文件名可能与用户文件冲突 | [scaffold.go](internal/integrations/scaffold.go#L264) | 用 `CreateTemp` |
-| `modules index` 可能移动当前分支（目标分支等于当前分支） | [modules.go](cmd/ngm/modules.go#L804-L937) | 检测并拒绝 |
-| `collectSource` 解析 remote 失败时静默省略 | [modules.go](cmd/ngm/modules.go#L790-L795) | 输出 warning |
+1. **发布链路不完整。**
+   101 个 tag 中，GitHub release 与 Gitee 附件都远未覆盖；文档中的安装地址停留在早期版本。
+   下游 `ngm-repo` 的 `.ngm-version` 固定为 `0.102.0-dev.1`，但没有任何可下载的对应产物，
+   因此其 CI 的 `ngm-validate` job 默认需要在本地构建二进制（见 ngm-repo 的 workflow）。
+   依据：ngm-repo 的 `.github/workflows/ci.yml`、`d:\repos\mine\ngm-repo\.ngm-version`、
+   [installation.md](docs/guides/installation.md)。
 
 ### 设计性限制（不是缺陷）
 
-- 只解析 npm `package-lock.json`（v2/v3）；`adopt` 不解析 pnpm-lock.yaml / yarn.lock，会在 `notes` 与 `coverage.unknown` 里明说。
+- 只解析 npm `package-lock.json`（v2/v3）；`adopt` 不解析 pnpm-lock.yaml / yarn.lock，
+  会在 `notes` 与 `coverage.unknown` 里明说。
 - 不支持 registry 包、workspace 依赖、子模块（gitlink）与 LFS 实体内容。
 - `verify` 默认只比结构与大小，字节级保证必须加 `--deep`。
 - 没有按可达性的存储回收；`store prune` 只清残骸，`--orphans` 只清「无清单引用且超过年龄门槛」的 blob。
+
+> v0.102 已修复的缺陷（选择性 verify 的幽灵边、冷 mirror 的退出码、`summary` 与
+> `exitCode` 的矛盾、重复根声明、`tree` 的图来源、`typecheck` 帮助、默认协议、
+> purl 分流，以及 9 项 IO/路径硬化）由 `TestV102*` 端到端回归守护。
 
 ---
 

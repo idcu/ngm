@@ -116,6 +116,9 @@ func TestV95HTTPSFetchEndToEnd(t *testing.T) {
 
 	// ---- 3. 真实 CLI：init → add → update（走 https fetch）----
 	grantNetHost(t, home, "127.0.0.1")
+	// v0.102 起默认协议是 ssh；这条端到端要验的是 https fetch，
+	// 因此必须在隔离 HOME 里显式选择 https（这是用户会做的一次选择，不是后门）。
+	setDefaultProtocol(t, home, "https")
 	proj := t.TempDir()
 	if code, out := runCaptureCode(t, "init", "v95.test/app", "--runtime=node", "--dir="+proj); code != 0 {
 		t.Fatalf("init 失败（exit %d）：\n%s", code, out)
@@ -280,6 +283,31 @@ func waitForBackend(t *testing.T, caPath string) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatal("https 端 10 秒内没有就绪（smart HTTP 没起来？）")
+}
+
+// setDefaultProtocol 把 git.defaultProtocol 写进隔离 HOME 的全局配置（合并，不覆盖）。
+func setDefaultProtocol(t *testing.T, home, proto string) {
+	t.Helper()
+	path := config.GlobalPath(home)
+	cfg := map[string]any{}
+	if raw, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			t.Fatalf("读全局配置失败：%v", err)
+		}
+	}
+	gitCfg, _ := cfg["git"].(map[string]any)
+	if gitCfg == nil {
+		gitCfg = map[string]any{}
+	}
+	gitCfg["defaultProtocol"] = proto
+	cfg["git"] = gitCfg
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // grantNetHost 把 `net:<host>` 追加进隔离 HOME 的全局配置（**合并**，不覆盖）。

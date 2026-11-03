@@ -331,6 +331,9 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 - 同一大版本内只新增可选字段，旧工具应忽略未知字段继续工作
 - 破坏性变更递增大版本，并**同时**提供迁移命令（`ngm lock migrate` 等）；
   v1 → v2（模块级证明）因项目尚无用户而直接废止 v1，**迁移命令仍不存在**——重新生成即可
+- **读取器的当前范围（v0.102）**：`ngm.json` / `ngm.engines.json` / `~/.ngm/config.json`
+  接受 `schemaVersion` 1..2；v2 目前只增加可选语义，不改变已有字段形状。
+  `ngm init` / `ngm add` 写出的仍是 v1——"可读 v2"不等于"默认写 v2"。
 - `archiveDigest`/`moduleDigest` 的清单规范版本与 lockfileVersion 绑定
   （见 [ADR-008](../adr/adr-008-archive-digest.md) / [ADR-032](../adr/adr-032-scoped-content-proof.md)）
 

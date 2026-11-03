@@ -117,7 +117,7 @@ func TestV70StatementShape(t *testing.T) {
 
 	// subject：purl + 清单哈希 + "这个哈希是什么"的注解。
 	for _, s := range doc.Subject {
-		if !strings.HasPrefix(s.Name, "pkg:git/") || !strings.Contains(s.Name, "@"+testCommit) {
+		if !strings.HasPrefix(s.Name, "pkg:") || !strings.Contains(s.Name, "@"+testCommit) {
 			t.Errorf("subject 名不是 purl: %q", s.Name)
 		}
 		if s.Digest["sha256"] != testHex {

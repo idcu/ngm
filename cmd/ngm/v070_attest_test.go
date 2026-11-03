@@ -96,7 +96,7 @@ func TestV70AttestEmitsStatementFromTheLock(t *testing.T) {
 	if doc.Subject[0].Digest["sha256"] != want {
 		t.Errorf("subject 哈希与 lock 不一致: %q != %q", doc.Subject[0].Digest["sha256"], want)
 	}
-	if !strings.HasPrefix(doc.Subject[0].Name, "pkg:git/github.com/x/dep@") {
+	if !strings.HasPrefix(doc.Subject[0].Name, "pkg:github/x/dep@") {
 		t.Errorf("subject 名 = %q", doc.Subject[0].Name)
 	}
 	if len(doc.Predicate.BuildDefinition.ResolvedDependencies) != 1 ||

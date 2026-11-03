@@ -51,7 +51,7 @@
 | 字段 | 值 | 它证明什么 |
 |------|----|-----------|
 | `_type` | `https://in-toto.io/Statement/v1` | in-toto v1 信封（ITE-6 已稳定） |
-| `subject[]` | 每个依赖的 **purl**（`pkg:git/<host>/<path>@<commit>[#<subPath>]`） | 这是什么包、哪个 commit |
+| `subject[]` | 每个依赖的 **purl**（v0.102 起按 host 分流：`pkg:github/…` / `pkg:gitlab/…` / `pkg:gitee/…`；自建 host 用 `pkg:generic/…?vcs_url=…`；带子路径时以 `#<subPath>` 结尾） | 这是什么包、哪个 commit |
 | `subject[].digest.sha256` | `archiveDigest` 的裸 hex | **规范化内容清单**的哈希（ADR-008） |
 | `subject[].annotations["ngm/digest-scope"]` | 一句固定文本 | **这个哈希不是 tarball 的哈希**——整份文档最容易被误读的地方，写在数据里而不是只写在文档里 |
 | `predicate.buildDefinition.buildType` | 指向本 ADR 的 URI | 字段语义的规范出处 |

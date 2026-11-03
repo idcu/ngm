@@ -64,7 +64,7 @@
 | `ngm attest [--out=<file>] [--dir=<dir>]` | 从 `ngm.lock` 导出 **in-toto Statement v1**（谓词 **SLSA provenance v1**）：subject = 每个依赖的 git purl + 内容 digest（根 `archiveDigest` / 模块 `moduleDigest`；注解写明它是**清单**的哈希、不是 tarball 的；模块条目另带 `ngm/subtree-oid` 与 `ngm/module-version`）；输入 = `ngm.json` / `ngm.lock` 的**字节** sha256；materials = 每个依赖的 commit（`gitCommit`）+ 声明的 ref。**未签名**——ngm 不自造签名体系（[ADR-014](../adr/adr-014-self-report-signatures.md)），用你自己的标准工具签（`cosign attest-blob`）。**只读 lock**；语句是**确定性**的（无时间戳、`invocationId` = lock 的哈希），因此可在 CI 里现场生成再签 | **v0.70 已实现** | [ADR-027](../adr/adr-027-attestation.md) · [竞品对比 §6](../COMPETITIVE-ANALYSIS.md) |
 | `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook=<script.js>]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存）；`--hook` 在沙箱里跑团队自己的策略（报告从 stdin 进入，否决 → exit 1）。`--json --hook` 时 hook 的横幅与它自己的 stdout **走 stderr**，stdout 保持是单个 JSON 文档（v0.12 修） | **v0.2 已实现**；`--hook` **v0.3** | [供应链防护](../architecture/supply-chain.md) · [ADR-012](../adr/adr-012-sandbox.md) |
 | `ngm why <dep> [--json] [--all]` | 该依赖的来源路径（有多个父节点时列出多条）。**默认最多枚举 64 条**并写明"还有更多"；`--all` 解除（[ADR-024](../adr/adr-024-bounded-explanations.md)：路径数是指数的，而图形状来自上游清单） | **v0.2 已实现**（上界 **v0.17**） | [可观测性](../architecture/observability.md) |
-| `ngm tree [--osv] [--offline] [--json] [--all]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv`。**默认最多展开 4096 个条目**并写明"树不完整"；`--all` 解除 | **v0.2 已实现**（上界 **v0.17**） | [可观测性](../architecture/observability.md) |
+| `ngm tree [--osv] [--offline] [--json] [--all]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv`。**优先读 `ngm.lock` 的 `requiredBy` 图**（不读 mirror、不重解析）；旧 lock 没有图时才回退解析，并在输出与 `--json` 的 `source` 里标注来源。**默认最多展开 4096 个条目**并写明"树不完整"；`--all` 解除 | **v0.2 已实现**（上界 **v0.17**；lock 图 **v0.102**） | [可观测性](../architecture/observability.md) |
 | `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新"，**并在行下打印原因**（v0.12：原因此前只存在于 `--json` 的 `note` 字段）；`--offline` **不触网**——冷 mirror 时报"没有本地镜像"而不是去 clone（v0.12 修） | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
 | `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
 | `ngm integrations add <tool> [--dry-run] [--json]` | 生成 `vite` / `esbuild` / `deno` / `webpack` 集成配置（**不覆盖已有文件**，冲突 exit 3） | **v0.3 已实现** | [P5 — 外部工具集成](../modules/p5-integrations.md) |
@@ -158,9 +158,11 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。
 - **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
-  支持它的有 **9 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
-  `integrations` / **`install`** / **`update`**（后两个自 v0.66 起——CI 最需要的两个写命令
-  此前恰好没有机器可读输出）。
+  支持它的有 **12 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
+  `integrations` / `install` / `update` / `doctor` / `modules`（`list` / `validate` /
+  `index` / `changed` / `plan` 各自支持）/ `adopt`。后几个是后续版本补上的：
+  `install` / `update` 自 v0.66（CI 最需要的两个写命令），`doctor` / `modules` 自
+  v0.104，`adopt` 自 v0.101。
   各命令的**顶层形状**见下一节。
 
 ---
@@ -172,10 +174,10 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 
 | 命令 | 顶层形状 | 带退出码字段 |
 |------|---------|------------|
-| `ngm verify --json` | 对象：`version` · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` | ✅ `summary.exitCode` |
+| `ngm verify --json` | 对象：`version` · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明） | ✅ `summary.exitCode` |
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
-| `ngm tree --json` | 对象：`project` · `entries` · `drifted` · `dependencies` · `osvChecked`（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
+| `ngm tree --json` | 对象：`project` · `source`（图来源：锁内的 requiredBy 图 / 回退解析，取值就是锁文件名或清单文件名） · `entries` · `drifted` · `dependencies` · `osvChecked` · `notes`（图来源之外没查成的项，例如 mirror 不完整导致漂移未比对）；（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
 | `ngm why <dep> --json` | 对象：`name` · `ref` · `refType` · `commit` · `subPath`（monorepo 子路径，无则省略） · `locked` · `paths` · `rootDeclared` · `source`（图从哪来：读 ngm.lock 时为 lock（未启动 git 子进程）；lock 里没有图、退回重新解析时为 resolved）（截断时另有 `pathsTruncated` · `pathsLimit`） | ✗ |
 | `ngm outdated --json` | 对象：`offline` · `entries` · `dependencies` · `updates` · `stale` | ✗ |
 | `ngm install --json` | 对象：`version` · `command` · `offline` · `dependencies` · `count` · `fromStore`（verifyOnLock 开启时另有 `verification`：`exitCode` · `drifts`——元素键 `name` · `driftKind` · `remediation` · `error`）（`dependencies` 元素键：`name` · `ref` · `refType` · `subPath` · `commit` · `archiveDigest` · `moduleDigest` · `subtreeOid` · `version` · `vendorPath` · `source`——`source` 是 `resolved` / `store` / `fetched` / `module-cache`；模块条目的 `archiveDigest` 为空） | ✗ |

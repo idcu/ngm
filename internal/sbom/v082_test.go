@@ -37,7 +37,7 @@ func TestV82PurlSubPathIsEncoded(t *testing.T) {
 		if !strings.HasSuffix(got, "#"+tc.want) {
 			t.Errorf("Purl() subpath = %q, want %q（%s）", got, tc.want, tc.why)
 		}
-		if !strings.HasPrefix(got, "pkg:git/github.com/org/dep@"+commit) {
+		if !strings.HasPrefix(got, "pkg:github/org/dep@"+commit) {
 			t.Errorf("Purl() = %q：前缀（type/namespace/version）不应被编码影响", got)
 		}
 	}
@@ -58,47 +58,28 @@ func TestV82PurlEncodingIsInjective(t *testing.T) {
 	}
 }
 
-// TestV82PurlMatchesTheRegisteredGitType 把 purl 的形状钉在**规范**上。
+// TestV102PurlUsesHostSpecificTypes 钉住 v0.102 的 purl 分流与 bom-ref 稳定性。
 //
-// v0.82 之前这一条一直挂在"已知未做"里，理由是"未核对 purl-spec"。
-// 现已核对（来源：purl-spec 的 purl-types-index.json 与 types/git 的定义）：
-//
-//   - `git` 是**已注册**的 purl type（与 github / gitlab / bitbucket 并列）；
-//   - 语法 `pkg:git/<namespace>/<name>@<version>?<qualifiers>#<subpath>`；
-//   - namespace **必填** = 源码宿主；name **必填** = 仓库名（含 owner）；
-//   - version 可选，定义写明"理想情况是 commit 或 tag"——ngm 给的正是 commit；
-//   - subpath 受支持（v0.82 起按 RFC 3986 编码）。
-//
-// 唯一需要知道的歧义：规范说 name 是"repository name with owner"（自身含 `/`），
-// 而通用解析器按**最后一段**切分 name。于是
-// `pkg:git/github.com/org/repo@<commit>` 可能被读成
-// namespace=`github.com/org`、name=`repo`。**这不影响往返**：
-// namespace + "/" + name 恒等于 canonical。记录在此，免得有人以为它是 bug。
-func TestV82PurlMatchesTheRegisteredGitType(t *testing.T) {
+// 主流 SBOM 解析器认识 github / gitlab / gitee；自建 host 需要 generic +
+// vcs_url。bom-ref 保留旧的 pkg:git 形态，避免已归档文档失去稳定组件 ID。
+func TestV102PurlUsesHostSpecificTypes(t *testing.T) {
 	const commit = "0123456789abcdef0123456789abcdef01234567"
-	e := Entry{Slug: "github:org/dep", Canonical: "github.com/org/dep", Commit: commit}
-	p := e.Purl()
-
-	if !strings.HasPrefix(p, "pkg:git/") {
-		t.Fatalf("type 必须是已注册的 git：%q", p)
+	cases := []struct {
+		host, canonical, wantPrefix string
+	}{
+		{"github.com", "github.com/org/dep", "pkg:github/org/dep@" + commit},
+		{"gitlab.com", "gitlab.com/org/dep", "pkg:gitlab/org/dep@" + commit},
+		{"gitee.com", "gitee.com/org/dep", "pkg:gitee/org/dep@" + commit},
+		{"git.example.com", "git.example.com/org/dep", "pkg:generic/git.example.com/org/dep@" + commit + "?vcs_url="},
 	}
-	// 去掉 type，剩下的形状必须是 <namespace>/<name>@<version>
-	rest := strings.TrimPrefix(p, "pkg:git/")
-	at := strings.Index(rest, "@")
-	if at <= 0 {
-		t.Fatalf("缺少 version 段（规范要求 version 是 git ref，ngm 给 commit）：%q", p)
-	}
-	version := rest[at+1:]
-	if version != commit {
-		t.Errorf("version = %q, want commit %q", version, commit)
-	}
-	nsName := rest[:at]
-	if strings.Count(nsName, "/") < 2 {
-		t.Errorf("namespace/name = %q：至少要含 host 与 repo 两段（namespace 与 name 都必填）", nsName)
-	}
-	// 往返：namespace + name 必须能还原 canonical
-	if nsName != e.Canonical {
-		t.Errorf("namespace+name = %q, want canonical %q（往返必须成立）", nsName, e.Canonical)
+	for _, tc := range cases {
+		e := Entry{Slug: tc.host + ":org/dep", Canonical: tc.canonical, Commit: commit}
+		if got := e.Purl(); !strings.HasPrefix(got, tc.wantPrefix) {
+			t.Errorf("%s: Purl() = %q, want prefix %q", tc.host, got, tc.wantPrefix)
+		}
+		if got := e.BomRef(); got != "pkg:git/"+tc.canonical+"@"+commit {
+			t.Errorf("%s: BomRef() = %q, want the stable pkg:git form", tc.host, got)
+		}
 	}
 }
 

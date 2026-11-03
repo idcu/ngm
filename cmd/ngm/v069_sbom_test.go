@@ -43,7 +43,7 @@ func TestV69SbomExportsFromTheLock(t *testing.T) {
 	if len(doc.Components) != 1 || doc.Components[0].Name != "github:x/dep" {
 		t.Fatalf("components = %+v", doc.Components)
 	}
-	if !strings.HasPrefix(doc.Components[0].Purl, "pkg:git/github.com/x/dep@") {
+	if !strings.HasPrefix(doc.Components[0].Purl, "pkg:github/x/dep@") {
 		t.Errorf("purl = %q", doc.Components[0].Purl)
 	}
 }

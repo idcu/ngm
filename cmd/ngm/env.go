@@ -76,7 +76,7 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 	//
 	// 所以：坏配置 = exit 3，点名文件与字段。配置是用户唯一能改的那半边，
 	// 它坏了就该由用户知道，而不是由工具替他挑一份默认值。
-	proto := resolve.ProtocolHTTPS
+	proto := resolve.ProtocolSSH
 	var pol *security.Policy
 	tokenEnvVars := map[string]string(nil)
 
@@ -90,7 +90,7 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 		return nil, cerr
 	}
 	if r.GlobalEffective.Git != nil {
-		proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolHTTPS)
+		proto = resolve.ParseProtocol(r.GlobalEffective.Git.DefaultProtocol, resolve.ProtocolSSH)
 		tokenEnvVars = r.GlobalEffective.Git.TokenEnvVars
 	}
 	// 权限写错必须立刻报出来：把它当成"没配"会让用户以为

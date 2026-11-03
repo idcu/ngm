@@ -118,7 +118,7 @@ func buildCycloneDX(project Project, entries []Entry, opts Options) cdxDocument 
 	for _, e := range entries {
 		c := cdxComponent{
 			Type:    "library",
-			BomRef:  e.Purl(),
+			BomRef:  e.BomRef(),
 			Name:    e.Slug,
 			Version: e.Commit,
 			Purl:    e.Purl(),
@@ -156,7 +156,10 @@ func cyclonedxDependencies(entries []Entry) []cdxDependency {
 	}
 	refOf := make(map[string]string, len(entries))
 	for _, e := range entries {
-		refOf[e.Key()] = e.Purl()
+		// 依赖段的 Ref 必须指向组件的 bom-ref（不是 purl）：CycloneDX 的
+		// dependencies 是按 bom-ref 解析的。v0.102 把两者分开后，这里若仍用
+		// Purl 就会得到一组指向不存在组件的引用。
+		refOf[e.Key()] = e.BomRef()
 	}
 
 	out := make([]cdxDependency, 0, len(entries)+1)
@@ -176,7 +179,7 @@ func cyclonedxDependencies(entries []Entry) []cdxDependency {
 		for _, k := range keys {
 			kids = append(kids, refOf[k])
 		}
-		out = append(out, cdxDependency{Ref: e.Purl(), DependsOn: kids})
+		out = append(out, cdxDependency{Ref: e.BomRef(), DependsOn: kids})
 	}
 	return out
 }
