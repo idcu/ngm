@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# 构建 v0.1 发布产物：交叉编译六个目标 + SHA256SUMS 校验文件。
+# 构建发布产物：交叉编译六个目标 + SHA256SUMS 校验文件。
 #
-# 产物命名（guides/installation.md）：ngm-<os>-<arch>[.exe]，<os>/<arch> 取
-# Go 的 GOOS/GOARCH。刻意不用 `uname`：它给的是 x86_64 / aarch64，
+# 产物命名（guides/installation.md 的既有约定，v0.102 起加版本化别名）：
+#   ngm-<os>-<arch>[.exe]                 既有名字，install 指南与旧脚本按它取
+#   ngm-<version>-<os>-<arch>[.exe]       版本化别名，按 .ngm-version 直接拼地址
+#
+# 两种名字**来自同一份构建**（先构建一次，再复制别名），不是两套流水线。
+# <os>/<arch> 取 Go 的 GOOS/GOARCH。刻意不用 `uname`：它给的是 x86_64 / aarch64，
 # 与 Go 的 amd64 / arm64 不一致，拼出的下载地址会 404。
 #
 # 用法：
 #   VERSION=0.1.0 ./scripts/build-release.sh
+#   TARGETS="linux/amd64" VERSION=0.102.0-dev.1 ./scripts/build-release.sh
 #
-# 可覆盖的环境变量：VERSION / COMMIT / BUILT / OUT。
-# 未提供 COMMIT / BUILT 时从 git 与当前时间推导，保证本地跑也能得到完整元信息。
+# 可覆盖的环境变量：VERSION / COMMIT / BUILT / OUT / TARGETS / VERSIONED_NAMES。
+# BUILT 可由发布流水线固定为 tag 的提交时间，使同一 tag 的重建字节一致。
 set -euo pipefail
 
 VERSION="${VERSION:-0.1.0}"
@@ -18,16 +23,24 @@ COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 if [ -z "$COMMIT" ]; then COMMIT="unknown"; fi
 BUILT="${BUILT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 OUT="${OUT:-dist}"
+VERSIONED_NAMES="${VERSIONED_NAMES:-1}"
 
-# 六个目标：三大平台 × 两种架构（与 installation.md 的命名表一一对应）
-TARGETS=(
-  linux/amd64 linux/arm64
-  darwin/amd64 darwin/arm64
-  windows/amd64 windows/arm64
-)
+# 六个目标：三大平台 × 两种架构（与 installation.md 的命名表一一对应）。
+# TARGETS 是本地 dry-run / CI 裁剪用的：只影响构建集合，不改变命名与校验格式。
+if [ -n "${TARGETS:-}" ]; then
+  read -r -a TARGET_LIST <<< "$TARGETS"
+else
+  TARGET_LIST=(
+    linux/amd64 linux/arm64
+    darwin/amd64 darwin/arm64
+    windows/amd64 windows/arm64
+  )
+fi
 
-# -trimpath：去掉构建机器上的绝对路径，使产物可复现（不含开发者的目录结构）。
-# 刻意不 strip（-s -w）：CLI 出问题时 panic 栈里有符号更有用，几 MB 的体积换可诊断性值得。
+# -trimpath：去掉构建机器上的绝对路径。
+# -buildvcs=false：不让 VCS 状态进入 buildinfo，排除"同一 tag 在不同 checkout 下
+#   多出一个 dirty 标记"这类差异。
+# 刻意不 strip（-s -w）：CLI 出问题时 panic 栈里有符号更有用。
 LDFLAGS="-X github.com/idcu/ngm/internal/version.Version=${VERSION}"
 LDFLAGS+=" -X github.com/idcu/ngm/internal/version.GitCommit=${COMMIT}"
 LDFLAGS+=" -X github.com/idcu/ngm/internal/version.BuildTime=${BUILT}"
@@ -35,16 +48,23 @@ LDFLAGS+=" -X github.com/idcu/ngm/internal/version.BuildTime=${BUILT}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-for target in "${TARGETS[@]}"; do
+for target in "${TARGET_LIST[@]}"; do
   os="${target%/*}"
   arch="${target#*/}"
-  name="ngm-${os}-${arch}"
+  legacy="ngm-${os}-${arch}"
   if [ "$os" = "windows" ]; then
-    name="${name}.exe"
+    legacy="${legacy}.exe"
   fi
-  echo "building ${name}"
+  echo "building ${legacy}"
   GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
-    go build -trimpath -ldflags "$LDFLAGS" -o "${OUT}/${name}" ./cmd/ngm
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "${OUT}/${legacy}" ./cmd/ngm
+  if [ "$VERSIONED_NAMES" != "0" ]; then
+    versioned="ngm-${VERSION}-${os}-${arch}"
+    if [ "$os" = "windows" ]; then
+      versioned="${versioned}.exe"
+    fi
+    cp "${OUT}/${legacy}" "${OUT}/${versioned}"
+  fi
 done
 
 # SHA256SUMS：每行 `<hex>  <文件名>`（两空格），可直接被 `sha256sum -c` 消费。

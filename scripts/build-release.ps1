@@ -7,7 +7,11 @@ param(
     [string]$Version = "0.1.0",
     [string]$Commit = "",
     [string]$Built = "",
-    [string]$Out = "dist"
+    [string]$Out = "dist",
+    # 只构建这些目标（默认六个）。本地 dry-run 用它把工作量压到当前平台。
+    [string[]]$Targets = @("linux/amd64","linux/arm64","darwin/amd64","darwin/arm64","windows/amd64","windows/arm64"),
+    # 是否同时产出 ngm-<version>-<os>-<arch> 别名（默认是）。
+    [switch]$NoVersionedNames
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,29 +36,30 @@ $ldflags = "-X github.com/idcu/ngm/internal/version.Version=$Version" +
            " -X github.com/idcu/ngm/internal/version.GitCommit=$Commit" +
            " -X github.com/idcu/ngm/internal/version.BuildTime=$Built"
 
-# 六个目标，与 installation.md 的命名表一一对应
-$targets = @(
-    "linux/amd64", "linux/arm64",
-    "darwin/amd64", "darwin/arm64",
-    "windows/amd64", "windows/arm64"
-)
+# 目标列表由 -Targets 提供；默认六个，与 installation.md 的命名表一一对应
 
 if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
-foreach ($target in $targets) {
+foreach ($target in $Targets) {
     $parts = $target.Split("/")
     $goos = $parts[0]
     $goarch = $parts[1]
-    $name = "ngm-$goos-$goarch"
-    if ($goos -eq "windows") { $name += ".exe" }
+    $legacy = "ngm-$goos-$goarch"
+    if ($goos -eq "windows") { $legacy += ".exe" }
 
-    Write-Host "building $name"
+    Write-Host "building $legacy"
     $env:GOOS = $goos
     $env:GOARCH = $goarch
     $env:CGO_ENABLED = "0"
-    go build -trimpath -ldflags $ldflags -o (Join-Path $Out $name) ./cmd/ngm
-    if ($LASTEXITCODE -ne 0) { throw "go build failed for $name" }
+    go build -trimpath -buildvcs=false -ldflags $ldflags -o (Join-Path $Out $legacy) ./cmd/ngm
+    if ($LASTEXITCODE -ne 0) { throw "go build failed for $legacy" }
+
+    if (-not $NoVersionedNames) {
+        $versioned = "ngm-$Version-$goos-$goarch"
+        if ($goos -eq "windows") { $versioned += ".exe" }
+        Copy-Item -Path (Join-Path $Out $legacy) -Destination (Join-Path $Out $versioned)
+    }
 }
 Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED -ErrorAction SilentlyContinue
 

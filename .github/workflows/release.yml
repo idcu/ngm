@@ -38,6 +38,8 @@ jobs:
   release:
     name: build and publish assets
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
     steps:
       # 先定下"要发布哪个 tag"：tag 推送时就是 GITHUB_REF_NAME，
       # 手动触发时来自输入（**先过一遍 env，不要直接插进 run 脚本里**）。
@@ -100,20 +102,79 @@ jobs:
 
       # bash 显式调用而不是 ./script：Windows 上创建的脚本文件没有可执行位，
       # 提交到 git 后 checkout 出来仍是 100644，直接执行会 permission denied。
+      #
+      # BUILT 固定为 tag 的提交时间（不是"现在"）：同一 tag 的重建因此只有
+      # toolchain 一个变量，而不是每次多一个时间戳。
       - name: build artifacts
         env:
           TAG: ${{ steps.tag.outputs.name }}
         run: |
           version="${TAG#v}"   # v0.1.0 -> 0.1.0（--version 不带 v 前缀）
-          VERSION="$version" COMMIT="$(git rev-parse --short HEAD)" \
+          built="$(git log -1 --format=%cI HEAD)"
+          VERSION="$version" COMMIT="$(git rev-parse --short HEAD)" BUILT="$built" \
             bash scripts/build-release.sh
+
+      - name: verify the artifacts before publishing
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          cd dist
+          # 校验和必须能被消费方原样验证；这是发布前最后一道"字节对不对"的判据。
+          sha256sum -c SHA256SUMS
+          test -x ngm-linux-amd64
+          ./ngm-linux-amd64 --version | grep -F "ngm ${version} (git:" >/dev/null
+          # 版本化别名与既有名字必须同一份字节（同一构建的复制，不是第二套构建）。
+          cmp ngm-linux-amd64 "ngm-${version}-linux-amd64"
+          test -f "ngm-${version}-windows-amd64.exe"
+          echo "artifacts verified for ${TAG}"
+
+      - name: release notes from CHANGELOG
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          bash scripts/release-notes.sh "$TAG" --out "$RUNNER_TEMP/release-notes.md"
 
       - name: publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
         run: |
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --generate-notes \
-            dist/ngm-* dist/SHA256SUMS
+          set -euo pipefail
+          version="${TAG#v}"
+          extra=""
+          case "$version" in
+            *-*) extra="--prerelease" ;;   # 0.102.0-dev.1 这类开发版不进 latest
+          esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # 补发/重跑：更新说明并覆盖同名附件，绝不创建第二份 release。
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md" $extra
+            gh release upload "$TAG" dist/ngm-* dist/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" $extra \
+              dist/ngm-* dist/SHA256SUMS
+          fi
+
+  # Gitee 是可选通道：同一个 release 的**同一批字节**由 upload-gitee-assets.ps1
+  # 从 GitHub 下载、按 SHA256SUMS 逐字节校验后再上传。没有 GITEE_TOKEN 时本 job
+  # 不运行（仓库变量 GITEE_UPLOAD=true 才启用），因此不会假装"双通道已发布"。
+  gitee-assets:
+    name: mirror the same assets to Gitee (optional)
+    needs: release
+    if: ${{ vars.GITEE_UPLOAD == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: upload the GitHub release assets to Gitee
+        shell: powershell
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          if (-not $env:GITEE_TOKEN) { Write-Error "GITEE_UPLOAD is true but GITEE_TOKEN is empty"; exit 1 }
+          powershell -NoProfile -File scripts/upload-gitee-assets.ps1 -Tag $env:TAG
