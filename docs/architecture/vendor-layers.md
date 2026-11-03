@@ -104,7 +104,7 @@ v2 之后同一场景约 **0.6×**，且差距只来自每个 commit 多出的�
   在"同一文件在多个 commit 里不变"这个主导场景下不受影响（ADR-019 §修订）
 - 任何时刻可"重建清单 → 重算 digest"校验内容是否被篡改/损坏（verify 的本地重放）
 - **清单是输入，不是真理（v0.107）**：`trees/<digest>/manifest` 里的 `path` / `mode` / `sha`
-  是可改写的文件内容，因此 `ngm verify --deep` 的模块分支在重算摘要前先用
+  是可改写的文件内容，因此 `ngm verify --content`（旧别名 `--deep`）的模块分支在重算摘要前先用
   `digest.ValidateRecord` 校验每一条（路径不含 NUL、非绝对、无 `..`、mode 合法、
   sha 为 64 位小写十六进制）。不校验的话有两条路：带 NUL 的路径能**伪造记录边界**
   （一条记录变两条），而 `BlobPath` 会把一个形如 `../../…` 的 "sha" 拼成
@@ -219,9 +219,12 @@ project/ngm.vendor/
 4. **hardlink 有平台限制**：需要同卷文件系统（Windows 需 NTFS），跨卷/网络文件系统自动降级复制
 5. **content store 只增不减**（**只对了一半**）：层 1（mirror）有 `git gc`，层 2 直到 v0.11 才有
    **第一条**回收路径——`ngm store prune --orphans` 清掉无人引用的 blob（ADR-023）。
-   按可达性删除仍然不做，因此**已废弃但仍有清单引用的字节不会被回收**；
+   **v0.102 起**多了第二条：`ngm gc --apply` 按**当前项目的 lock** 回收不被它命名的 digest、
+   mirror 与 vendor 子树（默认 dry-run，global vendor 保留并 warning；ADR-041）。
+   它不扫描磁盘、不建项目注册表，因此**别的项目仍可能需要被回收的对象**——恢复方式是
+   `ngm install` / 重新 clone，而不是"删除不可逆"。
    `ngm cache clean` 清的是层 4，与层 2 无关
-6. **hardlink 与 content store 共享 inode（就地写入会污染层 2）**：`auto`（默认）落地的是指向 content store 的**硬链接**，因此**就地修改 `ngm.vendor/` 中的文件会同时改写 content store**（同一 inode，不是副本）。更棘手的是后续 `ngm install` **不会察觉**——该 digest 目录已存在，写入被直接跳过，污染被原样保留。需要就地编辑依赖代码的场景请改用 `linkMode: "copy"`（写入副本，不影响层 2）。检测路径是 `ngm verify --deep`：从 mirror 重建规范化清单，并与**实际字节**逐文件比对（清单规则见 [ADR-008](../adr/adr-008-archive-digest.md)）
+6. **hardlink 与 content store 共享 inode（就地写入会污染层 2）**：`auto`（默认）落地的是指向 content store 的**硬链接**，因此**就地修改 `ngm.vendor/` 中的文件会同时改写 content store**（同一 inode，不是副本）。更棘手的是后续 `ngm install` **不会察觉**——该 digest 目录已存在，写入被直接跳过，污染被原样保留。需要就地编辑依赖代码的场景请改用 `linkMode: "copy"`（写入副本，不影响层 2）。检测路径是 `ngm verify --content`（旧别名 `--deep`）：从 mirror 重建规范化清单，并与**实际字节**逐文件比对（清单规则见 [ADR-008](../adr/adr-008-archive-digest.md)）
 
 ---
 

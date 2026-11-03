@@ -25,7 +25,7 @@
 | [ADR-015](./adr-015-commit-ref-resolution.md) | commit 型依赖不做 ref 解析 | 已定（v0.5 A 组）：commit 型 **0 次 git 子进程**；tag/branch 不变 |
 | [ADR-016](./adr-016-mirror-url-local-read.md) | mirror 远端地址改为读 config 文件 | 已定（v0.5 A4）：形状不认识即回退子进程；tag 型 4.00 → **3.00 次/依赖** |
 | [ADR-017](./adr-017-remote-adapter-release-decision.md) | remote adapter 的**发布决策** | 已定（v0.6）：**仍不发布**；剩下的问题写成可判定的门槛（修订 [ADR-013](./adr-013-remote-adapter.md)） |
-| [ADR-018](./adr-018-store-reclaim.md) | 内容寻址 store 的**回收与去重** | 已定（v0.6）：**不做**按可达性自动删除；`store usage` / `store prune` 排期；**写入侧去重**是长期解法 |
+| [ADR-018](./adr-018-store-reclaim.md) | 内容寻址 store 的**回收与去重** | 已定（v0.6）：**不做**按可达性自动删除；`store usage` / `store prune` 排期；**写入侧去重**是长期解法。**ADR-041** 在其"显式给出 lock 集合"的条件下提供项目范围的 `ngm gc` |
 | [ADR-019](./adr-019-content-addressed-blobs.md) | 层 2 改为**按文件内容寻址**（blob 池 + 树清单） | 已定（v0.7）**并已实施（v0.8）**：digest 定义不变、blob 里含 mode（§修订）、`symlink` 落地模式退化；实测 20.0× → 0.6× |
 | [ADR-020](./adr-020-remote-adapter-shelved.md) | `remote` adapter **正式搁置** | 已定（2026-10-03）：该 adapter **在代码里不存在**（"发布"= 从零写协议）；三条触发条件（真实需求 / 本地算力证据 / 跨生态标准） |
 | [ADR-021](./adr-021-symlink-link-mode.md) | `symlink` 落地模式**保留降级** | 已定（2026-10-03）：不实现"按需物化一棵 hardlink 树"；触发条件是"具体的工具/流程要求 + 实测数字" |
@@ -48,6 +48,7 @@
 | [ADR-038](./adr-038-no-own-git.md) | **不自研 Git**，保持子进程 + 单一边界 | 已定（2026-10-28）：运行时 Git 只在 `internal/core/git`；不自研对象/协议；未来只考虑 go-git/gitoxide/libgit2 backend |
 | [ADR-039](./adr-039-exit-code-precedence.md) | `verify` 退出码 **2 压过 4**：已确证的篡改 > 没查成 | 已定**并已实施**（2026-10-29）：原"4 优先"的理由只排除 0/1，没排除 2；而 4 的语义是可重试，于是 CI 会把被篡改的树当成网络抖动重试。`ExitCode()` 改为先记漂移分类再看 `Err` |
 | [ADR-040](./adr-040-adopt-proof-layer.md) | 从"包管理器"退回"证明层"：`ngm adopt` 为已装好的依赖出证据 | 已定**并已实施**（2026-10-29）：只读 `node_modules` + `package-lock.json`，摘要与 `archiveDigest` 同构；读不了的 lock 在 `notes`/`coverage.unknown` 里具名；**不接管安装**，因此不再把 registry 互通列为待办 |
+| [ADR-041](./adr-041-project-scoped-gc.md) | 按**当前项目 lock** 的显式回收（`ngm gc`） | 已定**并已实施**（2026-11-03）：默认 dry-run，`--apply` 才删；层 2 只回收候选树独占的 blob（1 分钟内的新 blob 留下），global vendor 无法判定时保留并 warning；逐对象删除失败汇总为 exit 4。满足 ADR-018 的重新考虑条件（显式给出要保留的 lock 集合），但仍**不做**自动/跨项目 GC |
 
 ---
 

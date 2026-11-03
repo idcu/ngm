@@ -6,6 +6,34 @@
 
 只记录**用户可观察的行为**；逐版工程细节见 `docs/development/` 的计划与复盘。
 
+## [Unreleased] - 2026-11-03
+
+### Added
+
+- `ngm verify --content`（等价写法 `--level=content`；`--deep` 保留为别名）：重放
+  lock 的 `archiveDigest` / `moduleDigest`，并逐文件比对 vendor 与 content store 的
+  字节。报告给出依赖、文件路径与期望/实际哈希（终端截断到 12 位，`--json` 里是完整
+  sha256）。资源缺失（mirror/store 不全、无法重算）仍退 **4**，只有确证内容不符才退
+  **2**。默认仍是 structure，既有 CI 的成本不变。
+- `ngm gc [--apply] [--json]`：按**当前项目的 lock** 回收 store / mirror / vendor 里
+  不可达的对象。**默认 dry-run**，只有显式 `--apply` 才删除；输出按层分类给出候选
+  数与可回收字节。global vendor 条目无法判定是否被其它项目引用，一律保留并 warning；
+  逐对象删除失败汇总为 exit 4，不中途退出。
+- `action.yml` 新增 `verify-level` 输入（默认 `structure`）；`args` 里已经写了级别
+  flag 时不再注入默认值。
+
+### Changed
+
+- `store usage` / `store prune` 的说明更新：自动/全局的可达性删除仍然没有，显式、
+  项目范围的那类由 `ngm gc` 提供（ADR-041）。
+- `verify` 的结构级汇总提示改为指向 `--content`（`--deep` 仍可用）。
+
+### Notes
+
+- `ContentStore.Has` 增加 benchmark（`BenchmarkContentStoreHas`）。实测 20 / 200 /
+  2000 文件的单次代价为 0.93ms / 8.25ms / 77.1ms（本机 Windows + NTFS，全部命中页
+  缓存）。本轮**不引入缓存**：没有能在 blob 被外部删除时可靠失效的廉价信号。
+
 ## [0.102.0-dev.2] - 2026-11-03
 
 开发版本。它与 `0.102.0-dev.1` 是同一批功能，差别只在**发布链路本身**：

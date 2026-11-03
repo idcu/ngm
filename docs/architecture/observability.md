@@ -232,7 +232,7 @@ $ ngm audit
 | binding | 模块条目：`commit:subPath` 的 tree OID 对比 `subtreeOid` | ✓（模块条目；本地、可离线） |
 | digest 重放 | 根条目重放 `archiveDigest`；模块条目重放 `moduleDigest` | ✓（本地、可离线） |
 | 落地完整性 | vendor 与 content store 的存在性/链接校验 | ✓ |
-| 逐文件哈希 | `--deep` 追加：全量校验 vendor 文件字节 | ✗ |
+| 逐文件哈希 | `--content`（旧别名 `--deep`）追加：全量校验 vendor 文件字节 | ✗ |
 | 签名 | `--signatures` 追加：报告锁定 commit（commit 未签时再看它来源的 tag）的 Git 签名状态。判定用**用户自己的**密钥配置，ngm 不管理密钥 | ✗（默认不查：每个依赖一到两次 git 子进程，而 verify 的主要成本就是 spawn） |
 
 **`checks[]` 不会因为跳过而变短（v0.107）**：每一项检查都有记录，
@@ -344,7 +344,7 @@ verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 | 声明的 ref 在上游消失（删除 / 改名） | 非预期漂移 | `unexpected` | 同上 |
 | **问不到**（网络失败 / 权限被拒 / mirror 缺失） | **不是结论** | 空 | `operational: true`，exit 4；`details` 里保留成因原文 |
 | digest 重放不匹配 | 严重事件 | `critical` | 阻断，exit 2，禁止构建（`--allow-drift` **不**降级） |
-| 落地内容与 content store 不一致 | 严重事件 | `critical` | 阻断，exit 2（`--deep` 追加逐文件字节比对） |
+| 落地内容与 content store 不一致 | 严重事件 | `critical` | 阻断，exit 2（`--content` 追加逐文件字节比对；旧别名 `--deep`） |
 
 > **无法证明快进时按 `unexpected` 处理**：祖先关系查不出来（对象缺失等）时，把结果当成快进
 > 会让一次 force push 悄悄通过门禁。保守方向是明确的取舍，不是遗漏。

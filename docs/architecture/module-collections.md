@@ -67,7 +67,7 @@ digest:  "sha256:" + sha256(manifest)
 | ref | 重新解析 ref，与 lock 的 commit 比对 | 漂移：expected/unexpected |
 | binding | `rev-parse commit:subPath == subtreeOid` | critical，exit 2 |
 | digest | `ls-tree -r <subtreeOid>` + 模块 blob → `moduleDigest` | critical，exit 2 |
-| landing | content store 按 `moduleDigest`；vendor 按 `subPath`；`--deep` 逐文件 | 缺对象 exit 4；字节不符 exit 2 |
+| landing | content store 按 `moduleDigest`；vendor 按 `subPath`；`--content` 逐文件 | 缺对象 exit 4；字节不符 exit 2 |
 
 额外一条版本绑定：`commit:subPath/ngm.json` 的 `version` 必须等于 lock 的 `version`（若记录）。因为 `ngm.json` 在模块内容里，`moduleDigest` 已覆盖它。
 

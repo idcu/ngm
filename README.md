@@ -147,7 +147,9 @@ ngm install --frozen-lockfile --offline   # 只落地 lock 已钉住的内容
 ngm verify --offline                      # 只比对本地快照，结果标记为 stale
 ```
 
-`--offline` 禁止一切网络访问；缺 lock、缺 mirror、缺对象都会失败（exit 4）。`--deep` 还会逐文件比对字节；不带 `--deep` 时只比结构与大小，**等长字节篡改检不出来**（hardlink 下 vendor 与 blob 可能共享 inode）。
+`--offline` 禁止一切网络访问；缺 lock、缺 mirror、缺对象都会失败（exit 4）。`--content`
+（或 `--level=content`）还会重放 lock 的 digest 并逐文件比对字节；默认的 structure 只比结构与
+大小，**等长字节篡改检不出来**（hardlink 下 vendor 与 blob 可能共享 inode）。
 
 ### 四层磁盘布局
 
@@ -170,9 +172,9 @@ ngm verify --offline                      # 只比对本地快照，结果标记
 | `copy` | 普通复制（需要就地修改依赖时用这个） |
 | `symlink` | v2 布局下退化为逐文件 hardlink，CLI 会如实打印实际模式 |
 
-> 就地编辑 `ngm.vendor/` 里的文件会同时改写 content store（hardlink 语义），且后续 `ngm install` 不会察觉。检测路径是 `ngm verify --deep`。
+> 就地编辑 `ngm.vendor/` 里的文件会同时改写 content store（hardlink 语义），且后续 `ngm install` 不会察觉。检测路径是 `ngm verify --content`。
 
-`ngm store usage` 报告各层占用，`ngm store prune` 清理中断克隆/解包留下的残骸，`ngm store gc` 对 mirror 执行 `git gc`。两者都**不做按可达性删除**（缺项目注册表），默认不删任何被引用的内容。
+`ngm store usage` 报告各层占用，`ngm store prune` 清理中断克隆/解包留下的残骸，`ngm store gc` 对 mirror 执行 `git gc`。`ngm gc` 则按**当前项目的 lock** 回收 store / mirror / vendor 里不再被引用的对象：默认 dry-run，必须显式 `--apply` 才删；global vendor 条目无法判定是否被其它项目引用，一律保留并 warning（[ADR-041](docs/adr/adr-041-project-scoped-gc.md)）。
 
 ### SBOM 与 attestation
 
@@ -231,7 +233,7 @@ ngm --version
 # ngm 0.0.0-dev (git:dev, built: unknown)   ← 本地未注入版本信息时的输出
 
 ngm --help
-# 26 个顶层命令与全局退出码约定
+# 27 个顶层命令与全局退出码约定
 ```
 
 ### 方式二：预编译二进制（有前提）
@@ -344,7 +346,8 @@ ConfigInvalid: permission denied: net:github.com
 
 ```bash
 ngm verify
-ngm verify --deep          # 追加字节级比对
+ngm verify --content       # 重放 digest + 逐文件字节比对（旧的 --deep 仍可用）
+ngm verify --level=content # 与 --content 等价；默认 structure
 ngm verify --json          # CI 用这个
 ngm verify --format=github # PR 注解
 ngm verify --format=sarif > ngm.sarif
@@ -355,7 +358,7 @@ ngm verify --format=sarif > ngm.sarif
 ```
 verified 0 dependency(ies): nothing to verify (exit 0)
 note: --offline — refs were compared against the local mirror snapshot (stale)
-note: structure-only (no byte hashes): same-length byte edits are detectable only with `ngm verify --deep`
+note: structure-only (no byte hashes): same-length byte edits are detectable only with `ngm verify --content`
 ```
 
 ### 6. 构建（需要外部引擎与权限）
@@ -383,7 +386,7 @@ ngm attest --out=provenance.intoto.json
 
 ## 命令参考
 
-共 **26 个顶层命令**。`ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。根级只接受 `--help` / `-h` / `--version` 三个 token；命令自己的 flag 必须写在命令之后（`ngm --json verify` 会被拒绝，exit 3）。
+共 **27 个顶层命令**。`ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。根级只接受 `--help` / `-h` / `--version` 三个 token；命令自己的 flag 必须写在命令之后（`ngm --json verify` 会被拒绝，exit 3）。
 
 | 命令 | 用法要点 | 实际退出码 |
 |---|---|---|
@@ -395,7 +398,7 @@ ngm attest --out=provenance.intoto.json
 | `remove` | `ngm remove <dep> [--dir=]`，只改声明；lock 由 install 刷新 | 0, 3 |
 | `modules` | `list` / `validate` / `index` / `changed` / `plan`；`--strict`、`--index=`、`--shards`、`--branch=ngm-index` | 0, 3 |
 | `doctor` | `ngm doctor [--dir=] [--json]`；诊断失败写进报告，命令仍退 0 | 0, 3 |
-| `verify` | `ngm verify [<dep>...] [--offline] [--deep] [--strict] [--allow-drift] [--json] [--format=sarif\|github] [--sandbox] [--signatures] [--require-signed]` | 0, 1, 2, 3, 4, 5, 6 |
+| `verify` | `ngm verify [<dep>...] [--offline] [--content \| --level=structure\|content] [--deep] [--strict] [--allow-drift] [--json] [--format=sarif\|github] [--sandbox] [--signatures] [--require-signed]` | 0, 1, 2, 3, 4, 5, 6 |
 | `audit` | `ngm audit [<dep>...] [--offline] [--no-cache] [--json] [--hook=]`，按 commit 查 OSV.dev，缓存 24h | 0, 1, 3, 4, 5, 6 |
 | `why` | `ngm why <dep> [--json] [--all]`；默认最多 64 条路径，截断会明说 | 0, 3, 6 |
 | `tree` | `ngm tree [--osv] [--offline] [--json] [--all]`；优先读 lock 的 `requiredBy` 图，旧 lock 回退解析并标注来源；默认最多 4096 条 | 0, 1, 3, 4, 6 |
@@ -409,6 +412,7 @@ ngm attest --out=provenance.intoto.json
 | `integrations` | `ngm integrations add <vite\|esbuild\|deno\|webpack> [--dry-run] [--json]`，不覆盖用户文件 | 0, 3, 6 |
 | `cache` | `ngm cache clean`，只清 `~/.ngm/cache` | 0, 3 |
 | `store` | `usage` / `prune [--dry-run] [--orphans] [--older-than=]` / `gc [--dry-run]` | 0, 3, 4 |
+| `gc` | `ngm gc [--dir=] [--apply] [--json]`；默认 dry-run；按当前 lock 回收 store/mirror/vendor 的不可达对象 | 0, 3, 4 |
 | `config` | `validate` / `show`，`--dir=` 只作用于目标项目 | 0, 3 |
 | `engines` | `list` / `info <name>` / `validate`；来源优先级为项目 → 全局 → 内置 | 0, 3, 5, 6 |
 | `sbom` | `ngm sbom [--format=cyclonedx\|spdx] [--out=] [--dir=]` | 0, 3, 6 |
@@ -416,7 +420,7 @@ ngm attest --out=provenance.intoto.json
 
 补充约定：
 
-- `--json` 在 12 个命令可用：`verify` / `audit` / `tree` / `why` / `outdated` / `install` / `update` / `engines` / `integrations` / `doctor` / `modules` / `adopt`。stdout 只放恰好一份 JSON 文档，人类文本与诊断走 stderr。
+- `--json` 在 13 个命令可用：`verify` / `audit` / `tree` / `why` / `outdated` / `install` / `update` / `engines` / `integrations` / `doctor` / `modules` / `adopt` / `gc`。stdout 只放恰好一份 JSON 文档，人类文本与诊断走 stderr。
 - 子命令集合：`modules` 5 个、`store` 3 个、`engines` 3 个、`config` 2 个、`mappings` 1 个、`integrations` 1 个、`cache` 1 个。
 - 内置引擎：`esbuild`（bundle / transform）、`typescript`（typeCheck / typeDecl，optional）、`postcss`（css，optional）、`self`（仅 stub，不要用于生产 fallback）。
 - `remote` adapter 按 ADR-013 / ADR-020 **决定不发布**，声明它会得到「按决定排除」而非「待实现」。
@@ -595,8 +599,8 @@ ngm verify --format=sarif > ngm.sarif
 - 只解析 npm `package-lock.json`（v2/v3）；`adopt` 不解析 pnpm-lock.yaml / yarn.lock，
   会在 `notes` 与 `coverage.unknown` 里明说。
 - 不支持 registry 包、workspace 依赖、子模块（gitlink）与 LFS 实体内容。
-- `verify` 默认只比结构与大小，字节级保证必须加 `--deep`。
-- 没有按可达性的存储回收；`store prune` 只清残骸，`--orphans` 只清「无清单引用且超过年龄门槛」的 blob。
+- `verify` 默认只比结构与大小，字节级保证必须加 `--content`（或 `--level=content`；`--deep` 是旧别名）。
+- `ngm gc` 的可达性只看**当前项目的 lock**：层 1/2 是全机共享的，另一个 checkout 仍可能需要被回收的 mirror 或 digest（可重新拉取/安装，但离线 CI 会失败）。global vendor 条目无法判定，一律保留并 warning。
 
 > v0.102 已修复的缺陷（选择性 verify 的幽灵边、冷 mirror 的退出码、`summary` 与
 > `exitCode` 的矛盾、重复根声明、`tree` 的图来源、`typecheck` 帮助、默认协议、
@@ -628,7 +632,7 @@ go test -race ./...    # 可选；CI 在 ubuntu 上单独跑，同样放宽到 4
 - [快速上手](docs/guides/quickstart.md)、[安装指南](docs/guides/installation.md)
 - [术语表](docs/guides/glossary.md)
 - [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
-- [ADR 索引](docs/adr/README.md) — 40 个决策记录（refType、archiveDigest、锁、沙箱、attestation 等）
+- [ADR 索引](docs/adr/README.md) — 41 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc 等）
 - [项目评估与路线图](docs/internals/assessment-2026-11-01-full.md) — 独立评估、缺陷清单与优先级
 
 ---

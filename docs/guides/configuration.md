@@ -225,7 +225,7 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 > **`auto` / `hardlink` 的就地写入风险**：这两种模式落地的是指向 content store 的硬链接，
 > 因此**直接编辑 `ngm.vendor/` 里的文件会同时改写 content store**，且后续 `ngm install`
 > 不会察觉（digest 目录已存在，写入被跳过）。需要就地修改依赖代码时请选择 `copy`。
-> 检测路径是 `ngm verify --deep`。详见 [vendor 4 层模型 §诚实说明](../architecture/vendor-layers.md)。
+> 检测路径是 `ngm verify --content`（旧别名 `--deep`）。详见 [vendor 4 层模型 §诚实说明](../architecture/vendor-layers.md)。
 
 ```json
 {

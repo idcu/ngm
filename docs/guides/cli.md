@@ -47,7 +47,7 @@
 | `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm doctor [--dir=<dir>] [--json]` | 诊断本地环境与项目：git、ngm.json、ngm.lock、`~/.ngm` 布局、mirror/module-cache/content-store、嵌套模块扫描。诊断失败写进报告但命令仍退 0；用法错误退 3 | **v0.104 新增** | [可观测性](../architecture/observability.md) |
 | `ngm modules list\|validate\|index [--dir=<dir>] [--json] [--limit=<n>] [--strict] [--index=<file>] [--out=<file>] [--dry-run] [--releases=false] [--shards] [--branch=<name>]` | 集合模块的发现、校验与索引：`list` 扫描嵌套 `ngm.json`，`validate` 检查 JSON、重名、索引一致性，`--strict` 还检查集合内同一依赖是否被钉到不同 ref（把消费者端冲突前移到生产者端），`index` 写确定性的 `ngm.collection.json`、从本地 tag 收集 `version → commit`（`--shards` 写 `releases/<module>.json`），并默认更新本地 `ngm-index` 分支（不推送；支持分片树）；`changed` 列出 `--since` 以来被改动过的模块，`plan` 进一步给出建议的下一个版本/ tag（只读，不提交不打 tag） | **v0.103 已实现**；**v0.104 增 `--shards`、分片分支、`changed` 与 `plan`** | [模块集合](../architecture/module-collections.md) |
-| `ngm verify [<dep>...] [--offline] [--deep] [--json] [--format=sarif\|github] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2）。**默认（不加 `--deep`）只比结构与大小**——等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode）；**要字节级保证请加 `--deep`**，汇总行也会把这条边界说出来（v0.66） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
+| `ngm verify [<dep>...] [--offline] [--content \| --level=structure\|content] [--deep] [--json] [--format=sarif\|github] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--content`（别名 `--level=content`；`--deep` 是兼容旧脚本的同义 flag）**重放 lock 的 archiveDigest/moduleDigest 并逐文件哈希 vendor 与 content store**，报告里给出依赖、文件路径、期望/实际哈希（终端截断、`--json` 全量）。默认仍是 **structure**：只比结构与大小，等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode），汇总行会说明这一点。内容级在资源缺失（mirror/store 不全、无法重算）时退 **4**，只有确证内容不符才退 **2**。`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** / **v0.102 增 `--content`/`--level`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
 | `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run]` | 构建（adapter） | v0.1 | [构建](./build.md) |
 | `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（内置清单里是 `typescript` = tsc）。**需要声明**：`engines.typeCheck` 或 `--engine=typescript`——未声明是 `exit 3`，声明了但 `tsc` 未装才是 `exit 5` | [构建](./build.md) |
 | `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
@@ -58,6 +58,7 @@
 | `ngm store usage` | 报告 ngm 磁盘占用的**三层**：**层 1 mirror**（逐仓库体积、其中多少是 **packfile**、多少是**残骸**，并点名**一个 ref 都没有**——即被中断的克隆留下的那种"有体积却解析不出任何 commit"的目录）、**层 1.5 module cache**（partial clone 仓库数/体积/pack，点名不是 partial clone 的路径）与**层 2 content store**（blob 池，切成**共享 / 独占 / 孤儿**；v2 树清单；v1 遗留树；解包残骸），各来自哪个 `repo@commit`。**只读** | **v0.7 已实现**；v0.8 输出按布局分组；**v0.9 加共享/独占/孤儿**；**v0.100 报层 1**；**v0.104 报层 1.5** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) · [ADR-030](../adr/adr-030-mirror-reclaim.md) · [ADR-034](../adr/adr-034-module-cache.md) |
 | `ngm store prune [--dry-run] [--orphans] [--older-than=<dur>]` | 清掉**中断留下的残骸**：层 2 的解包目录（`.unpack-*`）与**层 1 的临时包**（`objects/pack/tmp_*`，年龄门槛 **1 小时**）。**不碰任何内容树、也不碰任何对象**，并报告"留下了 N 份没动"。加 `--orphans` 时**额外**删掉"没有任何清单引用、且比门槛（默认 24h）更旧"的 blob | **v0.7 已实现**；`--orphans` **v0.11 已实现**；**层 1 残骸 v0.100** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-023](../adr/adr-023-orphan-reclaim.md) · [ADR-030](../adr/adr-030-mirror-reclaim.md) |
 | `ngm store gc [--dry-run]` | 对每个可用的 mirror 跑 `git gc`（整理历史本体：松散对象与多个包合并）。**不触网**、**不删内容**（默认的两周不可达对象保留期照旧）。没有 ref 的目录与不是裸仓库的路径**被跳过并点名报出**；某个 mirror 上 git 失败时**继续整理其余的**并退 4，已整理好的那些照样打印 | **v0.100 已实现** | [ADR-030](../adr/adr-030-mirror-reclaim.md) |
+| `ngm gc [--dir=<dir>] [--apply] [--dry-run] [--json]` | 按**当前项目的 `ngm.lock`** 标记可达对象，报告并回收 store / mirror / vendor 里不被它命名的对象。**默认是 dry-run**，只有显式 `--apply` 才删。可达对象一律不动：lock 里的 `archiveDigest` / `moduleDigest`、依赖对应的 mirror 仓库、以及 lock 的 `vendorPath`（含 monorepo 子路径；父目录只作为容器保留）。层 2 只回收候选树独占的 blob；比 1 分钟新的 blob 留下并报出来（`Put` 先写字节后发布清单）。global vendor 条目**无法判定是否被其它项目引用，一律保留并 warning**。逐对象删除失败会汇总、其余继续删，最终退 4 | **v0.102 新增** | [ADR-041](../adr/adr-041-project-scoped-gc.md) · [ADR-018](../adr/adr-018-store-reclaim.md) |
 | `ngm config validate\|show [--dir=<dir>]` | 配置校验与查看。**`validate` 校验 `--dir` 指向的项目**（v0.19 修：此前只认进程 CWD，且**没有 ngm.json 时照样打印 `ngm.json OK`**——CI 在错的目录里会拿到绿色假通过）；`show` 是查看，不设门禁 | v0.1（v0.19 修三处） | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎管理 | v0.1 | [配置详解](./configuration.md) |
 | `ngm sbom [--format=cyclonedx\|spdx] [--out=<file>] [--dir=<dir>]` | 从 `ngm.lock` 导出 **SBOM**：每个依赖带 commit、内容 digest（根条目 `archiveDigest` / 模块条目 `moduleDigest`）与 git purl。**只读 lock**——不触网、不重解析、不写项目。**不声称**构建溯源（那是 SLSA 的正交轴）与许可证清单（上游许可证 ngm 不知道，SPDX 输出写 `NOASSERTION` 而不是猜） | **v0.69 已实现** | [CLI](./cli.md) · [竞品对比](../COMPETITIVE-ANALYSIS.md) |
@@ -96,10 +97,12 @@ note 里给出路：删掉那个目录 + 重跑 `ngm install`（它会重新克�
 
 两件事**仍然不做**，而且是有意的：
 
-- **没有按可达性删除**（"这个 digest 还有没有人要"）：那需要一个 ngm 没有的项目注册表，
-  误删会让别的项目的 `ngm verify` 在某天突然验不过；
+- **没有自动/跨项目的可达性删除**：`ngm gc` 只在**显式 `--apply`** 且**以当前项目的 lock**为
+  可达性来源时删除；它不扫描磁盘、不猜"别的项目还要不要"。层 1/2 是全机共享的，被删的 mirror
+  要在下次 install 时重新 clone，content 要重新 install——可恢复，但离线 CI 会失败。
+  ADR-018 拒绝的是"后台自动、全局判定"的那一类；ADR-041 把可接受的那一类写成显式命令。
 - **没有自动回收**：回收是**显式的一步**，默认什么都不删——不带 `--orphans` 时
-  `prune` 的行为与 v0.7 完全一致。
+  `prune` 的行为与 v0.7 完全一致，`gc` 不带 `--apply` 只打印。
 
 `--orphans` 的安全边界（写进实现的，不是承诺口吻）：
 
@@ -128,10 +131,10 @@ note 里给出路：删掉那个目录 + 重跑 `ngm install`（它会重新克�
 真正能改变增长曲线的是**层 2 的写入侧去重**（**v0.8 已落地**，[ADR-019](../adr/adr-019-content-addressed-blobs.md)）：
 布局改为 blob 池 + 树清单，实测把同一场景的放大比从 **20×** 降到 **0.6×**
 （[metrics](../internals/metrics.md#磁盘增长内容寻址-storev06)）。
-**但这改的是斜率，不是终点**：blob 的**新增**仍然只增不减，**按可达性**的回收仍受
-[ADR-018](../adr/adr-018-store-reclaim.md) 那两个条件约束（缺项目注册表）。
-**v0.11 起多了一条**：[ADR-023](../adr/adr-023-orphan-reclaim.md) 的 `prune --orphans`
-能回收**无人引用**的 blob——它改的是**残骸**，不是被引用的增长。
+**但这改的是斜率，不是终点**：blob 的**新增**仍然只增不减。**v0.11 起**，
+[ADR-023](../adr/adr-023-orphan-reclaim.md) 的 `prune --orphans` 能回收**无人引用**的 blob；
+**v0.102 起**，[ADR-041](../adr/adr-041-project-scoped-gc.md) 的 `ngm gc --apply` 能按当前
+lock 回收**不被这个项目引用**的 digest、mirror 与 vendor 子树（默认 dry-run，global vendor 不动）。
 
 **升级已有 store 时**：新装的依赖立刻用新布局，**老条目不会自动迁移**（`install` 见到
 `Has` 为真就短路——那是"无网络也能安装"的承诺）。`ngm store usage` 在存在老条目时会把
@@ -158,11 +161,11 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。
 - **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
-  支持它的有 **12 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
+  支持它的有 **13 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
   `integrations` / `install` / `update` / `doctor` / `modules`（`list` / `validate` /
-  `index` / `changed` / `plan` 各自支持）/ `adopt`。后几个是后续版本补上的：
+  `index` / `changed` / `plan` 各自支持）/ `adopt` / `gc`。后几个是后续版本补上的：
   `install` / `update` 自 v0.66（CI 最需要的两个写命令），`doctor` / `modules` 自
-  v0.104，`adopt` 自 v0.101。
+  v0.104，`adopt` 自 v0.101，`gc` 自 v0.102。
   各命令的**顶层形状**见下一节。
 
 ---
@@ -174,7 +177,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 
 | 命令 | 顶层形状 | 带退出码字段 |
 |------|---------|------------|
-| `ngm verify --json` | 对象：`version` · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明） | ✅ `summary.exitCode` |
+| `ngm verify --json` | 对象：`version` · `level`（`structure` / `content`） · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明）。`--content` 时每个依赖另有 `content`：`level` · `expectedDigest` · `computedDigest` · `expectedSource` · `files` · `symlinks` · `mismatches`（元素键 `path` · `kind` · `expected` · `actual`，哈希为完整 sha256） | ✅ `summary.exitCode` |
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
 | `ngm tree --json` | 对象：`project` · `source`（图来源：锁内的 requiredBy 图 / 回退解析，取值就是锁文件名或清单文件名） · `entries` · `drifted` · `dependencies` · `osvChecked` · `notes`（图来源之外没查成的项，例如 mirror 不完整导致漂移未比对）；（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
@@ -192,6 +195,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm modules changed --json` | 对象：`version` · `since` · `modules`；`modules` 元素键：`name` · `path` · `version` · `error` | ✗ |
 | `ngm modules plan --json` | 对象：`version` · `since` · `bump` · `modules`；`modules` 元素键：`name` · `path` · `version` · `nextVersion` · `tag` | ✗ |
 | `ngm modules index --json` | 对象：`version` · `out` · `dryRun`（dry-run 时） · `branch` · `branchCommit` · `releaseFiles`（分片时） · `index`（`schemaVersion` · `source` · `releaseDir` · `modules` · `releases`） | ✗ |
+| `ngm gc --json` | 对象：`version` · `dryRun` · `applied` · `project` · `lock` · `store` · `mirror` · `vendor` · `total`（`objects` · `bytes`） · `warnings`；三层的键：`root` · `exists` · `mode`（vendor） · `candidates`（元素键 `id` · `bytes`，store 另有 `layout`） · `objects` · `bytes` · `removed` · `bytesFreed` · `kept`（global vendor） · `keptYoungBlobs` / `keptYoungBytes`（store） · `errors` | ✗ |
 
 > 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。
 > 其余命令返回的是"一份报告"，所以是对象。本页只如实记录两者的差异——

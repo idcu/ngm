@@ -503,7 +503,7 @@ func verifySummaryLine(rep verify.Report, offline bool) string {
 		// 篡改同时改变两侧）。CI 默认跑 `ngm verify` 时这是最容易被误读的一句。
 		// 这条 note 不改判定、不改退出码，只把"证明到了哪一层"讲清楚。
 		out += "\nnote: structure-only (no byte hashes): same-length byte edits are " +
-			"detectable only with `ngm verify --deep`"
+			"detectable only with `ngm verify --content` (alias: --deep)"
 	}
 	return out
 }

@@ -67,7 +67,7 @@ archiveDigest 是终极证据（字节级可重放）
 ```bash
 ngm verify                 # ref 对比 + digest 本地重放 + 落地校验
 ngm verify --offline       # 不访问网络，用本地 mirror 快照
-ngm verify --deep          # 追加 vendor 逐文件内容哈希校验
+ngm verify --content       # 追加 vendor 逐文件内容哈希校验（旧别名 --deep）
 ngm verify --json          # 机器可读输出（含 driftKind）
 ```
 
@@ -78,7 +78,7 @@ ngm verify --json          # 机器可读输出（含 driftKind）
 | ref → commit | 重新解析 refType，对比 lock 中的 commit | ✓ |
 | digest 重放 | 从 mirror 同一 commit 重建清单、重算 digest，对比 lock（本地，可离线） | ✓ |
 | 落地完整性 | vendor 与 content store 的存在性/链接校验 | ✓ |
-| 逐文件哈希 | `--deep` 追加：全量校验 vendor 文件字节 | ✗ |
+| 逐文件哈希 | `--content`（旧别名 `--deep`）追加：全量校验 vendor 文件字节 | ✗ |
 
 ### 退出码
 

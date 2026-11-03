@@ -46,10 +46,16 @@ NOTES:
     content (layer 2)  derived data: it can always be rebuilt from the mirror by
                        re-running "ngm install".
 
-  There is deliberately **no** reachability-based deletion in either layer ("this
-  digest / this commit is no longer wanted anywhere"): that needs a project registry
-  ngm does not have, and getting it wrong makes some other project fail verification
-  one day — see docs/adr/adr-018-store-reclaim.md and docs/adr/adr-030-mirror-reclaim.md.
+  There is deliberately **no automatic or global** reachability-based deletion in
+  either layer ("this digest / this commit is no longer wanted anywhere"): that needs
+  a project registry ngm does not have, and getting it wrong makes some other project
+  fail verification one day — see docs/adr/adr-018-store-reclaim.md and
+  docs/adr/adr-030-mirror-reclaim.md.
+
+  What does exist is explicit and project-scoped: "ngm gc" marks reachable objects
+  from **this project's** lock, prints the rest, and only deletes with --apply
+  (docs/adr/adr-041-project-scoped-gc.md). It does not scan the disk or guess what
+  other projects need; global vendor entries are kept with a warning.
 
   --orphans is a different thing: it removes bytes that NO manifest in this store
   references at all. That is decidable by construction (no registry needed), and it is
@@ -252,8 +258,9 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 			fmt.Fprintln(stdout,
 				"      orphaned blobs have NO manifest referencing them, so they are reclaimable:\n"+
 					"        `ngm store prune --orphans` (age-guarded; see ADR-023).\n"+
-					"      This is NOT reachability-based deletion, which is deliberately not\n"+
-					"      implemented — it would need a project registry ngm does not have (ADR-018).")
+					"      This is NOT reachability-based deletion. Project-scoped reachability\n"+
+					"      reclamation is a separate, explicit command: `ngm gc` (dry-run by default,\n"+
+					"      --apply to delete; see ADR-041).")
 		}
 		fmt.Fprintf(stdout, "  tree manifests (v2): %d (%s)\n", u.V2Trees, storeBytes(u.V2TreeBytes))
 	}
@@ -304,10 +311,11 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	}
 	fmt.Fprintln(stdout,
 		"note: read-only, nothing was changed. Deleting content trees (layer 2) and deleting\n"+
-			"      packed history (layer 1) are both deliberately not offered (ADR-018/030);\n"+
-			"      the module cache (layer 1.5) is a disposable cache — deleting it only costs\n"+
-			"      a re-fetch, not provenance. The reclaim paths on offer are \"ngm store prune\"\n"+
-			"      (residue) and \"ngm store gc\" (consolidate mirror packfiles).")
+			"      packed history (layer 1) are not offered here (ADR-018/030); the module cache\n"+
+			"      (layer 1.5) is a disposable cache — deleting it only costs a re-fetch, not\n"+
+			"      provenance. The reclaim paths on offer are \"ngm store prune\" (residue),\n"+
+			"      \"ngm store gc\" (consolidate mirror packfiles) and \"ngm gc\" (objects not named\n"+
+			"      by this project's lock; dry-run by default, ADR-041).")
 	return 0
 }
 
