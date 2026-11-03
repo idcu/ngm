@@ -48,6 +48,8 @@ var jsonShapeRowTypes = map[string]struct {
 	"modules index":    {"./modules.go", "modulesIndexReport"},
 	"modules changed":  {"./modules.go", "modulesChangedReport"},
 	"modules plan":     {"./modules.go", "modulesPlanReport"},
+	// v0.102：gc 的报告类型（与命令实现同文件）。
+	"gc": {"./gc.go", "gcReport"},
 }
 
 // TestV26EveryDocumentedShapeIsANamedType 固定：**形状表里的每一行，都要有一个具名类型兜着。**

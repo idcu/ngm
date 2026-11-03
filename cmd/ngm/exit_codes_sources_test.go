@@ -257,6 +257,11 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——SBOM 文档写不出去（v0.69 新增的出口）",
 	}},
+	// v0.102：gc 的 --json 写不出去（`write report: %v`）。
+	"cmd/ngm/gc.go :: runGC": {{
+		role: roleSource, category: catInternal,
+		why: "`write report: %v`——gc 报告写不出去（v0.102 新增的出口）",
+	}},
 	"cmd/ngm/attest.go :: runAttest": {{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——in-toto 语句写不出去（v0.70 新增的出口）",

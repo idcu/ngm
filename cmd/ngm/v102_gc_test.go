@@ -189,6 +189,28 @@ func TestV102GCReclaimsUnreachableOnly(t *testing.T) {
 	}
 }
 
+// TestV102GCDeletionErrorsBecomeExitFour 测量"删除失败汇总 ⇒ 退出码 4"。
+//
+// 它刻意是**单元判据**：真实的 os.RemoveAll 失败无法跨平台确定性构造
+// （Windows 用占用中的句柄、POSIX 用目录权限，两者互不通用），
+// 但"收集到的错误如何折成退出码"是可以精确钉住的。
+func TestV102GCDeletionErrorsBecomeExitFour(t *testing.T) {
+	t.Run("deletion errors", func(t *testing.T) {
+		for _, rep := range []gcReport{
+			{Store: gcClass{Errors: []string{"store: boom"}}},
+			{Mirror: gcClass{Errors: []string{"mirror: boom"}}},
+			{Vendor: gcClass{Errors: []string{"vendor: boom"}}},
+		} {
+			if got := gcExitCode(rep); got != 4 {
+				t.Errorf("gcExitCode(%+v)=%d, want 4", rep, got)
+			}
+		}
+		if got := gcExitCode(gcReport{}); got != 0 {
+			t.Errorf("gcExitCode(clean)=%d, want 0", got)
+		}
+	})
+}
+
 // readGCReachableDigest 从 lock 里读回一个仍在引用的 digest。
 func readGCReachableDigest(t *testing.T, proj, slug string) string {
 	t.Helper()

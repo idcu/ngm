@@ -126,6 +126,9 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		{Name: "dry-run", Bool: true},
 		{Name: "json", Bool: true},
 	})); err != nil {
+		// 与其他命令同一条通道：提了 --json 的早期失败也要给一份错误信封。
+		failEarly(args, stdout, err.Error(),
+			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -314,7 +317,8 @@ func gcReachability(lf *lock.File) (gcReach, error) {
 		repo, err := resolve.ParseSlug(d.Name)
 		if err != nil {
 			return out, errs.Wrap(errs.CodeConfigInvalid,
-				"lock dependency "+d.Name+" is not a valid slug", "", err)
+				"lock dependency "+d.Name+" is not a valid slug",
+				"regenerate the lock with `ngm install` (a slug looks like `github:org/repo`)", err)
 		}
 		out.mirrors[repo.MirrorRelPath()+".git"] = true
 		vp := strings.Trim(filepath.ToSlash(vendor.VendorPathFor(d.VendorPath, d.SubPath)), "/")

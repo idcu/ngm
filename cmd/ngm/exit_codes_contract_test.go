@@ -147,6 +147,8 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "install", code: 0, args: nil, setup: setupDep},
 	{cmd: "update", code: 0, args: []string{"--offline", "--all"}, setup: setupDep},
 	{cmd: "verify", code: 0, args: nil, setup: setupDep},
+	// v0.102：gc 默认 dry-run；一个完全可达的项目没有候选，退 0。
+	{cmd: "gc", code: 0, args: nil, setup: setupDep},
 	{cmd: "audit", code: 0, args: []string{"--no-cache"}, setup: setupOsvClean},
 	{cmd: "why", code: 0, args: []string{"github:x/dep"}, setup: setupDep},
 	{cmd: "tree", code: 0, args: nil, setup: setupDep},
@@ -176,6 +178,8 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "adopt", code: 0, args: []string{"--check=" + adopt.FileName}, setup: setupAdoptClean},
 	// 同一个命令的配置错误：没有 node_modules 就没什么可描述的。
 	{cmd: "adopt", code: 3, args: nil, setup: setupProject},
+	// v0.102：gc 没有 lock 就无法判断可达性，必须拒绝（而不是把所有东西当候选）。
+	{cmd: "gc", code: 3, args: nil, setup: setupProject},
 	// ---- 2：完整性失败（--check 发现树与证明不一致）----
 	{cmd: "adopt", code: 2, args: []string{"--check=" + adopt.FileName}, setup: setupAdoptDrift},
 
@@ -291,6 +295,11 @@ var exitCodeElsewhere = []exitCase{
 	// 对象——部分恢复/损坏的镜像就是这个形状）才能量到本轮真正想量的那件事：
 	// **哪一个失败了、哪一个已经整理完了**（"部分完成"必须能被读出来）。
 	{cmd: "store", code: 4, why: "TestV100StoreGCReportsGitFailureInsteadOfPretending/store gc"},
+	// v0.102：`gc` 的码 4（逐对象删除失败）。主表构造不出跨平台的确定性失败
+	// （Windows 上占用中的文件会失败，POSIX 上同一个 open 句柄不阻止 unlink；
+	// 反过来目录权限在 Windows 上又不生效），因此由一条**单元判据**测量
+	// "聚合的删除错误 ⇒ 4"：触发路径本身在 `ApplyStoreReclaim` 里逐对象收集。
+	{cmd: "gc", code: 4, why: "TestV102GCDeletionErrorsBecomeExitFour/deletion errors"},
 }
 
 // TestV56RegisteredPointersResolve 要求上表里的**指针指到真东西**（v0.56）。

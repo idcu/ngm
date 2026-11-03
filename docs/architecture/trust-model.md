@@ -67,7 +67,7 @@ archiveDigest 是终极证据（字节级可重放）
 ```bash
 ngm verify                 # ref 对比 + digest 本地重放 + 落地校验
 ngm verify --offline       # 不访问网络，用本地 mirror 快照
-ngm verify --content       # 追加 vendor 逐文件内容哈希校验（旧别名 --deep）
+ngm verify --content       # 追加 vendor 逐文件内容哈希校验
 ngm verify --json          # 机器可读输出（含 driftKind）
 ```
 

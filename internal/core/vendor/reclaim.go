@@ -60,9 +60,11 @@ func (s *ContentStore) PlanStoreReclaim(reachable map[string]bool, now time.Time
 		if os.IsNotExist(err) {
 			return plan, nil
 		}
-		return plan, errs.Wrap(errs.CodeConfigInvalid, "stat the content store", "", err)
+		return plan, errs.Wrap(errs.CodeConfigInvalid, "stat the content store",
+			"check permissions on "+s.root, err)
 	} else if !info.IsDir() {
-		return plan, errs.New(errs.CodeConfigInvalid, s.root+" is not a directory", "")
+		return plan, errs.New(errs.CodeConfigInvalid, s.root+" is not a directory",
+			"point NGM_HOME at a directory, or run `ngm install` to rebuild the store")
 	}
 	plan.Exists = true
 
@@ -96,7 +98,8 @@ func (s *ContentStore) PlanStoreReclaim(reachable map[string]bool, now time.Time
 	v1 := map[string]bool{}
 	dirs, err := os.ReadDir(filepath.Join(s.root, digest.Algorithm))
 	if err != nil && !os.IsNotExist(err) {
-		return plan, errs.Wrap(errs.CodeConfigInvalid, "read the content store", "", err)
+		return plan, errs.Wrap(errs.CodeConfigInvalid, "read the content store",
+			"check permissions on the store, or run `ngm doctor`", err)
 	}
 	for _, e := range dirs {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), unpackPrefix) {
@@ -152,7 +155,8 @@ func (s *ContentStore) PlanStoreReclaim(reachable map[string]bool, now time.Time
 				if os.IsNotExist(serr) {
 					continue // 已经不在磁盘上：没有可回收的字节
 				}
-				return plan, errs.Wrap(errs.CodeConfigInvalid, "stat blob "+sha, "", serr)
+				return plan, errs.Wrap(errs.CodeConfigInvalid, "stat blob "+sha,
+					"run `ngm doctor`; the blob may have been removed outside ngm", serr)
 			}
 			if info.ModTime().After(cutoff) {
 				plan.YoungBlobs++
@@ -248,7 +252,8 @@ func dirBytesIfPresent(dir string) (int64, error) {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
-		return 0, errs.Wrap(errs.CodeConfigInvalid, "stat "+dir, "", err)
+		return 0, errs.Wrap(errs.CodeConfigInvalid, "stat "+dir,
+			"check permissions on the content store", err)
 	}
 	if !info.IsDir() {
 		return 0, nil
@@ -291,10 +296,12 @@ func PlanVendorReclaim(root string, reachable []string) (VendorReclaimPlan, erro
 		if os.IsNotExist(err) {
 			return plan, nil
 		}
-		return plan, errs.Wrap(errs.CodeConfigInvalid, "stat the vendor root", "", err)
+		return plan, errs.Wrap(errs.CodeConfigInvalid, "stat the vendor root",
+			"check vendor.mode / vendor.globalPath in ngm.json", err)
 	}
 	if !info.IsDir() {
-		return plan, errs.New(errs.CodeConfigInvalid, root+" is not a directory", "")
+		return plan, errs.New(errs.CodeConfigInvalid, root+" is not a directory",
+			"point vendor.mode / vendor.globalPath at a directory, or run `ngm install`")
 	}
 	plan.Exists = true
 
@@ -311,7 +318,8 @@ func PlanVendorReclaim(root string, reachable []string) (VendorReclaimPlan, erro
 	walk = func(dir, rel string) error {
 		entries, rerr := os.ReadDir(dir)
 		if rerr != nil {
-			return errs.Wrap(errs.CodeConfigInvalid, "read "+dir, "", rerr)
+			return errs.Wrap(errs.CodeConfigInvalid, "read "+dir,
+				"check permissions on the vendor tree", rerr)
 		}
 		for _, e := range entries {
 			childRel := path.Join(rel, e.Name())
@@ -342,7 +350,8 @@ func PlanVendorReclaim(root string, reachable []string) (VendorReclaimPlan, erro
 			} else {
 				li, ierr := e.Info()
 				if ierr != nil {
-					return errs.Wrap(errs.CodeConfigInvalid, "stat "+full, "", ierr)
+					return errs.Wrap(errs.CodeConfigInvalid, "stat "+full,
+						"check permissions on the vendor tree", ierr)
 				}
 				n = li.Size()
 			}

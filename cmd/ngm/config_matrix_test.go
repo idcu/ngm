@@ -373,6 +373,7 @@ var matrixArgs = map[string][]string{
 	"integrations": {"add", "vite"},
 	"cache":        {"clean"},
 	"store":        {"usage"},
+	"gc":           {},
 	"config":       {"validate"},
 	"engines":      {"list"},
 	"sbom":         {},
