@@ -155,6 +155,48 @@ add(11, `文档单文件不无限增长（≤${LIMIT_KB}KB 且 ≤${LIMIT_LINES}
     ? '超限 ' + oversized.length + ' 个，最大 ' + oversized[0].f + ' ' + oversized[0].kb.toFixed(1) + 'KB/' + oversized[0].lines + 'L'
     : '最大 ' + (mdFiles[0] ? mdFiles[0].f + ' ' + mdFiles[0].kb.toFixed(1) + 'KB/' + mdFiles[0].lines + 'L' : '（无 md）'));
 
+/* 12. 每条判据都在总闸里（写完却从不跑的判据，价值是 0，代价是有） */
+// 判法：脚本文件名必须出现在「命令链」或「另一个脚本的内容」里（后者覆盖 check.mjs 这类
+// 通过 spawn 调子判据的聚合器）。只看命令链会误报一整批被聚合器调用的子判据。
+// 判法：文件名必须出现在**别的文件**里。第一版把所有脚本内容拼成一段再查，
+// 结果每条判据都被自己的头部注释命中（`/* check-contracts.mjs —— …`）——恒绿的判据。
+// 排除"自己"之后，check.mjs 这类聚合器对子判据的 spawn 调用才算数。
+const scriptBodies = walk('scripts').filter((f) => /\.(mjs|js|sh)$/.test(f));
+const orphanChecks = checkScripts.filter((f) => {
+  const base = path.basename(f);
+  const others = [
+    ...Object.values(scripts).map(String),
+    workflows,
+    ...scriptBodies.filter((g) => g !== f).map((g) => read(g))
+  ].join('\n');
+  return !others.includes(base);
+});
+
+// 需要外部环境（真实数据库 / 网络 / 特定硬件）的判据进不了总闸，这没问题——
+// 但它们必须**登记为手动项**，否则与"忘了挂"分不开。登记过的标 ⚠️ 并计入说明。
+const manual = (() => {
+  try {
+    const raw = JSON.parse(read('docs/manual-checks.json'));
+    return raw.checks || {};
+  } catch { return {}; }
+})();
+const manualOrphans = orphanChecks.filter((f) => manual[path.basename(f)]);
+const forgot = orphanChecks.filter((f) => !manual[path.basename(f)]);
+if (orphanChecks.length === 0) {
+  add(12, '每条判据都在总闸里（没有"写了但从不跑"的）', true, checkScripts.length + ' 个 check-* 都在总闸里');
+} else if (forgot.length === 0 && manualOrphans.length <= Math.max(2, Math.ceil(checkScripts.length / 3))) {
+  add(12, '每条判据都在总闸里（没有"写了但从不跑"的）', 'na',
+    manualOrphans.length + ' 个已登记为手动项（' + Object.keys(manual).join('、') + '），其余都在总闸里');
+} else if (forgot.length === 0) {
+  // 手动项本身也要有上限：全都登记成手动，第 12 问就成了摆设。
+  add(12, '每条判据都在总闸里（没有"写了但从不跑"的）', false,
+    '手动项过多（' + manualOrphans.length + '/' + checkScripts.length + '）——超过三分之一时，' +
+    '「需要外部环境」更像是在给不做 CI 找理由');
+} else {
+  add(12, '每条判据都在总闸里（没有"写了但从不跑"的）', false,
+    '孤立 ' + forgot.length + ' 个：' + forgot.slice(0, 3).map((f) => path.basename(f)).join('、'));
+}
+
 /* ---------------- 成熟度 ---------------- */
 const okCount = checks.filter((c) => c.state === 'ok').length;
 const applicable = checks.filter((c) => c.state !== 'na').length;
