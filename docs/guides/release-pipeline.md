@@ -43,7 +43,9 @@ Gitee 的 3 个是 `v0.2.0` / `v0.3.0` / `v0.4.0`，`v0.1.0` 没有发行版。
 以及每版一次完整构建。这个决定写进 [发布清单](../development/README.md) 的历史补发段，
 不假装"全部补齐"。
 
-执行入口：`.github/workflows/backfill.yml`（`workflow_dispatch`，默认四个 tag）。
+执行入口：`.github/workflows/backfill.yml`。两个入口共用同一段逻辑：
+`workflow_dispatch`（人工填 tag），或**修改并推送 `.github/release-backfill-trigger`**
+（无本机凭据时也能用：上传由 Actions 自带的 `GITHUB_TOKEN` 完成，结果仍是真实发布）。
 它用**当前分支**的构建脚本与 CHANGELOG，但 `go build` 站在各自 tag 的源码树里，
 因此产物是那一版的代码，不是当前 HEAD 的代码。
 

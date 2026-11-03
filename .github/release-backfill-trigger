@@ -1,0 +1,13 @@
+# release backfill trigger
+#
+# 这个文件是 Backfill releases 的 push 入口：**修改它并推送**就等于“现在补发”
+# （workflow 的 push 过滤器只监听这个路径）。默认补最近三个正式版：
+#
+#   v0.99.0  v0.100.0  v0.101.0
+#
+# 为什么有这条通道：补发需要写权限，而维护者的本机不一定有 token。
+# 推送后用 Actions 自带的 GITHUB_TOKEN 上传，仍是真实发布，不伪造结果。
+#
+# 只补这三个；其余 98 个正式 tag 明确不回填（见 docs/guides/release-pipeline.md）。
+#
+# 2026-11-03：首次触发（补 v0.99.0 / v0.100.0 / v0.101.0）。

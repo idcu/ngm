@@ -4,15 +4,25 @@ name: Backfill releases
 # 理由写在 docs/guides/release-pipeline.md：历史产物的覆盖成本是一个凭据加
 # 每条 tag 一次构建，而目前没有人需要那些旧二进制。
 #
-# 为什么是 workflow_dispatch 而不是 push: tags：这些 tag 早已推过，
-# 补发必须由人显式触发。它需要 `gh` 的写权限（GITHUB_TOKEN）。
+# 为什么不是 push: tags：这些 tag 早已推过，补发必须显式触发。
+# 两个入口：
+#   1. workflow_dispatch（人工填 tag）；
+#   2. push 且只改了 `.github/release-backfill-trigger` —— 这是无凭据环境
+#      也能用的入口：推送提交后由 Actions 自带的 GITHUB_TOKEN 真正上传，
+#      不依赖本机是否存有 token。改这个文件就是一次明确的“现在补发”。
+#
+# 两个入口共用同一段构建/校验/发布逻辑，默认补最近三个正式版
+#（dev.2 已经由 tag 推送发布，不再重复）。
 on:
   workflow_dispatch:
     inputs:
       tags:
         description: '空格分隔的 tag 列表'
         required: true
-        default: 'v0.99.0 v0.100.0 v0.101.0 v0.102.0-dev.1'
+        default: 'v0.99.0 v0.100.0 v0.101.0'
+  push:
+    paths:
+      - '.github/release-backfill-trigger'
 
 permissions:
   contents: write
@@ -58,9 +68,16 @@ jobs:
       - name: build, verify and publish each tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAGS: ${{ inputs.tags }}
+          INPUT_TAGS: ${{ inputs.tags }}
+          PUSH_TAGS: 'v0.99.0 v0.100.0 v0.101.0'
         run: |
           set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAGS="$INPUT_TAGS"
+          else
+            TAGS="$PUSH_TAGS"
+          fi
+          [ -n "$TAGS" ] || { echo "::error::no tags to backfill"; exit 1; }
           for tag in $TAGS; do
             echo "== ${tag} =="
             git checkout -q "$tag"
@@ -117,10 +134,14 @@ jobs:
         shell: powershell
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          TAGS: ${{ inputs.tags }}
+          INPUT_TAGS: ${{ inputs.tags }}
+          PUSH_TAGS: 'v0.99.0 v0.100.0 v0.101.0'
+          EVENT: ${{ github.event_name }}
         run: |
           if (-not $env:GITEE_TOKEN) { Write-Error "GITEE_UPLOAD is true but GITEE_TOKEN is empty"; exit 1 }
-          foreach ($tag in $env:TAGS.Split(' ')) {
+          $tags = $env:INPUT_TAGS
+          if ($env:EVENT -ne 'workflow_dispatch') { $tags = $env:PUSH_TAGS }
+          foreach ($tag in $tags.Split(' ')) {
             if ($tag.Trim() -eq '') { continue }
             powershell -NoProfile -File scripts/upload-gitee-assets.ps1 -Tag $tag.Trim()
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
