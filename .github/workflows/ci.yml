@@ -20,10 +20,6 @@ jobs:
   build-test:
     name: build/vet/test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # 只为失败诊断：把 go test 的尾部作为 commit comment 发出来。
-    # Actions 的 job log 对未登录访问者返回 403；commit comment 是公开可读的。
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +64,7 @@ jobs:
         # Windows 的默认 shell 是 PowerShell：`set -o pipefail` 在那里是一条
         # 找不到的命令，Actions 把 $ErrorActionPreference 设为 Stop ⇒ **go test
         # 根本没跑**，而 job 仍以“失败”收场（2026-11-03 的 Windows CI 实测，
-        # commit comment 里连日志文件都不存在）。显式用 bash，三平台同一段脚本。
+        # 连 go-test.log 都不存在）。显式用 bash，三平台同一段脚本。
         shell: bash
         # 超时显式放宽到 40m（Go 默认 10m）。
         #
@@ -83,81 +79,65 @@ jobs:
         run: |
           set -o pipefail
           go test -count=1 -timeout 40m ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > "$RUNNER_TEMP/go-test.exit"
+          exit "$rc"
 
-      # 失败时把**测试名**变成 annotation：Actions 日志对未登录访问者不可见
-      # （`/actions/jobs/<id>/logs` 匿名 403），而 check-runs annotations 是公开可读的
-      # （`/repos/{owner}/{repo}/check-runs/<id>/annotations`）。因此这里同时写两处：
-      # job summary 给登录的人，annotation 给没有凭据的复核者。
-      # 它不改变判定，只让"哪条测试红了"可见。
-      - name: failing tests -> job summary
+      # 公开区只放**定位信息**：包名、用例名、退出码。原始输出一律不进
+      # job summary / annotation / commit comment —— 那里会被长期公开。
+      - name: failure summary (names and exit code only)
         if: failure()
         shell: bash
         run: |
           log="$RUNNER_TEMP/go-test.log"
+          rc="$(cat "$RUNNER_TEMP/go-test.exit" 2>/dev/null || echo unknown)"
           {
-            echo '### go test tail'
-            echo '```'
-            grep -E '^--- FAIL|^FAIL|^panic:' "$log" 2>/dev/null | head -80 || true
+            echo "### go test failed (exit ${rc})"
             echo
-            tail -n 60 "$log" 2>/dev/null || true
+            echo "**packages**"
+            echo
             echo '```'
+            grep -E '^FAIL[[:space:]]+github.com/' "$log" 2>/dev/null \
+              | awk '{ print $2 }' | sort -u | head -30 || true
+            echo '```'
+            echo "**tests**"
+            echo
+            echo '```'
+            grep -E '^--- FAIL' "$log" 2>/dev/null \
+              | sed -E 's/^--- FAIL: *([^ ]+).*/\1/' | sort -u | head -40 || true
+            echo '```'
+            if grep -qE '^panic:' "$log" 2>/dev/null; then
+              echo
+              echo "**panic detected** — see the artifact for the stack, it is not copied here."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # 逐条测试名（正常失败时）：
-          grep -E '^--- FAIL' "$log" 2>/dev/null \
-            | sed -E 's/^--- FAIL: ([^ ]+).*/\1/' | head -10 \
-            | while IFS= read -r name; do
-                [ -n "$name" ] || continue
-                echo "::error title=failing test::$name"
-              done || true
-
-          # 兜底：`go test` 以 2 退出（构建失败 / panic）时没有 `--- FAIL` 行，
-          # 上面什么都不会产出。把日志尾部放进一条 annotation（换行按
-          # GitHub 的转义规则编码），这样**没有日志下载权限**的人也能读到原因。
-          tail -n 25 "$log" 2>/dev/null \
-            | sed -e 's/%/%25/g' -e 's/\r$//' \
-            | awk '{ printf "%s%%0A", $0 }' > "$RUNNER_TEMP/annotation.txt" || true
-          if [ -s "$RUNNER_TEMP/annotation.txt" ]; then
-            echo "::error title=go test tail::$(cat "$RUNNER_TEMP/annotation.txt")"
-          fi
-
-      # annotation 对超长/多行消息的处理不可靠（实测 2026-11-03：只有测试名出现，
-      # 日志尾部那条没进 Annotations 列表）。commit comment 是另一个公开通道：
-      # 未登录也能通过 API 读到，且不依赖 job summary 的渲染。
-      - name: failure tail -> commit comment (public)
+      # 完整日志只进 artifact（7 天），且先做脱敏：环境变量值、HOME/RUNNER_TEMP/
+      # WORKSPACE 路径、Bearer/access_token 类文本都替换掉。artifact 对公开仓库
+      # 同样可下载，所以脱敏是上传的一部分，不是可选项。
+      - name: sanitize go test log for the artifact
         if: failure()
         shell: bash
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
         run: |
-          body="$(
-            {
-              echo "### first failures with context"
-              grep -E '^--- FAIL' -A 10 "$RUNNER_TEMP/go-test.log" 2>/dev/null | head -160 || true
-              echo
-              echo "### tail"
-              tail -n 40 "$RUNNER_TEMP/go-test.log" 2>/dev/null || true
-              echo
-              echo "### tools"
-              echo "bash: $(command -v bash) $(bash --version 2>&1 | head -1)"
-              echo "node: $(command -v node || echo MISSING) $(node --version 2>&1 || true)"
-            } | tail -c 8000
-          )"
-          [ -n "$body" ] || body="(no go test log)"
+          log="$RUNNER_TEMP/go-test.log"
+          out="$RUNNER_TEMP/go-test-sanitized.log"
+          [ -f "$log" ] || { echo "no go test log to sanitize"; exit 0; }
           py="$(command -v python3 || command -v python || true)"
           if [ -z "$py" ]; then
-            echo "no python on this runner; skipping the commit comment"
-            exit 0
+            echo "::error::python not found; refusing to upload an unsanitized go test log"
+            exit 1
           fi
-          BODY="$body" "$py" -c 'import json,os; print(json.dumps({"body":"```\n"+os.environ["BODY"][:8000]+"\n```"}))' > "$RUNNER_TEMP/comment.json"
-          curl -sS -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/commits/$SHA/comments" \
-            --data @"$RUNNER_TEMP/comment.json" >/dev/null
-          echo "posted the go test tail as a commit comment"
+          "$py" scripts/sanitize-go-test-log.py "$log" "$out"
+          echo "sanitized log: $out"
+
+      - name: upload sanitized go test log (7 days)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-log-${{ runner.os }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-sanitized.log
+          retention-days: 7
+          if-no-files-found: warn
 
       # 测试跑完，仓库必须还是干净的（v0.85）。
       #
@@ -193,6 +173,15 @@ jobs:
 
       - name: release status (tag ↔ retrospective)
         run: bash scripts/check-release-status.sh
+
+      # 真门禁：最近 3 个正式 tag 的 release 必须存在、附件与矩阵一致、
+      # SHA256SUMS 行数一致；并且 ngm-repo 的 `.ngm-version` 指向的版本
+      # 必须有可下载产物。缺任何一项都红，输出缺在哪个 tag。
+      - name: release drift guard (last 3 + ngm-repo pin)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/check-release-status.sh --drift-guard --repo "${{ github.repository }}"
 
       - name: docs links
         run: bash scripts/check-docs-links.sh

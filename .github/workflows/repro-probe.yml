@@ -78,6 +78,8 @@ jobs:
           name: probe-${{ runner.os }}
           path: probe-result.json
           if-no-files-found: error
+          # artifact 对公开仓库可下载；探针结果只含哈希/工具版本/判定，不含日志。
+          retention-days: 7
 
   compare:
     needs: probe
