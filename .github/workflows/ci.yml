@@ -132,7 +132,19 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          body="$(tail -n 60 "$RUNNER_TEMP/go-test.log" 2>/dev/null || true)"
+          body="$(
+            {
+              echo "### first failures with context"
+              grep -E '^--- FAIL' -A 10 "$RUNNER_TEMP/go-test.log" 2>/dev/null | head -160 || true
+              echo
+              echo "### tail"
+              tail -n 40 "$RUNNER_TEMP/go-test.log" 2>/dev/null || true
+              echo
+              echo "### tools"
+              echo "bash: $(command -v bash) $(bash --version 2>&1 | head -1)"
+              echo "node: $(command -v node || echo MISSING) $(node --version 2>&1 || true)"
+            } | tail -c 8000
+          )"
           [ -n "$body" ] || body="(no go test log)"
           py="$(command -v python3 || command -v python || true)"
           if [ -z "$py" ]; then
