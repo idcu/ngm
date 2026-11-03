@@ -71,7 +71,22 @@ jobs:
         # 也就是说：默认 10m 会让"慢"读成"坏"，而 CI 的红应该只表示真有问题。
         # 这与 `metrics.md` 那条纪律同源：**次数优先于秒数**——这里也是，
         # 一个可判别的"有没有失败"不该被一个与平台相关的时长上限误伤。
-        run: go test -count=1 -timeout 40m ./...
+        run: |
+          set -o pipefail
+          go test -count=1 -timeout 40m ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+
+      # 失败时把**测试名**写进 job summary：公开页面上能直接读到，
+      # 不必登录下载日志。它不改变判定，只让"哪条测试红了"可见。
+      - name: failing tests -> job summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo '### failing tests'
+            echo '```'
+            grep -E '^--- FAIL|^FAIL|^panic:' "$RUNNER_TEMP/go-test.log" | head -80 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # 测试跑完，仓库必须还是干净的（v0.85）。
       #
