@@ -4,6 +4,10 @@
 # 规则（对称三条）：
 #   1. 有 docs/development/vX.Y-retrospective.md  ⇒ 必须有 vX.Y.* 的 tag
 #   2. 有 vX.Y.* 的 tag                            ⇒ 必须有那一版的复盘
+#      **例外：预发布 tag（vX.Y.Z-<suffix>，如 v0.102.0-dev.1）不要求复盘**。
+#      它不标记"一个版本交付了"，而是给下游（ngm-repo 的 `.ngm-version`）一个
+#      可直接下载的固定点；硬要它配一份复盘，等于把预发布读成正式交付。
+#      例外只放开规则 2：预发布仍受规则 3（附注 tag）与 `--published`（真的发布了）约束。
 #   3. 每个 release tag 都是**附注 tag**（`git tag -a`）——轻量 tag 带不了说明
 #
 # 为什么判据是**复盘文件**，而不是计划里那行"状态：已交付"：
@@ -85,17 +89,25 @@ for f in "${retro_files[@]}"; do
   fi
 done
 
-tag_list=""     # 每行 "vX.Y<TAB>vX.Y.Z"
+tag_list=""     # 每行 "vX.Y<TAB>vX.Y.Z"（正式版：参与 tag ↔ 复盘配对）
+pre_list=""     # 每行 "vX.Y<TAB>vX.Y.Z-suffix"（预发布：只受附注 tag 与发布检查约束）
 tag_count=0
+pre_count=0
 lightweight=""
 while IFS= read -r tag; do
   [ -n "$tag" ] || continue
   tag_count=$((tag_count + 1))
-  if [[ "$tag" =~ ^(v[0-9]+\.[0-9]+)\.[0-9]+ ]]; then
-    tag_list+="${BASH_REMATCH[1]}"$'\t'"$tag"$'\n'
+  # 第四组捕获预发布后缀（`-dev.1` / `-rc.2` …）。后缀存在 ⇒ 不是交付版本。
+  if [[ "$tag" =~ ^(v[0-9]+\.[0-9]+)\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+    if [ -n "${BASH_REMATCH[2]}" ]; then
+      pre_list+="${BASH_REMATCH[1]}"$'\t'"$tag"$'\n'
+      pre_count=$((pre_count + 1))
+    else
+      tag_list+="${BASH_REMATCH[1]}"$'\t'"$tag"$'\n'
+    fi
   else
     echo "UNRECOGNISED release tag: $tag" >&2
-    echo "  expected the form vX.Y.Z (this check compares per minor version)" >&2
+    echo "  expected the form vX.Y.Z or vX.Y.Z-<pre-release suffix>" >&2
     unrecognised=1
   fi
   if [ "$(git cat-file -t "$tag" 2>/dev/null || true)" != "tag" ]; then
@@ -164,7 +176,7 @@ echo
 
 # ---------------------------------------------------------------- 报告
 echo "release status (one retrospective per released version):"
-echo "  saw $tag_count release tag(s), $(count "$retro_list") retrospective(s)"
+echo "  saw $tag_count tag(s) ($pre_count pre-release), $(count "$retro_list") retrospective(s)"
 echo
 
 missing_tag=""
@@ -184,6 +196,12 @@ while IFS= read -r v; do
   fi
   printf '  %-7s %s  %-16s %s\n' "$v" "$r" "$t" "$verdict"
 done < <(versions)
+
+if [ -n "$pre_list" ]; then
+  echo
+  echo "pre-release tag(s) (not a delivered version: no retrospective required):"
+  printf '%s' "$pre_list" | awk -F'\t' 'NF { printf "  %-8s %s\n", $1, $2 }'
+fi
 
 status=0
 
@@ -262,7 +280,9 @@ if [ "$PUBLISHED" -eq 1 ]; then
     auth=(-H "Authorization: Bearer ${GH_TOKEN}")
   fi
 
-  expected_assets=7   # 6 个平台二进制 + SHA256SUMS（发布清单第 3 步）
+  # 下限而非精确值：旧 release 是 6 个平台二进制 + SHA256SUMS = 7；v0.102 起
+  # 同一份构建另带 6 个版本化别名 ⇒ 13。这里只判"资产齐不齐"，不把新旧读数混成一个。
+  expected_assets=7
   missing_release=""
   thin_release=""
   inconclusive=""
@@ -312,7 +332,11 @@ if [ "$PUBLISHED" -eq 1 ]; then
         ;;
     esac
     rm -f "$body"
-  done < <(printf '%s' "$tag_list" | awk -F'\t' 'NF { print $2 }' | sort)
+  # 预发布同样必须真的发布（ngm-repo 的下载路径直接指向它），所以一并检查。
+  done < <({
+    printf '%s' "$tag_list"
+    printf '%s' "$pre_list"
+  } | awk -F'\t' 'NF { print $2 }' | sort)
 
   if [ -n "$missing_release" ]; then
     status=1

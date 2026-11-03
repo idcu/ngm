@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +55,52 @@ func writeLockFixture(t *testing.T, dir string) {
   ]
 }`
 	writeFile(t, filepath.Join(dir, "ngm.lock"), body)
+}
+
+// TestV102PrereleaseTagsDoNotRequireARetrospective 钉住发布链路的一个边界：
+// `v0.102.0-dev.1` 是给下游（ngm-repo 的 `.ngm-version`）钉住的预发布点，
+// 不是"一个版本交付了"；release 门禁因此不能拿它去要 v0.102 的复盘。
+// 例外只放开这一条：附注 tag 规则仍然适用（轻量预发布仍须红）。
+func TestV102PrereleaseTagsDoNotRequireARetrospective(t *testing.T) {
+	bash := findBash(t)
+	script := filepath.Join(repoRoot(t), "scripts", "check-release-status.sh")
+	dir := t.TempDir()
+	initSyntheticReleaseRepo(t, dir) // v0.1 复盘 + v0.1.0 附注 tag
+	gitIn(t, dir, "tag", "-a", "v0.2.0-dev.1", "-m", "v0.2.0-dev.1")
+
+	run := func() (string, int) {
+		cmd := exec.Command(bash, filepath.ToSlash(script))
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if err != nil {
+			if ee, ok := err.(*exec.ExitError); ok {
+				code = ee.ExitCode()
+			} else {
+				t.Fatalf("run script: %v", err)
+			}
+		}
+		return string(out), code
+	}
+
+	out, code := run()
+	if code != 0 {
+		t.Fatalf("预发布 tag 不该被判成缺复盘，got exit %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "pre-release") || !strings.Contains(out, "v0.2.0-dev.1") {
+		t.Errorf("报告要单独列出预发布 tag（说明为什么不要求复盘）:\n%s", out)
+	}
+
+	// 牙齿：删掉附注 tag、换成一个轻量 tag ⇒ 仍须红（豁免只针对规则 2）。
+	gitIn(t, dir, "tag", "-d", "v0.2.0-dev.1")
+	gitIn(t, dir, "tag", "v0.2.0-dev.1")
+	out, code = run()
+	if code != 1 {
+		t.Fatalf("轻量预发布 tag 必须 exit 1，got %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "lightweight") {
+		t.Errorf("要点名轻量 tag:\n%s", out)
+	}
 }
 
 // TestV102SchemaVersionTwoIsReadEverywhere 钉住决策 1：

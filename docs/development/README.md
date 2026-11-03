@@ -54,6 +54,9 @@
 > （最近 10 次 run 全部 success）。
 > "已交付 ⇔ 已打 tag"由 `scripts/check-release-status.sh`（CI job `release-status`）机械守住；
 > "release 是否真的存在"由它的 `--published` 读取，**查不动时拒绝报成功**。
+> 例外只有**预发布 tag**（`vX.Y.Z-<suffix>`，如 `v0.102.0-dev.1`）：它不是一个交付版本，
+> 不要求复盘，但仍须是附注 tag、且仍须真的发布（`--published` 连同它一起查）。
+> 发布流水线与回填范围见[发布流水线](../guides/release-pipeline.md)。
 >
 > | 版本 | 计划 | 复盘 | 一句话 |
 > |------|------|------|--------|
