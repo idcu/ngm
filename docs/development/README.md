@@ -31,7 +31,7 @@
 > | 待补 | 缺什么 | 恢复时怎么做 |
 > |------|--------|-------------|
 > | `v0.5.0` ~ `v0.8.0` 的 GitHub release | **4 个**——镜像转发了 tag 却没触发 `release.yml`，**原因不明** | Actions → Release → **Run workflow**，填 tag（[发布清单](#发布清单每个版本)第 2 步） |
-> | Gitee 发行版 | **15 个**：`v0.1.0` 及 `v0.5.0` ~ `v0.18.0` | `scripts/upload-gitee-assets.ps1 -Tag vX.Y.0`（需 `GITEE_TOKEN`） |
+> | Gitee 发行版 | **15 个**：`v0.1.0` 及 `v0.5.0` ~ `v0.18.0` | `bash scripts/gitee-release.sh --tag vX.Y.0 --assets dist`（需 `GITEE_TOKEN`） |
 >
 > **这是有意延后，不是遗漏。** 判据是"有没有人要这些二进制"：
 > 两个缺口涉及的版本**功能全都在源码里**（`v0.5` ~ `v0.12` 的每一处能力都能按
@@ -651,21 +651,20 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > ⚠️ **暂缓期间它报"缺 98 个"是预期的**（见本文开头）：这个读数的用途不是催办，
    > 而是让"两个源到底有什么"永远有一个不需要信任谁的答案。
 
-> **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/upload-gitee-assets.ps1`）：
+> **v0.6：第 3 ~ 5 步现在是一条命令**（`scripts/gitee-release.sh`，Windows 入口 `.ps1`）：
 >
-> ```powershell
-> powershell -File scripts/upload-gitee-assets.ps1 -Tag v0.4.0 -DryRun   # 先看清单与 sha256
-> $env:GITEE_TOKEN = '<Gitee 私人令牌>'
-> powershell -File scripts/upload-gitee-assets.ps1 -Tag v0.4.0            # 上传 + 逐个双向校验
+> ```bash
+> gh release download v0.99.0 --dir dist          # 先取 GitHub 上已发布的字节
+> bash scripts/gitee-release.sh --tag v0.99.0 --assets dist --dry-run
+> GITEE_TOKEN='<Gitee 私人令牌>' bash scripts/gitee-release.sh --tag v0.99.0 --assets dist
 > ```
 >
-> 它**从 GitHub 取字节**而不是本地重编——两个源必须是同一份字节，而本地重编会得到另一份
-> （工具链、时间、路径都可能不同），那样"两个源一致"就成了一句没法核对的话。
+> 它**只上传已有产物**，不在 Gitee 侧重编——两个源必须是同一份字节。
 > 它按 `SHA256SUMS`（**同一个文件**）逐个核对，并在上传后**再从 Gitee 下载一遍比对**；
-> 同名附件已存在且一致时跳过（**幂等**），不一致时报错并让你决定，**绝不静默覆盖**。
-> 缺 token 时它明确失败、不动远端——没有"降级成不做事"这种路径。
-> **已用真实令牌端到端跑通**（2026-10-02，v0.2.0/v0.3.0/v0.4.0 各 7/7）；
-> GitHub 连不上时可加 `-GitHubProxy`（清单仍优先直连取得，见下）。
+> 同名附件默认跳过（**幂等**），`--force` 才先删后传。缺 token 时明确 exit 2、
+> 不动远端；dry-run **零网络请求**。
+> **本轮没有 `GITEE_TOKEN`**：真实上传**未执行**；dry-run 与假 API 判据
+> （创建 / 更新 / 跳过 / `--force` / 零请求）已跑通，见 `TestV102GiteeRelease*`。
 
 ### 补发记录（2026-10-01）
 

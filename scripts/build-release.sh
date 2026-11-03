@@ -25,17 +25,25 @@ BUILT="${BUILT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 OUT="${OUT:-dist}"
 VERSIONED_NAMES="${VERSIONED_NAMES:-1}"
 
-# 六个目标：三大平台 × 两种架构（与 installation.md 的命名表一一对应）。
+# 目标矩阵在 scripts/release-matrix.txt（**唯一声明**）：构建脚本与漂移守卫
+# 都读它，避免"构建产出了 A、检查却按 B 判定"这类漂移。
 # TARGETS 是本地 dry-run / CI 裁剪用的：只影响构建集合，不改变命名与校验格式。
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MATRIX="$ROOT/scripts/release-matrix.txt"
 if [ -n "${TARGETS:-}" ]; then
   read -r -a TARGET_LIST <<< "$TARGETS"
+elif [ -f "$MATRIX" ]; then
+  TARGET_LIST=()
+  while IFS= read -r target; do
+    target="${target%$'\r'}"
+    case "$target" in ''|\#*) continue ;; esac
+    TARGET_LIST+=("$target")
+  done < "$MATRIX"
 else
-  TARGET_LIST=(
-    linux/amd64 linux/arm64
-    darwin/amd64 darwin/arm64
-    windows/amd64 windows/arm64
-  )
+  echo "error: missing $MATRIX (the release target declaration)" >&2
+  exit 1
 fi
+[ "${#TARGET_LIST[@]}" -gt 0 ] || { echo "error: empty target matrix" >&2; exit 1; }
 
 # -trimpath：去掉构建机器上的绝对路径。
 # -buildvcs=false：不让 VCS 状态进入 buildinfo，排除"同一 tag 在不同 checkout 下

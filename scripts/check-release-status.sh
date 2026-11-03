@@ -23,9 +23,19 @@
 # 这个脚本就是那个自动检查。
 #
 # 用法：scripts/check-release-status.sh [--published] [--repo OWNER/NAME]
+#        scripts/check-release-status.sh --drift-guard [--drift-last N]
+#            [--fixtures DIR] [--ngm-version-file PATH | --ngm-version-url URL]
 #
 #   无参数       离线三条（上面的规则 1~3）——CI 的门禁。
 #   --published  **额外**去 GitHub 问一句：每个 tag 到底有没有 release、资产齐不齐。
+#   --drift-guard 门禁：最近 N 个正式 tag（默认 3，且排除已声明不回填的历史区间）
+#                 的 release 必须存在、附件与 `scripts/release-matrix.txt` 一致、
+#                 `SHA256SUMS` 行数一致；并检查 ngm-repo 的 `.ngm-version`
+#                 指向的版本确实有可下载产物。**这是 CI 的真门禁**，不是告警。
+#   --fixtures DIR 离线判定：从 DIR 读 `<tag>.json`、`SHA256SUMS-<tag>`、
+#                 `ngm-version`，用于验证判定逻辑本身（不联网）。
+#
+# --drift-guard 需要网络与 curl；CI 里带 GITHUB_TOKEN。查不动时 exit 3（不报成功）。
 #
 # 为什么要有 --published：上面的规则只能证明"tag 存在"，**证明不了"产物能被下载"**。
 # 2026-10-02 实测：`v0.5.0` ~ `v0.8.0` 四个 tag 都在 GitHub 上（附注对象完整），
@@ -47,10 +57,45 @@
 set -euo pipefail
 
 PUBLISHED=0
+DRIFT=0
+DRIFT_LAST=3
+FIXTURES=""
+NGM_VERSION_FILE=""
+NGM_VERSION_URL=""
 REPO_SLUG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --published) PUBLISHED=1 ;;
+    --drift-guard) DRIFT=1 ;;
+    --drift-last)
+      shift
+      DRIFT_LAST="${1:-}"
+      case "$DRIFT_LAST" in
+        [1-9]|[1-9][0-9]*) ;;
+        *) echo "ERROR: --drift-last needs a positive integer" >&2; exit 2 ;;
+      esac
+      ;;
+    --fixtures)
+      shift
+      FIXTURES="${1:-}"
+      if [ -z "$FIXTURES" ] || [ ! -d "$FIXTURES" ]; then
+        echo "ERROR: --fixtures needs an existing directory" >&2
+        exit 2
+      fi
+      ;;
+    --ngm-version-file)
+      shift
+      NGM_VERSION_FILE="${1:-}"
+      if [ -z "$NGM_VERSION_FILE" ] || [ ! -f "$NGM_VERSION_FILE" ]; then
+        echo "ERROR: --ngm-version-file needs an existing file" >&2
+        exit 2
+      fi
+      ;;
+    --ngm-version-url)
+      shift
+      NGM_VERSION_URL="${1:-}"
+      [ -n "$NGM_VERSION_URL" ] || { echo "ERROR: --ngm-version-url needs a URL" >&2; exit 2; }
+      ;;
     --repo)
       shift
       REPO_SLUG="${1:-}"
@@ -61,13 +106,14 @@ while [ $# -gt 0 ]; do
       ;;
     *)
       echo "ERROR: unknown argument: $1" >&2
-      echo "usage: scripts/check-release-status.sh [--published] [--repo OWNER/NAME]" >&2
+      echo "usage: scripts/check-release-status.sh [--published] [--drift-guard] [--repo OWNER/NAME]" >&2
       exit 2
       ;;
   esac
   shift
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$(git rev-parse --show-toplevel)"
 RETRO_DIR="docs/development"
 
@@ -358,6 +404,290 @@ if [ "$PUBLISHED" -eq 1 ]; then
       echo "  refusing to report success when the check could not run"
       exit 3
     fi
+  fi
+fi
+
+# ---------------------------------------------------------------- 漂移守卫
+#
+# 这一节是**门禁**，不是读数：最近 N 个正式 tag 的 release 必须存在，附件集合
+# 必须与 `scripts/release-matrix.txt` 一致，`SHA256SUMS` 行数必须等于
+# “矩阵项 × 2”（既有名字 + 版本化别名）。另外校验 ngm-repo 的 `.ngm-version`
+# 指向的版本真的有可下载产物——2026-11 那次断供的根因就是“清单钉了一个没有
+# 产物的版本”。
+#
+# 已声明不回填的历史区间（v0.5~v0.8、v0.65~v0.98）全部早于 v0.99，
+# 因此在选择“最近 N 个正式 tag”时被显式排除：只有 major>0 或 minor>=99
+# 的正式 tag 进入候选。这是对决定的执行，不是对覆盖度的假装。
+if [ "$DRIFT" -eq 1 ]; then
+  echo
+  echo "release drift guard (last ${DRIFT_LAST} formal tag(s) + ngm-repo pin):"
+  echo "  excluded by decision: v0.5.0-v0.8.0 and v0.65.0-v0.98.0 (no backfill)"
+
+  drift_fail=0
+  drift_unknown=0
+
+  if [ -z "${REPO_SLUG:-}" ]; then
+    origin="$(git remote get-url origin 2>/dev/null || true)"
+    if [ -n "$origin" ]; then
+      REPO_SLUG="$(printf '%s' "$origin" | sed -e 's#\.git$##' -e 's#:#/#' \
+        | awk -F/ 'NF >= 2 { print $(NF-1) "/" $NF }')"
+    fi
+  fi
+  if [ -z "${REPO_SLUG:-}" ]; then
+    echo "  ERROR: could not determine the repository — pass --repo OWNER/NAME"
+    exit 3
+  fi
+
+  py=""
+  if command -v python3 >/dev/null 2>&1; then py="python3"
+  elif command -v python >/dev/null 2>&1; then py="python"; fi
+  if [ -z "$py" ]; then
+    echo "  ERROR: python3/python is required to parse release JSON (refusing to regex-split it)"
+    exit 3
+  fi
+
+  # 用脚本自身位置而不是 cwd：本判据会在**合成仓库**里跑（cwd 是那个仓库），
+  # 但目标矩阵属于这份实现。
+  matrix_file="$SCRIPT_DIR/release-matrix.txt"
+  if [ ! -f "$matrix_file" ]; then
+    echo "  ERROR: missing $matrix_file — the build/guard target declaration"
+    drift_fail=1
+  fi
+  matrix_targets="$(awk 'NF && $1 !~ /^#/ { print $1 }' "$matrix_file" 2>/dev/null || true)"
+  matrix_count="$(printf '%s\n' "$matrix_targets" | awk 'NF' | wc -l | tr -d ' ')"
+  if [ "$matrix_count" -eq 0 ]; then
+    echo "  ERROR: $matrix_file declares no targets"
+    drift_fail=1
+  fi
+  expected_sum_lines=$((matrix_count * 2))
+
+  auth=()
+  if [ -n "${GITHUB_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  elif [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer ${GH_TOKEN}"); fi
+
+  formal_tags="$(git tag --list 'v*' --sort=version:refname | awk -F. '
+    /^v[0-9]+\.[0-9]+\.[0-9]+$/ {
+      major = $1; sub(/^v/, "", major)
+      if (major + 0 > 0 || $2 + 0 >= 99) print
+    }')"
+  selected_tags="$(printf '%s\n' "$formal_tags" | awk 'NF' | tail -n "$DRIFT_LAST")"
+  selected_count="$(printf '%s\n' "$selected_tags" | awk 'NF' | wc -l | tr -d ' ')"
+  if [ "$selected_count" -lt "$DRIFT_LAST" ]; then
+    echo "  ERROR: only $selected_count candidate tag(s) visible; need $DRIFT_LAST (fetch tags with fetch-depth: 0)"
+    drift_fail=1
+  fi
+
+  # check_one <tag> <label>：release 存在 / 附件集合 / SHA256SUMS 行数。
+  check_one() {
+    local tag="$1" label="$2" body_file sums_file code names count missing name
+    local expected_names expected_count url sum_lines sum_names
+    expected_names=""
+    expected_count=0
+    while IFS= read -r target; do
+      [ -n "$target" ] || continue
+      local os_name arch legacy versioned
+      os_name="${target%/*}"
+      arch="${target#*/}"
+      legacy="ngm-${os_name}-${arch}"
+      versioned="ngm-${tag#v}-${os_name}-${arch}"
+      if [ "$os_name" = "windows" ]; then
+        legacy="${legacy}.exe"
+        versioned="${versioned}.exe"
+      fi
+      expected_names+="${legacy}"$'\n'"${versioned}"$'\n'
+      expected_count=$((expected_count + 2))
+    done <<EOF_MATRIX
+$matrix_targets
+EOF_MATRIX
+    expected_names+="SHA256SUMS"
+    expected_count=$((expected_count + 1))
+
+    if [ -n "$FIXTURES" ]; then
+      if [ ! -f "$FIXTURES/releases/$tag.json" ]; then
+        printf '  %-18s MISSING release (fixture has no %s.json)\n' "$label" "$tag"
+        drift_fail=1
+        return 0
+      fi
+      body_file="$FIXTURES/releases/$tag.json"
+    else
+      body_file="$(mktemp)"
+      code="$(curl -sS -o "$body_file" -w '%{http_code}' \
+        --connect-timeout 10 --max-time 60 \
+        -H 'Accept: application/vnd.github+json' ${auth[@]+"${auth[@]}"} \
+        "https://api.github.com/repos/${REPO_SLUG}/releases/tags/${tag}" || echo 000)"
+      case "$code" in
+        200) ;;
+        404)
+          printf '  %-18s MISSING release (tag exists, no release)\n' "$label"
+          drift_fail=1
+          rm -f "$body_file"
+          return 0
+          ;;
+        *)
+          printf '  %-18s COULD NOT CHECK (HTTP %s)\n' "$label" "$code"
+          drift_unknown=1
+          rm -f "$body_file"
+          return 0
+          ;;
+      esac
+    fi
+
+    names_file="$(mktemp)"
+    if ! "$py" -c '
+import json,sys
+try:
+    d=json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(2)
+if not isinstance(d, dict):
+    sys.exit(2)
+for a in d.get("assets") or []:
+    n=(a or {}).get("name","")
+    if n: print(n)
+' "$body_file" > "$names_file" 2>/dev/null; then
+      printf '  %-18s COULD NOT CHECK (release JSON is not readable)\n' "$label"
+      drift_unknown=1
+      rm -f "$names_file"
+      [ -n "$FIXTURES" ] || rm -f "$body_file"
+      return 0
+    fi
+    names="$(cat "$names_file")"
+    rm -f "$names_file"
+
+    count="$(printf '%s\n' "$names" | awk 'NF' | wc -l | tr -d ' ')"
+    missing=""
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      if ! printf '%s\n' "$names" | grep -Fxq "$name"; then
+        missing+=" $name"
+      fi
+    done <<EOF_EXPECTED
+$expected_names
+EOF_EXPECTED
+    if [ "$count" -ne "$expected_count" ] || [ -n "$missing" ]; then
+      printf '  %-18s INCOMPLETE (%s assets, expected %s; missing:%s)\n' \
+        "$label" "$count" "$expected_count" "${missing:- (extra assets)}"
+      drift_fail=1
+      [ -n "$FIXTURES" ] || rm -f "$body_file"
+      return 0
+    fi
+
+    # SHA256SUMS：行数与“矩阵 × 2”一致，且每一行都是矩阵声明的二进制名。
+    sums_file=""
+    if [ -n "$FIXTURES" ]; then
+      sums_file="$FIXTURES/SHA256SUMS-$tag"
+      if [ ! -f "$sums_file" ]; then
+        printf '  %-18s COULD NOT CHECK (fixture has no SHA256SUMS-%s)\n' "$label" "$tag"
+        drift_unknown=1
+        return 0
+      fi
+    else
+      url="$("$py" -c '
+import json,sys
+d=json.load(open(sys.argv[1], encoding="utf-8"))
+for a in d.get("assets") or []:
+    if (a or {}).get("name")=="SHA256SUMS":
+        print((a or {}).get("browser_download_url","")); break
+' "$body_file" 2>/dev/null || true)"
+      if [ -z "$url" ]; then
+        printf '  %-18s COULD NOT CHECK (SHA256SUMS has no download URL)\n' "$label"
+        drift_unknown=1
+        rm -f "$body_file"
+        return 0
+      fi
+      sums_file="$(mktemp)"
+      if ! curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$sums_file"; then
+        printf '  %-18s COULD NOT CHECK (SHA256SUMS download failed)\n' "$label"
+        drift_unknown=1
+        rm -f "$body_file" "$sums_file"
+        return 0
+      fi
+    fi
+
+    sum_lines="$(awk 'NF' "$sums_file" | wc -l | tr -d ' ')"
+    sum_names="$(awk 'NF { n=$2; sub(/^\*/, "", n); print n }' "$sums_file")"
+    sum_missing=""
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      if ! printf '%s\n' "$sum_names" | grep -Fxq "$name"; then
+        sum_missing+=" $name"
+      fi
+    done <<EOF_SUMS
+$(printf '%s\n' "$expected_names" | awk 'NF && $0 != "SHA256SUMS"')
+EOF_SUMS
+    if [ "$sum_lines" -ne "$expected_sum_lines" ] || [ -n "$sum_missing" ]; then
+      printf '  %-18s INCOMPLETE (SHA256SUMS %s lines, expected %s; missing:%s)\n' \
+        "$label" "$sum_lines" "$expected_sum_lines" "${sum_missing:- (extra lines)}"
+      drift_fail=1
+    else
+      printf '  %-18s release OK (%s assets, SHA256SUMS %s lines)\n' \
+        "$label" "$count" "$sum_lines"
+    fi
+    [ -n "$FIXTURES" ] || rm -f "$body_file"
+    if [ -n "$FIXTURES" ]; then
+      :
+    else
+      rm -f "$sums_file"
+    fi
+  }
+
+  while IFS= read -r tag; do
+    [ -n "$tag" ] || continue
+    check_one "$tag" "$tag"
+  done <<EOF_SELECTED
+$selected_tags
+EOF_SELECTED
+
+  # ngm-repo 的固定版本：这是“门禁会不会再次断供”的直接判据。
+  pin_file=""
+  if [ -n "$NGM_VERSION_FILE" ]; then
+    pin_file="$NGM_VERSION_FILE"
+  elif [ -n "$FIXTURES" ]; then
+    pin_file="$FIXTURES/ngm-version"
+    if [ ! -f "$pin_file" ]; then
+      echo "  pin              COULD NOT CHECK (fixture has no ngm-version)"
+      drift_unknown=1
+      pin_file=""
+    fi
+  else
+    tmp_pin="$(mktemp)"
+    pin_url="${NGM_VERSION_URL:-https://raw.githubusercontent.com/idcu/ngm-repo/master/.ngm-version}"
+    if ! curl -fsSL --connect-timeout 10 --max-time 60 "$pin_url" -o "$tmp_pin"; then
+      if [ -z "$NGM_VERSION_URL" ]; then
+        pin_url="https://gitee.com/idcu/ngm-repo/raw/master/.ngm-version"
+        if ! curl -fsSL --connect-timeout 10 --max-time 60 "$pin_url" -o "$tmp_pin"; then
+          echo "  pin              COULD NOT CHECK (cannot read ngm-repo .ngm-version)"
+          drift_unknown=1
+          rm -f "$tmp_pin"
+        fi
+      else
+        echo "  pin              COULD NOT CHECK (cannot read $pin_url)"
+        drift_unknown=1
+        rm -f "$tmp_pin"
+      fi
+    fi
+    if [ -f "$tmp_pin" ] && [ -s "$tmp_pin" ]; then pin_file="$tmp_pin"; fi
+  fi
+  if [ -n "$pin_file" ]; then
+    want="$(tr -d ' \r\n' < "$pin_file")"
+    if [ -z "$want" ]; then
+      echo "  pin              COULD NOT CHECK (empty .ngm-version)"
+      drift_unknown=1
+    else
+      echo "  pin              ngm-repo .ngm-version = ${want}"
+      check_one "v${want#v}" "pin:${want}"
+    fi
+    [ -n "$FIXTURES" ] || rm -f "$pin_file"
+  fi
+
+  if [ "$drift_fail" -eq 1 ]; then
+    echo
+    echo "ERROR: release drift guard failed — see the tag(s) above."
+    status=1
+  elif [ "$drift_unknown" -eq 1 ] && [ "$status" -eq 0 ]; then
+    echo
+    echo "could not determine part of the drift guard; refusing to report success."
+    status=3
   fi
 fi
 

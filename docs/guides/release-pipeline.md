@@ -86,19 +86,53 @@ tag 在 Gitee 上**没有**发行版（`GITEE_UPLOAD` 未启用、也没有 `GIT
 
 ---
 
-## 4. Gitee 通道
+## 4. 漂移守卫（CI 真门禁）
 
-GitHub 的同一批字节由 `scripts/upload-gitee-assets.ps1` 下载、按 `SHA256SUMS`
-逐个校验后再上传到 Gitee。不是第二套构建。
+`check-release-status.sh --drift-guard` 检查两类事实，缺任何一项都判红：
 
-- 默认关闭：仓库变量 `GITEE_UPLOAD=true` 且 secrets 里有 `GITEE_TOKEN` 时才运行。
-- 没有 token 时 job 不运行，也不会报"双通道已发布"。
-- 该脚本上传的是 **7 个既有名字**（Gitee 侧检查同样按这 7 个判定），
-  版本化别名不上传；Gitee 下载地址仍按 release tag 取既有名字。
+1. **最近 3 个正式 tag**（`v0.99.0` / `v0.100.0` / `v0.101.0`）：
+   - release 必须存在；
+   - 附件集合必须与 `scripts/release-matrix.txt` 精确一致：
+     `矩阵项 × 2`（既有名字 + 版本化别名）+ `SHA256SUMS` = **13**；
+   - `SHA256SUMS` 必须是 **12 行**，且每行的文件名都在矩阵声明里。
+2. **ngm-repo 的 `.ngm-version`** 指向的版本必须有同样的可下载产物——
+   这是上次“清单钉了一个没有 release 的版本”导致门禁断供的直接判据。
+
+已声明不回填的区间（`v0.5.0`–`v0.8.0`、`v0.65.0`–`v0.98.0`）全部早于 `v0.99`，
+选择候选时被显式排除：只有 `major > 0` 或 `minor >= 99` 的正式 tag 进入判定。
+
+退出码：`0` = 全部就绪；`1` = 有缺（点名 tag 与缺的资产/行数）；`3` = 查不动
+（网络/API/JSON 解析失败，**不报成功**）。CI 在 `release-state` job 里带
+`GITHUB_TOKEN` 跑这条门禁。
+
+本地不联网时用 fixture 验证判定逻辑本身：
+
+```bash
+bash scripts/check-release-status.sh --drift-guard --fixtures testdata/release-fixtures
+```
+（fixture 目录形状：`releases/<tag>.json`、`SHA256SUMS-<tag>`、`ngm-version`。）
 
 ---
 
-## 5. 本地 dry-run
+## 5. Gitee 通道
+
+GitHub 的同一批字节由 `gh release download` 取到本地，再由
+`scripts/gitee-release.sh` 按 `SHA256SUMS` 逐个校验后上传。不是第二套构建，
+Gitee 侧也不从本机重新编译。
+
+- 先 gate：缺 `GITEE_UPLOAD=true` 或 `GITEE_TOKEN` 时，gate 在 job summary
+  里写明缺哪一项；上传 job 显示 **skipped**，不伪造“双通道已发布”。
+- 有凭据时上传失败就是失败（没有 `continue-on-error`）。
+- 脚本上传 **7 个既有名字**（6 个二进制 + `SHA256SUMS`），版本化别名只留在
+  GitHub；Gitee 侧检查同样按这 7 个判定。
+- 幂等：已存在的 release 走更新（PATCH），不会创建第二份；同名附件默认跳过，
+  `--force` 才先删后传。上传后逐个从 Gitee 回读比对 sha256。
+- 本地可先看计划：`bash scripts/gitee-release.sh --tag v0.99.0 --assets dist --dry-run`
+  （零网络请求、不需要 token）。
+
+---
+
+## 6. 本地 dry-run
 
 ```bash
 # 版本取 .ngm-version，目标取 go env；只构建当前平台
@@ -115,7 +149,7 @@ TARGETS="linux/amd64" bash scripts/release-dryrun.sh
 
 ---
 
-## 6. 需要什么凭据
+## 7. 需要什么凭据
 
 | 动作 | 凭据 | 没有时 |
 |---|---|---|

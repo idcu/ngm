@@ -15,6 +15,11 @@
 [CmdletBinding()]
 param(
     [switch]$Published,
+    [switch]$DriftGuard,
+    [int]$DriftLast,
+    [string]$Fixtures,
+    [string]$NgmVersionFile,
+    [string]$NgmVersionUrl,
     [string]$Repo
 )
 
@@ -55,6 +60,11 @@ if (-not (Test-Path -LiteralPath $sh)) {
 
 $shArgs = @()
 if ($Published) { $shArgs += '--published' }
+if ($DriftGuard) { $shArgs += '--drift-guard' }
+if ($DriftLast -gt 0) { $shArgs += @('--drift-last', "$DriftLast") }
+if ($Fixtures) { $shArgs += @('--fixtures', $Fixtures) }
+if ($NgmVersionFile) { $shArgs += @('--ngm-version-file', $NgmVersionFile) }
+if ($NgmVersionUrl) { $shArgs += @('--ngm-version-url', $NgmVersionUrl) }
 if ($Repo) { $shArgs += @('--repo', $Repo) }
 
 & $bash $sh @shArgs
