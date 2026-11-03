@@ -131,6 +131,30 @@ const selftest = walk('scripts')
 add(10, '判据自己带牙齿（可构造负例）', selftest.length > 0 || goTests > 0,
   selftest.length ? selftest.length + ' 个脚本支持 --selftest' : (goTests ? '负例在 Go 测试里' : '没有可运行的负例'));
 
+/* 11. 文档规模：单文件不超过阈值（超过就会重新长回去，拆分只做一次不算数） */
+const LIMIT_KB = 60;
+const LIMIT_LINES = 600;
+// 快照不参与规模判据：复盘、评估、竞品对照这类文件**按纪律不重写**，
+// 它们的体积是历史事实，不是"文档没治理好"。把它们算进来，只会逼人删历史。
+const SNAPSHOT = [
+  /(^|\/)v0\.\d+-(plan|retrospective)\.md$/,
+  /(^|\/)EVALUATION-/,
+  /(^|\/)COMPETITORS-\d{4}-/,
+  /(^|\/)assessment-/
+];
+const mdFiles = [...walk('docs').filter((f) => f.endsWith('.md')), 'README.md']
+  .filter((f) => exists(f) && !SNAPSHOT.some((re) => re.test(f)))
+  .map((f) => {
+    const text = read(f);
+    return { f, kb: Buffer.byteLength(text) / 1024, lines: text.split('\n').length };
+  })
+  .sort((a, b) => b.kb - a.kb);
+const oversized = mdFiles.filter((m) => m.kb > LIMIT_KB || m.lines > LIMIT_LINES);
+add(11, `文档单文件不无限增长（≤${LIMIT_KB}KB 且 ≤${LIMIT_LINES} 行）`, oversized.length === 0,
+  oversized.length
+    ? '超限 ' + oversized.length + ' 个，最大 ' + oversized[0].f + ' ' + oversized[0].kb.toFixed(1) + 'KB/' + oversized[0].lines + 'L'
+    : '最大 ' + (mdFiles[0] ? mdFiles[0].f + ' ' + mdFiles[0].kb.toFixed(1) + 'KB/' + mdFiles[0].lines + 'L' : '（无 md）'));
+
 /* ---------------- 成熟度 ---------------- */
 const okCount = checks.filter((c) => c.state === 'ok').length;
 const applicable = checks.filter((c) => c.state !== 'na').length;

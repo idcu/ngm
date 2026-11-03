@@ -35,21 +35,20 @@ import (
 // 逐版账本保留在三份开发文档中（本判据的覆盖集随之从四张变为三张）。
 var reMilestoneRow = regexp.MustCompile(`^>? ?\| (?:> )?\*{0,2}(v0\.\d+)\*{0,2} `)
 
-// milestoneTableStartsAt：活文档 → 它的逐版表起点（仓库相对路径为键）。
+// milestoneLedger：一本逐版账本 —— 起点 + 构成它的文件（按卷顺序）。
 //
-//   - `docs/README.md` 从 v0.1 起（中文全量里程碑表）；
-//   - `docs/development/README.md` 从 **v0.5** 起（v0.1~v0.4 的复盘在仓库里，但表从 v0.5 起）；
-//   - `docs/internals/project-state.md` 从 **v0.56** 起（§2 的机制登记：更早那些机制
-//     变更在 v0.56 之前的表里另有记法，这里只认这一段）。
-var milestoneTableStartsAt = map[string]string{
-	// 2026-11-03：逐版表按"入口/账本"分离，从三份大文件里拆出四份账本
-	// （docs/README 118KB、development/README 148KB、project-state 149KB）。
-	// 表搬到哪，这条判据就跟到哪——否则"搬走"等于"没人看"。
-	"docs/milestones.md":         "v0.1",
-	"docs/development/ledger.md": "v0.5",
-	"docs/internals/progress.md": "v0.56",
-	// `docs/development/stages.md`（原 §阶段地图）**没有**逐版行——它是阶段表，
-	// 不是账本。它不在上面，也不该在：声明一个没有版本行的文件等于给判据加一条空规则。
+// 2026-11-03：账本**允许分卷**。单卷 80–130KB 的账本没人会在评审里打开，
+// 而账本的价值全在"有人读"。分卷后判据跨卷合并，仍然要求每版恰好一行、
+// 升序、连续到最新——分卷只改放置方式，不改核对口径。
+type milestoneLedger struct {
+	start string
+	files []string
+}
+
+var milestoneLedgers = []milestoneLedger{
+	{"v0.1", []string{"../../docs/milestones.md"}},
+	{"v0.5", []string{"../../docs/development/ledger.md"}},
+	{"v0.56", []string{"../../docs/internals/progress.md"}},
 }
 
 // parseVersion 把 `v0.57` 读成 57（只支持这条判据用到的形状）。
@@ -71,80 +70,67 @@ func TestV63MilestoneTablesListEveryVersionExactlyOnce(t *testing.T) {
 		t.Fatalf("最新版本 %s 与版本数 %d 对不上——事实源自己不可信", latest, total)
 	}
 
-	docs := livingDocs(t)
-	// `docs/development/` 整体是**快照**（复盘与计划不随之后的删改修订），
-	// 但那里有两张**活**表（逐版账本与阶段地图），必须单独加进来。
-	docs = append(docs,
-		"../../docs/development/ledger.md",
-		"../../docs/development/stages.md",
-	)
-	// 里程碑账本已从 `docs/README.md` 独立出来（118KB→20KB），它是活文档，必须继续被扫到。
-	docs = append(docs, "../../docs/milestones.md")
-
 	declared := 0
-	for _, doc := range docs {
-		body, err := os.ReadFile(doc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		display := strings.TrimPrefix(strings.ReplaceAll(doc, "\\", "/"), "../../")
+	registered := map[string]bool{}
 
-		rows := []int{}
-		for _, line := range strings.Split(string(body), "\n") {
-			if m := reMilestoneRow.FindStringSubmatch(line); m != nil {
-				rows = append(rows, parseVersion(m[1]))
+	for _, led := range milestoneLedgers {
+		start := parseVersion(led.start)
+		var rows []int
+		label := ""
+
+		for _, f := range led.files {
+			display := strings.TrimPrefix(strings.ReplaceAll(f, "\\", "/"), "../../")
+			registered[display] = true
+			body, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatalf("%s：%v（账本分卷少了文件 = 账本被截断）", display, err)
+			}
+			if label == "" {
+				label = display
+			}
+			for _, line := range strings.Split(string(body), "\n") {
+				if m := reMilestoneRow.FindStringSubmatch(line); m != nil {
+					rows = append(rows, parseVersion(m[1]))
+				}
 			}
 		}
+
 		if len(rows) == 0 {
+			t.Errorf("%s：声明了起点 %s，却没有任何版本行——登记指向空气", label, led.start)
 			continue
 		}
+		declared++
+
 		max := 0
 		for _, n := range rows {
 			if n > max {
 				max = n
 			}
 		}
-		startDoc, isDeclared := milestoneTableStartsAt[display]
-
-		// ② 够得到最新版本的文档**必须**有声明（新表不会漏网）
-		if max < latestN {
-			continue // 只到更早版本的表（例如 roadmap）不归这条管
+		if max != latestN {
+			t.Errorf("%s：账本写到 v0.%d 就停了，而最新版本是 %s——"+
+				"逐版账本要一路写到最新（少了行 = 登记的动作发生了、结果却没落地）",
+				label, max, latest)
 		}
-		if !isDeclared {
-			t.Errorf("%s 的版本行够得到最新版本（v0.%d），却没有在 `milestoneTableStartsAt` 里"+
-				"声明起点——逐版表要写下它从哪个版本起，缺口才是可查的", display, max)
-			continue
-		}
-		declared++
-		start := parseVersion(startDoc)
 
-		// ③ 起点之后的每一行：恰好一次、升序、连续到最多那一行
+		// 起点之后的每一行：恰好一次、升序、连续到最新（跨卷合并后核对）
 		seen := map[int]bool{}
-		ordered := []int{}
+		var ordered []int
 		for _, n := range rows {
 			if n < start {
-				continue // 起点之前的行不归这张表管（roadmap 之类）
+				continue // 起点之前的行不归这本账管（roadmap 之类）
 			}
 			if seen[n] {
-				t.Errorf("%s: v0.%d 出现了两次——逐版表里每个版本只该有一行", display, n)
+				t.Errorf("%s: v0.%d 出现了两次——逐版账本里每个版本只该有一行（分卷也不能重叠）", label, n)
 			}
 			seen[n] = true
 			ordered = append(ordered, n)
 		}
-		if len(ordered) == 0 {
-			t.Errorf("%s: 声明了起点 %s，却没有任何一行落在这之后——登记指向空气", display, startDoc)
-			continue
-		}
-		if max != latestN {
-			t.Errorf("%s: 表写到 v0.%d 就停了，而最新版本是 %s——"+
-				"逐版表要一路写到最新（少了行 = 登记的动作发生了、结果却没落地）",
-				display, max, latest)
-		}
 		for i := 1; i < len(ordered); i++ {
 			if ordered[i] <= ordered[i-1] {
-				t.Errorf("%s: v0.%d 出现在 v0.%d 之后——逐版表要按版本升序"+
-					"（v0.63 修过一次：四行是倒着插进去的）",
-					display, ordered[i], ordered[i-1])
+				t.Errorf("%s: v0.%d 出现在 v0.%d 之后——逐版账本要按版本升序"+
+					"（分卷按卷顺序拼接；v0.63 修过一次：四行是倒着插进去的）",
+					label, ordered[i], ordered[i-1])
 			}
 		}
 		var missing []string
@@ -155,13 +141,37 @@ func TestV63MilestoneTablesListEveryVersionExactlyOnce(t *testing.T) {
 		}
 		if len(missing) > 0 {
 			sort.Strings(missing)
-			t.Errorf("%s: 缺 %d 行（%s）——从 %s 起要一路写到 %s",
-				display, len(missing), strings.Join(missing, " "), startDoc, latest)
+			t.Errorf("%s：缺 %d 行（%s）——从 %s 起要一路写到 %s",
+				label, len(missing), strings.Join(missing, " "), led.start, latest)
+		}
+	}
+
+	// 未登记检测：任何活文档只要够得到最新版本，就必须是某本账本的卷（新表不会漏网）。
+	for _, doc := range livingDocs(t) {
+		display := strings.TrimPrefix(strings.ReplaceAll(doc, "\\", "/"), "../../")
+		if registered[display] {
+			continue
+		}
+		body, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		max := 0
+		for _, line := range strings.Split(string(body), "\n") {
+			if m := reMilestoneRow.FindStringSubmatch(line); m != nil {
+				if n := parseVersion(m[1]); n > max {
+					max = n
+				}
+			}
+		}
+		if max >= latestN {
+			t.Errorf("%s 的版本行够得到最新版本（v0.%d），却不是任何一本账本的卷——"+
+				"要么把它登记进 milestoneLedgers，要么删掉它（它现在是没人核对的历史）", display, max)
 		}
 	}
 
 	if declared < 3 {
-		t.Fatalf("只核对到 %d 张逐版表——这条判据的范围缩了", declared)
+		t.Fatalf("只核对到 %d 本账本——这条判据的范围缩了", declared)
 	}
-	t.Logf("milestone tables: %d table(s) · %d version(s) · latest %s", declared, total, latest)
+	t.Logf("milestone ledgers: %d book(s) · %d version(s) · latest %s", declared, total, latest)
 }
