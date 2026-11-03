@@ -84,18 +84,33 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          log="$RUNNER_TEMP/go-test.log"
           {
-            echo '### failing tests'
+            echo '### go test tail'
             echo '```'
-            grep -E '^--- FAIL|^FAIL|^panic:' "$RUNNER_TEMP/go-test.log" | head -80 || true
+            grep -E '^--- FAIL|^FAIL|^panic:' "$log" 2>/dev/null | head -80 || true
+            echo
+            tail -n 60 "$log" 2>/dev/null || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^--- FAIL' "$RUNNER_TEMP/go-test.log" 2>/dev/null \
+
+          # 逐条测试名（正常失败时）：
+          grep -E '^--- FAIL' "$log" 2>/dev/null \
             | sed -E 's/^--- FAIL: ([^ ]+).*/\1/' | head -10 \
             | while IFS= read -r name; do
                 [ -n "$name" ] || continue
                 echo "::error title=failing test::$name"
-              done
+              done || true
+
+          # 兜底：`go test` 以 2 退出（构建失败 / panic）时没有 `--- FAIL` 行，
+          # 上面什么都不会产出。把日志尾部放进一条 annotation（换行按
+          # GitHub 的转义规则编码），这样**没有日志下载权限**的人也能读到原因。
+          tail -n 25 "$log" 2>/dev/null \
+            | sed -e 's/%/%25/g' -e 's/\r$//' \
+            | awk '{ printf "%s%%0A", $0 }' > "$RUNNER_TEMP/annotation.txt" || true
+          if [ -s "$RUNNER_TEMP/annotation.txt" ]; then
+            echo "::error title=go test tail::$(cat "$RUNNER_TEMP/annotation.txt")"
+          fi
 
       # 测试跑完，仓库必须还是干净的（v0.85）。
       #

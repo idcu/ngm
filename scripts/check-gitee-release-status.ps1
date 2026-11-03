@@ -30,11 +30,13 @@ function Find-Bash {
     # PATH 里会有 `C:\Windows\System32\bash.exe`（WSL 的入口），而它与 Windows 路径
     # 不互通——那样 .sh 会走到自己的"取不到 tag"分支。宁可明确失败，也不拿一个
     # 连不上 Windows 路径的解释器去跑。
+    # 字符串拼接而非 Join-Path：Linux/macOS 上 $env:ProgramFiles 不存在，
+    # Join-Path 会因 $null 抛错（$ErrorActionPreference='Stop'）。
     $candidates = @(
-        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
-        (Join-Path $env:ProgramFiles "Git\usr\bin\bash.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+        "$env:ProgramFiles\Git\bin\bash.exe",
+        "$env:ProgramFiles\Git\usr\bin\bash.exe",
+        "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+        "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe"
     )
     foreach ($c in $candidates) {
         if ($c -and (Test-Path -LiteralPath $c)) { return $c }

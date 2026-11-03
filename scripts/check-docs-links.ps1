@@ -34,11 +34,14 @@ function Find-Bash {
     # PATH 里会有 `C:\Windows\System32\bash.exe`（WSL 的入口），而它与 Windows 路径
     # 不互通——那样 .sh 会走到自己的"no docs directory; skipping"分支并 exit 0，
     # 于是这条检查会**静默地什么都没查**。这正是本文件尽力避免的那种失败。
+    # 用字符串拼接而不是 Join-Path：Linux/macOS 上 $env:ProgramFiles 等变量不存在，
+    # Join-Path 会因 $null 抛错（$ErrorActionPreference='Stop'），入口在非 Windows
+    # 平台上直接失败。本项目的纪律是“唯一实现 + 薄入口”，入口必须三平台可用。
     $candidates = @(
-        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
-        (Join-Path $env:ProgramFiles "Git\usr\bin\bash.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+        "$env:ProgramFiles\Git\bin\bash.exe",
+        "$env:ProgramFiles\Git\usr\bin\bash.exe",
+        "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+        "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe"
     )
     foreach ($c in $candidates) {
         if ($c -and (Test-Path -LiteralPath $c)) { return $c }

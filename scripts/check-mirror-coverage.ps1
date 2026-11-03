@@ -21,11 +21,13 @@ $ErrorActionPreference = 'Stop'
 function Find-Bash {
     # 先找 Git for Windows 的 bash，再退到 PATH 上的 bash：PATH 里可能是 WSL 的
     # `C:\Windows\System32\bash.exe`，它与 Windows 路径不互通。
+    # 字符串拼接而非 Join-Path：Linux/macOS 上 $env:ProgramFiles 不存在，
+    # Join-Path 会因 $null 抛错（$ErrorActionPreference='Stop'）。
     $candidates = @(
-        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
-        (Join-Path $env:ProgramFiles "Git\usr\bin\bash.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+        "$env:ProgramFiles\Git\bin\bash.exe",
+        "$env:ProgramFiles\Git\usr\bin\bash.exe",
+        "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+        "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe"
     )
     foreach ($c in $candidates) {
         if ($c -and (Test-Path -LiteralPath $c)) { return $c }
