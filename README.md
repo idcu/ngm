@@ -236,7 +236,9 @@ ngm --help
 
 ### 方式二：预编译二进制（有前提）
 
-发布产物的命名是 `ngm-<os>-<arch>[.exe]`（`GOOS`/`GOARCH`），随 release 附带 `SHA256SUMS`：
+发布产物的命名是 `ngm-<os>-<arch>[.exe]`（`GOOS`/`GOARCH`），随 release 附带 `SHA256SUMS`。
+从 v0.102 起同一份字节还会有一个版本化别名 `ngm-<version>-<os>-<arch>[.exe]`。
+完整发布范围、回填策略与凭据要求见[发布流水线](docs/guides/release-pipeline.md)。
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS      # Linux

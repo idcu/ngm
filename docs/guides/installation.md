@@ -66,6 +66,11 @@
 | Windows x86-64 | `ngm-windows-amd64.exe` |
 | Windows ARM64 | `ngm-windows-arm64.exe` |
 
+从 **v0.102** 起，release 还会附带**同一份字节**的版本化别名
+`ngm-<version>-<os>-<arch>[.exe]`，方便按 `.ngm-version` 直接拼地址；
+旧的 release 只有上面那份既有名字。两者都列在 `SHA256SUMS` 里。
+发布范围、回填策略与凭据见[发布流水线](./release-pipeline.md)。
+
 > 命名刻意不依赖 `uname`：`uname -m` 给的是 `x86_64` / `aarch64`，与 Go 的 `amd64` / `arm64`
 > 并不一致（且 macOS 的 `arm64` 与 Linux 的 `aarch64` 同名不同字），靠它拼出的下载地址会 404。
 > 用 `GOOS`/`GOARCH` 与 Go 生态其余工具保持一致。

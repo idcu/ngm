@@ -1,0 +1,124 @@
+name: Backfill releases
+
+# 只回填**最近 3 个正式版**与 ngm-repo 钉住的开发版；101 个历史 tag 不补齐。
+# 理由写在 docs/guides/release-pipeline.md：历史产物的覆盖成本是一个凭据加
+# 每条 tag 一次构建，而目前没有人需要那些旧二进制。
+#
+# 为什么是 workflow_dispatch 而不是 push: tags：这些 tag 早已推过，
+# 补发必须由人显式触发。它需要 `gh` 的写权限（GITHUB_TOKEN）。
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: '空格分隔的 tag 列表'
+        required: true
+        default: 'v0.99.0 v0.100.0 v0.101.0 v0.102.0-dev.1'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.27'
+  GOPRIVATE: gitee.com/idcu-go/*
+  GONOSUMDB: gitee.com/idcu-go/*
+
+jobs:
+  backfill:
+    name: build and publish the selected tags
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # 先把**当前分支**的构建脚本与 CHANGELOG 保存下来：旧 tag 的树里
+      # 没有版本化别名、也没有本 CHANGELOG。构建用旧代码，工具用新规则。
+      - name: save the release tooling
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-tools/scripts"
+          cp scripts/build-release.sh "$RUNNER_TEMP/release-tools/scripts/"
+          cp scripts/release-notes.sh "$RUNNER_TEMP/release-tools/scripts/"
+          cp CHANGELOG.md "$RUNNER_TEMP/release-tools/"
+
+      - name: configure Gitee module access
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -n "${GITEE_TOKEN}" ]; then
+            git config --global url."https://oauth2:${GITEE_TOKEN}@gitee.com/".insteadOf "https://gitee.com/"
+          else
+            echo "GITEE_TOKEN is not set; assuming the Gitee module is public"
+          fi
+
+      - name: build, verify and publish each tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          for tag in $TAGS; do
+            echo "== ${tag} =="
+            git checkout -q "$tag"
+            version="${tag#v}"
+            built="$(git log -1 --format=%cI HEAD)"
+            out="${RUNNER_TEMP}/dist-${tag}"
+            testdir="${RUNNER_TEMP}/tools-${tag}"
+            mkdir -p "$testdir/scripts"
+            cp "$RUNNER_TEMP/release-tools/scripts/build-release.sh" "$testdir/scripts/"
+            cp "$RUNNER_TEMP/release-tools/scripts/release-notes.sh" "$testdir/scripts/"
+            cp "$RUNNER_TEMP/release-tools/CHANGELOG.md" "$testdir/"
+
+            # 备份：构建脚本从调用方 cwd 编译 ./cmd/ngm，所以必须站在 tag 树里。
+            go mod download
+            go test -count=1 -timeout 40m ./...
+            VERSION="$version" COMMIT="$(git rev-parse --short HEAD)" BUILT="$built" OUT="$out" \
+              bash "$testdir/scripts/build-release.sh"
+            (
+              cd "$out"
+              sha256sum -c SHA256SUMS
+              ./ngm-linux-amd64 --version | grep -F "ngm ${version} (git:" >/dev/null
+              cmp ngm-linux-amd64 "ngm-${version}-linux-amd64"
+            )
+
+            notes="${RUNNER_TEMP}/notes-${tag}.md"
+            bash "$testdir/scripts/release-notes.sh" "$tag" --out "$notes"
+
+            extra=""
+            case "$version" in
+              *-*) extra="--prerelease" ;;
+            esac
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --notes-file "$notes" $extra
+              gh release upload "$tag" "$out"/ngm-* "$out"/SHA256SUMS --clobber
+            else
+              gh release create "$tag" --title "$tag" --notes-file "$notes" $extra \
+                "$out"/ngm-* "$out"/SHA256SUMS
+            fi
+          done
+
+  gitee:
+    name: mirror the same assets to Gitee (optional)
+    needs: backfill
+    if: ${{ vars.GITEE_UPLOAD == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: upload each tag's GitHub assets to Gitee
+        shell: powershell
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          if (-not $env:GITEE_TOKEN) { Write-Error "GITEE_UPLOAD is true but GITEE_TOKEN is empty"; exit 1 }
+          foreach ($tag in $env:TAGS.Split(' ')) {
+            if ($tag.Trim() -eq '') { continue }
+            powershell -NoProfile -File scripts/upload-gitee-assets.ps1 -Tag $tag.Trim()
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

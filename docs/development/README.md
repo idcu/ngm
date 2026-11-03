@@ -557,7 +557,9 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    该版的复盘提交）上打附注 tag。判据很简单：**这一版的产物能不能被用户下载到**。
 1. `git tag -a v0.x.y -m "..."`，然后 `git push origin v0.x.y`
 2. Gitee 镜像把 tag 推到 GitHub → `release.yml` 执行：**先跑全量测试**，再交叉编译六平台，
-   最后 `gh release create` 发布（含 `SHA256SUMS`）
+   发布前 `sha256sum -c SHA256SUMS` + 版本注入检查，最后 `gh release create`
+   上传既有名字与版本化别名；发布说明由 `CHANGELOG.md` 的对应段落提供
+   （`scripts/release-notes.sh`，缺失即失败）。完整规则见[发布流水线](../guides/release-pipeline.md)。
 
    ⚠️ **别假定这一步发生了**（2026-10-02 实测）：同一批补打的 tag 里，
    `v0.5.0` ~ `v0.8.0` 四个**没有**触发 `release.yml`（`git ls-remote` 可见、附注对象完整，
@@ -570,6 +572,12 @@ v0.5 把挂着的事推到了结论，但其中三处是"**测了，但判不了
    > 这次是重新拍板）。成因是**凭据**（无 token 时 `POST /actions/workflows/…/dispatches` 返回 401），
    > 而理由是"现在没有人在等这些二进制"——**有意延后，不是遗漏**，恢复信号见本文开头。
    > 暂缓的是"补"，不是"看"：下面的读数与告警步骤**一律保留**。
+   >
+   > **2026-11-03 重新划定回填范围**：只补最近 3 个正式版（`v0.99.0` / `v0.100.0` /
+   > `v0.101.0`）与 `ngm-repo` 钉住的 `v0.102.0-dev.1`；其余历史 tag **明确不回填**。
+   > 执行入口是 `.github/workflows/backfill.yml`（`workflow_dispatch`），
+   > 需要 GitHub 写权限；Gitee 附件还需要 `GITEE_TOKEN`。详见
+   > [发布流水线](../guides/release-pipeline.md) §2。
 
    所以规则不是"它会不会触发"，而是"**打完必须验**"：
 
