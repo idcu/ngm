@@ -16,6 +16,8 @@ ngm 的配置文件全部采用 **JSON**——有利于机器生成、schema 校
 >
 > - **改变行为**（v0.1 起）：`name`（`ngm tree` 的根节点名）/ `main`（`build`·`typecheck`·`typedecl`
 >   的默认入口）/ `types`（作为被依赖方时的入口推断）/ `dependencies` / `engines` / `vendor`
+> - **改变行为**（v0.120 起）：`scripts` —— **只在 `package.json` 没有同名脚本时**生效
+>   （`ngm run` 的回退来源）；同名冲突是 exit 3，不静默选边。
 > - **声明与展示**（不改变任何命令的行为）：`version`（必填声明，被回显，不参与解析）/
 >   `schemaVersion`（版本门禁）/ `runtime`（宿主运行时的**声明**：被校验、被回显，
 >   而 ngm 不干预宿主——见[运行时模型](../architecture/runtime-model.md)）
@@ -118,6 +120,7 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 | `engines` | object | 否 | 引擎选择 |
 | `vendor` | object | 否 | vendor 模式配置 |
 | `supplyChain` | object | 否 | 供应链策略 |
+| `scripts` | object | 否 | `ngm run` 的**回退**脚本来源：键是脚本名，值是命令串。`package.json.scripts` 是权威来源；同名脚本同时出现在两处是配置错误（exit 3，报错点名两处），不会静默覆盖 |
 
 ### 入口推断（作为被依赖方）
 
@@ -279,6 +282,23 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 | `osvIgnoreSeverities` | string[] | OSV 忽略的严重级别 | `["LOW"]` |
 | `postInstallPolicy` | `"deny" \| "prompt" \| "allow"` | postinstall 策略：`allow` 时才在**沙箱内**执行 `postinstall.js`（`prompt` 在非交互工具里等于不执行） | `"deny"` |
 | `verifyOnLock` | boolean | 更新 lock 时自动 verify | `true` |
+
+---
+
+## NGM_HOME
+
+`NGM_HOME` 是 ngm 用户态的根目录，**它直接就是** `~/.ngm` 的位置（不是另一个“home”）。
+
+| 情况 | mirror / module-cache / content store / global vendor | 全局配置 |
+|---|---|---|
+| 未设置 | `<home>/.ngm/...` | `<home>/.ngm/config.json` |
+| `NGM_HOME=<dir>` | `<dir>/...` | `<dir>/config.json` |
+
+两条路径**同源**：不存在“目录跟着 NGM_HOME 走、配置却留在真实 home”的中间态
+（v0.120 修；此前 `config.Load` 只认 `GlobalPath(home)`，于是把配置放进 `NGM_HOME`
+下不会被读取）。**安全相关配置没有例外**：deny 列表、token 变量名、默认协议都住在
+生效的那个文件里；提示文本（如权限拒绝里的 `paste … into …`）也指向同一路径。
+相对路径按当前工作目录解析为绝对路径。
 
 ### 完整示例
 

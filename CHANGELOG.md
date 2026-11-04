@@ -6,10 +6,25 @@
 
 只记录**用户可观察的行为**；逐版工程细节见 `docs/development/` 的计划与复盘。
 
-## [Unreleased] - 2026-11-03
+## [Unreleased] - 2026-11-04
 
 ### Added
 
+- `ngm run <script> [--if-present] [-- <args>]` / `ngm run --list [--json]`：不加 npm
+  也能跑项目脚本。`package.json.scripts` 是权威来源，`ngm.json.scripts` 是回退来源；
+  同名脚本同时出现在两处是配置错误（exit 3，报错点名两处），不静默覆盖。
+  pre/post 按 npm 约定（`pre<name>` / `post<name>`），首个失败步即停并返回它的码。
+  POSIX 用 `sh -c`、Windows 用 `cmd.exe /d /s /c`，不做二次引号；项目目录及祖先的
+  `node_modules/.bin` 注入子进程 PATH 前端。环境变量只承诺最小集（`INIT_CWD`、
+  `npm_lifecycle_event`、`npm_lifecycle_script`、`npm_package_name`、
+  `npm_package_version`），**不设** `npm_execpath`、不承诺 `npm_config_*`。
+  退出码原样透传（信号终止见 128+signal），不映射到 ngm 的 0–6。
+  单一权限闸门 `run:script`（默认拒绝，提示里给可直接粘贴的 JSON），
+  **与 install 期 `supplyChain.postInstallPolicy` 是两套闸门**（ADR-042）。
+  项目脚本在 ngm 沙箱外执行；`run` 不接进 install / verify / CI 自动流程。
+- `ngm.json` 新增可选字段 `scripts`（`ngm run` 的回退来源）。
+- `ngm run` 的 `--list` 人类输出与 `--json` 报告（`version` · `project` · `scripts`，
+  元素含 `name` / `command` / `source` / `pre` / `post`）。
 - `ngm verify --content`（等价写法 `--level=content`；`--deep` 保留为别名）：重放
   lock 的 `archiveDigest` / `moduleDigest`，并逐文件比对 vendor 与 content store 的
   字节。报告给出依赖、文件路径与期望/实际哈希（终端截断到 12 位，`--json` 里是完整
@@ -32,6 +47,10 @@
 
 ### Changed
 
+- `NGM_HOME` 现在**真的**决定全局配置的位置：设置后全局配置读
+  `<NGM_HOME>/config.json`（与 mirror / content store / global vendor 同一根）。
+  此前只有目录布局跟随 `NGM_HOME`，全局配置仍固定读 `<home>/.ngm/config.json`——
+  两条路径不同源，用户以为隔离了、实际没有。权限提示里的路径也同步指向生效的文件。
 - `store usage` / `store prune` 的说明更新：自动/全局的可达性删除仍然没有，显式、
   项目范围的那类由 `ngm gc` 提供（ADR-041）。
 - `verify` 的结构级汇总提示改为指向 `--content`（`--deep` 仍可用）。
@@ -42,6 +61,12 @@
   `observability.md` 补上一直缺失的 `ngm doctor` 小节；
   `vendor-layers.md` 增"层的下游：二次分发与证明边界"；
   `configuration.md` 给 `ngm.mappings.json` 补上"必须提交 + 理由"。
+
+### Fixed
+
+- `ngm adopt`：缺少 `package.json` 的**作用域包**（`node_modules/@scope/name`）
+  现在回退为 `@scope/name`，不再丢掉 scope（此前只剩 `name`）。
+- README 不再硬编码 tag 数量（此前写 101，实测已漂移）；改为“以 `git tag` 读数为准”。
 
 ### Notes
 

@@ -262,6 +262,23 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——gc 报告写不出去（v0.102 新增的出口）",
 	}},
+	// v0.120：`ngm run --list --json` 的两个出口（编码 / 写出）。
+	// 注意：项目脚本自身的退出码**不**在这里——它们原样透传，不属于 0–6，
+	// 也不经过错误模型（见 `runscript.Exec` 的契约）。
+	"cmd/ngm/run.go :: runList": {
+		{
+			role: roleSource, category: catInternal,
+			why: "`encode run report`——`ngm run --list --json` 的编码失败",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`write run report`——同一函数的第二处：报告写不出去",
+		},
+	},
+	"internal/runscript/exec.go :: Exec": {{
+		role: roleSource, category: catInternal,
+		why: "`wait for script`——子进程状态不可用（不是脚本自己的退出码，也不是信号）",
+	}},
 	"cmd/ngm/attest.go :: runAttest": {{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——in-toto 语句写不出去（v0.70 新增的出口）",

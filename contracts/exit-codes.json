@@ -1,6 +1,14 @@
 {
   "schemaVersion": 1,
   "description": "ngm 的退出码契约：脚本、CI、包装器读这一份，不要去 grep 人类可读输出。数值由 internal/core/errs 的常量定义，本文件与它由 TestV119ExitCodeContractMatchesCode 对账；改码必须同时改这里。",
+  "passthroughFamily": {
+    "command": "run",
+    "description": "ngm run 原样透传项目脚本自己的退出码，不映射到 0–6。脚本返回任意数值都从这一族出去；POSIX 上被信号终止时为 128 + signal。",
+    "signals": {
+      "SIGINT": 130,
+      "SIGTERM": 143
+    }
+  },
   "codes": [
     {
       "code": 0,

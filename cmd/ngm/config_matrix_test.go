@@ -352,9 +352,11 @@ var matrixArgs = map[string][]string{
 	"init": {"github.com:x/app"},
 	// adopt 的合法调用不需要参数（它读 --dir 下的 node_modules）；矩阵里给空表，
 	// 因为**配置形状**那八种错误要在它读到 node_modules 之前就打断它。
-	"adopt":        {},
-	"add":          {"github:x/dep@v1", "--ref-type=tag"},
-	"install":      {},
+	"adopt":   {},
+	"add":     {"github:x/dep@v1", "--ref-type=tag"},
+	"install": {},
+	// v0.120：`run` 读 package.json / ngm.json，因此配置形状错误必须先打断它。
+	"run":          {"ok"},
 	"update":       {"--all"},
 	"remove":       {"github:x/dep"},
 	"verify":       {},

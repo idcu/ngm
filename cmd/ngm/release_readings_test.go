@@ -95,7 +95,11 @@ var (
 	reZhGap = regexp.MustCompile(`缺 \*{0,2}(\d+) 个`)
 	// `Gitee 发行版（54 个）` 与 `共五十四个版本`
 	reZhGiteeGap = regexp.MustCompile(`Gitee 发行版（(\d+) 个）`)
-	reZhVersionC = regexp.MustCompile(`共([一二三四五六七八九十]+)个版本`)
+	// 另一种等价写法：`Gitee 上只有 **3 个**`。v0.120 把 README 的 tag 总数改成
+	// “以 `git tag` 读数为准”后，这行是**仅剩的 Gitee 读数**——它一直都在
+	// docs/README.md 里，只是此前没有被这条判据扫到，于是判据误以为整类读数消失了。
+	reZhGiteeOnly = regexp.MustCompile(`Gitee 上只有 \*{0,2}(\d+) 个`)
+	reZhVersionC  = regexp.MustCompile(`共([一二三四五六七八九十]+)个版本`)
 	// `worked forty-nine times`
 	reEnTimes = regexp.MustCompile(`worked ([a-z]+(?:-[a-z]+)?) times`)
 	// v0.84：**未推送的 tag 数**——两处写法都守着。
@@ -276,6 +280,10 @@ func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 		for _, m := range reZhGiteeGap.FindAllStringSubmatch(proseText, -1) {
 			readings++
 			gaps = append(gaps, gapReading{display, mustAtoi(t, m[1]), "Gitee 发行版（N 个）"})
+		}
+		for _, m := range reZhGiteeOnly.FindAllStringSubmatch(proseText, -1) {
+			readings++
+			record(display, "Gitee", mustAtoi(t, m[1]))
 		}
 		for _, m := range reZhVersionC.FindAllStringSubmatch(proseText, -1) {
 			n, ok := zhNumber(m[1])

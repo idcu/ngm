@@ -40,6 +40,7 @@ var commands = []*commandSpec{
 	{Name: "adopt", Run: runAdopt, Usage: adoptUsage},
 	{Name: "add", Run: runAdd, Usage: addUsage},
 	{Name: "install", Run: runInstall, Usage: installUsage},
+	{Name: "run", Run: runRun, Usage: runUsage},
 	{Name: "update", Run: runUpdate, Usage: updateUsage},
 	{Name: "remove", Run: runRemove, Usage: removeUsage},
 	{Name: "modules", Run: runModules, Usage: modulesUsage},

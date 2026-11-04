@@ -43,8 +43,15 @@ ngm 把这套思路映射到自己的操作：
 | 网络（Git fetch） | `net:github.com,gitee.com` | 需配置 |
 | 执行 git | `run:git` | 允许 |
 | 执行引擎 | `run:esbuild,tsc,deno,postcss` | 需配置 |
+| 执行**项目脚本**（`ngm run`） | `run:script` | 需配置（默认拒绝） |
 | 读 Git 凭证 | `env:GITHUB_TOKEN` / `ssh-agent` | 见下方成熟度说明 |
 | 执行依赖的 postinstall | `run:node` | **默认禁止** |
+
+> **两套闸门，不要混在一起**：`ngm run` 执行的是**你自己写的项目脚本**，它在
+> **ngm 沙箱之外**运行（继承调用者的环境与文件系统权限），因此用一条独立的
+> `run:script` 授权；install 期依赖的 `postinstall` 则是**别人的代码**，由
+> `supplyChain.postInstallPolicy` 控制，且即使 `allow` 也只在**沙箱内**执行。
+> 前者不能用后者放行，后者也不会因为 `run:script` 被允许而执行。
 
 > **成熟度（v0.3 D 组）**：上表已**实际施加**，不再是规划。
 > `~/.ngm/config.json` 的 `permissions` 段此前只被解析、从不生效——写下

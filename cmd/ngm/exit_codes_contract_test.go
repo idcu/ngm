@@ -127,6 +127,9 @@ const (
 	// 平台上都写不进去（不必依赖 `/proc` 之类只存在于某个系统的路径）。
 	setupOutBlocked            = "outblocked"
 	setupOutBlockedNodeModules = "outblockednm"
+	// setupRun 是 v0.120 的 `ngm run` 夹具：package.json 里有一条能成功的脚本，
+	// 全局配置放行 `run:script`（否则命令会停在权限门，量到的不是执行路径）。
+	setupRun = "run"
 )
 
 // blockerName 是"用一个普通文件占住目录位置"的那个文件名。
@@ -145,6 +148,9 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "add", code: 0, args: []string{"github:x/dep@v1", "--ref-type=tag"}, setup: setupProject},
 	{cmd: "remove", code: 0, args: []string{"github:x/dep"}, setup: setupDep},
 	{cmd: "install", code: 0, args: nil, setup: setupDep},
+	// v0.120：run 的成功态——脚本退 0 即成功（脚本自身的非 0 码原样透传，
+	// **不**进这张表：那不是 ngm 的错误分类）。
+	{cmd: "run", code: 0, args: []string{"ok"}, setup: setupRun},
 	{cmd: "update", code: 0, args: []string{"--offline", "--all"}, setup: setupDep},
 	{cmd: "verify", code: 0, args: nil, setup: setupDep},
 	// v0.102：gc 默认 dry-run；一个完全可达的项目没有候选，退 0。
@@ -215,6 +221,7 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "add", code: 3, args: []string{"github:x/dep@v1", "--ref-type=tag", "--zz-nope"}, setup: setupMissing},
 	{cmd: "remove", code: 3, args: []string{"github:x/dep", "--zz-nope"}, setup: setupMissing},
 	{cmd: "install", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
+	{cmd: "run", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 	{cmd: "update", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 	{cmd: "verify", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
 	{cmd: "audit", code: 3, args: []string{"--zz-nope"}, setup: setupMissing},
@@ -287,6 +294,8 @@ var exitCodeElsewhere = []exitCase{
 	{cmd: "verify", code: 5, why: "TestV22DenoIsMissing/verify"},
 	{cmd: "install", code: 5, why: "TestV22DenoIsMissing/install"},
 	{cmd: "audit", code: 5, why: "TestV22DenoIsMissing/audit"},
+	// v0.120：`ngm run` 的码 5 是“平台 shell 不可用”，由清空 PATH 的专属测试测量。
+	{cmd: "run", code: 5, why: "TestV22RunShellIsMissing/run"},
 	// v0.100：`store` 的码 4（`store gc` 在一个 mirror 上被 git 拒绝）。
 	//
 	// 它进不了主表，理由与上面那批同源但更具体：主表的触发命令一律"只看本地
@@ -563,6 +572,29 @@ func TestV22DenoIsMissing(t *testing.T) {
 	})
 }
 
+// TestV22RunShellIsMissing 测量 `ngm run` 的码 5：**平台 shell 本身**不可用。
+//
+// 与脚本自己的退出码区分：后者原样透传，绝不进 0–6（见 runUsage 的“透传族”）。
+// 这里缺的是 `sh` / `cmd.exe`，属于“引擎不可用”那一类。
+func TestV22RunShellIsMissing(t *testing.T) {
+	t.Run("run", func(t *testing.T) {
+		home := isolateUserEnv(t)
+		proj := t.TempDir()
+		if err := os.WriteFile(filepath.Join(proj, "package.json"),
+			[]byte(`{"scripts":{"ok":"echo OK"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeGlobalConfig(t, home, `{"permissions":{"allow":["run:script"]}}`)
+		t.Setenv("PATH", t.TempDir())
+
+		var out, errb bytes.Buffer
+		if got := dispatch([]string{"run", "ok", "--dir=" + proj}, &out, &errb); got != 5 {
+			t.Errorf("`ngm run` declares exit code 5 for a missing shell, measured %d: %s",
+				got, firstLine(errb.String()))
+		}
+	})
+}
+
 // buildFixture 按 setup 造一个**独立**的项目目录。
 func buildFixture(t *testing.T, home, setup string) string {
 	t.Helper()
@@ -573,6 +605,15 @@ func buildFixture(t *testing.T, home, setup string) string {
 		return t.TempDir()
 	case setupProject:
 		return newProject(t)
+	case setupRun:
+		p := newProject(t)
+		if err := os.WriteFile(filepath.Join(p, "package.json"),
+			[]byte(`{"name":"demo","version":"1.0.0","scripts":{"ok":"echo OK"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// 放行 run:script——否则量到的是权限门，不是执行路径。
+		writeGlobalConfig(t, home, `{"permissions":{"allow":["run:script"]}}`)
+		return p
 	case setupDep:
 		p := newProject(t)
 		seedDep(t, p)

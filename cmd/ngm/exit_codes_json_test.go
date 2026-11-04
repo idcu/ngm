@@ -26,7 +26,11 @@ func TestV119ExitCodesJsonContract(t *testing.T) {
 	}
 	var doc struct {
 		SchemaVersion int `json:"schemaVersion"`
-		Codes         []struct {
+		Passthrough   *struct {
+			Command string         `json:"command"`
+			Signals map[string]int `json:"signals"`
+		} `json:"passthroughFamily"`
+		Codes []struct {
 			Code      int    `json:"code"`
 			Name      string `json:"name"`
 			Meaning   string `json:"meaning"`
@@ -39,6 +43,20 @@ func TestV119ExitCodesJsonContract(t *testing.T) {
 	}
 	if doc.SchemaVersion != 1 {
 		t.Errorf("schemaVersion 应为 1，实际 %d", doc.SchemaVersion)
+	}
+
+	// 透传族**不在** 0..6 码表里：`ngm run` 返回的码属于项目脚本，不属于 ngm 的
+	// 错误分类。它必须在契约里单独有一节，否则读这份 JSON 的包装器会把它当成
+	// "未登记的内部码"。
+	if doc.Passthrough == nil {
+		t.Error("契约缺少 passthroughFamily：`ngm run` 的透传退出码没有登记")
+	} else {
+		if doc.Passthrough.Command != "run" {
+			t.Errorf("passthroughFamily 的 command 是 %q，应为 run", doc.Passthrough.Command)
+		}
+		if doc.Passthrough.Signals["SIGINT"] != 130 || doc.Passthrough.Signals["SIGTERM"] != 143 {
+			t.Errorf("信号映射是 %v，应为 SIGINT=130 / SIGTERM=143", doc.Passthrough.Signals)
+		}
 	}
 
 	seen := map[int]bool{}

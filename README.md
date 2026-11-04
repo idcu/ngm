@@ -30,7 +30,7 @@ ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `
 
 | 项目 | 事实 |
 |---|---|
-| 最新 tag | `v0.101.0`（`v0.1.0` … `v0.101.0` 共 101 个） |
+| 最新 tag | 以 `git tag` 的读数为准（本文不锁定数字，避免再次漂移） |
 | 当前分支 | `main`，最新 tag 之后另有未打 tag 的提交（开发线包含模块集合、lock v2、`internal/core` 抽离等） |
 | 构建方式 | `go build ./cmd/ngm`；无 cgo、无运行时依赖（仅需 Git） |
 | 版本号 | 未注入 ldflags 的本地构建输出 `ngm 0.0.0-dev (git:dev, built: unknown)`；发布构建通过 `-ldflags -X` 注入版本、git 短哈希与构建时间 |
@@ -39,12 +39,13 @@ ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `
 
 发布读数（2026-10-30 文档记录，本轮未联网复核）：
 
-| 源 | 有 release 的版本 | tag 数 | 说明 |
-|---|---|---|---|
-| GitHub | **60 of 101** | 101 | release 覆盖到 `v0.64.0`；镜像转发的 tag 不会触发 release workflow |
-| Gitee | **3 of 101** | 101 | 只有 `v0.2.0`–`v0.4.0` 有附件 |
+| 源 | 有 release 的版本 | 说明 |
+|---|---|---|
+| GitHub | 只有较早的一部分 tag | release 覆盖到 `v0.64.0` 一带；镜像转发的 tag 不会触发 release workflow |
+| Gitee | 仅 `v0.2.0`–`v0.4.0` | 只有这几个版本有附件 |
 
-截至同一读数，两个主机上的 tag 数都是 101：差的 0 个是未推送的。
+两个主机上的 tag 集合一致（以 `git tag` 与远端 ref 的读数为准），差的就是 release 附件覆盖：
+差的 0 个是未推送的。
 
 > **预编译产物不是最新能力的可靠来源。** 两个源的 release 覆盖都远少于 tag。要使用当前源码的行为，请按[从源码构建](#方式一从源码构建推荐)。
 
@@ -233,7 +234,7 @@ ngm --version
 # ngm 0.0.0-dev (git:dev, built: unknown)   ← 本地未注入版本信息时的输出
 
 ngm --help
-# 27 个顶层命令与全局退出码约定
+# 28 个顶层命令与全局退出码约定
 ```
 
 ### 方式二：预编译二进制（有前提）
@@ -247,7 +248,7 @@ sha256sum -c --ignore-missing SHA256SUMS      # Linux
 shasum -a 256 -c --ignore-missing SHA256SUMS  # macOS
 ```
 
-**前提与限制**：项目文档记录的 release 覆盖不完整，Gitee 侧只有 `v0.2.0`–`v0.4.0` 的附件，GitHub 侧也远少于 101 个 tag；下载前请以对应 release 页面为准。若需要当前源码的能力，请使用方法一。
+**前提与限制**：项目文档记录的 release 覆盖不完整，Gitee 侧只有 `v0.2.0`–`v0.4.0` 的附件，GitHub 侧也远少于 tag 总数；下载前请以对应 release 页面为准。若需要当前源码的能力，请使用方法一。
 
 ---
 
@@ -386,7 +387,7 @@ ngm attest --out=provenance.intoto.json
 
 ## 命令参考
 
-共 **27 个顶层命令**。逐条的用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
+共 **28 个顶层命令**。逐条的用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
 `ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。
 
 | 类别 | 命令 |
@@ -397,11 +398,12 @@ ngm attest --out=provenance.intoto.json
 | 供应链 | `audit` `sbom` `attest` |
 | 引擎与构建 | `typecheck` `typedecl` `build` `transform` `css` `engines` |
 | 集成与缓存 | `integrations` `cache` `store` `gc` `mappings` |
+| 任务执行 | `run` |
 | 诊断 | `doctor` |
 
 四条容易踩的：
 
-- `--json` 在 13 个命令可用，stdout 只放**恰好一份** JSON，人类文本与诊断走 stderr；
+- `--json` 在 14 个命令可用（`run` 仅 `--list` 形态），stdout 只放**恰好一份** JSON，人类文本与诊断走 stderr；
 - 命令自己的 flag 必须写在命令之后（`ngm --json verify` 会被拒绝，exit 3）；
 - 内置引擎 `esbuild`（bundle/transform）、`typescript`（optional）、`postcss`（optional）、`self`（stub，别用于生产）；
 - `remote` adapter 按 ADR-013 / ADR-020 **决定不发布**，声明它得到的是「按决定排除」而非「待实现」。
@@ -419,6 +421,9 @@ ngm attest --out=provenance.intoto.json
 | 4 | Git 或网络失败 | 是 |
 | 5 | 引擎不可用 | 是（装好引擎后） |
 | 6 | 内部失败（panic，或结论送不出去） | 是 |
+
+**透传族（`ngm run` 例外）**：项目脚本自己的退出码原样透传（信号终止见 `128 + signal`，
+SIGINT→130、SIGTERM→143），**不映射**到上表的 0–6。那些码由脚本产生，不属于 ngm 的错误分类。
 
 **机器可读版本**：[contracts/exit-codes.json](contracts/exit-codes.json) —— 含 `retryable`。
 脚本与 CI 判断"该不该重试"读它，**不要 grep 人类可读输出**（措辞一改就断）。
@@ -547,7 +552,7 @@ ngm verify --format=sarif > ngm.sarif
 ### 仍然存在
 
 1. **发布链路不完整。**
-   101 个 tag 中，GitHub release 与 Gitee 附件都远未覆盖；文档中的安装地址停留在早期版本。
+   现有 tag 中，GitHub release 与 Gitee 附件都远未覆盖；文档中的安装地址停留在早期版本。
    下游 `ngm-repo` 的 `.ngm-version` 固定为 `0.102.0-dev.1`，但没有任何可下载的对应产物，
    因此其 CI 的 `ngm-validate` job 默认需要在本地构建二进制（见 ngm-repo 的 workflow）。
    依据：ngm-repo 的 `.github/workflows/ci.yml` 与其仓库根的 `.ngm-version`、

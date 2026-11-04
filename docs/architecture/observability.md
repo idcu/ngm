@@ -30,6 +30,12 @@
 | `5` | 引擎不可用 | adapter 找不到外部引擎 |
 | `6` | 内部失败 | **内部失败**的具体来源：`runWithRecovery` 捕获的 panic；"结论有了却送不出去"——写 stdout 失败 / JSON 编码失败 / 读 stdin 失败（原先它们与策略失败共用码 1）；以及够到 `errs.ExitCode` 兜底的、**没走错误模型**的错误；**人读通道的写失败也走这条**（v0.60 —— 从前它退 0，于是"报告只写出去一半"与"成功"分不出来）；**例外**是"**对端关闭**"（`ngm verify | head` 这类用法 ⇒ 安静退出，因为它不是失败而是用户的意图），判定跨平台（Unix 的 `EPIPE` 与 Windows 的 109/232/233），见 v0.61 复盘。**与策略失败分开的理由**：策略漂移要人看，写不出去重跑可能就好——CI 需要用一个数字区分这两种事（[ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)）。分类同样由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生核对 |
 
+`ngm run` 是唯一**不**落在这张表里的命令：项目脚本自己的退出码原样透传
+（信号终止见 `128 + signal`，SIGINT→130、SIGTERM→143），不映射到 0–6。
+那些码由脚本产生，不是 ngm 的错误分类，也不参与 `contracts/exit-codes.json` 的
+`retryable` 判定。ngm 自己在 `ngm run` 上的失败仍用 0/3/5（脚本缺失/冲突/权限、
+平台 shell 不可用）。
+
 `ngm verify --json` 输出的 `driftKind`（`expected` / `unexpected` / `critical`）用于区分"预期更新"与"非预期漂移"。
 
 ---

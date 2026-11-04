@@ -148,6 +148,7 @@ ngm --help
 #   adopt          为**已安装**的依赖（npm/pnpm 装的）出具内容证明：不接管安装，只描述磁盘上的字节
 #   add            添加依赖
 #   install        解析并安装依赖
+#   run            运行项目脚本（package.json 权威、ngm.json 回退；在沙箱外执行，需 run:script 授权）
 #   update         更新依赖 ref
 #   remove         移除依赖
 #   modules        模块集合的发现与校验

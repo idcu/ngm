@@ -43,6 +43,7 @@
 | `ngm adopt [--dir=<dir>] [--out=<file>] [--json] [--check=<file>]` | 为**已经被别人装好**的依赖（`node_modules`）出具内容证明，写 `ngm.proof.json`。**`--check` 是同一棵树的复核**：与一份早先的证明比较，只读、不写文件，有差异即 exit **2**（`--json` 时标准输出仍是单个文档，差异走 stderr）。它把快照变成**基线**——CI 里问"这棵树还是我们审过的那棵吗"，不需要 lock、不需要 `ngm install`，也不需要网络。**注意它复核的仍是快照**：没有 commit 绑定，持续保证依然只有 `ngm.lock` 能给。每个包用**与 `ngm verify` 的 `archiveDigest` 同一套清单格式**算一个内容摘要（同一函数、同一种记录编码），并按 `package-lock.json` 标注来源（git commit / registry integrity / unknown）。**但输入不同**：普通文件一律记 `100644`，**不看可执行位**——Windows 报告不了它，记进去会让同一棵树在两台机器上给出不同摘要（`--check` 的典型用法正是"本机写基线、CI 复核"）。代价是含可执行文件的包其摘要与 git 侧 `archiveDigest` **不相等**（git 记 `100755`），而 ngm 里没有任何命令会去比较这两者。**只读**：不安装、不写 `node_modules`、不改任何 lock；读不了 pnpm/yarn 的 lock 时**在 `notes` 与 `coverage.unknown` 里说出来**，不假装没有来源。它证明"磁盘上是这些字节"，**不**证明"这些代码无害"。**不是** registry 包管理的一环：来源解析只认 `package-lock.json`，**不打算**支持 pnpm/yarn 的 lock（理由见 ADR-040 决定 2 的注）——pnpm 项目接入 ngm 走的是**共存**：`node_modules/` 归 pnpm，`ngm.vendor/` 归 ngm，把那几个 Git 依赖用 `ngm add` 声明出来即可 | **v0.101 新增** | [ADR-040](../adr/adr-040-adopt-proof-layer.md) · [三条接入路径](../internals/intake-paths.md) |
 | `ngm add <git-url>[@<ref>] [--ref-type <type>] [--infer-ref-type] [--path=<子路径>] [--dry-run]` | 添加依赖（refType 通常必填；完整 40 位 commit 可省略；`--infer-ref-type` 用一次远端 ls-remote 消歧 tag/branch） | v0.1 / **v0.104 增 `--infer-ref-type`** | [依赖管理](./dependency-management.md) |
 | `ngm install [--digest] [--json]` | 解析并安装依赖（有 lock 则尊重 lock）。`--json` **v0.66**：报告每个依赖解析/落地成了什么（含 `source`: resolved / store / fetched），人类文本改走 stderr | v0.1 | [依赖管理](./dependency-management.md) |
+| `ngm run <script> [--dir=<path>] [--if-present] [-- <args>]` / `ngm run --list [--json]` | 运行项目脚本（`package.json.scripts` 权威、`ngm.json.scripts` 回退）。pre/post 按 npm 约定（`pre<name>` / `post<name>`）；PATH 注入祖先目录的 `node_modules/.bin`；退出码原样透传（信号见 128+signal）。**项目脚本在沙箱外执行**，需要 `run:script` 授权，与 install 期的 `supplyChain.postInstallPolicy` 是两套闸门 | **v0.120 新增** | [ADR-042](../adr/adr-042-run-outside-sandbox.md) |
 | `ngm update [<dep>] [--all] [--offline] [--digest] [--store] [--json]` | 更新 ref 与锁定。`--json` **v0.66**（与 install 同一形状；`dependencies` 覆盖整张图） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm doctor [--dir=<dir>] [--json]` | 诊断本地环境与项目：git、ngm.json、ngm.lock、`~/.ngm` 布局、mirror/module-cache/content-store、**vendor 树的 Git 可见性**（present / ignored-by-git / absent）、嵌套模块扫描。诊断失败写进报告但命令仍退 0；用法错误退 3 | **v0.104 新增**；`vendor` 读数 **v0.117** | [可观测性](../architecture/observability.md) |
@@ -161,11 +162,11 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 - **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
   适用于 `verify` / `update` / `install` / `audit` / `outdated`。
 - **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
-  支持它的有 **13 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
+  支持它的有 **14 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
   `integrations` / `install` / `update` / `doctor` / `modules`（`list` / `validate` /
-  `index` / `changed` / `plan` 各自支持）/ `adopt` / `gc`。后几个是后续版本补上的：
+  `index` / `changed` / `plan` 各自支持）/ `adopt` / `gc` / `run`（`--list`）。后几个是后续版本补上的：
   `install` / `update` 自 v0.66（CI 最需要的两个写命令），`doctor` / `modules` 自
-  v0.104，`adopt` 自 v0.101，`gc` 自 v0.102。
+  v0.104，`adopt` 自 v0.101，`gc` 自 v0.102，`run --list` 自 v0.120。
   各命令的**顶层形状**见下一节。
 
 ---
@@ -196,6 +197,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm modules plan --json` | 对象：`version` · `since` · `bump` · `modules`；`modules` 元素键：`name` · `path` · `version` · `nextVersion` · `tag` | ✗ |
 | `ngm modules index --json` | 对象：`version` · `out` · `dryRun`（dry-run 时） · `branch` · `branchCommit` · `releaseFiles`（分片时） · `index`（`schemaVersion` · `source` · `releaseDir` · `modules` · `releases`） | ✗ |
 | `ngm gc --json` | 对象：`version` · `dryRun` · `applied` · `project` · `lock` · `store` · `mirror` · `vendor` · `total`（`objects` · `bytes`） · `warnings`；三层的键：`root` · `exists` · `mode`（vendor） · `candidates`（元素键 `id` · `bytes`，store 另有 `layout`） · `objects` · `bytes` · `removed` · `bytesFreed` · `kept`（global vendor） · `keptYoungBlobs` / `keptYoungBytes`（store） · `errors` | ✗ |
+| `ngm run --list --json` | 对象：`version` · `project` · `scripts`；`scripts` 元素键：`name` · `command` · `source`（定义来自 package.json 还是 ngm.json） · `pre` · `post`（按 npm 约定存在的 `pre<name>` / `post<name>`，无则省略） | ✗ |
 
 > 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。
 > 其余命令返回的是"一份报告"，所以是对象。本页只如实记录两者的差异——

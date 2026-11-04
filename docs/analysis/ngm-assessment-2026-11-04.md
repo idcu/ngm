@@ -452,6 +452,10 @@ ngm run build                       # 项目本地 node_modules/.bin/esbuild 可
 
 ## 7. 缺陷与观察清单（本轮实测发现，均未修改代码）
 
+> **2026-11-04 追记（v0.120）**：D1 / D2 / D3 已修复，D4 由 `ngm run` 的 `.bin` 注入覆盖；
+> 修复内容与判据见 [CHANGELOG](../../CHANGELOG.md) 的 Unreleased 段与
+> [ADR-042](../adr/adr-042-run-outside-sandbox.md)。下文保留当时的实测原文，不改写历史读数。
+
 | 编号 | 严重度 | 现象 | 证据 | 建议 |
 |---|---|---|---|---|
 | D1 | 中 | `NGM_HOME` 只改变 layout（mirror/content/cache/vendor），**不改变全局 `config.json` 的读取路径**；README 与代码注释都声称可改 | 实测：`NGM_HOME=<tmp>` 且把 `config.json` 放在 `<tmp>` 或 `<tmp>/.ngm` 均不生效，`run:esbuild` 仍被拒（exit 3）。代码：[config.go:251-258](../../internal/config/config.go#L251-L258)、[env.go:127-137](../../cmd/ngm/env.go#L127-L137)、[env.go:579-586](../../cmd/ngm/env.go#L579-L586)；文档 README:166/459 | 二选一：让 `homeDirOrEmpty()` 走 `NGM_HOME`，或把 README/注释改成“仅影响 layout”；不能继续两边都写 |
