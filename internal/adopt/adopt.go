@@ -374,7 +374,7 @@ func (s *scanner) addPackage(dir string) error {
 	relDir = filepath.ToSlash(relDir)
 
 	p := Package{
-		Name:       readPackageName(dir, filepath.Base(dir)),
+		Name:       readPackageName(dir, fallbackName(dir)),
 		Version:    readPackageVersion(dir),
 		Path:       relDir,
 		Digest:     digest.Digest(digest.BuildManifest(records)),
@@ -566,6 +566,23 @@ func readPackageName(dir, fallback string) string {
 		return p.Name
 	}
 	return fallback
+}
+
+// fallbackName 在 package.json 缺失/不可读时从目录结构给出包名。
+//
+// 直接取 `filepath.Base(dir)` 会**丢掉 scope**：`node_modules/@scope/name`
+// 的基名只是 `name`，于是同一棵树在 adopt 报告里变成了另一个包
+// （`@scope/name` 与 `name` 是两个不同的模块身份）。npm 的磁盘布局把
+// scope 放在父目录里，因此父目录以 `@` 开头、其父目录叫 node_modules
+// 时，名字必须是 `<scope>/<name>`。嵌套布局
+// `node_modules/a/node_modules/@scope/name` 也满足这三个条件。
+func fallbackName(dir string) string {
+	base := filepath.Base(dir)
+	parent := filepath.Base(filepath.Dir(dir))
+	if strings.HasPrefix(parent, "@") && filepath.Base(filepath.Dir(filepath.Dir(dir))) == "node_modules" {
+		return parent + "/" + base
+	}
+	return base
 }
 
 func readPackageVersion(dir string) string {

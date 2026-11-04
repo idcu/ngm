@@ -223,3 +223,84 @@ func hasNote(p *Proof, substr string) bool {
 	}
 	return false
 }
+
+// --- v0.120：作用域包回退名不能丢掉 scope ---
+
+// byNameOf 返回按名字索引的包；找不到时返回零值，调用方再用 ok 判定。
+func byNameOf(t *testing.T, p *Proof, name string) (Package, bool) {
+	t.Helper()
+	for _, pkg := range p.Packages {
+		if pkg.Name == name {
+			return pkg, true
+		}
+	}
+	return Package{}, false
+}
+
+// TestV120AdoptKeepsScopeWhenPackageJSONIsMissing 是最小的一格：
+// `node_modules/@scope/name` 没有 package.json 时，名字必须是 `@scope/name`，
+// 而不是 `name`。scope 是模块身份的一部分，丢掉它就把两个包混成一个。
+func TestV120AdoptKeepsScopeWhenPackageJSONIsMissing(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "node_modules/@scope/name/index.js"), "module.exports = 1\n")
+
+	p, err := Run(Options{Dir: root, ToolVersion: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ok := byNameOf(t, p, "@scope/name")
+	if !ok {
+		t.Fatalf("the scoped package was named %q — the scope was dropped",
+			p.Packages[0].Name)
+	}
+	if pkg.Path != "node_modules/@scope/name" {
+		t.Errorf("path = %q", pkg.Path)
+	}
+}
+
+// TestV120AdoptKeepsScopeInNestedSubpath：嵌套布局
+// `node_modules/a/node_modules/@scope/name` 与顶层布局的目录形状相同，
+// 回退名必须同样保留 scope。
+func TestV120AdoptKeepsScopeInNestedSubpath(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "node_modules/a/package.json"), `{"name":"a","version":"1.0.0"}`)
+	write(t, filepath.Join(root, "node_modules/a/node_modules/@scope/name/index.js"), "module.exports = 2\n")
+
+	p, err := Run(Options{Dir: root, ToolVersion: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ok := byNameOf(t, p, "@scope/name")
+	if !ok {
+		t.Fatalf("the nested scoped package was named %q — the scope was dropped",
+			p.Packages[len(p.Packages)-1].Name)
+	}
+	if pkg.Path != "node_modules/a/node_modules/@scope/name" {
+		t.Errorf("path = %q", pkg.Path)
+	}
+}
+
+// TestV120AdoptScopedFallbackWithLockSha：回退名与来源解析是两条独立的路径，
+// 这里把两条一起走：名字来自目录（没有 package.json），commit 来自 lock 的
+// `#<40hex>`。两条都必须对，否则报告会「名字对、来源错」或反过来。
+func TestV120AdoptScopedFallbackWithLockSha(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "node_modules/@scope/name/index.js"), "module.exports = 3\n")
+	write(t, filepath.Join(root, "package-lock.json"),
+		`{"lockfileVersion":3,"packages":{`+
+			`"node_modules/@scope/name":{"version":"1.0.0",`+
+			`"resolved":"git+https://github.com/x/name.git#`+testCommit+`"}`+
+			`}}`)
+
+	p, err := Run(Options{Dir: root, ToolVersion: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ok := byNameOf(t, p, "@scope/name")
+	if !ok {
+		t.Fatalf("name = %q (want @scope/name)", p.Packages[0].Name)
+	}
+	if pkg.Provenance.Kind != KindGit || pkg.Provenance.Commit != testCommit {
+		t.Errorf("provenance = %+v (want git + %s)", pkg.Provenance, testCommit)
+	}
+}
