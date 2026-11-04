@@ -43,7 +43,9 @@ func init() {
 			return err
 		}
 
-		path := config.GlobalPath(home)
+		// 走 EffectiveGlobalPath：测试同时设置了 NGM_HOME 与 HOME，
+		// 配置必须写到**真实会被读取**的那一处，否则“测试写的配置没被读到”。
+		path := config.EffectiveGlobalPath(home)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}

@@ -186,6 +186,61 @@ func TestLoad_PicksUpGlobal(t *testing.T) {
 	}
 }
 
+// --- v0.120（D1）：NGM_HOME 必须真的决定全局配置的位置 ---
+
+func TestV120EffectiveGlobalPathFollowsNgmHome(t *testing.T) {
+	home := t.TempDir()
+	ngmHome := filepath.Join(t.TempDir(), "ngm-home")
+
+	t.Setenv("NGM_HOME", ngmHome)
+	if got, want := EffectiveGlobalPath(home), filepath.Join(ngmHome, "config.json"); got != want {
+		t.Errorf("with NGM_HOME: got %q, want %q", got, want)
+	}
+
+	t.Setenv("NGM_HOME", "")
+	if got, want := EffectiveGlobalPath(home), GlobalPath(home); got != want {
+		t.Errorf("without NGM_HOME: got %q, want %q", got, want)
+	}
+	if got := EffectiveGlobalPath(""); got != "" {
+		t.Errorf("with no home and no NGM_HOME: got %q, want empty", got)
+	}
+}
+
+// LoadFrom 的输入是一个**路径**而不是 home：换算只发生在 EffectiveGlobalPath，
+// 这样 Load 的旧语义（显式 home ⇒ 显式路径）与 CLI 的新语义不会各拼一遍。
+func TestV120LoadFromReadsTheGivenPath(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(globalPath, []byte(`{"git":{"defaultProtocol":"https"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := LoadFrom("", globalPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if r.GlobalEffective.Git.DefaultProtocol != "https" {
+		t.Errorf("the explicit global path was not read: protocol=%q",
+			r.GlobalEffective.Git.DefaultProtocol)
+	}
+}
+
+// Scripts 是 `ngm run` 的回退来源。这里只证明**字段真的被读进来**（含
+// DisallowUnknownFields 生效后的解码）；执行与回退顺序由 internal/runscript 的用例覆盖。
+func TestV120ProjectFileScriptsAreRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ngm.json")
+	body := `{"name":"proj","version":"0.0.1","runtime":"node","scripts":{"build":"echo hi","check":"echo ok"}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pf, err := ReadProjectFile(path)
+	if err != nil {
+		t.Fatalf("ReadProjectFile: %v", err)
+	}
+	if pf.Scripts["build"] != "echo hi" || pf.Scripts["check"] != "echo ok" {
+		t.Errorf("scripts = %v", pf.Scripts)
+	}
+}
+
 func TestRemoveDependencyAtSubPath(t *testing.T) {
 	pf := &ProjectFile{
 		Dependencies: []Dependency{

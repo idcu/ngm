@@ -100,6 +100,12 @@ type ProjectFile struct {
 	Engines      *EnginesConfig     `json:"engines,omitempty"`
 	Vendor       *VendorConfig      `json:"vendor,omitempty"`
 	SupplyChain  *SupplyChainConfig `json:"supplyChain,omitempty"`
+	// Scripts 是 `ngm run` 的回退脚本来源。
+	//
+	// package.json.scripts 是**权威**来源；只有那里没有同名脚本时，这里的定义才生效。
+	// 两处同时定义同名脚本是配置错误（exit 3）——静默选一边会让"我明明改了脚本"
+	// 变成不可解释的行为，而这类分歧只能靠点名两处来源来解决。
+	Scripts map[string]string `json:"scripts,omitempty"`
 }
 
 // Dependency 声明中的一个依赖。
@@ -257,13 +263,56 @@ func GlobalPath(home string) string {
 	return filepath.Join(home, ".ngm", "config.json")
 }
 
+// EffectiveGlobalPath 返回**实际会被读取**的全局配置文件路径。
+//
+// NGM_HOME 是 ngm 用户态根目录（与 `vendor.DefaultLayout()` 的语义一致：它
+// 直接**就是** `~/.ngm`，不再是"home"）。因此：
+//
+//	NGM_HOME 已设置 → <abs(NGM_HOME)>/config.json
+//	否则            → <home>/.ngm/config.json（GlobalPath）
+//
+// 此前 `Load` 只认 `GlobalPath(home)`，于是 README 与 env.go 注释承诺的
+// “NGM_HOME 覆盖 ~/.ngm（包括 config.json）”并不成立：把配置放进
+// NGM_HOME 下不会被读取，而目录布局（mirror/content）却已经跟着 NGM_HOME 走了。
+// 一个只对一半组件生效的覆盖比没有更糟——用户以为隔离了，实际没有。
+//
+// home 为空（取不到用户主目录）且 NGM_HOME 未设置时返回空串，表示不加载全局配置。
+func EffectiveGlobalPath(home string) string {
+	if h := strings.TrimSpace(os.Getenv("NGM_HOME")); h != "" {
+		abs, err := filepath.Abs(h)
+		if err != nil {
+			return filepath.Join(h, "config.json")
+		}
+		return filepath.Join(abs, "config.json")
+	}
+	if home == "" {
+		return ""
+	}
+	return GlobalPath(home)
+}
+
 // Load 加载并合并配置。
 //
 //	projectDir: 项目根目录；空字符串表示无项目配置
 //	homeDir:    用户主目录；空字符串表示不加载全局配置
 //
 // 返回的 Resolved 中所有指针都不会为 nil，便于调用方无 nil 检查地访问。
+//
+// 本函数保持“显式 home ⇒ 显式路径”的旧语义（单元测试要能指定任意 home）；
+// 需要尊重 NGM_HOME 的调用方用 LoadFrom + EffectiveGlobalPath。
 func Load(projectDir, homeDir string) (*Resolved, error) {
+	globalPath := ""
+	if homeDir != "" {
+		globalPath = GlobalPath(homeDir)
+	}
+	return LoadFrom(projectDir, globalPath)
+}
+
+// LoadFrom 加载并合并配置，全局配置路径**显式给出**。
+//
+// globalPath 为空表示不加载全局配置。它让 NGM_HOME 的换算只发生在一处
+// （EffectiveGlobalPath），而不是散在每个调用点。
+func LoadFrom(projectDir, globalPath string) (*Resolved, error) {
 	builtin := DefaultBuiltin()
 
 	var project *ProjectFile
@@ -276,8 +325,8 @@ func Load(projectDir, homeDir string) (*Resolved, error) {
 	}
 
 	var global *GlobalFile
-	if homeDir != "" {
-		g, err := readGlobalFile(GlobalPath(homeDir))
+	if globalPath != "" {
+		g, err := readGlobalFile(globalPath)
 		if err != nil {
 			return nil, err
 		}

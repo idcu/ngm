@@ -91,7 +91,7 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 				"or use `ngm config show` to inspect the merged config without gating"))
 	}
 	home, _ := os.UserHomeDir()
-	r, err := config.Load(abs, home)
+	r, err := config.LoadFrom(abs, config.EffectiveGlobalPath(home))
 	if err != nil {
 		return runErr(ctx, stdout, stderr, errs.WrapUnlessHinted(errs.CodeConfigInvalid,
 			"validate ngm.json", "fix the reported field or remove unknown fields", err))
@@ -127,11 +127,13 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 //
 //	# builtin defaults
 //	<JSON of BuiltinDefaults>
-//	# global (~/.ngm/config.json)  [absent if missing]
+//	# global (<the file that was actually read>)  [absent if missing]
 //	<JSON of GlobalEffective>
 //	# effective project (builtin → global → project merged)
 //	<JSON of Effective>
 //
+// 全局路径随 `NGM_HOME` 变化（见 config.EffectiveGlobalPath），所以标签打印的是
+// **生效路径**，而不是写死 `~/.ngm/config.json`——否则用户按标签去找文件会找不到。
 // 每段以 # 注释行分隔，便于人眼阅读；机器解析请关注 JSON 段（连续两行 JSON）。
 //
 // 与 validate 的分工：**show 是查看，不设门禁**——目标目录没有 ngm.json 时它照常
@@ -143,7 +145,8 @@ func runConfigShow(ctx context.Context, stdout, stderr io.Writer, dir string) in
 			"pass an absolute --dir, or run ngm from the directory you mean", aerr))
 	}
 	home, _ := os.UserHomeDir()
-	r, err := config.Load(abs, home)
+	globalPath := config.EffectiveGlobalPath(home)
+	r, err := config.LoadFrom(abs, globalPath)
 	if err != nil {
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "load config", "see `ngm config validate` for details", err))
 	}
@@ -162,7 +165,11 @@ func runConfigShow(ctx context.Context, stdout, stderr io.Writer, dir string) in
 	if err := enc("builtin defaults", r.Builtin); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
-	if err := enc("global (~/.ngm/config.json)", r.GlobalEffective); err != nil {
+	globalLabel := "global (no user config — NGM_HOME and HOME are both unset)"
+	if globalPath != "" {
+		globalLabel = "global (" + globalPath + ")"
+	}
+	if err := enc(globalLabel, r.GlobalEffective); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 	label := "effective project (builtin → global → project merged)"

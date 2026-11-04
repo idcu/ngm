@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/lock"
 )
 
@@ -73,21 +74,20 @@ func requireNetFixtures(t *testing.T) {
 	}
 }
 
-// writeGlobalPerms 把 `permissions` 写进**全局配置**（`<HOME>/.ngm/config.json`）。
+// writeGlobalPerms 把 `permissions` 写进**全局配置**。
 //
-// 路径必须用 `HOME`，不是 `NGM_HOME`：前者是全局配置的根（`config.GlobalPath`），
-// 后者只覆盖 mirror / content / cache 那一层（`vendor.Layout`）。
-// 写错地方的后果很隐蔽——配置读不到，于是"默认拒绝"会让判据**假绿**：
-// 它拒绝的理由不是你配的 deny，而是"什么都没配"。第一版就踩了这个坑。
+// 路径必须走 `config.EffectiveGlobalPath`：隔离环境同时设置了 HOME 与 NGM_HOME，
+// 而 NGM_HOME 优先。写错地方的后果很隐蔽——配置读不到，于是"默认拒绝"会让判据
+// **假绿**：它拒绝的理由不是你配的 deny，而是"什么都没配"。
 func writeGlobalPerms(t *testing.T, allow, deny []string) {
 	t.Helper()
 	home := os.Getenv("HOME")
 	if home == "" {
 		t.Fatal("isolateUserEnv did not set HOME")
 	}
-	dir := filepath.Join(home, ".ngm")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", dir, err)
+	path := config.EffectiveGlobalPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
 	}
 	type perms struct {
 		Allow []string `json:"allow,omitempty"`
@@ -97,7 +97,7 @@ func writeGlobalPerms(t *testing.T, allow, deny []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if werr := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o644); werr != nil {
+	if werr := os.WriteFile(path, body, 0o644); werr != nil {
 		t.Fatalf("write global config: %v", werr)
 	}
 }
@@ -278,12 +278,13 @@ func TestNetFixtureNetworkGateRefusesBeforeConnecting(t *testing.T) {
 		t.Fatalf("add should not need the network: %s", out)
 	}
 
-	// 第一段：**放行**该 host 时必须成功（否则这一段什么都没证明——
+	// 放行该 host 时必须成功（否则这一段什么都没证明——
 	// 默认档位本来就是"需配置"，任何配置都能让它失败）。
 	//
-	// 第一版把 deny 写进了 `NGM_HOME/config.json`，而全局配置在
-	// `<HOME>/.ngm/config.json`：配置根本没被读到，判据却是绿的，
-	// 因为它拒绝的理由是"什么都没配"。**假的绿比红危险**。
+	// 历史教训（v0.102 已修）：曾有一次把 deny 写进了 `NGM_HOME/config.json`，
+	// 而当时全局配置只认 `<HOME>/.ngm/config.json`，于是配置根本没被读到，
+	// 判据却是绿的——它拒绝的理由是"什么都没配"。**假的绿比红危险**。
+	// 现在 EffectiveGlobalPath 让 NGM_HOME 真正生效，这类错位不再可能。
 	allowGitee(t)
 	if code, out := runCaptureCode(t, "update", "--all", "--dir="+p); code != 0 {
 		t.Fatalf("with the host allowed, update must reach gitee.com:\n%s", out)

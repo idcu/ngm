@@ -73,3 +73,37 @@ func TestV19ConfigValidatesTheDirectoryItIsToldTo(t *testing.T) {
 		t.Errorf("show must say that the project level is absent:\n%s", out)
 	}
 }
+
+// TestV120ConfigShowReadsNgmHome 是 D1 的端到端一半（另一半是 internal/config 的
+// 单测）：只把配置放进 `<NGM_HOME>/config.json` 时必须读到；放进旧的
+// `<home>/.ngm/config.json` 时必须**读不到**——否则"两条路径同源"只是文档里的说法。
+func TestV120ConfigShowReadsNgmHome(t *testing.T) {
+	home := isolateUserEnv(t)
+	dir := t.TempDir()
+	ngmHomeConfig := filepath.Join(os.Getenv("NGM_HOME"), "config.json")
+
+	writeGlobalConfig(t, home, `{"git":{"defaultProtocol":"https"}}`)
+	code, out := runCaptureCode(t, "config", "show", "--dir="+dir)
+	if code != 0 {
+		t.Fatalf("config show exit=%d:\n%s", code, out)
+	}
+	if !strings.Contains(out, `"defaultProtocol": "https"`) {
+		t.Errorf("the config under NGM_HOME was not read:\n%s", out)
+	}
+	if !strings.Contains(out, ngmHomeConfig) {
+		t.Errorf("the label must point at the file that was read (%s):\n%s", ngmHomeConfig, out)
+	}
+
+	// 反例：删掉 NGM_HOME 那份、只留旧位置。旧位置**不是**生效路径，读不到它。
+	if err := os.Remove(ngmHomeConfig); err != nil {
+		t.Fatal(err)
+	}
+	writeFileAt(t, home, ".ngm/config.json", `{"git":{"defaultProtocol":"https"}}`)
+	code, out = runCaptureCode(t, "config", "show", "--dir="+dir)
+	if code != 0 {
+		t.Fatalf("config show exit=%d:\n%s", code, out)
+	}
+	if strings.Contains(out, `"defaultProtocol": "https"`) {
+		t.Errorf("the legacy <home>/.ngm/config.json is still being read:\n%s", out)
+	}
+}

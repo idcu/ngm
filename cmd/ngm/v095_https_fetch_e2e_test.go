@@ -288,7 +288,7 @@ func waitForBackend(t *testing.T, caPath string) {
 // setDefaultProtocol 把 git.defaultProtocol 写进隔离 HOME 的全局配置（合并，不覆盖）。
 func setDefaultProtocol(t *testing.T, home, proto string) {
 	t.Helper()
-	path := config.GlobalPath(home)
+	path := config.EffectiveGlobalPath(home)
 	cfg := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -313,7 +313,7 @@ func setDefaultProtocol(t *testing.T, home, proto string) {
 // grantNetHost 把 `net:<host>` 追加进隔离 HOME 的全局配置（**合并**，不覆盖）。
 func grantNetHost(t *testing.T, home, host string) {
 	t.Helper()
-	path := config.GlobalPath(home)
+	path := config.EffectiveGlobalPath(home)
 	cfg := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(raw, &cfg); err != nil {

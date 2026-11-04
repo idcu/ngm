@@ -38,7 +38,7 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := config.Load(env.ProjectDir, homeDirOrEmpty())
+	resolved, err := config.LoadFrom(env.ProjectDir, config.EffectiveGlobalPath(homeDirOrEmpty()))
 	if err != nil {
 		return nil, err
 	}

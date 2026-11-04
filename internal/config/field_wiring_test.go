@@ -72,6 +72,9 @@ var wiredFields = map[string]string{
 	"ProjectFile.Engines":      "TestM6Acceptance",
 	"ProjectFile.Vendor":       "TestM4Acceptance",
 	"ProjectFile.SupplyChain":  "TestV02SupplyChainAcceptance",
+	// scripts 只被 `ngm run` 的回退路径读取（package.json 缺失或没有该脚本时的第二来源）；
+	// 这里断言它**真的从 ngm.json 解码**，执行与回退顺序由 internal/runscript 覆盖。
+	"ProjectFile.Scripts": "TestV120ProjectFileScriptsAreRead",
 
 	// ---- ngm.json：Dependency ----
 	"Dependency.Name":    "TestAdd_NormalizesEquivalentNames",

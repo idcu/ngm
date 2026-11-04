@@ -6,17 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/testutils"
 )
 
-// writeGlobalConfig 写入隔离环境里的 `~/.ngm/config.json`。
+// writeGlobalConfig 写入隔离环境里的全局配置。
+//
+// 路径走 config.EffectiveGlobalPath：设置了 NGM_HOME 时全局配置就住在
+// `<NGM_HOME>/config.json`（与目录布局同一根），否则才是 `<home>/.ngm/config.json`。
+// 写错地方的后果是“测试绿了但配置根本没被读到”。
 func writeGlobalConfig(t *testing.T, home, body string) {
 	t.Helper()
-	dir := filepath.Join(home, ".ngm")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := config.EffectiveGlobalPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

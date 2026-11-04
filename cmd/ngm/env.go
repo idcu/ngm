@@ -85,7 +85,7 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 	// "跑 `ngm config validate`"——v0.83 实测：从这条路径抢着报会把它压掉）。
 	//
 	// 错误**原样向上传**：全局配置与项目清单的建议不同，各自在**配置层**定型。
-	r, cerr := config.Load("", homeDirOrEmpty())
+	r, cerr := config.LoadFrom("", config.EffectiveGlobalPath(homeDirOrEmpty()))
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -129,11 +129,11 @@ func newProjectEnv(dirFlag string) (*projectEnv, error) {
 // 用真实路径而不是写死 `~/.ngm/config.json`：设置过 NGM_HOME 的人看到的是
 // 另一个文件，指错地方等于让提示失效。
 func globalConfigSource() string {
-	home := homeDirOrEmpty()
-	if home == "" {
+	path := config.EffectiveGlobalPath(homeDirOrEmpty())
+	if path == "" {
 		return "~/.ngm/config.json"
 	}
-	return filepath.Join(home, ".ngm", "config.json")
+	return path
 }
 
 // EnsureMirror 是 resolve.GraphOptions.EnsureMirror 的实现。

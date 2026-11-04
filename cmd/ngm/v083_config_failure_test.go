@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -35,7 +36,7 @@ func TestV83BrokenGlobalConfigIsRejectedNotSilentlyDegraded(t *testing.T) {
   "runtime": "node"
 }
 `)
-	cfgPath := filepath.Join(home, ".ngm", "config.json")
+	cfgPath := config.EffectiveGlobalPath(home)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -49,16 +50,16 @@ func TestV83BrokenGlobalConfigIsRejectedNotSilentlyDegraded(t *testing.T) {
 	}
 
 	// ② 非法值：必须报错，且点名文件与字段。
-	writeFileAt(t, home, ".ngm/config.json", `{"schemaVersion":1,"git":{"defaultProtocol":"sqlite"}}`)
+	writeGlobalConfig(t, home, `{"schemaVersion":1,"git":{"defaultProtocol":"sqlite"}}`)
 	assertConfigRejected(t, dir, "defaultProtocol")
 
 	// ③ 未知字段（typo）：同样必须报出来（`DisallowUnknownFields` 已经写了，
 	//    此前只是被 `cerr == nil` 吞掉）。
-	writeFileAt(t, home, ".ngm/config.json", `{"schemaVersion":1,"gti":{"defaultProtocol":"https"}}`)
+	writeGlobalConfig(t, home, `{"schemaVersion":1,"gti":{"defaultProtocol":"https"}}`)
 	assertConfigRejected(t, dir, "config.json")
 
 	// ④ 合法配置：照常（牙齿：证明这条判据不是"有配置就报错"）。
-	writeFileAt(t, home, ".ngm/config.json", `{"schemaVersion":1,"git":{"defaultProtocol":"https"}}`)
+	writeGlobalConfig(t, home, `{"schemaVersion":1,"git":{"defaultProtocol":"https"}}`)
 	if _, err := newProjectEnv(dir); err != nil {
 		t.Fatalf("合法配置不该失败：%v", err)
 	}
