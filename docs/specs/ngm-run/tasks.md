@@ -32,10 +32,12 @@
 
 - [x] T4.1 `bash scripts/check-release-status.sh --drift-guard` 读数归档（tag/release/产物）。
 - [ ] T4.2 缺产物且凭据可用 → 已有 workflow 对已存在 tag 幂等重跑（`--clobber` 由脚本处理）。
+  - **阻塞**：本机无 `gh`、无 `GITHUB_TOKEN`/`GH_TOKEN`，GitHub 侧无凭据；`release.yml` 的
+    `workflow_dispatch`（输入 `tag`）可直接对 `v0.102.0-dev.1` 重跑。未执行，未伪造附件。
 - [x] T4.3 阻塞 → 报告写“未执行”，确认 `workflow_dispatch` 入口。
 
 ## 收尾
 
-- [ ] T5.1 `go build ./...`、`go vet ./...`、`go test -count=1 -timeout 40m ./...`、`bash scripts/check-docs-links.sh`。
-- [ ] T5.2 分批 commit + push（两仓按需；禁止强推/改历史/改 git config）。
-- [ ] T5.3 中文 Markdown 报告：结论先行，按用户要求分块。
+- [x] T5.1 `go build ./...`、`go vet ./...`、`go test -count=1 -timeout 40m ./...`、`bash scripts/check-docs-links.sh`。
+- [x] T5.2 分批 commit + push（两仓按需；禁止强推/改历史/改 git config）。
+- [x] T5.3 中文 Markdown 报告：结论先行，按用户要求分块。

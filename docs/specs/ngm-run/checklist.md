@@ -15,6 +15,6 @@
 - [x] D2：README 不再硬编码 tag 数，发布守卫不依赖该数字
 - [x] D3：adopt 对 `@scope/name` 回退保留 scope，含 subpath 与 `#sha` 组合单测
 - [x] 发布核实：`--drift-guard` 读数已归档，缺口与阻塞原因写明
-- [ ] 收尾：`go build ./...`、`go vet ./...`、`go test -count=1 -timeout 40m ./...` 全绿
-- [ ] 收尾：`bash scripts/check-docs-links.sh` 通过；`testdata/help.golden` 已重生成
-- [ ] 两仓分批提交并推送（无强推 / 无历史改写 / 无 git config 改动）
+- [x] 收尾：`go build ./...`、`go vet ./...`、`go test -count=1 -timeout 40m ./...` 全绿
+- [x] 收尾：`bash scripts/check-docs-links.sh` 通过；`testdata/help.golden` 已重生成
+- [x] 两仓分批提交并推送（无强推 / 无历史改写 / 无 git config 改动）
