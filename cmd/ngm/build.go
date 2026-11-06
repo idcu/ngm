@@ -22,7 +22,8 @@ FLAGS:
   --engine=<name>   engine to use (default: engines.bundle in ngm.json, else esbuild)
   --outfile=<path>  write the bundle there (default: stdout, exactly like running esbuild)
   --production      minify, and define process.env.NODE_ENV="production"
-  --dry-run         print the resolved command and exit without running anything
+  --dry-run         print the resolved command and exit without spawning anything
+                    (no engine is executed, and no version is probed)
   --dir=<dir>       project directory (default: .)
 
 WHAT NGM ADDS:

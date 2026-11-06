@@ -36,7 +36,7 @@ FLAGS:
   --format=<fmt>    module format: esm / cjs / iife
   --minify          minify the output
   --sourcemap       inline source map
-  --dry-run         print the resolved command and exit without running anything
+  --dry-run         print the resolved command and exit without spawning anything
   --dir=<dir>       project directory (default: .)
 
 BUNDLE OR TRANSFORM:

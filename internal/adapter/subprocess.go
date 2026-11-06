@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,16 +89,80 @@ func (e *subprocessEngine) Name() string { return e.entry.Name }
 // Kind 实现 Engine。
 func (e *subprocessEngine) Kind() EngineKind { return e.entry.Kind }
 
-// Available 实现 Engine：真的去 PATH 里找可执行文件。
+// Available 实现 Engine：真的去 PATH（以及项目的 `node_modules/.bin`）里找可执行文件。
 //
 // 刻意不缓存：用户在一次会话中装好引擎（或修正 PATH）后，下一次调用
 // 应当立即生效。探测本身只是几次 stat，代价可忽略。
+//
+// v0.109：使用与**执行**同一个解析器（[resolveProgram]）。此前这里用
+// `exec.LookPath`（相对进程 CWD），而执行时 `cmd.Dir=项目目录`——
+// `ngm build --dir=/elsewhere` 会出现"探测说没装、执行却找得到"（或反之）。
 func (e *subprocessEngine) Available() bool {
 	if e.entry.Program == "" {
 		return false
 	}
-	_, err := exec.LookPath(e.entry.Program)
-	return err == nil
+	_, ok := resolveProgram(e.entry.Program, e.dir)
+	return ok
+}
+
+// resolveProgram 把清单里的 program 解析成"探测与执行都会用的那个路径"。
+//
+// 规则（与 `ngm run` 的 `.bin` 注入保持同一意图，但只看项目根）：
+//   - 绝对路径：直接用；
+//   - 含分隔符的相对路径：相对项目目录；
+//   - 裸名字：先按调用者的 PATH 找，再按 `<dir>/node_modules/.bin` 找。
+//
+// 第二个 `ok=false` 表示找不到；此时原样返回输入，让 `exec` 产生真实错误。
+func resolveProgram(program, dir string) (string, bool) {
+	program = strings.TrimSpace(program)
+	if program == "" {
+		return "", false
+	}
+	if filepath.IsAbs(program) {
+		info, err := os.Stat(program)
+		return program, err == nil && !info.IsDir()
+	}
+	if strings.ContainsAny(program, `/\`) {
+		p := program
+		if dir != "" {
+			p = filepath.Join(dir, filepath.FromSlash(program))
+		}
+		if abs, ok := lookExecutable(p); ok {
+			return abs, true
+		}
+		return p, false
+	}
+	if p, err := exec.LookPath(program); err == nil {
+		return p, true
+	}
+	if dir != "" {
+		if abs, ok := lookExecutable(filepath.Join(dir, "node_modules", ".bin", program)); ok {
+			return abs, true
+		}
+	}
+	return program, false
+}
+
+// lookExecutable 在 p 以及平台可执行后缀上做存在性检查，返回绝对路径。
+func lookExecutable(p string) (string, bool) {
+	candidates := []string{p}
+	if runtime.GOOS == "windows" {
+		for _, ext := range []string{".exe", ".cmd", ".bat", ".com"} {
+			candidates = append(candidates, p+ext)
+		}
+	}
+	for _, c := range candidates {
+		info, err := os.Stat(c)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		abs, aerr := filepath.Abs(c)
+		if aerr != nil {
+			abs = c
+		}
+		return abs, true
+	}
+	return "", false
 }
 
 // Version 实现 Engine：执行 `<program> <固定前缀参数> --version` 并取第一行。
@@ -409,6 +474,10 @@ func runProcessEnv(ctx context.Context, program string, args []string, dir strin
 // 而它是防 OOM 的那条边界。stdout 可能是产物（见 artifactLimit），
 // 所以上界由调用方决定——"哪个通道是产物"只有调用方知道。
 func runProcessEnvLimit(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv, deniedEnv []string, stdoutLimit int) (*runResult, error) {
+	// 与 Available() 用同一个解析器：探测说"有"的那个文件，就是这里执行的那个。
+	if p, ok := resolveProgram(program, dir); ok {
+		program = p
+	}
 	cmd := exec.CommandContext(ctx, program, args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -669,6 +738,12 @@ type buildRequest struct {
 	Options any
 	// EntryFile 是 bundle / typeCheck / typeDecl 的入口文件。
 	EntryFile string
+	// NoProbe 为 true 表示只渲染 argv、不 spawn（`--dry-run` 的 Plans 用）。
+	// 它会跳过需要探测版本的检查（例如 deno bundle 的版本门槛），
+	// 并在 Notes 里说明"dry-run 未校验"。
+	NoProbe bool
+	// DeniedEnv 是探测子进程时要剔除的环境变量（与执行路径同源）。
+	DeniedEnv []string
 }
 
 // builders 按引擎名分派 argv 翻译。

@@ -21,7 +21,7 @@ ARGS:
 FLAGS:
   --outdir=<dir>    where the declarations go (**required**)
   --engine=<name>   engine to use
-  --dry-run         print the resolved command and exit without running anything
+  --dry-run         print the resolved command and exit without spawning anything
   --dir=<dir>       project directory (default: .)
 
 WHY --outdir IS REQUIRED:

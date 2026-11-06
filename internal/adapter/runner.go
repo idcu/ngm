@@ -32,7 +32,8 @@ type Plan struct {
 	Builtin bool `json:"builtin,omitempty"`
 	// Available 报告引擎当前是否可用（可执行文件是否在 PATH）。
 	Available bool `json:"available"`
-	// Version 是探测到的实际版本；探测失败时为空。
+	// Version 保留给"确实探测过"的调用方；dry-run 的 Plans **不探测**，
+	// 因此这里为空是契约的一部分，不是失败。
 	Version string `json:"version,omitempty"`
 }
 
@@ -184,10 +185,17 @@ func availableHint(c *Catalog, kind EngineKind) string {
 	return " (available: " + strings.Join(names, ", ") + ")"
 }
 
-// Plans 返回该 kind 将尝试的命令序列，**不做任何调用**。
+// Plans 返回该 kind 将尝试的命令序列，**不 spawn 任何进程**。
 //
 // 这是 `--dry-run` 的实现，也是 self 引擎唯一被允许出现的场合
 // （ADR-005："self 只做兜底、dry-run、离线 stub"）。
+//
+// v0.109 修正：此前这里还调用了 `eng.Version()`，而版本探测本身就是一次
+// `<program> --version` 的 spawn——于是 `--dry-run`（承诺 "exit without
+// running anything"）会执行仓库声明的引擎程序，且不经过 `run:<engine>` 闸门。
+// 现在只保留 `Available()`（LookPath / 文件存在性，不 spawn）：dry-run 的输出
+// 仍能说"装没装"，但不会执行任何东西。版本探测统一交给
+// `Catalog.Probe`（先过闸门，再 spawn）。
 func (r *Runner) Plans(kind EngineKind, sel Selection, opts any, entryFile string) ([]Plan, error) {
 	chain, err := r.Resolve(kind, sel)
 	if err != nil {
@@ -207,7 +215,7 @@ func (r *Runner) Plans(kind EngineKind, sel Selection, opts any, entryFile strin
 
 		if entry.Adapter == AdapterSubprocess {
 			merged := withSelection(entry, sel, opts)
-			inv, ierr := buildInvocation(entry, buildRequest{Options: merged, EntryFile: entryFile})
+			inv, ierr := buildInvocation(entry, buildRequest{Options: merged, EntryFile: entryFile, NoProbe: true})
 			if ierr != nil {
 				return nil, ierr
 			}
@@ -216,10 +224,8 @@ func (r *Runner) Plans(kind EngineKind, sel Selection, opts any, entryFile strin
 		}
 
 		if eng, eerr := newEngine(entry, r.dir, r.deniedEnv); eerr == nil {
+			// 只问可用性，不探测版本：见函数头注释。
 			p.Available = eng.Available()
-			if v, verr := eng.Version(); verr == nil {
-				p.Version = v
-			}
 		}
 		plans = append(plans, p)
 	}
@@ -371,17 +377,25 @@ func unavailableError(entry Entry) *EngineError {
 //     这是配置层面的永久事实——装引擎也解决不了，因此必须先说。
 //  2. 引擎是否可用（可执行文件在不在 PATH）。这是环境层面，可以修。
 //  3. 权限是否允许执行它（`run:<exe>`）。
+//  4. 最后才生成 argv——因为个别引擎的 argv 需要探测版本（deno bundle），
+//     而探测本身是一次 spawn。
 //
-// 反过来的话，把 esbuild 配成 typeCheck 的用户会先看到"请安装 esbuild"，
-// 装完仍然失败，白跑一趟且更困惑。两类问题的退出码相同（都是 5），
-// 但**哪一个先被说出来**决定了用户能不能一次修对。
-//
-// 权限排在最后，理由与上面一致：引擎根本没装时，正确的退出码是 5（工具缺失，
+// 权限排在可用性之后：引擎根本没装时，正确的退出码是 5（工具缺失，
 // 脚本据此区分"环境问题"与"配置问题"）。若权限先判，一个拼错的引擎名会被
 // 报成"请把 run:ngm-definitely-not-a-real-engine 加进配置"——用户照做之后
 // 仍然跑不了，而那条权限永远不会有用。
 func (r *Runner) preflight(eng Engine, entry Entry, req buildRequest) error {
-	if _, err := buildInvocation(entry, req); err != nil {
+	// 能力/配置 → 可用性 → 权限 → argv 生成。
+	//
+	// v0.109：argv 生成放在权限**之后**。deno bundle 的 argv 需要一次
+	// `deno --version` 探测才能判定版本门槛——那是 spawn，不能在闸门之前做。
+	//
+	// 但"能力不可实现"（如 esbuild 不能做类型检查）必须**先于权限**说出来：
+	// 它是配置层的永久事实，用户即使授权也仍然跑不了。因此先用 NoProbe
+	// 做一次**不 spawn** 的 argv 预检，把这类结论留在最前面。
+	pre := req
+	pre.NoProbe = true
+	if _, err := buildInvocation(entry, pre); err != nil {
 		return err
 	}
 	if !eng.Available() {
@@ -391,6 +405,10 @@ func (r *Runner) preflight(eng Engine, entry Entry, req buildRequest) error {
 		if err := r.beforeRun(entry); err != nil {
 			return err
 		}
+	}
+	req.DeniedEnv = r.deniedEnv
+	if _, err := buildInvocation(entry, req); err != nil {
+		return err
 	}
 	return nil
 }

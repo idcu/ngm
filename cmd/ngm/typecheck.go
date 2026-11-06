@@ -22,7 +22,7 @@ ARGS:
 FLAGS:
   --engine=<name>     engine to use
   --tsconfig=<path>   tsconfig to hand to the engine (default: let the engine find it)
-  --dry-run           print the resolved command and exit without running anything
+  --dry-run           print the resolved command and exit without spawning anything
   --dir=<dir>         project directory (default: .)
 
 NOTE:
@@ -148,7 +148,7 @@ FLAGS:
   --engine=<name>   engine to use
   --outfile=<path>  write the result there (default: stdout)
   --minify          minify the output
-  --dry-run         print the resolved command and exit without running anything
+  --dry-run         print the resolved command and exit without spawning anything
   --dir=<dir>       project directory (default: .)
 
 EXIT CODES:

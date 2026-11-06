@@ -23,7 +23,10 @@ import (
 //
 // 判据形状：**这一条报告里的每一条行动行，都必须命中该 case 登记的解法之一。**
 func TestV34AdviceMatchesTheFailureShape(t *testing.T) {
-	testutils.AllowEngines(t, "fake-engine")
+	// 内置可选引擎（tsc / postcss / esbuild）也要允许探测：validate 是
+	// fail-closed，探针被拒会额外产出 `probe-denied` 行，而那一行的解法是
+	// `permissions.allow`，与本用例要检验的失败形状无关。未安装的条目会被跳过。
+	testutils.AllowEngines(t, "fake-engine", "tsc", "postcss", "esbuild")
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
 	shapes := map[string]int{} // 解法 → 命中次数

@@ -104,7 +104,11 @@ func TestM6Acceptance(t *testing.T) {
 	testutils.MustHaveGit(t)
 	// `run:` 默认"需配置"（v0.3 D 组）：这些用例要执行外部引擎，因此显式声明。
 	// 门禁本身由 TestV03PermissionsAcceptance 覆盖。
-	testutils.AllowEngines(t, "fake-engine", "esbuild")
+	// fail-closed（v0.109）：`engines validate` 拿不到探针结论就返回 3。
+	// 因此这里把内置的可选引擎（tsc / postcss）也显式授权——它们若未安装
+	// 会被跳过，若已安装则允许探测；否则"干净清单"在默认档位下必然出现
+	// `probe-denied`，那不是本用例要测的 schema/availability 两类问题。
+	testutils.AllowEngines(t, "fake-engine", "esbuild", "tsc", "postcss")
 	isolateUserEnv(t)
 
 	fake := testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")

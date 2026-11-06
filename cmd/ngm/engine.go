@@ -55,7 +55,21 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	// 用户自定义引擎照旧看得到 token（v0.105）。三处现在共用
 	// internal/envutil 的同一份实现。
 	if env.Policy != nil {
-		runner.WithDeniedEnv(env.Policy.DeniedEnvVars())
+		deniedEnv := env.Policy.DeniedEnvVars()
+		runner.WithDeniedEnv(deniedEnv)
+		// v0.109：**探测**也要走同一道闸门。
+		//
+		// 版本探测是一次真实的 spawn，此前它绕过了 `run:<engine>`：
+		// `ngm engines list` / `validate` / `build --dry-run` 都会执行仓库
+		// 声明的程序（S0-1）。闸门挂到 catalog 上，让 `Probe` 在 spawn 前
+		// 问一次；被拒绝时不探测，`engines list` 如实显示 "not probed"。
+		cat.WithProbeGate(func(entry adapter.Entry) error {
+			target := engineRunTarget(entry)
+			if target == "" {
+				return nil
+			}
+			return env.Policy.CheckRun(target)
+		}, deniedEnv)
 	}
 	// 回退是隐式行为，必须让用户看见：primary 挂了却只看到 fallback 的
 	// 输出，会让人误判是哪个引擎在干活。

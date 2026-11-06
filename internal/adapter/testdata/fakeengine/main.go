@@ -18,6 +18,9 @@
 //	FAKE_DUMP_ARGS     非空时把 argv 逐行写入该文件（**断言翻译结果的主力**）
 //	                     用文件而不是 stderr：stderr 会混入其他诊断，
 //	                     而文件是干净的、不会被截断或裁行
+//	FAKE_VERSION_MARKER 非空时，每次 `--version` 被调用都向该文件追加一行。
+//	                     这是"探测有没有真的 spawn"的判据：`--dry-run`
+//	                     与未授权的 `engines list` 必须让它保持不存在
 //
 // 参数中出现 `--outfile=<path>` 时，产物写到该路径（与真实引擎一致），
 // 否则写到 stdout。
@@ -39,6 +42,13 @@ func main() {
 
 	for _, a := range args {
 		if a == "--version" {
+			if marker := os.Getenv("FAKE_VERSION_MARKER"); marker != "" {
+				f, err := os.OpenFile(marker, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+				if err == nil {
+					fmt.Fprintln(f, "probed")
+					_ = f.Close()
+				}
+			}
 			fmt.Println(envOr("FAKE_VERSION", "1.0.0-fake"))
 			os.Exit(0)
 		}

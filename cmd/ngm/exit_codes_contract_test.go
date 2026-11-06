@@ -450,7 +450,11 @@ func TestV21UsageExitCodeSectionsAreWellFormed(t *testing.T) {
 // 要么由专属测试测量，要么在缺口名单里。** 于是以后任何人新声明一个码，
 // 都必须同时回答——怎么证明它真的会退这个码。否则测试红。
 func TestV22DeclaredCodesAreMeasuredOrKnownGaps(t *testing.T) {
-	testutils.AllowEngines(t, "fake-engine")
+	// 内置可选引擎（tsc / postcss / esbuild）也允许探测（v0.109 fail-closed）：
+	// 机器上装了哪个就会探测哪个；若不授权，`engines validate` 会因
+	// `probe-denied` 额外退 3，把这里要测量的"未装引擎 → 5"盖掉。
+	// 未安装的条目仍会被正常跳过，不会引入新的读数。
+	testutils.AllowEngines(t, "fake-engine", "tsc", "postcss", "esbuild")
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
 	measured := 0

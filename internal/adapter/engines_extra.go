@@ -99,7 +99,27 @@ func denoInvocation(entry Entry, req buildRequest) (invocation, error) {
 		return invocation{Args: append(args, m.flagArgs()...)}, nil
 
 	case BundleOptions:
-		v, verr := probeVersion(entry)
+		if req.NoProbe {
+			// dry-run：只渲染命令，不探测 deno 的版本（探测是一次 spawn，
+			// 且 `--dry-run` 承诺不执行任何东西）。版本门槛留给真实构建。
+			var args []string
+			m := optionSet{}
+			for k, v := range o.Extra {
+				m.set(k, v)
+			}
+			args = append(args, m.flagArgs()...)
+			if req.EntryFile != "" {
+				args = append(args, req.EntryFile)
+			}
+			if o.Outfile != "" {
+				args = append(args, o.Outfile)
+			}
+			return invocation{
+				Args:  args,
+				Notes: []string{"dry-run: deno's bundle version gate was not checked (it needs a probe)"},
+			}, nil
+		}
+		v, verr := probeVersion(entry, req.DeniedEnv)
 		if verr != nil {
 			return invocation{}, errs.Wrap(errs.CodeEngineNotFound,
 				"deno/bundle: cannot determine the installed deno version",
@@ -184,6 +204,14 @@ func postcssInvocation(entry Entry, req buildRequest) (invocation, error) {
 // ---------------------------------------------------------------------------
 // 版本比较
 // ---------------------------------------------------------------------------
+
+// probeVersion 探测条目对应程序的实际版本。
+//
+// 只允许在**已通过 `run:<engine>` 闸门**的路径上调用（真实的 bundle /
+// typecheck 执行）。`--dry-run` 走 `NoProbe`，不调用它——探测本身是一次 spawn。
+func probeVersion(e Entry, deniedEnv []string) (string, error) {
+	return newSubprocessEngine(e, "", deniedEnv).Version()
+}
 
 // reVersionNumber 从版本串里取出第一段数字序列（"deno 2.4.3" → "2.4.3"）。
 var reVersionNumber = regexp.MustCompile(`\d+(?:\.\d+)*`)

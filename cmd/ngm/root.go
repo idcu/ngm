@@ -130,6 +130,19 @@ func failEarly(args []string, stdout io.Writer, msg, hint string) {
 	}
 }
 
+// parseOrFail 是**所有子命令**共用的 flag 解析外壳（P2-3）。
+//
+// 12 条命令此前逐字重复同一段"parse + failEarly + return 3"；差异只在 flagSpecs。
+// 抽出来之后，`--json` 解析失败的通道只剩一份实现，新命令也不会再漏掉信封。
+func parseOrFail(args []string, stdout io.Writer, fs *flag.FlagSet, specs []flagSpec) bool {
+	if err := fs.Parse(normalizeArgs(args, specs)); err != nil {
+		failEarly(args, stdout, err.Error(),
+			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+		return false
+	}
+	return true
+}
+
 // writeAccounting 包住 stdout，**记住第一次写失败**（v0.60）。
 //
 // 为什么需要它：**人读路径**从前忽略写失败——`fmt.Fprintf` 的返回值被丢掉，

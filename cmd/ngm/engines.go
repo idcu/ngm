@@ -51,13 +51,20 @@ type engineRow struct {
 	//
 	// 两者都给是有意的：声明与实际不一致本身就是需要看见的信息
 	// （比如清单写 0.24.0 而机器上是 0.18.0，某些选项可能不存在）。
-	DeclaredVersion string         `json:"declaredVersion,omitempty"`
-	Version         string         `json:"version,omitempty"`
-	Available       bool           `json:"available"`
-	Stub            bool           `json:"stub,omitempty"`
-	Builtin         bool           `json:"builtin"`
-	SupportedInput  []string       `json:"supportedInput,omitempty"`
-	DefaultOptions  map[string]any `json:"defaultOptions,omitempty"`
+	DeclaredVersion string `json:"declaredVersion,omitempty"`
+	Version         string `json:"version,omitempty"`
+	Available       bool   `json:"available"`
+	Stub            bool   `json:"stub,omitempty"`
+	// ProbeDenied 为 true 表示条目可用，但 `run:<engine>` 未授权，因此 ngm
+	// **没有执行**版本探测。与 Available=false 是两个不同的事实：
+	// 前者是"没问"，后者是"问了，没装"。
+	ProbeDenied bool `json:"probeDenied,omitempty"`
+	// RunTarget 是被判定的 `run:` 目标（仅 ProbeDenied 时非空），
+	// 用于直接给出"要加哪一行权限"。
+	RunTarget      string         `json:"runTarget,omitempty"`
+	Builtin        bool           `json:"builtin"`
+	SupportedInput []string       `json:"supportedInput,omitempty"`
+	DefaultOptions map[string]any `json:"defaultOptions,omitempty"`
 }
 
 // runEngines 处理 `ngm engines <subcommand>`。
@@ -67,12 +74,10 @@ func runEngines(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	dirFlag := fs.String("dir", ".", "project directory")
 	fs.Usage = func() { fmt.Fprint(stderr, enginesUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
+	if !parseOrFail(args, stdout, fs, []flagSpec{
 		{Name: "json", Bool: true}, {Name: "dir"},
-	})); err != nil {
-		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}) {
 		return 3
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
@@ -256,14 +261,24 @@ func issueAdvice(kind adapter.IssueKind) string {
 		return "update the declared `version` in " + adapter.FileName +
 			" to match what is installed (a mismatch is information, not a blocker); " +
 			"re-run `ngm engines validate` to confirm"
+	case adapter.IssueProbeDenied:
+		// 不用 `<engine>` 这种尖括号占位符：JSON 默认会把 `<` 转义成 \u003c，
+		// 于是"人读的句子"在机器那侧逐字找不到（json_next_step_test）。
+		// 具体该授哪个 `run:` 名字写在上面的 issue message 里。
+		return "grant the engine's own name under `run:` in `permissions.allow` " +
+			"(for example `run:esbuild`), then re-run `ngm engines validate`"
 	}
 	return "fix this entry in " + adapter.FileName + ", then re-run `ngm engines validate`"
 }
 
 // engineRows 把清单转成输出行，并探测每个条目的可用性与实际版本。
 //
-// 探测结果按"程序 + 固定参数"缓存：同一程序的多条清单条目（esbuild 同时提供
-// bundle 与 transform）只 spawn 一次版本探测。
+// 探测结果按"程序 + 固定参数 + adapter"缓存：同一程序的多条清单条目
+// （esbuild 同时提供 bundle 与 transform）只探测一次。
+//
+// v0.109：探测统一走 `Catalog.Probe`——它先问 `run:<engine>`，被拒绝时
+// **不 spawn**。此前这里直接 `adapter.NewEngine` + `Version()`，是 S0-1 的
+// 三个入口之一（克隆一个仓库就能借 `ngm engines list` 执行它声明的程序）。
 func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 	cache := map[string]probeResult{}
 	rows := make([]engineRow, 0, len(cat.Engines))
@@ -272,13 +287,14 @@ func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 		if only != "" && e.Name != only {
 			continue
 		}
-		key := e.Program + "\x00" + strings.Join(e.Args, " ")
+		key := string(e.Adapter) + "\x00" + e.Program + "\x00" + strings.Join(e.Args, " ")
 		pr, ok := cache[key]
 		if !ok {
-			pr = probeEngine(e, dir)
+			available, version, denied := cat.Probe(e)
+			pr = probeResult{available: available, version: version, denied: denied}
 			cache[key] = pr
 		}
-		rows = append(rows, engineRow{
+		row := engineRow{
 			Name:            e.Name,
 			Kind:            string(e.Kind),
 			Adapter:         string(e.Adapter),
@@ -286,11 +302,16 @@ func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 			DeclaredVersion: e.Version,
 			Version:         pr.version,
 			Available:       pr.available,
+			ProbeDenied:     pr.denied,
 			Stub:            e.Stub,
 			Builtin:         e.Builtin,
 			SupportedInput:  e.SupportedInput,
 			DefaultOptions:  e.DefaultOptions,
-		})
+		}
+		if pr.denied {
+			row.RunTarget = engineRunTarget(e)
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }
@@ -299,24 +320,7 @@ func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 type probeResult struct {
 	available bool
 	version   string
-}
-
-// probeEngine 探测单个条目的可用性与版本。
-//
-// 探测失败不报错：`ngm engines list` 的职责是**如实呈现**，不是中断。
-// "哪个引擎缺了"正是它要回答的问题。
-func probeEngine(e adapter.Entry, dir string) probeResult {
-	eng, err := adapter.NewEngine(e, dir)
-	if err != nil {
-		return probeResult{}
-	}
-	pr := probeResult{available: eng.Available()}
-	if pr.available && !e.Stub {
-		if v, verr := eng.Version(); verr == nil {
-			pr.version = v
-		}
-	}
-	return pr
+	denied    bool
 }
 
 // statusCell 渲染一行状态。
@@ -324,6 +328,8 @@ func statusCell(r engineRow) string {
 	switch {
 	case r.Stub:
 		return "stub"
+	case r.ProbeDenied:
+		return "not probed (" + r.RunTarget + " denied)"
 	case r.Available:
 		return "ok"
 	default:
@@ -335,6 +341,12 @@ func statusCell(r engineRow) string {
 func versionCell(r engineRow) string {
 	if r.Version != "" {
 		return r.Version
+	}
+	if r.ProbeDenied {
+		if r.DeclaredVersion != "" {
+			return r.DeclaredVersion + " (declared, not probed)"
+		}
+		return "(not probed)"
 	}
 	if r.DeclaredVersion != "" {
 		return r.DeclaredVersion + " (declared)"
