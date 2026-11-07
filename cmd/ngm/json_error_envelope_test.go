@@ -45,7 +45,13 @@ func TestV51JSONErrorEnvelopeIsCompleteAndSameSentence(t *testing.T) {
 			humanCode := dispatch(args, &hOut, &hErr)
 			humanHint := hintLine(hErr.String() + hOut.String())
 			if humanCode == 0 {
-				t.Skipf("this path succeeds now — not an error path any more")
+				// P2-8：此前这里是 t.Skipf——而这条遍历只挑**预期失败**的
+				// 路径（expectZero 非空的行已在上面 continue）。于是"某条错误面
+				// 用例现在退 0"这种漂移会被**静默跳过**，信封契约少测一条却看不出来。
+				// 现在它是失败：要么把这条从错误面表里挪走（改成 expectZero），
+				// 要么承认它仍然应该失败。
+				t.Fatalf("case %q is in the error-surface table but now exits 0 — "+
+					"either declare expectZero in surfaceCases, or restore the failure", sc.name)
 			}
 
 			// 机器那一侧。

@@ -182,9 +182,25 @@ func TestResolveRef_NetworkFailureMapsToExit4(t *testing.T) {
 
 // TestResolveRef_NoGitInPath 验证 git 缺失时的错误可操作（Hint 指向安装）。
 //
-// 通过把 PATH 置空模拟；git 可能仍能被绝对路径找到，因此本用例在找不到 git 时跳过。
+// 通过把 PATH 指向一个空目录模拟"这台机器没有 git"。
+//
+// P2-8：这条用例此前是**无条件 skip**（函数体只有一句 t.Skip），于是
+// "git 未安装 → exit 4 + 安装提示"这个契约从未被任何测试断言过。
+// 空目录比"把 PATH 置空"更稳：Windows 的 exec.LookPath 在 PATH="" 时行为
+// 依平台而异，而空目录在三个平台都是"找不到任何可执行文件"。
 func TestResolveRef_NoGitInPath(t *testing.T) {
-	t.Skip("PATH 操控在 Windows/CI 上不稳定，交由 CI 环境矩阵覆盖")
+	t.Setenv("PATH", t.TempDir())
+
+	repo := MustNormalize("github:org/repo")
+	_, err := ResolveRef(context.Background(), repo, "main", RefTypeBranch,
+		ResolveOptions{GitURL: "https://example.invalid/org/repo.git"})
+	if err == nil {
+		t.Fatalf("ResolveRef with an empty PATH must fail: git cannot be found")
+	}
+	assertCode(t, err, errs.CodeGitFetch)
+	if hint := errs.Hint(err); !strings.Contains(strings.ToLower(hint), "git") {
+		t.Errorf("the hint must point at installing git, got %q", hint)
+	}
 }
 
 func TestResolveRefTypes_Batch(t *testing.T) {
