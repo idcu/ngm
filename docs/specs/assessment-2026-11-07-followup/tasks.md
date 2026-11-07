@@ -30,7 +30,7 @@
 ## Batch D（P1，存储与 install）
 
 - [x] D1 `Put` 自修损坏清单；`writeBlob` 拒绝截断复用（`v123_repair_test.go`）
-- [ ] D1-重做 `ContentStore.Has` 的 blob 校验：必须区分"条目缺失 → exit 4"与"条目存在但内容不符/已截断 → critical exit 2"，并配套 verify 语义调整与表驱动用例（不能仅把大小不符当作 `Has` 为假——默认 hardlink 布局下就地篡改会同时改变 blob 大小，那样会把已确证的篡改误报成资源缺失）
+- [x] D1-重做 `ContentStore.Has` 的 blob 校验：必须区分"条目缺失 → exit 4"与"条目存在但内容不符/已截断 → critical exit 2"，并配套 verify 语义调整与表驱动用例（不能仅把大小不符当作 `Has` 为假——默认 hardlink 布局下就地篡改会同时改变 blob 大小，那样会把已确证的篡改误报成资源缺失）。实现：`CheckEntry` 分开返回"条目存在"与逐条目问题，`Has` 仅在字节齐全且长度一致时为真；verify 对 missing 记 operational、对 size 记 critical。判据 `TestV125StoreEntryStates`（正常 / 缺失 / 截断 / 等长改写 四形状，断言退出码与报告定位）
 - [x] D2 `materializeVendor` 失败回滚本次新建 vendor 目录；lock 不写（`v124_install_rollback_test.go`）
 
 ## Batch E–G（P1-7 / P2）
