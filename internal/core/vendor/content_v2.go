@@ -220,7 +220,9 @@ func (s *ContentStore) writeBlob(content []byte, gitMode string) (string, error)
 	sha := blobKey(gitMode, content)
 
 	bp := s.BlobPath(sha)
-	if _, serr := os.Stat(bp); serr == nil {
+	// 存在**且大小一致**才算命中：截断的 blob（中断写入/磁盘错误）必须重建，
+	// 否则 Has 永远为 false、install 每次都在这里空转（D1）。
+	if st, serr := os.Stat(bp); serr == nil && st.Size() == int64(len(content)) {
 		return sha, nil
 	}
 	if merr := os.MkdirAll(filepath.Dir(bp), 0o755); merr != nil {
@@ -312,10 +314,20 @@ func (s *ContentStore) publishManifest(mf Manifest, meta Meta) error {
 
 	final := s.V2Dir(meta.Digest)
 	if rerr := os.Rename(tmpDir, final); rerr != nil {
-		if s.hasManifest(meta.Digest) {
-			return nil // 并发：另一进程已经就位
+		// 并发：另一进程已经发布了一份**可用**的清单。
+		if s.Has(meta.Digest) {
+			return nil
 		}
-		return errs.Wrap(errs.CodeConfigInvalid, "publish the content manifest", "", rerr)
+		// 目标目录在、但不可用（清单损坏 / blob 缺失 / 截断）：旧实现的
+		// `hasManifest` 只看文件存在，于是这里直接 return nil，把一个坏条目
+		// 永久留在池里——install 每次都说"已存在"，verify 每次都说"缺失"。
+		// 自修：先让位，再发布一次（仍失败才报错）。
+		if rmErr := os.RemoveAll(final); rmErr != nil {
+			return errs.Wrap(errs.CodeConfigInvalid, "replace a corrupt content entry", "", rmErr)
+		}
+		if rerr2 := os.Rename(tmpDir, final); rerr2 != nil {
+			return errs.Wrap(errs.CodeConfigInvalid, "publish the content manifest", "", rerr2)
+		}
 	}
 	// v0.66：清单的持久化要在目录项层也成立——不做这一步，断电后
 	// "trees/<digest>/ 存在"可能不成立，而它正是"这份内容在池里"的判据。

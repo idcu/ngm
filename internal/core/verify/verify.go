@@ -744,17 +744,46 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 		}
 	}
 
-	// 1) content store 的存在性与 meta 一致性
+	// 1) content store 的存在性、逐条目字节状态与 meta 一致性
+	//
+	// 判据拆成两层（D1）：CheckEntry 分开回答"条目是否存在"与"字节对不对"。
+	// 前者是资源问题（exit 4）；后者一旦是长度不符，就是**已确证的篡改/截断**
+	// （critical exit 2）。不能沿用 `Has()` 的单一 bool：默认 hardlink 布局下
+	// 就地篡改 vendor 会同步改变 blob 大小，`Has()` 于是为假——把那个假读作
+	// "资源缺失"正是本项要修的错误分类。
 	storeKey := d.ContentDigest()
-	hasStore := store.Has(storeKey)
-	if !hasStore {
+	present, storeIssues := store.CheckEntry(storeKey)
+	hasStore := present && len(storeIssues) == 0
+	if !present {
 		operational = append(operational, fmt.Sprintf(
 			"content store has no usable entry for %s (looked in %s); run `ngm install` to populate it",
 			storeKey, store.Root()))
-	} else if meta, err := store.ReadMeta(storeKey); err != nil {
-		operational = append(operational, "content store meta.json is unreadable: "+err.Error())
 	} else {
-		critical = append(critical, metaMismatches(d, meta)...)
+		if meta, err := store.ReadMeta(storeKey); err != nil {
+			operational = append(operational, "content store meta.json is unreadable: "+err.Error())
+		} else {
+			critical = append(critical, metaMismatches(d, meta)...)
+		}
+		for _, issue := range storeIssues {
+			if issue.Kind == vendor.EntryIssueMissing {
+				// blob 文件不在：这是"没装完/被清掉"的资源问题，不是篡改结论。
+				operational = append(operational, fmt.Sprintf(
+					"content store has no usable entry for %s: %s is missing; run `ngm install` to populate it",
+					storeKey, issue.Path))
+				continue
+			}
+			// 长度不符：blob 在、字节却不是清单记录的那一份。这是**结论**，
+			// 不是"没法比"——必须按完整性失败处理（exit 2）。
+			critical = append(critical, fmt.Sprintf(
+				"content store entry %s is damaged: %s is %d bytes but the manifest records %d "+
+					"(truncated or tampered content)", storeKey, issue.Path, issue.Got, issue.Want))
+			if proof != nil {
+				proof.Mismatches = append(proof.Mismatches, ContentMismatch{
+					Path: issue.Path, Kind: "size",
+					Expected: fmt.Sprintf("%d", issue.Want), Actual: fmt.Sprintf("%d", issue.Got),
+				})
+			}
+		}
 	}
 
 	// 2) --deep：用「Git 权威的路径与模式 + 落地字节」重算 digest，与 lock 比对。

@@ -113,28 +113,47 @@ func (s *ContentStore) MetaPath(digestID string) string {
 	return filepath.Join(s.PathForDigest(digestID), "meta.json")
 }
 
-// Has 报告某个 digest 的内容是否已就绪。
+// 逐条目的廉价校验结果（CheckEntry）。
+const (
+	// EntryIssueMissing 表示清单引用的 blob 文件不存在。
+	EntryIssueMissing = "missing"
+	// EntryIssueSize 表示 blob 存在，但长度与清单记录不符：被截断或被就地改写。
+	EntryIssueSize = "size"
+)
+
+// EntryIssue 是"条目存在、但其中一份字节不可用"的一条证据。
 //
-// v2：清单存在、meta.json 可解析，且**清单引用的每个 blob 都在磁盘上**；
-// v1：meta.json 可解析且 tree/ 目录存在。
+// Path 是条目在仓库内的相对路径（报告据此定位），Want/Got 是清单记录与磁盘上
+// 实际观察到的长度；缺失时 Got 为 -1。
+type EntryIssue struct {
+	Path string
+	Kind string
+	Want int64
+	Got  int64
+}
+
+// CheckEntry 分开回答两个问题：条目**是否存在**（present），以及它引用的字节
+// 是否都对得上（issues）。
 //
-// 为什么 v2 要逐个验证 blob（v0.102）：旧实现只看清单与 meta，而清单是磁盘上的
-// JSON——中断的写入、手工删除或磁盘错误都可以留下"清单在、blob 不在"的状态。
-// 只查清单会让 `install` 短路（"已经存在"），随后 verify 才报资源缺失。
-// 这里不做**内容哈希**校验（那属于 verify 的职责，见 --deep），只确认字节位置存在。
-func (s *ContentStore) Has(digestID string) bool {
+// 为什么不是一个 bool（D1）：调用方必须区分"资源缺失 → exit 4"与"条目在、
+// 但内容被截断/改写 → critical exit 2"。一个 bool 只能回答"可用/不可用"，
+// 而 verify 的价值恰恰在于**篡改不能被当作缺失**。
+//
+// 校验只到 stat 级：blob 文件存在，且长度等于清单记录的长度。内容哈希是
+// verify --deep 的职责——这里绝不能读整棵树，否则 install 的命中路径就变贵了。
+func (s *ContentStore) CheckEntry(digestID string) (present bool, issues []EntryIssue) {
 	if digestID == "" {
-		return false
+		return false, nil
 	}
 	// v2 优先（清单 + meta），其次回落到 v1（meta + 已物化的树）——
 	// 读路径必须同时认两种布局，否则升级后旧项目会**立刻**验不过。
 	if s.hasManifest(digestID) {
 		if _, err := s.readMetaV2(digestID); err != nil {
-			return false
+			return false, nil
 		}
 		m, err := s.readManifest(digestID)
 		if err != nil {
-			return false
+			return false, nil
 		}
 		for _, e := range m.Entries {
 			if e.Mode == digest.ModeSymlink {
@@ -142,19 +161,47 @@ func (s *ContentStore) Has(digestID string) bool {
 			}
 			blob := s.BlobPath(e.SHA)
 			if blob == "" {
-				return false
+				issues = append(issues, EntryIssue{Path: e.Path, Kind: EntryIssueMissing, Want: e.Size, Got: -1})
+				continue
 			}
-			if _, err := os.Stat(blob); err != nil {
-				return false
+			st, serr := os.Stat(blob)
+			if serr != nil {
+				issues = append(issues, EntryIssue{Path: e.Path, Kind: EntryIssueMissing, Want: e.Size, Got: -1})
+				continue
+			}
+			if st.Size() != e.Size {
+				issues = append(issues, EntryIssue{
+					Path: e.Path, Kind: EntryIssueSize, Want: e.Size, Got: st.Size(),
+				})
 			}
 		}
-		return true
+		// 报告顺序必须确定（清单来自磁盘上的 JSON，顺序不该由文件系统抖动决定）。
+		sort.Slice(issues, func(i, j int) bool { return issues[i].Path < issues[j].Path })
+		return true, issues
 	}
 	if _, err := s.readMetaV1(digestID); err != nil {
-		return false
+		return false, nil
 	}
 	st, err := os.Stat(s.TreePath(digestID))
-	return err == nil && st.IsDir()
+	return err == nil && st.IsDir(), nil
+}
+
+// Has 报告某个 digest 的内容是否已就绪（可被 install 直接复用）。
+//
+// 判据是 `CheckEntry` 的完整通过：清单与 meta 可解析，且清单引用的每个 blob
+// 都存在、长度与清单一致。因此 Has=true 的"命中"是**可证明的**，而不是
+// 只看一眼目录在不在。
+//
+// 注意 hardlink 布局（默认）：vendor 与 blob 是同一 inode，就地篡改会同时改变
+// 两侧的大小，所以 Has 对被篡改的条目也会返回 false。这对 install 是**正确**的
+// （它会重修，见 writeBlob / publishManifest），但 verify **不得**把 Has=false
+// 当作"资源缺失"——那会把已确证的篡改报成 exit 4。分类请用 CheckEntry。
+//
+// v1：meta.json 可解析且 tree/ 目录存在（遗留树没有清单可对照，逐条目长度
+// 无法独立验证；内容不符由 --deep 的重放负责）。
+func (s *ContentStore) Has(digestID string) bool {
+	present, issues := s.CheckEntry(digestID)
+	return present && len(issues) == 0
 }
 
 // ReadMeta 读取并校验 meta.json，**v2 在前、回落 v1**。

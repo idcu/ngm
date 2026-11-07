@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -74,13 +75,11 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	fs.Usage = func() { fmt.Fprint(stderr, installUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	if !parseOrFail(args, stdout, fs, []flagSpec{
 		{Name: "dir"}, {Name: "digest", Bool: true},
 		{Name: "frozen-lockfile", Bool: true}, {Name: "offline", Bool: true},
 		{Name: "json", Bool: true},
-	})); err != nil {
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}) {
 		return 3
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
@@ -175,19 +174,79 @@ func materializeVendor(
 	if err := cleanupStaleVendor(env, pf, previous, items); err != nil {
 		return err
 	}
+
+	// 失败回滚的基线：哪些 vendor 目录**调用前就已经存在**（D2）。
+	//
+	// 只有"本次新建"的目录会被清掉——已有的目录可能被覆盖，无法逐字节恢复，
+	// 但至少不会留下一个"新目录 + 半套文件"的状态。lock 在 fresh install 里
+	// 要等钩子通过后才写，所以失败时 lock 与调用前一致。
+	preexisting := existingVendorPaths(env, pf, items)
+	mappingsPath := mappings.Find(env.ProjectDir)
+	_, mstatErr := os.Stat(mappingsPath)
+	rollback := func() {
+		if pf != nil && pf.Vendor != nil && strings.EqualFold(pf.Vendor.Mode, "global") {
+			// 共享 vendor：别的项目可能刚依赖我们写下的同一条目，不删。
+			return
+		}
+		removeNewVendorDirs(env, pf, items, preexisting)
+		if os.IsNotExist(mstatErr) {
+			_ = os.Remove(mappingsPath)
+		}
+	}
+
 	mr, err := env.MaterializeVendorAndMappings(pf, items)
 	if err != nil {
+		rollback()
 		return err
 	}
 	for _, w := range mr.Warnings {
 		fmt.Fprintf(stderr, "warning: %s\n", w)
 	}
 	if werr := writeMappingsChecked(env, mr.Mappings); werr != nil {
+		rollback()
 		return werr
 	}
 
 	// 钩子在 vendor 与 mappings 都就位之后才跑：钩子看到的世界应当与最终状态一致。
-	return runPostInstall(ctx, env, pf, items, stdout, stderr)
+	if herr := runPostInstall(ctx, env, pf, items, stdout, stderr); herr != nil {
+		rollback()
+		return herr
+	}
+	return nil
+}
+
+// existingVendorPaths 返回 items 中**当前已存在**的 vendor 目录（相对路径集合）。
+func existingVendorPaths(env *projectEnv, pf *config.ProjectFile, items []digestNode) map[string]bool {
+	out := make(map[string]bool, len(items))
+	root := env.VendorRoot(pf)
+	for _, dn := range items {
+		rel := vendor.VendorPathFor(dn.Repo.MirrorRelPath(), dn.SubPath)
+		if rel == "" || out[rel] {
+			continue
+		}
+		if abs, ok := safeVendorChild(root, rel); ok {
+			if info, err := os.Stat(abs); err == nil && info.IsDir() {
+				out[rel] = true
+			}
+		}
+	}
+	return out
+}
+
+// removeNewVendorDirs 删除本次新建（调用前不存在）的 vendor 目录。
+func removeNewVendorDirs(env *projectEnv, pf *config.ProjectFile, items []digestNode, preexisting map[string]bool) {
+	root := env.VendorRoot(pf)
+	seen := make(map[string]bool, len(items))
+	for _, dn := range items {
+		rel := vendor.VendorPathFor(dn.Repo.MirrorRelPath(), dn.SubPath)
+		if rel == "" || preexisting[rel] || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		if abs, ok := safeVendorChild(root, rel); ok {
+			_ = os.RemoveAll(abs)
+		}
+	}
 }
 
 // lockManifestMismatch 返回 ngm.json 中无法由现有 lock 满足的声明。
