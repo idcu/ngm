@@ -1,8 +1,7 @@
 # Tasks：2026-11-07 评估后的修复批次
 
 来源：`docs/specs/assessment-2026-11-07-followup/spec.md`。
-状态：A–F 已合入 main；G 已完成（P2-5 / P2-8 / P2-9 / P2-10，逐提交在干净 worktree 验证）。
-仅剩 F2（P2-3 命令骨架抽取）——单独一轮，改完先给 diff 概览。
+状态：A–G 已合入 main；F2（P2-3 命令骨架抽取）已完成，逐提交在干净 worktree 验证。
 
 ## Batch A（P0，安全）
 
@@ -40,7 +39,7 @@
 - [x] E2 CI 加 `timeout-minutes`；npm 钉版本；tag 正则
 - [x] E3 SARIF 前缀 / `ghEscape`
 - [x] F1 合并四处 probe → 单一函数（`Catalog.Probe` + 子进程计数判据 `TestV127*`）
-- [ ] F2 `cmdContext` 抽取（P2-3，单独一轮）
+- [x] F2 `cmdContext` 抽取（P2-3）：12 条命令的 parse/usage/`--json`/env/报告收尾合并为 `cmd_context.go`；`run` 因 `--` 拆分与自有错误通道保留原骨架（见该文件注释）
 - [x] F3 modules semver 统一（`parseModuleVersion`）+ origin URL 脱敏（`resolve.RedactURL`）
 - [x] F4 沙箱补 deny（`--deny-sys/ffi/hrtime`；`--deny-node` 在 Deno 1.45.2 不存在）+ 最小环境 + 逗号路径 fail-closed
 - [x] G1 OSV 硬化（同源重定向、8 MiB 上限、缓存写失败降级 warning、`--offline --no-cache` 明确失败）
