@@ -35,13 +35,13 @@
 
 ## Batch E–G（P1-7 / P2）
 
-- [ ] E1 三份文档读数对齐 `release-pipeline.md`
-- [ ] E2 CI 加 `timeout-minutes`；npm 钉版本；tag 正则
-- [ ] E3 SARIF 前缀 / `ghEscape`
-- [ ] F1 合并四处 probe → 单一函数
-- [ ] F2 `cmdContext` 抽取
-- [ ] F3 modules semver 统一
-- [ ] F4 沙箱补 deny
+- [x] E1 三份文档读数对齐 `release-pipeline.md`
+- [x] E2 CI 加 `timeout-minutes`；npm 钉版本；tag 正则
+- [x] E3 SARIF 前缀 / `ghEscape`
+- [x] F1 合并四处 probe → 单一函数（`Catalog.Probe` + 子进程计数判据 `TestV127*`）
+- [ ] F2 `cmdContext` 抽取（P2-3，单独一轮）
+- [x] F3 modules semver 统一（`parseModuleVersion`）+ origin URL 脱敏（`resolve.RedactURL`）
+- [x] F4 沙箱补 deny（`--deny-sys/ffi/hrtime`；`--deny-node` 在 Deno 1.45.2 不存在）+ 最小环境 + 逗号路径 fail-closed
 - [ ] G1 OSV 硬化
 - [ ] G2 覆盖率门槛 + fuzz + skip 审计
 - [ ] G3 cat-file 流式 / Has 缓存

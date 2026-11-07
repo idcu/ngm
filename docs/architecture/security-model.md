@@ -78,7 +78,7 @@ ngm 把这套思路映射到自己的操作：
 | `run:git` | **git 包唯一的子进程构造点** `newGitCommand`——三个出口（`Run` / `RunAllowFailure` / `CatFileBatch`）共用它 | `exit 3`，git 从未启动 |
 | `env:<NAME>` | git 子进程的环境构造（`buildEnv`） | 变量被**剔除**，ngm 仍不读取它的值 |
 | `read:` / `write:` | **裁决（v0.5 C 组）：不在 ngm 自身路径上施加，仅在沙箱内**（`read:` 按依赖子树授予、`write:` 恒不授予）。两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能——没有需要拦下的场景 | — |
-| `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**） | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
+| `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**），以及**所有探测路径**共用的 `Catalog.Probe`（`engines list` / `engines validate` / 版本探测） | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
 
 > **v0.5 C 组的更正**：上一版的 `run:git` 那行写的是"`git.Run`（**所有** git 子进程的出口）"。
 > 那句话**是错的**——包里当时有三个各自 `exec` 的地方，其中两个
@@ -135,6 +135,14 @@ ngm 把这套思路映射到自己的操作：
   `verify` 与 `--sandbox` 在拼接后**再判一次**，越界条目不参与任何 `Stat` / 哈希 / 脚本执行。
   `vendor.globalPath` 与清理旧 vendor 目录时都会先解析符号链接（含尚未创建路径的已存在前缀），
   词法在根内、实际指向根外的条目同样拒绝。
+- **origin URL 的展示脱敏**（`resolve.RedactURL`）：`https://user:token@host/...` 这种内嵌
+  凭据的 remote 允许出现在配置里，但**不允许出现在输出里**。`modules index` 解析失败时的
+  warning 走这份规则（userinfo 与 query 丢弃，host/path 保留），连解析器错误消息里重复的
+  原始地址也一并为脱敏后的形态；`scp` 形式的 `git@host:path` 不含秘密，原样保留。
+- **探测与执行是同一条路径**：可用性判定、`run:<engine>` 闸门与版本 spawn 全部收束在
+  `Catalog.Probe`；`--dry-run` 走 `NoProbe` 的 argv 预检（**不 spawn**），deno bundle 的
+  版本门槛用与执行相同的目录与 denied-env。判据 `TestV127*`（子进程计数：`engines list`
+  每个程序一次、`engines validate` 每条清单一次、dry-run 零次）。
 
 ---
 
@@ -184,6 +192,20 @@ ngm verify --sandbox
 
 判据：`TestV105SandboxDeniesModuleLoading`（argv 断言 + 真 Deno 行为断言，
 后者**禁止 `t.Skip`**——它就是这条边界本身）。
+
+### 显式拒绝面、最小环境与逗号路径（2026-11-07 评估后）
+
+沙箱的 argv 把**所有**拒绝项都写出来，而不是依赖运行时的默认档位：
+
+| 项 | 说明 |
+|----|------|
+| `--deny-sys` / `--deny-ffi` / `--deny-hrtime` | 主机信息（fingerprinting 与绕过"无网络"的辅路）、动态库加载（等价于整个进程能力）、高精度计时（侧信道）。三者此前只靠默认拒绝 |
+| `--deny-node` | **不存在**：Deno 1.45.2 的 `deno run --help` 里没有这个 flag，传了会让每次沙箱启动失败。Node 兼容面由 `--no-npm` 加上 read/write/net/run/env 的拒绝共同约束（`node:` 内置模块的访问仍要过同一套权限检查） |
+| 最小环境 | 子进程只拿到运行时必需的变量（PATH / HOME(USERPROFILE) / TEMP / SYSTEMROOT / 证书 / `DENO_*`）**加上** `Needs.EnvVars` 显式授权过的名字；`deny: ["env:X"]` 永远优先。父进程的 token 不再整体带进沙箱 |
+| 逗号路径 | Deno 1.45.2 **拒绝重复的** `--allow-read=a --allow-read=b`（"cannot be used multiple times"），多个读路径只能用一条逗号分隔的 flag，且逗号不可转义。因此含 `,` 的读路径在 `PlanSandbox` 就 **fail-closed**（`exit 3`），而不是被静默拆成第二个授予 |
+
+判据：`TestSandboxEnvIsMinimal`、`TestGrants_DenoArgs`（argv 里的 deny 清单），
+以及真实 Deno 用例（它们同时证明这些 flag 在 1.45.2 上被接受且生效）。
 
 ### 内存也是边界的一部分（v0.107）
 
