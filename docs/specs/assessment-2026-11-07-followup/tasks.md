@@ -1,7 +1,8 @@
 # Tasks：2026-11-07 评估后的修复批次
 
 来源：`docs/specs/assessment-2026-11-07-followup/spec.md`。
-状态：A/B 已合入 main，C 已完成（4 个代码提交，逐提交在干净 worktree 验证）；D–G 待批准。
+状态：A–F 已合入 main；G 已完成（P2-5 / P2-8 / P2-9 / P2-10，逐提交在干净 worktree 验证）。
+仅剩 F2（P2-3 命令骨架抽取）——单独一轮，改完先给 diff 概览。
 
 ## Batch A（P0，安全）
 
@@ -42,10 +43,10 @@
 - [ ] F2 `cmdContext` 抽取（P2-3，单独一轮）
 - [x] F3 modules semver 统一（`parseModuleVersion`）+ origin URL 脱敏（`resolve.RedactURL`）
 - [x] F4 沙箱补 deny（`--deny-sys/ffi/hrtime`；`--deny-node` 在 Deno 1.45.2 不存在）+ 最小环境 + 逗号路径 fail-closed
-- [ ] G1 OSV 硬化
-- [ ] G2 覆盖率门槛 + fuzz + skip 审计
-- [ ] G3 cat-file 流式 / Has 缓存
-- [ ] G4 构建可离线性（modproof）
+- [x] G1 OSV 硬化（同源重定向、8 MiB 上限、缓存写失败降级 warning、`--offline --no-cache` 明确失败）
+- [x] G2 覆盖率门槛（CI，verify ≥ 55%，实测下界）+ 3 个 fuzz 目标 + [`t.Skip` 审计](../../internals/test-skip-audit.md)（59 → 57）
+- [x] G3 cat-file 流式（digest 重放不保留 blob；判据 `TestV130StreamedDigestMatchesRetainedMaterial`）。`Has` 缓存**评估后继续拒绝**：已有基准注释记录的失效信号（同进程内被外部改写）无法消除，缓存会把"检查"变成"猜"
+- [x] G4 构建可离线性：[评估](../../internals/build-offline-assessment.md)（实测无凭据冷构建 14.3s 通过；决定维持现状 + CI 探测）
 
 ## 验收（每批）
 
