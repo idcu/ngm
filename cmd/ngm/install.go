@@ -75,11 +75,13 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	fs.Usage = func() { fmt.Fprint(stderr, installUsage) }
 
-	if !parseOrFail(args, stdout, fs, []flagSpec{
+	if err := fs.Parse(normalizeArgs(args, []flagSpec{
 		{Name: "dir"}, {Name: "digest", Bool: true},
 		{Name: "frozen-lockfile", Bool: true}, {Name: "offline", Bool: true},
 		{Name: "json", Bool: true},
-	}) {
+	})); err != nil {
+		failEarly(args, stdout, err.Error(),
+			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
 	ctx = markJSONIfRequested(ctx, *jsonOut)
@@ -583,8 +585,11 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		}
 	}
 
-	// vendor 落地 + mappings（沿用 lock 的 digest，不重新解析）
-	if err := materializeVendor(ctx, env, pf, items, nil, stdout, stderr); err != nil {
+	// vendor 落地 + mappings（沿用 lock 的 digest，不重新解析）。
+	//
+	// previous 传本次读到的 lock：清理陈旧 vendor 目录的基线必须与"这次要落地的
+	// 条目"同源，否则从 lock 安装时旧路径不会被识别为陈旧（P1-6）。
+	if err := materializeVendor(ctx, env, pf, items, lf, stdout, stderr); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 
