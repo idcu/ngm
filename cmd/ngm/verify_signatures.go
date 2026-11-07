@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
@@ -83,14 +84,23 @@ func verifyWithSignatures(
 		}
 	}
 
+	if require && len(lf.Dependencies) == 0 {
+		// 没有依赖 = 没有可签的对象。`--require-signed` 是一条**对依赖集的**
+		// 门槛，不是"项目必须存在依赖"的断言；空 lock 下报 2 会让零依赖项目
+		// 永远无法通过安全门槛（S1-6）。
+		fmt.Fprintf(out, "  (no dependencies; --require-signed has nothing to check)\n")
+		return baseCode
+	}
+
 	if require && checked == 0 {
-		// 空转守卫：一个都没查成时**不能算通过**。否则一个坏掉的 mirror 会让
-		// `--require-signed` 变成一句空话（"全都通过了"，因为什么都没查）。
+		// 空转守卫：有依赖、却一个都没查成时**不能算通过**。否则一个坏掉的
+		// mirror 会让 `--require-signed` 变成一句空话（"全都通过了"，因为
+		// 什么都没查）。
 		fmt.Fprintln(stderr,
 			"error: --require-signed was given but no dependency could be checked at all")
 		fmt.Fprintln(stderr,
 			"  hint: that is a failure, not a pass — check that the mirror is present (ngm install)")
-		return 2
+		return errs.MergeCodes(baseCode, 2)
 	}
 
 	if !require {
@@ -105,7 +115,7 @@ func verifyWithSignatures(
 		fmt.Fprintln(stderr,
 			"  hint: this gate uses your own Git key configuration (GPG keyring / gpg.ssh.allowedSignersFile); "+
 				"ngm does not manage keys — add the signer's public key there, or run without --require-signed to see it as a report")
-		return 2
+		return errs.MergeCodes(baseCode, 2)
 	}
 	return baseCode
 }

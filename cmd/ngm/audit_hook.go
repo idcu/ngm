@@ -54,7 +54,7 @@ func runAuditHook(
 		script = filepath.Join(env.ProjectDir, filepath.FromSlash(hook))
 	}
 	if info, err := os.Stat(script); err != nil || info.IsDir() {
-		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+		return auditHookFail(stderr, errs.New(errs.CodeConfigInvalid,
 			"audit hook not found: "+hook,
 			"pass a path to a JS file (relative paths resolve against the project directory)"))
 	}
@@ -62,11 +62,11 @@ func runAuditHook(
 	// 与依赖脚本同一条规矩：要执行就必须有沙箱，缺了不降级。
 	denoPath, derr := security.FindDeno()
 	if derr != nil {
-		return runErr(ctx, stdout, stderr, derr)
+		return auditHookFail(stderr, derr)
 	}
 	deno := security.Deno{Path: denoPath, DeniedEnv: env.Policy.DeniedEnvVars()}
 	if perr := deno.Probe(ctx); perr != nil {
-		return runErr(ctx, stdout, stderr, perr)
+		return auditHookFail(stderr, perr)
 	}
 
 	grants, gerr := env.Policy.PlanSandbox(security.Needs{
@@ -75,12 +75,12 @@ func runAuditHook(
 		EnvVars:  env.Policy.AllowedTargets(security.Env),
 	})
 	if gerr != nil {
-		return runErr(ctx, stdout, stderr, gerr)
+		return auditHookFail(stderr, gerr)
 	}
 
 	payload, merr := rep.Marshal()
 	if merr != nil {
-		return runErr(ctx, stdout, stderr, merr)
+		return auditHookFail(stderr, merr)
 	}
 
 	fmt.Fprintf(out, "\naudit hook: %s (Deno sandbox; the report arrives on stdin)\n", hook)
@@ -91,7 +91,7 @@ func runAuditHook(
 		Stdin:  payload,
 	})
 	if rerr != nil {
-		return runErr(ctx, stdout, stderr, rerr)
+		return auditHookFail(stderr, rerr)
 	}
 	if len(res.Stdout) > 0 {
 		fmt.Fprintf(out, "  %s", indent(string(res.Stdout), "  "))
@@ -101,11 +101,25 @@ func runAuditHook(
 	}
 
 	if e := auditHookVerdict(res); e != nil {
-		return runErr(ctx, stdout, stderr, e)
+		return auditHookFail(stderr, e)
 	}
 
 	fmt.Fprintln(out, "  ✓ audit hook passed")
 	return baseCode
+}
+
+// auditHookFail 在 hook 层失败时只写 stderr，**绝不再往 stdout 写一份 JSON**。
+//
+// 为什么不用 `runErr`：runErr 会在 `--json` 时把错误信封写到 stdout，
+// 而 audit 已经在 stdout 写完报告了——于是 stdout 出现两个 JSON 文档，
+// 与 cli.md 的承诺（"single JSON document"）冲突（S1-1）。
+// 报告已经交付，这里只需把"附加层为什么失败"说给人听。
+func auditHookFail(stderr io.Writer, err error) int {
+	if err == nil {
+		return 0
+	}
+	fmt.Fprintln(stderr, errs.FormatHuman(err))
+	return errs.ExitCode(err)
 }
 
 // auditHookVerdict 把钩子的运行结果翻成"通过"或一条**说明是谁否决的**错误。

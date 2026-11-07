@@ -8,6 +8,7 @@
 //	3 配置/策略/lock 错误
 //	4 Git/网络失败（含 --offline 资源缺失）
 //	5 引擎不可用
+//	6 内部失败（panic、结论算出来但写不出去）
 //
 // 错误码常量在 modules/p0-core.md 中定义为 ErrorCode iota+1。
 package errs
@@ -65,6 +66,46 @@ const (
 	// v0.59 按 ADR-026 把它分出来（码 1 的四类策略来源一个也没搬）。
 	CodeInternal Code = 6
 )
+
+// MergeCodes 合成两层判定的退出码（常规判定 + 附加层）。
+//
+// 规则：**最严重的那个赢**，而不是"后写的赢"。完整性失败（2）永远压过
+// 环境类失败（5）：CI 必须能把"依赖被篡改"与"机器上没装 Deno"分开，
+// 而后者覆盖前者会让一次真实的完整性失败看起来像环境问题。
+//
+// 优先级（高 → 低）：
+//
+//	2 完整性  > 3 配置/权限 > 5 工具缺失 > 4 资源/网络 > 6 内部 > 1 策略 > 0
+//
+// 6 排在 4 之后是刻意的：资源缺失通常是可修的，而 6 是"结论算出来但送不出去"；
+// 但当两层同时给出码时，让更可能指向根因的那个先说话。未知码按 1 处理。
+func MergeCodes(base, extra int) int {
+	if rank(extra) > rank(base) {
+		return extra
+	}
+	return base
+}
+
+func rank(code int) int {
+	switch Code(code) {
+	case CodeOK:
+		return 0
+	case CodeRefDrift:
+		return 1
+	case CodeInternal:
+		return 2
+	case CodeGitFetch:
+		return 3
+	case CodeEngineNotFound:
+		return 4
+	case CodeConfigInvalid:
+		return 5
+	case CodeDigestMismatch:
+		return 6
+	default:
+		return 1
+	}
+}
 
 // ExitCode 返回对应全局退出码。Code 与退出码一一对应。
 func (c Code) ExitCode() int {

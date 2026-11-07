@@ -118,6 +118,25 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleHelper, tokenCode: 1, why: "签名状态的**排序权重**，同上",
 	}},
 
+	"internal/core/errs/errs.go :: rank": {
+		{
+			role: roleHelper, tokenCode: 1,
+			why: "`case CodeRefDrift`——策略失败的权重值（1），不是退出码",
+		},
+		{
+			role: roleHelper, tokenCode: 6,
+			why: "`case CodeInternal`——内部失败在合并时的权重，不是退出码",
+		},
+		{
+			role: roleHelper, tokenCode: 1,
+			why: "`case CodeRefDrift` 分支里返回的权重字面量 1",
+		},
+		{
+			role: roleHelper, tokenCode: 1,
+			why: "`default` 分支返回的兜底权重 1（未知码按策略失败处理）",
+		},
+	},
+
 	// ---- sources：策略类（文档本来就该写的那几类）----
 	"internal/core/verify/report.go :: ExitCode": {
 		{

@@ -128,7 +128,8 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		"fail (exit 2) unless every dependency's commit or tag is signed by a key you trust")
 	fs.Usage = func() { fmt.Fprint(stderr, verifyUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
+	if !parseOrFail(args, stdout, fs, []flagSpec{
 		{Name: "dir"},
 		{Name: "offline", Bool: true},
 		{Name: "content", Bool: true},
@@ -141,10 +142,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		{Name: "sandbox", Bool: true},
 		{Name: "signatures", Bool: true},
 		{Name: "require-signed", Bool: true},
-	})); err != nil {
-		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}) {
 		return 3
 	}
 	// `--format` 的两条校验都必须在**任何工作之前**完成：
@@ -300,6 +298,11 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	if *jsonOut {
+		// 先跑附加层再序列化：`summary.exitCode` 必须与进程的返回码同源。
+		// 附加层在 jsonMode 下只写 stderr（extraOut），因此 stdout 仍是单文档。
+		code := finishVerify(ctx, env, pf, lf,
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
+		rep.Summary.ExitCode = code
 		data, merr := rep.Marshal()
 		if merr != nil {
 			return runErr(ctx, stdout, stderr, merr)
@@ -308,8 +311,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
 			return errs.CodeInternal.ExitCode()
 		}
-		return finishVerify(ctx, env, pf, lf,
-			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
+		return code
 	}
 
 	for i := range rep.Dependencies {
@@ -318,9 +320,10 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	for _, note := range rep.Notes {
 		fmt.Fprintf(stdout, "note: %s\n", note)
 	}
-	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline))
-	return finishVerify(ctx, env, pf, lf,
+	code := finishVerify(ctx, env, pf, lf,
 		rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
+	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline, code))
+	return code
 }
 
 // finishVerify 追加可选的两层（签名、沙箱）并合成退出码。
@@ -372,7 +375,13 @@ func verifyWithSandbox(
 	fmt.Fprintln(stdout, "\n— dependency self-checks (--sandbox) —")
 	serr := runSandboxChecks(ctx, env, pf, lf, stdout, stderr)
 	if serr != nil {
-		return runErr(ctx, stdout, stderr, serr)
+		// 附加层**不得覆盖**基础判定：已经不是"后写赢"了。
+		//
+		// 此前这里直接 `return runErr(...)`，于是基础层已判 2（内容被篡改）
+		// 时，缺 Deno 的 5 会把 2 覆盖掉——CI 于是把"已证明被篡改"当成
+		// "环境缺工具"。现在两层用 MergeCodes 合成，2 恒胜。
+		fmt.Fprintln(stderr, errs.FormatHuman(serr))
+		return errs.MergeCodes(baseCode, errs.ExitCode(serr))
 	}
 	return baseCode
 }
@@ -465,7 +474,10 @@ func shortHash(s string) string {
 }
 
 // verifySummaryLine 生成末行汇总。
-func verifySummaryLine(rep verify.Report, offline bool) string {
+//
+// code 是**合成后**的退出码（常规判定 + 签名/沙箱附加层），不是
+// `rep.Summary.ExitCode`：两者此前可能不同，于是同一份输出里出现两个数字。
+func verifySummaryLine(rep verify.Report, offline bool, code int) string {
 	s := rep.Summary
 	var parts []string
 	for _, p := range []struct {
@@ -487,7 +499,7 @@ func verifySummaryLine(rep verify.Report, offline bool) string {
 	}
 
 	out := fmt.Sprintf("verified %d dependency(ies): %s (exit %d)",
-		s.Total, strings.Join(parts, ", "), s.ExitCode)
+		s.Total, strings.Join(parts, ", "), code)
 	if offline {
 		out += "\nnote: --offline — refs were compared against the local mirror snapshot (stale)"
 	}

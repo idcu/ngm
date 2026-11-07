@@ -120,20 +120,23 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	dryRun := fs.Bool("dry-run", false, "explicit spelling of the default dry run")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	fs.Usage = func() { fmt.Fprint(stderr, gcUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	if !parseOrFail(args, stdout, fs, []flagSpec{
 		{Name: "dir"},
 		{Name: "apply", Bool: true},
 		{Name: "dry-run", Bool: true},
 		{Name: "json", Bool: true},
-	})); err != nil {
+	}) {
 		// 与其他命令同一条通道：提了 --json 的早期失败也要给一份错误信封。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
+	// 从这里起，失败路径走 runErr：`--json` 时它会把一份完整的错误信封
+	// 写到 stdout（配置文件/lock 读不出来也是一种"没有报告可给"的失败）。
+	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() != 0 {
 		fmt.Fprint(stderr, gcUsage)
-		return 3
+		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			"unexpected argument(s): "+strings.Join(fs.Args(), " "),
+			"gc takes no positional arguments"))
 	}
 	if *apply && *dryRun {
 		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,

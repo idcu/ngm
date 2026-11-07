@@ -88,6 +88,6 @@ func autoVerifyAfterLock(ctx context.Context, env *projectEnv, pf *config.Projec
 			})
 		}
 	}
-	fmt.Fprintf(stdout, "%s\n", verifySummaryLine(vrep, offline))
+	fmt.Fprintf(stdout, "%s\n", verifySummaryLine(vrep, offline, vrep.Summary.ExitCode))
 	return vrep.Summary.ExitCode
 }
