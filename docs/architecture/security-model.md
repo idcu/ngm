@@ -115,6 +115,27 @@ ngm 把这套思路映射到自己的操作：
 `ngm config validate` 会检查权限列表本身：**写错的命名空间直接 `exit 3`**（一条写错会让整份列表
 都不被采用，静默跳过等于骗人），同时出现在 allow 与 deny 里的条目会给出警告。
 
+### 子进程与信任根的输入校验（2026-11-07 评估后）
+
+权限回答"能不能做"，下面这组回答"做的时候参数会不会被环境偷换"。它们不新增权限，
+是**无条件**的：
+
+- **git 子进程环境**（`buildEnv`）：`GIT_SSH_COMMAND` / `GIT_SSH` / `GIT_ASKPASS` /
+  `SSH_ASKPASS` / `GIT_EXTERNAL_DIFF` / `GIT_PROXY_COMMAND` / `GIT_PAGER` 以及
+  `GIT_CONFIG_*`（含 `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` / `GIT_CONFIG_PARAMETERS` /
+  `GIT_CONFIG_COUNT` 与 `KEY_n` / `VALUE_n`）一律**剔除**。前一组能改成执行另一段程序，
+  后一组能把 ngm 显式传入的 `-c` 值或 host 白名单换成任意内容。保留的是凭证本身
+  （token、ssh-agent、credential helper）与用户自己的 `~/.gitconfig`——
+  签名校验因此仍读**用户自己的**密钥配置（[ADR-014](../adr/adr-014-self-report-signatures.md)）。
+- **远端地址形状**（`ValidateRemoteURL`）：`git clone` 会把地址交给 remote helper，
+  因此拒绝 `-` 开头的选项形状、拒绝 `helper::<address>`（`ext::` / `fd::` 等），
+  只接受 https/http/ssh/git/file、scp 形式与本地路径。检查发生在构造子进程之前。
+- **lock 路径字段**：`vendorPath` / `subPath` 必须是 vendor 根内的相对路径
+  （`lock.IsSafeRelPath`：无空段、`.` / `..`、盘符、反斜杠、NUL、URL 形状）；
+  `verify` 与 `--sandbox` 在拼接后**再判一次**，越界条目不参与任何 `Stat` / 哈希 / 脚本执行。
+  `vendor.globalPath` 与清理旧 vendor 目录时都会先解析符号链接（含尚未创建路径的已存在前缀），
+  词法在根内、实际指向根外的条目同样拒绝。
+
 ---
 
 ## sandbox 模式（done v0.3）
