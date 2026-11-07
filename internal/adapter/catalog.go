@@ -370,43 +370,79 @@ func (c *Catalog) probeAllowed(e Entry) bool {
 	return c == nil || c.probeGate == nil || c.probeGate(e) == nil
 }
 
-// Probe 探测单个条目的可用性与实际版本。
+// ProbeResult 是一次探测的完整结论。
 //
-// 返回 denied=true 表示条目可用，但 `run:<engine>` 未授权：此时**没有 spawn**，
-// version 为空。这个三元返回值让 `engines list` 能如实区分"没装"与"没授权"，
-// 而不会把后者说成前者。
-func (c *Catalog) Probe(e Entry) (available bool, version string, denied bool) {
+// 拆成结构体而不是三个返回值，是因为这三个事实必须**一起**被消费：
+// "可用"决定要不要报 unavailable，"denied"决定要不要 fail-closed，
+// "version"决定要不要报版本不一致——分散成三个裸返回值后，
+// 每个调用方都会重新拼一遍同一条判断（P2-2）。
+type ProbeResult struct {
+	// Available 报告条目对应的程序/模块在本机是否存在。
+	Available bool
+	// Version 是实际探测到的版本；不可用、stub 或被拒绝时为空。
+	Version string
+	// Denied 报告探测被 `run:<engine>` 拒绝——因此**没有 spawn**。
+	//
+	// 与 Available=false 是两个不同的事实：前者是"问了，没装"，后者是"没问"。
+	Denied bool
+}
+
+// engineFor 构造条目对应的引擎实例（不 spawn）。
+//
+// 可用性、探测与 `engines list` 都从这里取实例，保证三者看的是同一份
+// 解析结果（清单的 baseDir 与要剔除的环境变量）。
+func (c *Catalog) engineFor(e Entry) (Engine, error) {
 	dir := ""
 	var deniedEnv []string
 	if c != nil {
 		dir = c.baseDir
 		deniedEnv = c.probeDeniedEnv
 	}
-	eng, err := newEngine(e, dir, deniedEnv)
-	if err != nil {
-		return false, "", false
-	}
-	available = eng.Available()
-	if !available || e.Stub {
-		return available, "", false
-	}
-	if !c.probeAllowed(e) {
-		return true, "", true
-	}
-	if v, verr := eng.Version(); verr == nil {
-		version = v
-	}
-	return true, version, false
+	return newEngine(e, dir, deniedEnv)
 }
 
-// probeIssues 是"引擎可用之后"的**唯一**探测路径：闸门 → 版本 → 与声明比对。
+// Available 报告条目是否可用（只做文件存在性 / LookPath，不 spawn）。
 //
-// wasm 与 subprocess 两个分支此前各抄一遍同样的三连（denied/version/version
-// mismatch）；`engines list` 与 `runner.Plans` 又各自实现"问一次可用性"。
-// 这里留下一份实现，caller 只负责"可用性"这一层（P2-2）。
-func (c *Catalog) probeIssues(e Entry, label, reportedBy string) []Issue {
-	_, ver, denied := c.Probe(e)
-	if denied {
+// 它与 [Catalog.Probe] 共用同一个实例构造与同一个 `Available()` 判定：
+// `--dry-run` 的规划、validate、list 三处不会因为"各自问一次"而给出不同答案。
+func (c *Catalog) Available(e Entry) bool {
+	eng, err := c.engineFor(e)
+	if err != nil {
+		return false
+	}
+	return eng.Available()
+}
+
+// Probe 探测单个条目的可用性与实际版本。**这是唯一的探测入口**。
+//
+// 顺序是刻意的：可用性（不 spawn）→ stub → `run:<engine>` 闸门 → 版本 spawn。
+// 被拒绝时返回 Denied=true 且没有 spawn，让 `engines list` 能如实区分
+// "没装"与"没问"。
+func (c *Catalog) Probe(e Entry) ProbeResult {
+	eng, err := c.engineFor(e)
+	if err != nil {
+		return ProbeResult{}
+	}
+	res := ProbeResult{Available: eng.Available()}
+	if !res.Available || e.Stub {
+		return res
+	}
+	if !c.probeAllowed(e) {
+		res.Denied = true
+		return res
+	}
+	if v, verr := eng.Version(); verr == nil {
+		res.Version = v
+	}
+	return res
+}
+
+// probeIssues 把一次探测结论翻译成 validate 的问题列表。
+//
+// 探测本身只有 [Catalog.Probe] 一处；这里只做"结论 → 问题"的映射，
+// 因此 wasm 与 subprocess 两个分支不会再各抄一遍 denied/version/mismatch。
+func (c *Catalog) probeIssues(e Entry, pr ProbeResult, label, reportedBy string) []Issue {
+	if pr.Denied {
 		// fail-closed：validate 的职责是**给结论**。探针被 `run:<target>` 拒绝时
 		// 版本无法核对——拿不到结论就不能报成功，因此显式产出一条
 		// `probe-denied` 并计入摘要（退出码 3）。消息必须点名要授予的权限，
@@ -419,11 +455,11 @@ func (c *Catalog) probeIssues(e Entry, label, reportedBy string) []Issue {
 				runTargetFor(e))}}
 	}
 	// 版本不一致是**信息**而非失败（旧版本常常照样能跑），走 IssueVersion。
-	if ver == "" || e.Version == "" || strings.HasPrefix(ver, e.Version) {
+	if pr.Version == "" || e.Version == "" || strings.HasPrefix(pr.Version, e.Version) {
 		return nil
 	}
 	return []Issue{{Entry: label, Kind: IssueVersion,
-		Message: fmt.Sprintf("catalog declares version %s, %s %q", e.Version, reportedBy, ver)}}
+		Message: fmt.Sprintf("catalog declares version %s, %s %q", e.Version, reportedBy, pr.Version)}}
 }
 
 // runTargetFor 给出 `run:<target>` 里的 target（用于报告文案）。
@@ -618,15 +654,16 @@ func (c *Catalog) Validate() []Issue {
 						Message: "wasm entries need a non-empty `command` (the path to the module)"})
 					continue
 				}
-				// 可用性：模块文件在不在。与 subprocess 的 LookPath 是同一件事
-				// （清单表达意图，可用性必须真的探测），只是查的目标不同。
-				if _, err := os.Stat(c.resolveModulePath(e.Program)); err != nil {
+				// 可用性与版本来自**同一次**探测：模块文件在不在与 `--version`
+				// 是同一个结论的两半，分开问会让两处给出不同答案（P2-2）。
+				pr := c.Probe(e)
+				if !pr.Available {
 					if !e.Optional {
 						issues = append(issues, Issue{Entry: label, Kind: IssueUnavailable,
 							Message: fmt.Sprintf("wasm module %q was not found", e.Program)})
 					}
 				} else {
-					issues = append(issues, c.probeIssues(e, label, "the module reports")...)
+					issues = append(issues, c.probeIssues(e, pr, label, "the module reports")...)
 				}
 			case AdapterEmbed:
 				if e.Name != SelfEngineName {
@@ -642,7 +679,8 @@ func (c *Catalog) Validate() []Issue {
 				// 注意：可用性检查之后**不能**提前 continue——后面的 stub / 重名
 				// 校验仍要执行。一个条目可以同时"没装"且"写法错误"，
 				// 只报前者会让用户修完安装再撞上第二个问题。
-				if !programAvailable(e.Program, c.baseDir) {
+				pr := c.Probe(e)
+				if !pr.Available {
 					if !e.Optional {
 						// 可选引擎未安装不是问题：用到它的那一刻自然会失败并给出提示，
 						// 在这里报会让"没装 tsc"变成一条与用户无关的红。
@@ -650,7 +688,7 @@ func (c *Catalog) Validate() []Issue {
 							Message: fmt.Sprintf("`%s` was not found on PATH", e.Program)})
 					}
 				} else {
-					issues = append(issues, c.probeIssues(e, label, fmt.Sprintf("`%s` reports", e.Program))...)
+					issues = append(issues, c.probeIssues(e, pr, label, fmt.Sprintf("`%s` reports", e.Program))...)
 				}
 			}
 		}
@@ -667,25 +705,6 @@ func (c *Catalog) Validate() []Issue {
 	}
 
 	return issues
-}
-
-// resolveModulePath 把清单里的模块路径解析成实际路径。
-//
-// 相对路径相对**清单所在的项目目录**（与 wasmEngine.modulePath 同一条规则）：
-// 两处不一致会让"校验说找不到、运行时却跑起来了"（或反之）成为可能。
-func (c *Catalog) resolveModulePath(p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" || filepath.IsAbs(p) || c.baseDir == "" {
-		return p
-	}
-	return filepath.Join(c.baseDir, filepath.FromSlash(p))
-}
-
-// programAvailable 与执行路径共用同一个解析器：清单里的相对 program 相对
-// 项目目录，而不是进程的 CWD。
-func programAvailable(program, dir string) bool {
-	_, ok := resolveProgram(program, dir)
-	return ok
 }
 
 // kindList 与 adapterList 生成稳定的枚举列表（用于错误消息）。

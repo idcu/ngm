@@ -215,7 +215,10 @@ func (r *Runner) Plans(kind EngineKind, sel Selection, opts any, entryFile strin
 
 		if entry.Adapter == AdapterSubprocess {
 			merged := withSelection(entry, sel, opts)
-			inv, ierr := buildInvocation(entry, buildRequest{Options: merged, EntryFile: entryFile, NoProbe: true})
+			inv, ierr := buildInvocation(entry, buildRequest{
+				Options: merged, EntryFile: entryFile, NoProbe: true,
+				Dir: r.dir, DeniedEnv: r.deniedEnv,
+			})
 			if ierr != nil {
 				return nil, ierr
 			}
@@ -377,22 +380,19 @@ func unavailableError(entry Entry) *EngineError {
 //     这是配置层面的永久事实——装引擎也解决不了，因此必须先说。
 //  2. 引擎是否可用（可执行文件在不在 PATH）。这是环境层面，可以修。
 //  3. 权限是否允许执行它（`run:<exe>`）。
-//  4. 最后才生成 argv——因为个别引擎的 argv 需要探测版本（deno bundle），
-//     而探测本身是一次 spawn。
 //
 // 权限排在可用性之后：引擎根本没装时，正确的退出码是 5（工具缺失，
 // 脚本据此区分"环境问题"与"配置问题"）。若权限先判，一个拼错的引擎名会被
 // 报成"请把 run:ngm-definitely-not-a-real-engine 加进配置"——用户照做之后
 // 仍然跑不了，而那条权限永远不会有用。
 func (r *Runner) preflight(eng Engine, entry Entry, req buildRequest) error {
-	// 能力/配置 → 可用性 → 权限 → argv 生成。
+	// 能力/配置 → 可用性 → 权限。
 	//
-	// v0.109：argv 生成放在权限**之后**。deno bundle 的 argv 需要一次
-	// `deno --version` 探测才能判定版本门槛——那是 spawn，不能在闸门之前做。
-	//
-	// 但"能力不可实现"（如 esbuild 不能做类型检查）必须**先于权限**说出来：
-	// 它是配置层的永久事实，用户即使授权也仍然跑不了。因此先用 NoProbe
-	// 做一次**不 spawn** 的 argv 预检，把这类结论留在最前面。
+	// 这里**只**做一次 NoProbe 的 argv 预检：真正的 argv 生成（含 deno bundle
+	// 的版本门槛）是一次 spawn，必须发生在闸门之后。它已经收束到引擎自己的
+	// 执行方法里（那里同样在闸门之后），因此这里再生成一次只会让同一次构建
+	// 探测两个版本（P2-2）。"能力不可实现"（如 esbuild 不能做类型检查）
+	// 必须先于权限说出来——它是配置层的永久事实，用户即便授权也仍然跑不了。
 	pre := req
 	pre.NoProbe = true
 	if _, err := buildInvocation(entry, pre); err != nil {
@@ -405,10 +405,6 @@ func (r *Runner) preflight(eng Engine, entry Entry, req buildRequest) error {
 		if err := r.beforeRun(entry); err != nil {
 			return err
 		}
-	}
-	req.DeniedEnv = r.deniedEnv
-	if _, err := buildInvocation(entry, req); err != nil {
-		return err
 	}
 	return nil
 }

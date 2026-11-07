@@ -280,7 +280,7 @@ func issueAdvice(kind adapter.IssueKind) string {
 // **不 spawn**。此前这里直接 `adapter.NewEngine` + `Version()`，是 S0-1 的
 // 三个入口之一（克隆一个仓库就能借 `ngm engines list` 执行它声明的程序）。
 func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
-	cache := map[string]probeResult{}
+	cache := map[string]adapter.ProbeResult{}
 	rows := make([]engineRow, 0, len(cat.Engines))
 
 	for _, e := range cat.Engines {
@@ -290,8 +290,7 @@ func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 		key := string(e.Adapter) + "\x00" + e.Program + "\x00" + strings.Join(e.Args, " ")
 		pr, ok := cache[key]
 		if !ok {
-			available, version, denied := cat.Probe(e)
-			pr = probeResult{available: available, version: version, denied: denied}
+			pr = cat.Probe(e)
 			cache[key] = pr
 		}
 		row := engineRow{
@@ -300,27 +299,20 @@ func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 			Adapter:         string(e.Adapter),
 			Command:         e.Command,
 			DeclaredVersion: e.Version,
-			Version:         pr.version,
-			Available:       pr.available,
-			ProbeDenied:     pr.denied,
+			Version:         pr.Version,
+			Available:       pr.Available,
+			ProbeDenied:     pr.Denied,
 			Stub:            e.Stub,
 			Builtin:         e.Builtin,
 			SupportedInput:  e.SupportedInput,
 			DefaultOptions:  e.DefaultOptions,
 		}
-		if pr.denied {
+		if pr.Denied {
 			row.RunTarget = engineRunTarget(e)
 		}
 		rows = append(rows, row)
 	}
 	return rows
-}
-
-// probeResult 是一次可用性/版本探测的结果。
-type probeResult struct {
-	available bool
-	version   string
-	denied    bool
 }
 
 // statusCell 渲染一行状态。

@@ -215,7 +215,7 @@ func (e *subprocessEngine) Version() (string, error) {
 
 // Bundle 实现 BundleEngine。
 func (e *subprocessEngine) Bundle(ctx context.Context, entry string, opts BundleOptions) (*BundleResult, error) {
-	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, EntryFile: entry})
+	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, EntryFile: entry, Dir: e.dir, DeniedEnv: e.deniedEnv})
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func (e *subprocessEngine) Bundle(ctx context.Context, entry string, opts Bundle
 
 // Transform 实现 TransformEngine。输入走 stdin（小文件），避免临时文件。
 func (e *subprocessEngine) Transform(ctx context.Context, input []byte, opts TransformOptions) (*TransformResult, error) {
-	inv, err := buildInvocation(e.entry, buildRequest{Options: opts})
+	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, Dir: e.dir, DeniedEnv: e.deniedEnv})
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +278,7 @@ func (e *subprocessEngine) Transform(ctx context.Context, input []byte, opts Tra
 // 大部分类型检查器用**退出码**表达"有没有类型错误"（0 = 干净），
 // 因此这里成功即返回空诊断；诊断文本来自 stdout+stderr。
 func (e *subprocessEngine) Check(ctx context.Context, entry string, opts TypeCheckOptions) (*TypeCheckResult, error) {
-	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, EntryFile: entry})
+	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, EntryFile: entry, Dir: e.dir, DeniedEnv: e.deniedEnv})
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +296,7 @@ func (e *subprocessEngine) Check(ctx context.Context, entry string, opts TypeChe
 // 引擎把 .d.ts 写到 OutDir，ngm 只报告**实际出现的文件**——
 // 不猜文件名（引擎的命名规则是它自己的事）。
 func (e *subprocessEngine) GenerateTypeDecl(ctx context.Context, entry string, opts TypeDeclOptions) (*TypeDeclResult, error) {
-	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, EntryFile: entry})
+	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, EntryFile: entry, Dir: e.dir, DeniedEnv: e.deniedEnv})
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (e *subprocessEngine) GenerateTypeDecl(ctx context.Context, entry string, o
 
 // Compile 实现 CSSEngine。
 func (e *subprocessEngine) Compile(ctx context.Context, input []byte, opts CSSOptions) (*CSSResult, error) {
-	inv, err := buildInvocation(e.entry, buildRequest{Options: opts})
+	inv, err := buildInvocation(e.entry, buildRequest{Options: opts, Dir: e.dir, DeniedEnv: e.deniedEnv})
 	if err != nil {
 		return nil, err
 	}
@@ -744,6 +744,11 @@ type buildRequest struct {
 	NoProbe bool
 	// DeniedEnv 是探测子进程时要剔除的环境变量（与执行路径同源）。
 	DeniedEnv []string
+	// Dir 是解析程序路径的基准目录（与执行时的 `cmd.Dir` 同源）。
+	//
+	// 需要版本探测的 agent（deno bundle）会在这里 spawn 一次 `--version`；
+	// 若探测用进程 CWD、执行用项目目录，就可能"探测到 A、执行的是 B"。
+	Dir string
 }
 
 // builders 按引擎名分派 argv 翻译。
