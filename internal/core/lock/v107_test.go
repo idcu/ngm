@@ -16,7 +16,7 @@ func rootDep(name, ref string) Dependency {
 	return Dependency{
 		Name: name, Ref: ref, RefType: "tag",
 		Commit: dupCommit, ArchiveDigest: dupDigest,
-		VendorPath: "./ngm.vendor/github.com/acme/lib",
+		VendorPath: "github.com/acme/lib",
 	}
 }
 
@@ -24,7 +24,7 @@ func moduleDep(name, subPath, digest string) Dependency {
 	return Dependency{
 		Name: name, Ref: "v1", RefType: "tag", Commit: dupCommit,
 		SubPath: subPath, ModuleDigest: "sha256:" + digest,
-		VendorPath: "./ngm.vendor/github.com/acme/mono",
+		VendorPath: "github.com/acme/mono",
 		SubtreeOid: "sha1:" + dupCommit,
 	}
 }

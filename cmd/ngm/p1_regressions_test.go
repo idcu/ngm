@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,5 +83,57 @@ func TestP1ProjectGlobalPathStaysInNgmGlobalVendor(t *testing.T) {
 	}}
 	if err := validateVendorLocation(layout, pf); err != nil {
 		t.Fatalf("globalPath inside the ngm global vendor root must be accepted: %v", err)
+	}
+}
+
+// TestP1ProjectGlobalPathSymlinkEscapeIsRejected 是 S1-4 的第二副作用面：
+// globalPath 词法上落在全局 vendor 根内，但中间目录是指向根外的符号链接。
+func TestP1ProjectGlobalPathSymlinkEscapeIsRejected(t *testing.T) {
+	layout := vendor.Layout{Home: t.TempDir()}
+	root := layout.GlobalVendorRoot()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks are unavailable on this host: %v", err)
+	}
+
+	for _, target := range []string{link, filepath.Join(link, "not-created-yet")} {
+		pf := &config.ProjectFile{Vendor: &config.VendorConfig{Mode: "global", GlobalPath: target}}
+		if err := validateVendorLocation(layout, pf); err == nil {
+			t.Errorf("globalPath %q escapes the global vendor root through a symlink", target)
+		}
+	}
+}
+
+// TestVerifySandboxRejectsEscapingVendorPath 钉住读取端第二道门：
+// 一份伪 lock 不能用 `vendorPath` 把沙箱脚本指到 vendor 之外（S1-4）。
+func TestVerifySandboxRejectsEscapingVendorPath(t *testing.T) {
+	dir := t.TempDir()
+	okDir := filepath.Join(dir, "ngm.vendor", "github.com", "ok", "repo")
+	escapeDir := filepath.Join(dir, "outside")
+	for _, d := range []string{okDir, escapeDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "verify.js"), []byte("// self-check\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	env := &projectEnv{ProjectDir: dir}
+	lf := &lock.File{Dependencies: []lock.Dependency{
+		{Name: "github:ok/repo", VendorPath: "github.com/ok/repo"},
+		{Name: "github:evil/dep", VendorPath: "../outside"},
+		{Name: "github:evil/sub", VendorPath: "github.com/ok/repo", SubPath: "../../../outside"},
+	}}
+	scripts := collectSandboxScripts(env, nil, lf)
+	if len(scripts) != 1 || scripts[0].dep != "github:ok/repo" {
+		t.Fatalf("only the in-tree dependency may be executed, got %+v", scripts)
 	}
 }

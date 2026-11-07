@@ -341,6 +341,13 @@ func TestValidate(t *testing.T) {
 			f.Dependencies[0].ArchiveDigest = "9f86d081"
 		}, "sha256:"},
 		{"missing vendorPath", func(f *File) { f.Dependencies[0].VendorPath = "" }, "vendorPath"},
+		// S1-4：路径字段不得逃出 vendor 根。
+		{"vendorPath traversal", func(f *File) { f.Dependencies[0].VendorPath = "../../etc" }, "relative slash path"},
+		{"vendorPath absolute", func(f *File) { f.Dependencies[0].VendorPath = "/etc/passwd" }, "relative slash path"},
+		{"vendorPath drive", func(f *File) { f.Dependencies[0].VendorPath = `C:/Windows` }, "relative slash path"},
+		{"vendorPath backslash", func(f *File) { f.Dependencies[0].VendorPath = `..\..\etc` }, "relative slash path"},
+		{"vendorPath empty segment", func(f *File) { f.Dependencies[0].VendorPath = "github.com//org" }, "relative slash path"},
+		{"vendorPath url", func(f *File) { f.Dependencies[0].VendorPath = "https://evil.example/x" }, "relative slash path"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -361,6 +368,30 @@ func TestValidate(t *testing.T) {
 				t.Errorf("error %q does not contain %q", err.Error(), tc.wantSub)
 			}
 		})
+	}
+}
+
+func TestValidate_SubPathMustStayInsideDependency(t *testing.T) {
+	base := Dependency{
+		Name:         "github:org/mono",
+		Ref:          "v1.0.0",
+		RefType:      "tag",
+		Commit:       "abc123def4567890abcdef1234567890abcdef12",
+		ModuleDigest: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+		SubtreeOid:   "sha1:" + strings.Repeat("a", 40),
+		VendorPath:   "github.com/org/mono",
+	}
+	for _, bad := range []string{"../sibling", "packages/../../etc", "/abs", `win\path`, "a//b"} {
+		d := base
+		d.SubPath = bad
+		if err := d.validate(); err == nil {
+			t.Errorf("subPath %q should be rejected", bad)
+		}
+	}
+	good := base
+	good.SubPath = "packages/app"
+	if err := good.validate(); err != nil {
+		t.Errorf("a normal monorepo subPath must stay valid: %v", err)
 	}
 }
 

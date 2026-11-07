@@ -847,7 +847,22 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	}
 
 	// 3) vendor 树 vs content 树（结构；--deep 时追加逐文件字节比对）
-	vendorTree := filepath.Join(opts.VendorRoot, filepath.FromSlash(vendor.VendorPathFor(d.VendorPath, d.SubPath)))
+	//
+	// 路径白名单是**读取端**的第二道门：lock.Read 已经校验过，但 verify 也可能
+	// 被直接喂一个内存里构造的 lock。拼接到 vendor 根之前再判一次，越界的条目
+	// 不参与任何 os.Stat / 哈希（S1-4）。
+	rel := vendor.VendorPathFor(d.VendorPath, d.SubPath)
+	if !lock.IsSafeRelPath(rel) {
+		critical = append(critical, "lock path escapes the vendor root: "+rel+" (refused to look at it)")
+		if proof != nil {
+			proof.Mismatches = append(proof.Mismatches, ContentMismatch{
+				Path: rel, Kind: "path", Expected: "a relative path inside vendor", Actual: rel,
+			})
+		}
+		return CheckResult{Check: CheckLanding, Status: StatusFail, Drift: DriftCritical,
+			Detail: strings.Join(critical, "; ")}, proof
+	}
+	vendorTree := filepath.Join(opts.VendorRoot, filepath.FromSlash(rel))
 	vr := vendor.VerifyResult{}
 	if _, err := os.Stat(vendorTree); err != nil {
 		// "没有落地"不是"内容被改"：它是一次未完成的安装（exit 4），

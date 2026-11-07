@@ -312,7 +312,52 @@ func (d *Dependency) validate() error {
 	if d.VendorPath == "" {
 		return errs.New(errs.CodeConfigInvalid, "missing `vendorPath` for "+d.Name, "")
 	}
+	// 路径字段是**信任根的一部分**：verify / --sandbox 会把它拼进 vendor 根
+	// 再 os.Stat / 找 verify.js。只校验"非空"时，一份恶意 lock 可以把校验脚本
+	// 指到 vendor 之外（S1-4）。白名单只接受 `a/b/c` 形状的相对路径。
+	if !IsSafeRelPath(d.VendorPath) {
+		return errs.New(errs.CodeConfigInvalid,
+			"`vendorPath` for "+d.Name+" must be a relative slash path inside vendor (got "+d.VendorPath+")",
+			"re-run `ngm install` to regenerate the lock; ngm never writes paths that escape vendor")
+	}
+	if d.SubPath != "" && !IsSafeRelPath(d.SubPath) {
+		return errs.New(errs.CodeConfigInvalid,
+			"`subPath` for "+d.Name+" must be a relative slash path inside the dependency (got "+d.SubPath+")",
+			"correct the dependency's `subPath` in ngm.json, then run `ngm update`")
+	}
 	return nil
+}
+
+// IsSafeRelPath 报告 p 是否是"可以安全拼接到一个根目录之下"的相对路径。
+//
+// 接受 `a/b/c` 与 `a`；拒绝绝对路径、盘符、反斜杠、`..`/`.` 段、空段，
+// 以及任何看起来像 URL 的值（`github:org/repo` 不是路径，不该出现在这里）。
+//
+// 导出是为了让**读取端**也做同一判定（verify 的 vendor 树、--sandbox 的脚本
+// 定位）：schema 校验是第一道门，读取端不该只信任它（S1-4）。
+func IsSafeRelPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	if strings.ContainsAny(p, "\\\x00") {
+		return false
+	}
+	if strings.HasPrefix(p, "/") {
+		return false
+	}
+	// `C:/x` 与 `C:x` 都是盘符形态（Windows 下 filepath.IsAbs 只认前者）。
+	if len(p) >= 2 && p[1] == ':' {
+		return false
+	}
+	if strings.Contains(p, "://") {
+		return false
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // isSubtreeOid 校验 Git tree 对象 ID 的算法前缀与长度。

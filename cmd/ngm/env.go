@@ -289,6 +289,9 @@ func (e *projectEnv) ReadManifest() (*config.ProjectFile, error) {
 // 约束：globalPath 只能是 ngm 自己的全局 vendor 根（`~/.ngm/global-vendor`）
 // 或其子目录；相对路径、`..`、项目外绝对路径一律拒绝。需要自定义位置的用户
 // 应使用项目级 `vendor.mode=local`，或后续把路径放进用户级配置。
+//
+// 比较前先解析符号链接：`globalPath` 可以词法上落在根内、实际指向根外
+// （符号链接逃逸）。未创建的尾部路径按词法拼接，因为安装时才会创建它。
 func validateVendorLocation(layout vendor.Layout, pf *config.ProjectFile) error {
 	if pf == nil || pf.Vendor == nil || pf.Vendor.Mode != "global" {
 		return nil
@@ -304,8 +307,9 @@ func validateVendorLocation(layout vendor.Layout, pf *config.ProjectFile) error 
 			"project files may only point at ngm's global vendor root; use `vendor.mode=local`, "+
 				"or move the path to user-level configuration")
 	}
-	root := layout.GlobalVendorRoot()
-	rel, err := filepath.Rel(root, p)
+	root := resolveExistingPath(layout.GlobalVendorRoot())
+	target := resolveExistingPath(p)
+	rel, err := filepath.Rel(root, target)
 	if err != nil || rel == ".." ||
 		strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return errs.New(errs.CodeConfigInvalid,
@@ -314,6 +318,29 @@ func validateVendorLocation(layout vendor.Layout, pf *config.ProjectFile) error 
 				"use `vendor.mode=local`, or move the path to user-level configuration")
 	}
 	return nil
+}
+
+// resolveExistingPath 解析 path 中**已存在**部分的符号链接，未创建的尾部按词法拼接。
+//
+// 为什么不直接 EvalSymlinks：globalPath 在 install 之前通常不存在，而
+// EvalSymlinks 对不存在的路径直接报错——那样就等于放弃对已存在前缀的检查。
+func resolveExistingPath(path string) string {
+	cur := path
+	var tail []string
+	for {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			return resolved
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return path
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+	}
 }
 
 func (e *projectEnv) validateVendorLocation(pf *config.ProjectFile) error {
@@ -457,8 +484,9 @@ func cleanupStaleVendor(env *projectEnv, pf *config.ProjectFile, previous *lock.
 
 // safeVendorChild 把 vendor 相对路径解析为 vendor 根下的绝对路径。
 //
-// 它只做**词法**边界检查；调用方（cleanupStaleVendor）用它删除旧目录，
-// 因此绝不接受绝对路径、`..` 段或 Windows 盘符形式。
+// 它做**词法**边界检查，并对已存在的路径解析符号链接后再做包含判定；
+// 调用方（cleanupStaleVendor）用它删除旧目录，因此绝不接受绝对路径、
+// `..` 段或 Windows 盘符形式，也不接受经符号链接指向根外的条目。
 func safeVendorChild(root, rel string) (string, bool) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" {
@@ -476,7 +504,15 @@ func safeVendorChild(root, rel string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	// 词法检查挡不住"vendor 里的符号链接指向外部"：落盘后再解一次真实路径，
+	// 用同一个根做包含判定（S1-4 的第二副作用面）。
+	if resolved, rerr := filepath.EvalSymlinks(rootAbs); rerr == nil {
+		rootAbs = resolved
+	}
 	abs := filepath.Join(rootAbs, filepath.FromSlash(rel))
+	if resolved, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+		abs = resolved
+	}
 	back, err := filepath.Rel(rootAbs, abs)
 	if err != nil || back == "." || back == ".." ||
 		strings.HasPrefix(back, ".."+string(filepath.Separator)) ||
