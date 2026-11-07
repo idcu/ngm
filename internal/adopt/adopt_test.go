@@ -1,10 +1,13 @@
 package adopt
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // --- v0.105：adopt 的证据必须"确定性 + 内容寻址 + 边界说清" ---
@@ -302,5 +305,55 @@ func TestV120AdoptScopedFallbackWithLockSha(t *testing.T) {
 	}
 	if pkg.Provenance.Kind != KindGit || pkg.Provenance.Commit != testCommit {
 		t.Errorf("provenance = %+v (want git + %s)", pkg.Provenance, testCommit)
+	}
+}
+
+// 判据（S1-5）：pnpm 布局（node_modules/<pkg> 是指向 .pnpm 的符号链接）
+// 必须能产出一份证明，而不是"零包 + 让你重装"。
+func TestV122AdoptPnpmLinkedLayout(t *testing.T) {
+	root := t.TempDir()
+	store := filepath.Join(root, "node_modules", ".pnpm", "foo@1.0.0", "node_modules", "foo")
+	write(t, filepath.Join(store, "package.json"), `{"name":"foo","version":"1.0.0"}`)
+	write(t, filepath.Join(store, "index.js"), "module.exports = 1n")
+	link := filepath.Join(root, "node_modules", "foo")
+	if err := os.Symlink(store, link); err != nil {
+		t.Skipf("symlinks are unavailable on this host: %v", err)
+	}
+
+	p, err := Run(Options{Dir: root, ToolVersion: "test"})
+	if err != nil {
+		t.Fatalf("pnpm layout must be adopted, got: %v", err)
+	}
+	pkg, ok := byNameOf(t, p, "foo")
+	if !ok {
+		t.Fatalf("foo missing from %+v", p.Packages)
+	}
+	if pkg.Path != "node_modules/foo" {
+		t.Errorf("the logical path must be the link, not the store: %q", pkg.Path)
+	}
+	if pkg.Files == 0 {
+		t.Errorf("the linked package was walked with no files")
+	}
+}
+
+// 判据：零包时的提示不得把用户指向"重装"——adopt 从不安装。
+func TestV122AdoptZeroPackagesHint(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "node_modules", ".bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Run(Options{Dir: root})
+	if err == nil {
+		t.Fatal("an empty node_modules must fail")
+	}
+	var ne *errs.NgmError
+	if !errors.As(err, &ne) {
+		t.Fatalf("error type %T", err)
+	}
+	if !strings.Contains(ne.Hint, "never installs") {
+		t.Errorf("hint must not send the user to re-install: %q", ne.Hint)
+	}
+	if !strings.Contains(ne.Hint, "pnpm/workspaces") {
+		t.Errorf("hint should name the linked layout it cannot read: %q", ne.Hint)
 	}
 }

@@ -157,7 +157,10 @@ func Run(opts Options) (*Proof, error) {
 	if len(sc.pkgs) == 0 {
 		return nil, errs.New(errs.CodeConfigInvalid,
 			"node_modules exists but contains no packages at "+nmRoot,
-			"the directory may be empty or only contain `.bin`; re-run your installer first")
+			"the directory may be empty, contain only `.bin`, or use a linked layout "+
+				"(pnpm/workspaces) whose links no longer resolve; inspect node_modules and the "+
+				"installer's lockfile (`package-lock.json` / `pnpm-lock.yaml`) — `ngm adopt` "+
+				"describes what is on disk and never installs")
 	}
 
 	sort.Slice(sc.pkgs, func(i, j int) bool {
@@ -278,18 +281,66 @@ func (s *scanner) discover(nmDir string) error {
 	return nil
 }
 
+// withinDir 报告 target（已解析）是否位于 root 之内。
+//
+// 两侧都先取绝对路径：调用方给的 root 可能是 "."（命令行默认），
+// 而 EvalSymlinks 给出的 target 是相对形态时无法直接比较。
+func withinDir(root, target string) bool {
+	ra, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	if resolved, rerr := filepath.EvalSymlinks(ra); rerr == nil {
+		ra = resolved
+	}
+	ta, err := filepath.Abs(target)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(ra, ta)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 func (s *scanner) addPackage(dir string) error {
 	st, err := os.Lstat(dir)
-	if err != nil || !st.IsDir() {
-		// 符号链接（如 workspace 链接）不跟随：跟随会把"链接到项目自己的源码"
-		// 算成一份依赖，而那份内容不在 lock 里也不在 registry 上。
+	if err != nil {
+		s.skipped++
+		return nil
+	}
+	walkRoot := dir
+	if st.Mode()&os.ModeSymlink != 0 {
+		// pnpm / workspace 布局：node_modules/<pkg> 是指向真实目录的符号链接。
+		//
+		// 不能"一概不跟随"（那会让 pnpm 项目恒报零包，S1-5）；也不能"一概跟随"
+		// （workspace 链接指回项目自己的源码，那不是一份依赖）。判据是**目标是否
+		// 仍在 node_modules 之内**：pnpm 指向 .pnpm/<pkg>@<ver>/node_modules/<pkg>，
+		// 在界内；workspace 指向 packages/foo，在界外，仍按"跳过"处理。
+		target, terr := filepath.EvalSymlinks(dir)
+		if terr != nil {
+			s.skipped++
+			return nil
+		}
+		info, serr := os.Stat(target)
+		if serr != nil || !info.IsDir() {
+			s.skipped++
+			return nil
+		}
+		if !withinDir(filepath.Join(s.root, "node_modules"), target) {
+			s.skipped++
+			return nil
+		}
+		walkRoot = target
+	} else if !st.IsDir() {
 		s.skipped++
 		return nil
 	}
 
 	records := make([]digest.Record, 0, 64)
 	var bytes int64
-	walkErr := filepath.WalkDir(dir, func(p string, d os.DirEntry, werr error) error {
+	walkErr := filepath.WalkDir(walkRoot, func(p string, d os.DirEntry, werr error) error {
 		if werr != nil {
 			s.skipped++
 			if d != nil && d.IsDir() {
@@ -300,7 +351,7 @@ func (s *scanner) addPackage(dir string) error {
 		if d.IsDir() {
 			// 嵌套的 node_modules 单独展开，不并入本包的清单：
 			// 否则父包的 digest 会随后代的内容变化而变化，而那不是它的字节。
-			if p != dir && d.Name() == "node_modules" {
+			if p != walkRoot && d.Name() == "node_modules" {
 				if err := s.discover(p); err != nil {
 					return err
 				}
@@ -308,7 +359,7 @@ func (s *scanner) addPackage(dir string) error {
 			}
 			return nil
 		}
-		rel, rerr := filepath.Rel(dir, p)
+		rel, rerr := filepath.Rel(walkRoot, p)
 		if rerr != nil {
 			s.skipped++
 			return nil
