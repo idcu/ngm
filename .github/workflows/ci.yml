@@ -2,6 +2,10 @@ name: CI
 on:
   push:
     branches: [main]
+    # tag 也要跑：release 工作流会先测一遍，但分支 CI 与 tag CI 命中同一份源码时
+    # 才谈得上"发布的就是验证过的"（S2-14）。这里是 Actions 的 glob（不是正则），
+    # 形状与 release.yml 的 tag 校验对齐；`v*` 会在 release 那一侧被再次收紧。
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
   pull_request:
     branches: [main]
 
@@ -20,6 +24,7 @@ jobs:
   build-test:
     name: build/vet/test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -166,6 +171,7 @@ jobs:
   release-state:
     name: release state + docs links
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -227,6 +233,7 @@ jobs:
   fmt-check:
     name: gofmt + line-ending check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -299,6 +306,7 @@ jobs:
   race:
     name: go test -race
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -320,6 +328,7 @@ jobs:
   acceptance:
     name: acceptance M1–M7 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -344,6 +353,7 @@ jobs:
   engine-adapter:
     name: engine integration (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -362,7 +372,9 @@ jobs:
       - name: install real engines
         # tsc 与 postcss 自 v0.2 起是内置引擎，但它们的**真实**兼容性此前
         # 从未被 CI 证明过（假引擎会接受任何参数，真实工具不会）。
-        run: npm install --global esbuild typescript postcss-cli postcss
+        # 钉死版本：这里装的是**公开依赖**，浮动 latest 会让"今天绿、明天红"
+        # 变成一条不可复现的 CI 结论。升级是显式动作（改这一行）。
+        run: npm install --global esbuild@0.24.2 typescript@5.7.2 postcss-cli@11.0.0 postcss@8.5.1
       - uses: denoland/setup-deno@v2
         with:
           # 两件事要分清（v0.5 修正）：
@@ -418,6 +430,7 @@ jobs:
   docs-links:
     name: docs link check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -445,6 +458,7 @@ jobs:
   workflow-lint:
     name: workflow YAML validity
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -483,6 +497,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -518,6 +533,7 @@ jobs:
   release-status:
     name: release status (retrospective <-> tag)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -550,6 +566,7 @@ jobs:
   lock-reproducibility:
     name: lock byte reproducibility (M3+)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -566,6 +583,7 @@ jobs:
     # 十问看板（方法论 §8）：只回答"这个仓库几档、缺哪一条"，不改任何东西。
     # --strict 在低于 L3 时退 1——防止新仓库悄悄从 L0 起步。
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: 十问看板

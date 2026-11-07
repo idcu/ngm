@@ -35,9 +35,36 @@ env:
   GONOSUMDB: gitee.com/idcu-go/*
 
 jobs:
+  # 发布前的全量测试必须覆盖三个平台：只测 Ubuntu 时，"Windows/macOS 上绿"
+  # 是 CI 分支的结论，不是即将发布那份产物的结论（S2-14）。
+  test:
+    name: pre-release tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: build + vet
+        run: |
+          go build ./...
+          go vet ./...
+      - name: full test suite
+        run: go test -count=1 -timeout 40m ./...
+
   release:
     name: build and publish assets
+    needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     outputs:
       tag: ${{ steps.tag.outputs.name }}
     steps:
@@ -57,10 +84,12 @@ jobs:
             echo "::error::no tag to release (empty)"
             exit 1
           fi
-          case "${name}" in
-            v*) ;;
-            *) echo "::error::tag must look like vX.Y.Z, got '${name}'"; exit 1 ;;
-          esac
+          # 只接受 v<semver>（含 -rc/-dev 后缀）。旧写法 `case v*` 会放行
+          # `vfoo`，而它一旦进入 release 就会污染 latest 与附件命名（S2-14）。
+          if ! printf '%s' "${name}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::tag must look like vX.Y.Z(-suffix), got '${name}'"
+            exit 1
+          fi
           echo "name=${name}" >> "$GITHUB_OUTPUT"
           echo "releasing ${name}"
 
@@ -165,6 +194,7 @@ jobs:
     name: Gitee channel gate
     needs: release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       enabled: ${{ steps.gate.outputs.enabled }}
     steps:
@@ -193,6 +223,7 @@ jobs:
     needs: [release, gitee-gate]
     if: needs.gitee-gate.outputs.enabled == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:

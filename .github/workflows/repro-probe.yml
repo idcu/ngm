@@ -48,6 +48,7 @@ on:
 jobs:
   probe:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -86,6 +87,7 @@ jobs:
     # 即使有平台失败也要比：那份"失败"本身就是要比对的结论之一。
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

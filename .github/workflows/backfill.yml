@@ -36,6 +36,7 @@ jobs:
   backfill:
     name: build and publish the selected tags
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,6 +126,7 @@ jobs:
     name: Gitee channel gate
     needs: backfill
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       enabled: ${{ steps.gate.outputs.enabled }}
     steps:
@@ -150,6 +152,7 @@ jobs:
     needs: [backfill, gitee-gate]
     if: needs.gitee-gate.outputs.enabled == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
