@@ -47,6 +47,15 @@
 - [x] G3 cat-file 流式（digest 重放不保留 blob；判据 `TestV130StreamedDigestMatchesRetainedMaterial`）。`Has` 缓存**评估后继续拒绝**：已有基准注释记录的失效信号（同进程内被外部改写）无法消除，缓存会把"检查"变成"猜"
 - [x] G4 构建可离线性：[评估](../../internals/build-offline-assessment.md)（实测无凭据冷构建 14.3s 通过；决定维持现状 + CI 探测）
 
+## 已知 flaky（记录在案，不隐藏）
+
+- `TestV106WhyBoundsTheSearchEvenWhenNothingMatches`（`internal/observability/v106_test.go`）：
+  判据内置 500ms 墙钟预算（"不限量时 0.78s；有预算时应当两个数量级更快"）。**触发条件**：
+  多个全量测试并发跑、机器负载高时，有界搜索会超过 500ms 而判红。实测：h7（`cb31978`）首次
+  全量与并行验证同时进行时该用例 645.97ms 判红；同一 worktree 单独复跑 20.4183ms PASS；随后
+  单独全量重跑 `internal/observability` 4.680s、整体 BUILD/VET/TEST 全 0。**处理约定**：不放松
+  500ms 上界，只在单独/低负载环境复跑；若单跑仍超预算，按真实性能回归处理。
+
 ## 验收（每批）
 
 - [ ] `go build ./... && go vet ./...`
