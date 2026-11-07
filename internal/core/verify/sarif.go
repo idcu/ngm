@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/idcu/ngm/internal/core/vendor"
 )
 
 // SARIF 2.1.0 渲染（`ngm verify --format=sarif`）。
@@ -254,11 +256,20 @@ func failureMessage(d *DepResult, c CheckResult) string {
 //
 // 只用**仓库内的相对路径**：SARIF 消费者的 `file=` 匹配是相对仓库根的。
 // 用绝对路径会让 GitHub 把注解挂到不存在的位置，且泄漏构建机路径。
+//
+// lock 里的 `vendorPath` 是**相对 vendor 根**的（例如 `github.com/acme/x`），
+// 而 GitHub 要的是**相对仓库根**的路径，所以必须补上 vendor 目录名；
+// 少这一段会让注解指向一个仓库里不存在的文件（P2-7）。
 func sarifURI(d *DepResult, c CheckResult) string {
 	if c.Check == CheckLanding && d.VendorPath != "" {
-		return strings.ReplaceAll(d.VendorPath, "\\", "/")
+		rel := strings.Trim(filepathToSlash(d.VendorPath), "/")
+		return vendor.VendorDirName + "/" + rel
 	}
 	return "ngm.lock"
+}
+
+func filepathToSlash(p string) string {
+	return strings.ReplaceAll(p, "\\", "/")
 }
 
 func sarifProperties(rep *Report, d *DepResult, c CheckResult) map[string]any {

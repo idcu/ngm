@@ -35,7 +35,7 @@ func sarifFixture() *Report {
 			{
 				Name: "github:acme/tampered", Ref: "main", RefType: "branch",
 				Commit:     "4444444444444444444444444444444444444444",
-				VendorPath: "ngm.vendor/github.com/acme/tampered",
+				VendorPath: "github.com/acme/tampered",
 				DriftKind:  DriftCritical,
 				Checks: []CheckResult{{
 					Check: CheckLanding, Status: StatusFail, Drift: DriftCritical,
@@ -135,6 +135,18 @@ func TestV105SARIFEmitsNoInventedRegion(t *testing.T) {
 		strings.Contains(string(data), `"uri": "/`) {
 		t.Errorf("artifact URIs must be repository-relative:\n%s", data)
 	}
+	// lock 的 vendorPath 相对 vendor 根；SARIF 要的是相对**仓库根**，
+	// 所以落地类结果必须带 vendor 目录名前缀（P2-7）。
+	log := decodeSARIF(t, data)
+	var landingURI string
+	for _, r := range log.Runs[0].Results {
+		if r.RuleID == RuleLandingIntegrity {
+			landingURI = r.Locations[0].PhysicalLocation.ArtifactLocation.URI
+		}
+	}
+	if landingURI != "ngm.vendor/github.com/acme/tampered" {
+		t.Errorf("landing URI = %q, want ngm.vendor/<vendorPath>", landingURI)
+	}
 }
 
 // message 必须是单行：Detail 里带 vendor 树的多行差异时，
@@ -195,4 +207,47 @@ func mustRender(t *testing.T, rep *Report) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// 判据（P2-7）：title 是**属性值**，`:`/`,` 不转义就能让 lock 里的名字
+// 伪造出一条新的 workflow command 或一个新的属性。
+func TestV113GHEscapeCoversPropertySeparators(t *testing.T) {
+	rep := &Report{
+		Version: ReportVersion,
+		Dependencies: []DepResult{{
+			Name: "github:acme/x::forged,level=error", Ref: "main", RefType: "branch",
+			Commit:    "7777777777777777777777777777777777777777",
+			DriftKind: DriftCritical,
+			Checks: []CheckResult{{
+				Check: CheckLanding, Status: StatusFail, Drift: DriftCritical,
+				Detail: "a,b: c",
+			}},
+			VendorPath: "github.com/acme/x",
+		}},
+		Summary: Summary{Total: 1, Critical: 1, ExitCode: 2},
+	}
+	out := RenderGitHub(rep)
+	if out == "" {
+		t.Fatal("a failing dependency must produce an annotation")
+	}
+	line := strings.TrimSuffix(out, "\n")
+	if strings.Contains(line, "::forged") {
+		t.Errorf("a `::` inside the name leaked into the command stream: %q", line)
+	}
+	if !strings.Contains(line, "%3A") {
+		t.Errorf("`:` must be escaped as %%3A: %q", line)
+	}
+	if !strings.Contains(line, "%2C") {
+		t.Errorf("`,` must be escaped as %%2C: %q", line)
+	}
+	// 属性区（`title=` 到 `::`）里不得残留裸逗号。
+	if i := strings.Index(line, "title="); i >= 0 {
+		prop := line[i:]
+		if j := strings.Index(prop, "::"); j >= 0 {
+			prop = prop[:j]
+		}
+		if strings.Contains(prop, ",") {
+			t.Errorf("property separators must not survive escaping: %q", prop)
+		}
+	}
 }

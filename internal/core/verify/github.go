@@ -65,9 +65,15 @@ func writeAnnotation(b *strings.Builder, d *DepResult, c CheckResult) {
 }
 
 // ghEscape 按 GitHub 的 workflow command 规则转义。
+//
+// 除了文档里的 `%` / `\r` / `\n`，这里还转义 `:` 与 `,`：`title=` 是**属性
+// 值**，属性之间用 `,` 分隔、`::` 又是命令定界符；lock 里的名字可以是任何
+// 字符串，不转义就能伪造下一条命令（P2-7）。
 func ghEscape(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
 	s = strings.ReplaceAll(s, "\n", "%0A")
+	s = strings.ReplaceAll(s, ":", "%3A")
+	s = strings.ReplaceAll(s, ",", "%2C")
 	return s
 }
