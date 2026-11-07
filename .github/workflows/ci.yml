@@ -83,10 +83,37 @@ jobs:
         # 一个可判别的"有没有失败"不该被一个与平台相关的时长上限误伤。
         run: |
           set -o pipefail
-          go test -count=1 -timeout 40m ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+          # P2-8：在 Linux 这一个分片上顺带测 `internal/core/verify` 的覆盖率。
+          # 为什么顺带：verify 的行为主要由 `cmd/ngm` 的验收测试驱动，包内自测只有
+          # 35%；再开一个 job 重跑全量测试只是为了量一个数，成本是双倍的。
+          cov_flags=""
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cov_flags="-coverpkg=./internal/core/verify -coverprofile=$RUNNER_TEMP/verify.cover"
+          fi
+          go test -count=1 -timeout 40m $cov_flags ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
           rc=${PIPESTATUS[0]}
           echo "$rc" > "$RUNNER_TEMP/go-test.exit"
           exit "$rc"
+
+      # 覆盖率门槛（P2-8）：verify 是"判定核心"，它的分支决定了退出码 0/1/2/4/5。
+      #
+      # 门槛定在 55% 而不是评估里写的 60%：本机实测（2026-11-07）只跑 M5+M7 两条
+      # 验收就已经到 54.4%，全量套件只会更高，但那个数没有在本机跑全量的窗口里量过。
+      # 一条"从未被验证过是否可达"的门槛会让 CI 长期红，而长期红等于没有门禁。
+      # 等全量读数稳定一段时间后，按实测值把它抬到 60%。
+      - name: verify coverage floor (>= 55%)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cov="$RUNNER_TEMP/verify.cover"
+          [ -f "$cov" ] || { echo "::error::no coverage profile; the Linux test step did not run with -coverpkg"; exit 1; }
+          total="$(go tool cover -func "$cov" | awk '/^total:/ { gsub(/%/,"",$3); print $3 }')"
+          echo "internal/core/verify coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit (t + 0 >= 55) ? 0 : 1 }' || {
+            echo "::error::internal/core/verify coverage ${total}% is below the 55% floor"
+            exit 1
+          }
 
       # 公开区只放**定位信息**：包名、用例名、退出码。原始输出一律不进
       # job summary / annotation / commit comment —— 那里会被长期公开。
@@ -315,6 +342,94 @@ jobs:
           cache: true
       - name: go test -race ./...
         run: go test -count=1 -race -timeout 40m ./...
+
+  # fuzz 冒烟（P2-8）：三个解析器各跑 10 秒。
+  #
+  # 为什么是 10 秒而不是几分钟：这里的目的不是"找到更多 bug"，而是**证明 fuzz
+  # 目标本身可用**——能被 go test 发现、有种子、不会立刻 panic 或挂死。真正的
+  # 长跑是本地按需执行的动作（`go test -fuzz=... -fuzztime=10m`），不该让每次
+  # push 都等它。10 秒 × 3 的种子回放与变异足以让"目标写坏了"变红。
+  #
+  # 只在一个平台跑：fuzz 覆盖的是纯字节解析（清单渲染、lock 解析、注解转义），
+  # 没有文件系统或进程语义；三平台重复跑只是把分钟数乘三。
+  fuzz-smoke:
+    name: fuzz smoke (10s per target)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: fuzz targets
+        shell: bash
+        run: |
+          set -o pipefail
+          for target in FuzzRenderManifest:./internal/core/digest FuzzParse:./internal/core/lock FuzzGHEscape:./internal/core/verify; do
+            fn="${target%%:*}"
+            pkg="${target#*:}"
+            echo "fuzzing ${fn} in ${pkg} for 10s"
+            go test -run '^$' -fuzz "^${fn}$" -fuzztime=10s "$pkg"
+          done
+
+  # 基准冒烟（P2-9）：只跑一轮（-benchtime=1x），证明基准代码没坏。
+  #
+  # 为什么不在 CI 里比"快慢"：机器型号与负载不可控，秒数会抖动，而抖动会训练人
+  # 忽略红色（metrics.md 的纪律）。这里守的是"基准能被编译并跑完"，以及它依赖的
+  # 夹具（git 仓库、content store）仍然成立。
+  bench-smoke:
+    name: benchmark smoke (1 iteration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: every benchmark runs once
+        run: go test -run '^$' -bench . -benchtime=1x ./internal/core/git ./internal/core/vendor
+
+  # 无凭据冷构建（P2-10）：验证"新机器 + 空模块缓存 + 没有 Gitee token"能否构建。
+  #
+  # 为什么是 advisory（continue-on-error）：Gitee 模块若改为私有，这一步**本来
+  # 就应该失败**，而那是一个需要维护者改仓库可见性或提供镜像的决策，不是某次
+  # push 的错。但失败必须被看见：它会把一句结论写进 job summary，而不是静默变绿。
+  #
+  # 不复制 build-test 的 token 配置：这里要的正是"没有 token 时会怎样"。
+  cold-build-no-credentials:
+    name: cold build without Gitee credentials (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: go build from an empty module cache and no token
+        shell: bash
+        env:
+          GOMODCACHE: ${{ runner.temp }}/gomodcache-cold
+          GIT_TERMINAL_PROMPT: '0'
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+        run: |
+          set -o pipefail
+          go build ./... 2>&1 | tee "$RUNNER_TEMP/cold-build.log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            {
+              echo '### cold build needs credentials'
+              echo
+              echo 'A fresh machine without a Gitee token cannot build this module.'
+              echo 'Either the module must stay public, or the build needs vendoring/a mirror.'
+              echo 'See docs/internals/build-offline-assessment.md.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
 
   # 阶段可执行验收（每个里程碑一个 TestMXAcceptance）。
   # 验收以 Go 测试实现（cmd/ngm/acceptance_mX_test.go），因此三平台一致可跑：
