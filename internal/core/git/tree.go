@@ -150,10 +150,17 @@ func (m *ArchiveMaterial) Manifest() []byte {
 //
 // 返回值是清单字节流；其 digest 用 digest.Digest 计算。
 //
-// v0.68：本函数是 `BuildArchiveMaterial` 的薄包装——两条路径的字节级行为
-// 由同一段代码保证（不允许"优化过的路径"与"老路径"各算各的）。
+// v0.68：本函数与 `BuildArchiveMaterial` 共用同一条实现（`materialFromEntries`）——
+// 两条路径的字节级行为由同一段代码保证（不允许"优化过的路径"与"老路径"各算各的）。
+// 唯一区别是内容是否保留（P2-9）。
 func BuildArchive(ctx context.Context, opts Options, repoPath, commit string) ([]byte, error) {
-	m, err := BuildArchiveMaterial(ctx, opts, repoPath, commit)
+	// P2-9：只需要清单字节时**不保留** blob 内容——逐块读、逐块哈希，峰值内存
+	// 从"整棵树的字节"降到"单个对象"。verify 的 digest 重放走的就是这条路径。
+	entries, err := ListTree(ctx, opts, repoPath, commit)
+	if err != nil {
+		return nil, err
+	}
+	m, err := materialFromEntries(ctx, opts, repoPath, commit, entries, digest.ManifestVersion, false)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +175,7 @@ func BuildArchiveMaterial(ctx context.Context, opts Options, repoPath, commit st
 	if err != nil {
 		return nil, err
 	}
-	return materialFromEntries(ctx, opts, repoPath, commit, entries, digest.ManifestVersion)
+	return materialFromEntries(ctx, opts, repoPath, commit, entries, digest.ManifestVersion, true)
 }
 
 // BuildModuleMaterial 计算某个 commit 下 `subPath` 子树的模块级材料（ADR-032）。
@@ -185,15 +192,18 @@ func BuildModuleMaterial(ctx context.Context, opts Options, repoPath, commit, su
 	if err != nil {
 		return nil, err
 	}
-	return materialFromEntries(ctx, opts, repoPath, commit, entries, digest.ModuleManifestVersion)
+	return materialFromEntries(ctx, opts, repoPath, commit, entries, digest.ModuleManifestVersion, true)
 }
 
 // materialFromEntries 是根 scope 与模块 scope 共用的唯一实现。
 //
 // entries 必须已经收窄到目标 scope；本函数只负责拒绝不支持的条目、读 blob、
 // 检测 LFS、逐条哈希并拼装清单。
+//
+// keepContents=false 时走流式路径（见 streamedMaterial）：结果里 Contents 为 nil，
+// 其余字段（Entries / Records / Digest）与保留内容的路径**逐字节相同**。
 func materialFromEntries(ctx context.Context, opts Options, repoPath, commit string,
-	entries []TreeEntry, manifestVersion string) (*ArchiveMaterial, error) {
+	entries []TreeEntry, manifestVersion string, keepContents bool) (*ArchiveMaterial, error) {
 	if len(entries) == 0 {
 		// 空 commit / 空模块是合法的：清单只有头部
 		mf := digest.BuildManifestWithVersion(manifestVersion, nil)
@@ -221,6 +231,10 @@ func materialFromEntries(ctx context.Context, opts Options, repoPath, commit str
 		kept = append(kept, e)
 		blobSHAs = append(blobSHAs, e.SHA)
 		metas = append(metas, digest.Record{Path: e.Path, Mode: e.Mode})
+	}
+
+	if !keepContents {
+		return streamedMaterial(ctx, opts, repoPath, commit, kept, blobSHAs, metas, manifestVersion)
 	}
 
 	// 3) 批量读取内容
@@ -278,11 +292,7 @@ func finishMaterial(commit string, kept []TreeEntry, metas []digest.Record,
 
 	for i := range metas {
 		if h := hits[i]; h != nil {
-			return nil, errs.New(
-				errs.CodeConfigInvalid,
-				fmt.Sprintf("commit %s contains a Git LFS pointer at %q (oid sha256:%s)", ShortSHA(commit), h.path, h.oid),
-				"ngm v0.1 cannot prove LFS content: the pointer is not the file. "+
-					"Remove LFS from this dependency, or pin a commit whose files are stored as regular Git objects")
+			return nil, lfsError(commit, h.path, h.oid)
 		}
 		metas[i].BlobSHA256 = hashes[i]
 	}
@@ -296,6 +306,56 @@ func finishMaterial(commit string, kept []TreeEntry, metas []digest.Record,
 		Contents:        contents,
 		Records:         metas,
 	}, nil
+}
+
+// streamedMaterial 是 keepContents=false 的实现：读一个对象、判 LFS、算 sha256、
+// **丢弃字节**，再读下一个（P2-9）。
+//
+// 与 finishMaterial 的差别只有两处：哈希按到达顺序串行（不再并行），以及
+// Contents 为 nil。前者不会改变任何字节或顺序——digest 由 Records 决定，
+// 而 Records 的每个 BlobSHA256 仍是同一份内容的 sha256。
+func streamedMaterial(ctx context.Context, opts Options, repoPath, commit string,
+	kept []TreeEntry, blobSHAs []string, metas []digest.Record, manifestVersion string) (*ArchiveMaterial, error) {
+	if len(metas) != len(blobSHAs) || len(metas) != len(kept) {
+		return nil, errs.New(errs.CodeConfigInvalid,
+			fmt.Sprintf("internal error: %d entries, %d shas, %d records", len(kept), len(blobSHAs), len(metas)),
+			"report this as an ngm bug")
+	}
+
+	hashes := make([]string, len(metas))
+	err := CatFileBatchEach(ctx, opts, repoPath, blobSHAs, func(i int, content []byte) error {
+		if ptr, ok := digest.DetectLFSPointer(content); ok {
+			return lfsError(commit, metas[i].Path, ptr.OID)
+		}
+		hashes[i] = digest.HashBytes(content)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range metas {
+		metas[i].BlobSHA256 = hashes[i]
+	}
+
+	mf := digest.BuildManifestWithVersion(manifestVersion, metas)
+	return &ArchiveMaterial{
+		Commit:          commit,
+		ManifestVersion: manifestVersion,
+		Digest:          digest.Digest(mf),
+		Entries:         kept,
+		Contents:        nil, // 流式路径刻意不保留
+		Records:         metas,
+	}, nil
+}
+
+// lfsError 是两条路径共用的 LFS 拒绝信息（措辞只在此处定义）。
+func lfsError(commit, path, oid string) error {
+	return errs.New(
+		errs.CodeConfigInvalid,
+		fmt.Sprintf("commit %s contains a Git LFS pointer at %q (oid sha256:%s)", ShortSHA(commit), path, oid),
+		"ngm v0.1 cannot prove LFS content: the pointer is not the file. "+
+			"Remove LFS from this dependency, or pin a commit whose files are stored as regular Git objects")
 }
 
 // TreeOIDAtPath 返回 `<commit>:<subPath>` 的 tree 对象 ID（根 scope 为 commit 的根树）。

@@ -30,21 +30,43 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 	if len(shas) == 0 {
 		return nil, nil
 	}
+	out := make([][]byte, len(shas))
+	if err := CatFileBatchEach(ctx, opts, repoPath, shas, func(i int, content []byte) error {
+		out[i] = content
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CatFileBatchEach 逐个交付对象内容，**不保留**整批字节（P2-9）。
+//
+// 为什么需要它：`CatFileBatch` 把全部 blob 放进内存，一个大依赖（数千文件、
+// 每个几十 KiB）会同时在堆上；而 digest 重放（`BuildArchive` / verify）只需要
+// **每个 blob 的 sha256**，读一个算一个就能把峰值压到单个对象。
+//
+// 约束（与 CatFileBatch 完全一致）：顺序与 shas 一一对应；content 只在
+// visit 返回前有效（下次调用可能复用它）；visit 返回错误即中止，错误原样返回。
+func CatFileBatchEach(ctx context.Context, opts Options, repoPath string, shas []string, visit func(index int, content []byte) error) error {
+	if len(shas) == 0 {
+		return nil
+	}
 
 	// 与 Run / RunAllowFailure 共用同一个构造点（门禁 + 计数）——
 	// 这里此前同样**没有** `run:git` 门禁，于是 digest 重放会在被禁止的配置下照跑。
 	cmd, cerr := newGitCommand(ctx, opts, repoPath, "cat-file", "--batch")
 	if cerr != nil {
-		return nil, cerr
+		return cerr
 	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: open stdin", "", err)
+		return errs.Wrap(errs.CodeGitFetch, "cat-file: open stdin", "", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: open stdout", "", err)
+		return errs.Wrap(errs.CodeGitFetch, "cat-file: open stdout", "", err)
 	}
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
@@ -61,7 +83,7 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 	// 现在由 `TestV06VerifySpawnBudget`（预算）与 `TestSpawn_OnlyOneFileCountsSpawns`
 	// （计账点唯一）两条一起守住：一条管"起了几个"，一条管"只能在一个地方记"。
 	if err := cmd.Start(); err != nil {
-		return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: start git", NotInstalledHint, err)
+		return errs.Wrap(errs.CodeGitFetch, "cat-file: start git", NotInstalledHint, err)
 	}
 
 	// 写入请求。必须与读取并发进行：否则当请求量超过管道缓冲区时，
@@ -79,23 +101,32 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 		writeErr <- w.Flush()
 	}()
 
-	out, readErr := readCatFileBatch(stdout, len(shas))
+	readErr := readCatFileBatchEach(stdout, len(shas), visit)
+
+	// 读取失败（协议错误或 visit 报错）时**必须先杀进程再 Wait**：
+	// visit 可以在第一个对象就返回错误（例如 LFS 指针），而 git 还在把剩余的
+	// 对象往管道里写。不再读取的管道会被写满，子进程阻塞在写、`Wait` 永远等不到
+	// 退出——那是死锁，不是错误。
+	if readErr != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+		return readErr
+	}
 
 	// 无论读取是否成功都要收尾，避免泄漏进程
 	waitErr := cmd.Wait()
 
-	if readErr != nil {
-		return nil, readErr
-	}
 	if werr := <-writeErr; werr != nil {
-		return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: write requests", "", werr)
+		return errs.Wrap(errs.CodeGitFetch, "cat-file: write requests", "", werr)
 	}
 	if waitErr != nil {
-		return nil, errs.New(errs.CodeGitFetch,
+		return errs.New(errs.CodeGitFetch,
 			fmt.Sprintf("cat-file --batch failed: %s", redact(trimStderr(stderrBuf.Bytes()), opts.Secrets)),
 			"the local mirror may be corrupt; delete it and re-fetch")
 	}
-	return out, nil
+	return nil
 }
 
 // maxCatFileObjectBytes 是 cat-file 单个对象允许的最大字节数（v0.102）。
@@ -106,42 +137,41 @@ func CatFileBatch(ctx context.Context, opts Options, repoPath string, shas []str
 // 一条可诊断的 GitFetch 错误。
 const maxCatFileObjectBytes = 256 << 20
 
-// readCatFileBatch 按协议读取 n 个对象。
-func readCatFileBatch(r io.Reader, n int) ([][]byte, error) {
+// readCatFileBatchEach 按协议读取 n 个对象，逐个交给 visit。
+func readCatFileBatchEach(r io.Reader, n int, visit func(index int, content []byte) error) error {
 	br := bufio.NewReaderSize(r, 64*1024)
-	out := make([][]byte, 0, n)
 
 	for i := 0; i < n; i++ {
 		header, err := br.ReadString('\n')
 		if err != nil {
 			if err == io.EOF && header == "" {
-				return nil, errs.New(errs.CodeGitFetch,
+				return errs.New(errs.CodeGitFetch,
 					fmt.Sprintf("cat-file: unexpected end of stream after %d/%d objects", i, n),
 					"the local mirror may be truncated; delete it and re-fetch")
 			}
-			return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: read header", "", err)
+			return errs.Wrap(errs.CodeGitFetch, "cat-file: read header", "", err)
 		}
 		header = strings.TrimRight(header, "\r\n")
 
 		parts := strings.SplitN(header, " ", 3)
 		if len(parts) == 2 && parts[1] == "missing" {
-			return nil, errs.New(errs.CodeGitFetch,
+			return errs.New(errs.CodeGitFetch,
 				fmt.Sprintf("cat-file: object %s is missing from the mirror", parts[0]),
 				"the local mirror is incomplete; delete it and re-run to re-fetch")
 		}
 		if len(parts) != 3 {
-			return nil, errs.New(errs.CodeGitFetch,
+			return errs.New(errs.CodeGitFetch,
 				fmt.Sprintf("cat-file: malformed header %q", header),
 				"unexpected git version or corrupt mirror")
 		}
 
 		size, perr := strconv.ParseInt(parts[2], 10, 64)
 		if perr != nil {
-			return nil, errs.Wrap(errs.CodeGitFetch,
+			return errs.Wrap(errs.CodeGitFetch,
 				fmt.Sprintf("cat-file: malformed size in %q", header), "", perr)
 		}
 		if size < 0 || size > maxCatFileObjectBytes {
-			return nil, errs.New(errs.CodeGitFetch,
+			return errs.New(errs.CodeGitFetch,
 				fmt.Sprintf("cat-file: object %s is %d bytes, above the %d-byte limit",
 					parts[0], size, maxCatFileObjectBytes),
 				"the mirror reports an unusable object size; delete that mirror and re-fetch, "+
@@ -150,16 +180,18 @@ func readCatFileBatch(r io.Reader, n int) ([][]byte, error) {
 
 		content := make([]byte, size)
 		if _, rerr := io.ReadFull(br, content); rerr != nil {
-			return nil, errs.Wrap(errs.CodeGitFetch,
+			return errs.Wrap(errs.CodeGitFetch,
 				fmt.Sprintf("cat-file: read %d bytes of %s", size, parts[0]), "", rerr)
 		}
 		// 内容之后的单个 LF
 		if _, rerr := br.ReadByte(); rerr != nil {
-			return nil, errs.Wrap(errs.CodeGitFetch, "cat-file: read trailing LF", "", rerr)
+			return errs.Wrap(errs.CodeGitFetch, "cat-file: read trailing LF", "", rerr)
 		}
-		out = append(out, content)
+		if verr := visit(i, content); verr != nil {
+			return verr
+		}
 	}
-	return out, nil
+	return nil
 }
 
 // GetBlob 读取单个对象内容（`git cat-file blob <sha>`）。
