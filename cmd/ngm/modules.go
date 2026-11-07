@@ -161,8 +161,44 @@ type releaseShard struct {
 	Releases      map[string]collectionRelease `json:"releases"`
 }
 
-var semverLike = regexp.MustCompile(`^v?\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$`)
-var rePlanVersion = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+// reModuleVersion 是模块版本的**唯一**解析规则。
+//
+// 此前两条判断各写一条正则：`--strict` 走 semverLike（接受 `1.2.3-rc1`），
+// `plan` 走 rePlanVersion（只接受 `x.y.z`）。同一句"这个版本合法吗"有两个
+// 答案，于是 `validate --strict` 说通过、`plan` 说不是 semver。现在两者共享
+// 一次解析；plan 只是在它之上多加一条"不能带 -/+ 后缀"。
+var reModuleVersion = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)([-+][0-9A-Za-z.-]+)?$`)
+
+// moduleVersion 是解析后的模块版本。
+type moduleVersion struct {
+	major, minor, patch int
+	// suffix 是 `-rc1` / `+build` 这类后缀；纯 `x.y.z` 为空。
+	suffix string
+}
+
+// parseModuleVersion 解析 `x.y.z`，允许前导 `v` 与一个 -/+ 后缀。
+//
+// 数字溢出（Atoi 失败）按"不是 semver"处理：此前 rePlanVersion 只做正则
+// 匹配，`Atoi` 的错误被丢弃，一个 20 位的主版本号会被当成 0 参与进位。
+func parseModuleVersion(s string) (moduleVersion, bool) {
+	m := reModuleVersion.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return moduleVersion{}, false
+	}
+	major, err1 := strconv.Atoi(m[1])
+	minor, err2 := strconv.Atoi(m[2])
+	patch, err3 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return moduleVersion{}, false
+	}
+	return moduleVersion{major: major, minor: minor, patch: patch, suffix: m[4]}, true
+}
+
+// semverLike 是"版本形如 semver"的判定，与 parseModuleVersion 同源。
+func semverLike(s string) bool {
+	_, ok := parseModuleVersion(s)
+	return ok
+}
 
 // runModules 处理 `ngm modules <list|validate>`。
 func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -485,13 +521,13 @@ func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer
 }
 
 func nextModuleVersion(current, bump string) (string, error) {
-	m := rePlanVersion.FindStringSubmatch(strings.TrimSpace(current))
-	if m == nil {
+	v, ok := parseModuleVersion(current)
+	if !ok || v.suffix != "" {
+		// plan 只做纯 `x.y.z` 的进位：`-rc1` / `+build` 的下一版语义
+		// 需要人决定，猜测会给出一个用户没同意的版本号。
 		return "", fmt.Errorf("version %q is not semver", current)
 	}
-	major, _ := strconv.Atoi(m[1])
-	minor, _ := strconv.Atoi(m[2])
-	patch, _ := strconv.Atoi(m[3])
+	major, minor, patch := v.major, v.minor, v.patch
 	switch bump {
 	case "major":
 		major, minor, patch = major+1, 0, 0
@@ -750,7 +786,7 @@ func collectReleases(ctx context.Context, gitOpts git.Options, dir string, mods 
 				continue
 			}
 			version := strings.TrimPrefix(tag, prefix)
-			if !semverLike.MatchString(version) {
+			if !semverLike(version) {
 				continue
 			}
 			commit, rerr := git.RevParse(ctx, gitOpts, dir, tag)
@@ -808,8 +844,12 @@ func collectSource(ctx context.Context, gitOpts git.Options, dir string) (*colle
 		} else if slug, perr := resolve.ParseSlug(url); perr == nil {
 			src.Repo = slug.Slug()
 		} else {
+			// 解析器的错误消息里会重复原始地址，而它可能内嵌凭据：
+			// 展示前把地址本身换成脱敏形态（P2-4）。
+			redacted := resolve.RedactURL(url)
+			detail := strings.ReplaceAll(nerr.Error(), url, redacted)
 			warnings = append(warnings, fmt.Sprintf(
-				"cannot parse origin remote %q: source.repo is left empty (%v)", url, nerr))
+				"cannot parse origin remote %q: source.repo is left empty (%s)", redacted, detail))
 		}
 	} else {
 		warnings = append(warnings, fmt.Sprintf("cannot read origin remote: %v", rerr))
@@ -1180,7 +1220,7 @@ func validateModules(mods []moduleInfo, strict bool) []string {
 		if strict {
 			if m.Version == "" {
 				problems = append(problems, prefix+"missing `version`")
-			} else if !semverLike.MatchString(m.Version) {
+			} else if !semverLike(m.Version) {
 				problems = append(problems, prefix+"version "+m.Version+" is not semver-like")
 			}
 		}

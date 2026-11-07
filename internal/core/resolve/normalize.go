@@ -7,6 +7,7 @@ package resolve
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
@@ -163,6 +164,41 @@ func MustNormalize(input string) Canonical {
 		panic(err)
 	}
 	return c
+}
+
+// RedactURL 把原始 Git 地址变成可以出现在日志与错误里的形式。
+//
+// origin remote 常常内嵌凭据（`https://user:token@host/org/repo.git`）。
+// Normalize 只返回 host/path，天然不含它们；但**解析失败**的分支手里只剩
+// 原始串，若原样打印就把 token 写进了 CI 日志。所有"展示原始 remote"的地方
+// 都必须过这里，而不是各自截断（P2-4）。
+//
+// 解析失败时也要能脱敏——坏地址恰恰最容易带凭据——所以这里不依赖
+// url.Parse 成功：失败就退化成"去掉 :// 之后、第一个 / 之前的 userinfo"。
+// scp-like（`git@host:path`）不含 `://`，`git` 是协议约定而非秘密，原样返回。
+func RedactURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	i := strings.Index(raw, "://")
+	if i <= 0 {
+		return raw
+	}
+	if u, err := url.Parse(raw); err == nil {
+		u.User = nil
+		u.RawQuery = ""
+		u.Fragment = ""
+		return u.String()
+	}
+	// 无法解析：保守地砍掉 scheme 与第一个路径分隔符之间的 `user:pass@`。
+	rest := raw[i+3:]
+	if at := strings.Index(rest, "@"); at >= 0 {
+		if slash := strings.Index(rest, "/"); slash < 0 || at < slash {
+			rest = rest[at+1:]
+		}
+	}
+	return raw[:i+3] + rest
 }
 
 // splitHostPath 把原始输入拆成 (host, path)。
