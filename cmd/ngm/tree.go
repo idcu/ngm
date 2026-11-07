@@ -206,6 +206,7 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			CacheDir: vendor.NewCache(env.Layout.CacheRoot()).OSVRoot(),
 			BaseURL:  os.Getenv("NGM_OSV_URL"),
 			Offline:  *offline,
+			Warn:     func(msg string) { fmt.Fprintf(stderr, "⚠ %s\n", msg) },
 			// 与 audit 同一条取数路径，因此也是同一个 net 门禁（v0.5 C 组）——
 			// 用权限策略，不是上面那份供应链策略
 			CheckNet: env.Policy.CheckNet,

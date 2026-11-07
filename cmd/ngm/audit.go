@@ -119,6 +119,9 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			BaseURL: os.Getenv("NGM_OSV_URL"),
 			Offline: *offline,
 			NoCache: *noCache,
+			// 缓存写失败只是"下次还要联网"，结论仍然有效：走 stderr，
+			// 不污染 stdout 的单个 JSON 文档。
+			Warn: func(msg string) { fmt.Fprintf(stderr, "⚠ %s\n", msg) },
 			// 命中缓存与 --offline 都不会走到这里，因此它们不需要 net: 权限。
 			// 注意用的是**权限**策略（env.Policy），不是上面那份供应链策略。
 			CheckNet: env.Policy.CheckNet,

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -69,6 +70,11 @@ type OSVConfig struct {
 	Offline bool
 	// NoCache 为 true 时忽略缓存并强制刷新。
 	NoCache bool
+	// Warn 接收非致命问题（当前只有"缓存写不进去"）。
+	//
+	// 缓存是加速而非结论：写失败不该把一次成功的审计变成失败（旧行为）。
+	// nil 表示调用方不需要这些提示。
+	Warn func(string)
 	// Now 用于测试；为空时用 time.Now。
 	Now func() time.Time
 
@@ -125,11 +131,17 @@ func QueryOSV(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, error)
 	}
 
 	if cfg.Offline {
-		// 离线：允许使用**过期**缓存（有数据好过没数据），但没有就是失败
-		if v, ok, cerr := readStaleCache(cfg.CacheDir, commit); cerr != nil {
-			return nil, cerr
-		} else if ok {
-			return v, nil
+		// 离线：允许使用**过期**缓存（有数据好过没数据），但没有就是失败。
+		//
+		// `--no-cache` 在离线时意味着"不要相信任何缓存"：既然也无法刷新，
+		// 唯一诚实的结论就是失败。此前这里无条件读 stale，于是
+		// `--offline --no-cache` 仍然拿着 24 小时前的数据报"干净"（P2-5）。
+		if !cfg.NoCache {
+			if v, ok, cerr := readStaleCache(cfg.CacheDir, commit); cerr != nil {
+				return nil, cerr
+			} else if ok {
+				return v, nil
+			}
 		}
 		return nil, errs.New(errs.CodeGitFetch,
 			"no cached OSV result for "+commit+" and network access is disabled",
@@ -141,8 +153,12 @@ func QueryOSV(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, error)
 		return nil, err
 	}
 	if cfg.CacheDir != "" {
+		// 缓存写失败只降级为 warning：结论已经拿到了，磁盘没空间/只读
+		// 不该让"审计成功"变成"审计失败"（旧行为会让整个命令 exit 3）。
 		if werr := writeCache(cfg.CacheDir, commit, cacheEnvelope{FetchedAt: now, Vulns: vulns}); werr != nil {
-			return nil, werr
+			if cfg.Warn != nil {
+				cfg.Warn("OSV cache was not written: " + werr.Error())
+			}
 		}
 	}
 	return vulns, nil
@@ -237,10 +253,10 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 			} `json:"affected"`
 		} `json:"vulns"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+	if err := json.NewDecoder(io.LimitReader(res.Body, maxOSVResponseBytes)).Decode(&parsed); err != nil {
 		return nil, errs.Wrap(errs.CodeGitFetch,
 			"decode the OSV response for "+commit,
-			"OSV.dev may have changed its response shape; check for an ngm update", err)
+			"OSV.dev may have changed its response shape, or returned an oversized body; check for an ngm update", err)
 	}
 
 	out := make([]Vuln, 0, len(parsed.Vulns))
@@ -280,6 +296,12 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 	return out, nil
 }
 
+// maxOSVResponseBytes 是单个响应的上限。
+//
+// 查询端点一次只回一个 commit 的公告，正常响应是几 KB；没有上限时，
+// 一个错误的端点（或被劫持的代理）可以让审计进程读进任意大的内容。
+const maxOSVResponseBytes = 8 << 20
+
 // osvClient 是带**客户端级超时**的 HTTP 客户端。
 //
 // 此前用的是 `http.DefaultClient`——它没有超时，而这条路径是审计门禁
@@ -287,7 +309,22 @@ func queryRemote(ctx context.Context, cfg OSVConfig, commit string) ([]Vuln, err
 // （评估报告 P2#12）。30s 与 git 侧实测的网络等待上界（失败由 git 自己的界终止：
 // RST ~20s / TCP ~21s，v0.18 实测）同量级；超时走既有的 CodeGitFetch 分支，
 // 提示"检查网络，或用可用缓存"。
-var osvClient = &http.Client{Timeout: 30 * time.Second}
+//
+// 重定向只允许**同源**：`net:<host>` 的判定针对的是端点主机，跨主机跟随
+// 重定向等于把请求（与响应）交给了另一个从未被授权的主机（P2-5）。
+var osvClient = &http.Client{
+	Timeout: 30 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		origin := via[0].URL
+		if req.URL.Scheme != origin.Scheme || req.URL.Host != origin.Host {
+			return fmt.Errorf("refusing cross-origin redirect to %s", req.URL.Host)
+		}
+		return nil
+	},
+}
 
 // pickSeverity 从 OSV 响应的三种形态里取出严重级别标签。
 //

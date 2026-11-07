@@ -57,10 +57,14 @@ func TestV108EveryOSVQueryCarriesTheGate(t *testing.T) {
 				continue
 			}
 			sites++
-			// 结构体字面量很短：从这一行往下看 12 行足够覆盖全部字段。
+			// 从字面量这一行往下看一段。窗口必须容得下**注释**：字段之间的说明
+			// 每多一行，字面量就长一行。P2-5 给 `Warn` 补注释时，12 行的窗口
+			// 正好把随后两行的 `CheckNet:` 切在外面，于是这条判据对**合规**的
+			// 字面量报了红。24 行仍是一个"短字面量"的上界（超出它说明写法变了，
+			// 应当重构而不是继续加宽）。
 			window := lines[i:]
-			if len(window) > 12 {
-				window = window[:12]
+			if len(window) > 24 {
+				window = window[:24]
 			}
 			if !strings.Contains(strings.Join(window, "\n"), "CheckNet:") {
 				missing = append(missing, rel+":"+strconv.Itoa(i+1))
