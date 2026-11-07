@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/idcu/ngm/internal/config"
-	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/core/vendor"
@@ -64,18 +63,16 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	offline := fs.Bool("offline", false, "never touch the network")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	allEntries := fs.Bool("all", false, "expand every entry (lifts the default budget)")
-	fs.Usage = func() { fmt.Fprint(stderr, treeUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(treeUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "osv", Bool: true}, {Name: "offline", Bool: true},
 		{Name: "json", Bool: true}, {Name: "all", Bool: true},
-	})); err != nil {
-		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}, jsonOut) {
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if fs.NArg() > 0 {
 		// v0.108：多出来的位置参数必须被**看见**（v0.39 的不变式），
 		// 且在 `--json` 下要留下信封而不是 0 字节的 stdout。
@@ -85,9 +82,9 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {
@@ -224,15 +221,7 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *jsonOut {
-		data, merr := rep.Marshal()
-		if merr != nil {
-			return runErr(ctx, stdout, stderr, merr)
-		}
-		if _, werr := stdout.Write(data); werr != nil {
-			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return errs.CodeInternal.ExitCode()
-		}
-		return exit
+		return c.writeReport(rep, exit)
 	}
 
 	rep.Render(stdout)

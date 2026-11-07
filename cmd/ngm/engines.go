@@ -72,15 +72,16 @@ func runEngines(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs := newFlagSet("engines", stderr)
 	jsonOut := fs.Bool("json", false, "machine-readable output")
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, enginesUsage) }
 
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(enginesUsage)
 	// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-	if !parseOrFail(args, stdout, fs, []flagSpec{
+	if !c.parse([]flagSpec{
 		{Name: "json", Bool: true}, {Name: "dir"},
-	}) {
+	}, jsonOut) {
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if fs.NArg() < 1 {
 		// v0.108：`--json` 下也要给信封（此前 stdout 是 0 字节）。
 		failEarly(args, stdout, "missing subcommand",

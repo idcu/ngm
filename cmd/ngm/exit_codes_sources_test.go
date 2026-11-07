@@ -171,10 +171,6 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 			role: roleSource, category: catVuln,
 			why: "`--osv` 查到漏洞 ⇒ `exit = 1`（同时给 remediation 那行）",
 		},
-		{
-			role: roleSource, category: catInternal,
-			why: "`write report: %v`——同一函数里的第二处：报告写不出去",
-		},
 	},
 
 	// ---- sources：**内部失败**（v0.57 量出来的那一类；文档此前完全没提）----
@@ -197,11 +193,7 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 	"cmd/ngm/verify.go :: runVerify": {
 		{
 			role: roleSource, category: catInternal,
-			why: "`write report: %v`——`--json` 报告写不出去",
-		},
-		{
-			role: roleSource, category: catInternal,
-			why: "`write report: %v`——`--format=sarif` 报告写不出去（与 --json 同一条规矩，两条通道分开计站点）",
+			why: "`write report: %v`——`--format=sarif` 报告写不出去",
 		},
 		{
 			role: roleSource, category: catInternal,
@@ -233,11 +225,12 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 	"cmd/ngm/audit.go :: runAudit": {{
 		role: roleSource, category: catInternal, why: "`write report: %v`",
 	}},
-	"cmd/ngm/why.go :: runWhy": {{
-		role: roleSource, category: catInternal, why: "`write report: %v`",
-	}},
-	"cmd/ngm/outdated.go :: runOutdated": {{
-		role: roleSource, category: catInternal, why: "`write report: %v`",
+	// P2-3：why / outdated / tree / verify 的 `--json` 写出站景已搬进共用的
+	// `cmdContext.writeReport`。判据照样按 `文件 :: 函数` 计站点，于是它们从各命令
+	// 的登记里**消失**、在这里**出现**——同一条规矩，同一类，不是放松。
+	"cmd/ngm/cmd_context.go :: writeReport": {{
+		role: roleSource, category: catInternal,
+		why: "`write report: %v`——why / outdated / tree / verify 四条命令的 `--json` 报告写不出去",
 	}},
 	"cmd/ngm/build.go :: runBuild": {{
 		role: roleSource, category: catInternal, why: "`write bundle: %v`",

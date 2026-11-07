@@ -51,15 +51,15 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := newFlagSet("doctor", stderr)
 	dir := fs.String("dir", ".", "project directory")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
-	fs.Usage = func() { fmt.Fprint(stderr, doctorUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(doctorUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "json", Bool: true},
-	})); err != nil {
+	}, nil) {
 		// v0.105：`doctor` 是 v0.104 新增的命令，没被 v0.54 那张网接管——
 		// 实测 `ngm doctor --json --bogus` 的 stdout 是 **0 字节**，
 		// 而用户明明提了 `--json`（要机器可读，却只拿到人读的 usage）。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm doctor --help` for the flags it accepts")
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -67,9 +67,9 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return 3
 	}
 
-	env, err := newProjectEnv(*dir)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dir)
+	if code != 0 {
+		return code
 	}
 	rep := doctorReport{Version: 1, OK: true}
 	add := func(name, status, detail string) {

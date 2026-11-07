@@ -73,26 +73,25 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	frozen := fs.Bool("frozen-lockfile", false, "never resolve a new ref or write ngm.lock")
 	offline := fs.Bool("offline", false, "never touch the network")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
-	fs.Usage = func() { fmt.Fprint(stderr, installUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(installUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "digest", Bool: true},
 		{Name: "frozen-lockfile", Bool: true}, {Name: "offline", Bool: true},
 		{Name: "json", Bool: true},
-	})); err != nil {
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}, jsonOut) {
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if fs.NArg() > 0 {
 		fmt.Fprint(stderr, installUsage)
 		return 3
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, envCode := c.env(*dirFlag)
+	if envCode != 0 {
+		return envCode
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {

@@ -43,17 +43,16 @@ func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Write
 	dirFlag := fs.String("dir", ".", "project directory")
 	dryRun := fs.Bool("dry-run", false, "show what would be written")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
-	fs.Usage = func() { fmt.Fprint(stderr, integrationsUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(integrationsUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "dry-run", Bool: true}, {Name: "json", Bool: true},
-	})); err != nil {
+	}, jsonOut) {
 		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if fs.NArg() != 2 || fs.Arg(0) != "add" {
 		fmt.Fprint(stderr, integrationsUsage)
 		return 3
@@ -64,9 +63,9 @@ func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Write
 		return runErr(ctx, stdout, stderr, err)
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, envCode := c.env(*dirFlag)
+	if envCode != 0 {
+		return envCode
 	}
 
 	f, err := mappings.Read(mappings.Find(env.ProjectDir))

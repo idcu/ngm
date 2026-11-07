@@ -69,18 +69,17 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	digestFlag := fs.Bool("digest", false, "also compute and print archiveDigest")
 	storeFlag := fs.Bool("store", false, "populate the content store (implies --digest)")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
-	fs.Usage = func() { fmt.Fprint(stderr, updateUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(updateUsage)
+	if !c.parse([]flagSpec{
 		{Name: "all", Bool: true}, {Name: "dir"}, {Name: "offline", Bool: true},
 		{Name: "digest", Bool: true}, {Name: "store", Bool: true},
 		{Name: "json", Bool: true},
-	})); err != nil {
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}, jsonOut) {
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if !*all && fs.NArg() == 0 {
 		fmt.Fprint(stderr, updateUsage)
 		return 3
@@ -93,9 +92,9 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	// 1) 运行环境 + 项目声明
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, envCode := c.env(*dirFlag)
+	if envCode != 0 {
+		return envCode
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {

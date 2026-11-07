@@ -52,17 +52,15 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	dirFlag := fs.String("dir", ".", "project directory")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	allPaths := fs.Bool("all", false, "list every path (lifts the default cap)")
-	fs.Usage = func() { fmt.Fprint(stderr, whyUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(whyUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "json", Bool: true}, {Name: "all", Bool: true},
-	})); err != nil {
-		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}, jsonOut) {
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if fs.NArg() != 1 {
 		// v0.108：`--json` 下也要给信封。
 		//
@@ -80,9 +78,9 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	targetKey := target.Key()
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {
@@ -140,15 +138,7 @@ func runWhy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *jsonOut {
-		data, merr := rep.Marshal()
-		if merr != nil {
-			return runErr(ctx, stdout, stderr, merr)
-		}
-		if _, werr := stdout.Write(data); werr != nil {
-			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return errs.CodeInternal.ExitCode()
-		}
-		return 0
+		return c.writeReport(rep, 0)
 	}
 
 	rep.Render(stdout)

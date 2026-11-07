@@ -89,18 +89,17 @@ func runAdopt(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	outFlag := fs.String("out", adopt.FileName, "write the proof to this file")
 	jsonOut := fs.Bool("json", false, "write the proof to stdout instead of a file")
 	checkFlag := fs.String("check", "", "compare against a stored proof and write nothing")
-	fs.Usage = func() { fmt.Fprint(stderr, adoptUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	cmd := newCmdContext(ctx, args, stdout, stderr, fs)
+	cmd.usage(adoptUsage)
+	if !cmd.parse([]flagSpec{
 		{Name: "dir"}, {Name: "out"}, {Name: "check"}, {Name: "json", Bool: true},
-	})); err != nil {
+	}, jsonOut) {
 		// v0.54 的规矩对**每一个**接受 --json 的命令成立：解析失败时若用户提了
 		// `--json`，机器那侧要拿到一份信封，而不是 0 字节的 stdout。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm adopt --help` for the flags it accepts")
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = cmd.ctx
 	if fs.NArg() > 0 {
 		failEarly(args, stdout, "unexpected argument "+strconv.Quote(fs.Arg(0)),
 			"`ngm adopt` takes no positional arguments; it describes the directory in --dir")

@@ -126,10 +126,10 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	signatures := fs.Bool("signatures", false, "report each dependency's Git signature status")
 	requireSigned := fs.Bool("require-signed", false,
 		"fail (exit 2) unless every dependency's commit or tag is signed by a key you trust")
-	fs.Usage = func() { fmt.Fprint(stderr, verifyUsage) }
 
-	// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-	if !parseOrFail(args, stdout, fs, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(verifyUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"},
 		{Name: "offline", Bool: true},
 		{Name: "content", Bool: true},
@@ -142,7 +142,8 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		{Name: "sandbox", Bool: true},
 		{Name: "signatures", Bool: true},
 		{Name: "require-signed", Bool: true},
-	}) {
+	}, nil) {
+		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
 		return 3
 	}
 	// `--format` 的两条校验都必须在**任何工作之前**完成：
@@ -209,11 +210,11 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"supported: structure, content"))
 	}
 
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.markJSON(*jsonOut)
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, envCode := c.env(*dirFlag)
+	if envCode != 0 {
+		return envCode
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {
@@ -303,15 +304,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		code := finishVerify(ctx, env, pf, lf,
 			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
 		rep.Summary.ExitCode = code
-		data, merr := rep.Marshal()
-		if merr != nil {
-			return runErr(ctx, stdout, stderr, merr)
-		}
-		if _, werr := stdout.Write(data); werr != nil {
-			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return errs.CodeInternal.ExitCode()
-		}
-		return code
+		return c.writeReport(&rep, code)
 	}
 
 	for i := range rep.Dependencies {

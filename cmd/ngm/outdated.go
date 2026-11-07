@@ -46,25 +46,23 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
-	fs.Usage = func() { fmt.Fprint(stderr, outdatedUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(outdatedUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "offline", Bool: true}, {Name: "json", Bool: true},
-	})); err != nil {
-		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
+	}, jsonOut) {
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 	if fs.NArg() > 0 {
 		fmt.Fprint(stderr, outdatedUsage)
 		return 3
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	lf, err := lock.Read(env.LockPath())
 	if err != nil {
@@ -113,15 +111,7 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	}
 
 	if *jsonOut {
-		data, merr := rep.Marshal()
-		if merr != nil {
-			return runErr(ctx, stdout, stderr, merr)
-		}
-		if _, werr := stdout.Write(data); werr != nil {
-			fmt.Fprintf(stderr, "write report: %v\n", werr)
-			return errs.CodeInternal.ExitCode()
-		}
-		return 0
+		return c.writeReport(rep, 0)
 	}
 
 	rep.Render(stdout)

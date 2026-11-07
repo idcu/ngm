@@ -119,19 +119,21 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	apply := fs.Bool("apply", false, "delete the candidates (default: dry run)")
 	dryRun := fs.Bool("dry-run", false, "explicit spelling of the default dry run")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
-	fs.Usage = func() { fmt.Fprint(stderr, gcUsage) }
-	if !parseOrFail(args, stdout, fs, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(gcUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"},
 		{Name: "apply", Bool: true},
 		{Name: "dry-run", Bool: true},
 		{Name: "json", Bool: true},
-	}) {
+	}, jsonOut) {
 		// 与其他命令同一条通道：提了 --json 的早期失败也要给一份错误信封。
 		return 3
 	}
+	ctx = c.ctx
 	// 从这里起，失败路径走 runErr：`--json` 时它会把一份完整的错误信封
 	// 写到 stdout（配置文件/lock 读不出来也是一种"没有报告可给"的失败）。
-	ctx = markJSONIfRequested(ctx, *jsonOut)
 	if fs.NArg() != 0 {
 		fmt.Fprint(stderr, gcUsage)
 		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
@@ -144,9 +146,9 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			"keep one: omit both for a dry run, or pass --apply to delete"))
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {

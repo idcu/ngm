@@ -62,25 +62,24 @@ func runAudit(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	noCache := fs.Bool("no-cache", false, "bypass the OSV cache and re-query")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 	hook := fs.String("hook", "", "script to run in the sandbox with the report on stdin")
-	fs.Usage = func() { fmt.Fprint(stderr, auditUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(auditUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"},
 		{Name: "offline", Bool: true},
 		{Name: "no-cache", Bool: true},
 		{Name: "json", Bool: true},
 		{Name: "hook"},
-	})); err != nil {
+	}, jsonOut) {
 		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
-		failEarly(args, stdout, err.Error(),
-			"run `ngm "+fs.Name()+" --help` for the flags it accepts")
 		return 3
 	}
-	ctx = markJSONIfRequested(ctx, *jsonOut)
+	ctx = c.ctx
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {
