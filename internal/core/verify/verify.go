@@ -513,6 +513,9 @@ func resolveTargetRef(ctx context.Context, repo resolve.Canonical, d *lock.Depen
 		MirrorDir: opts.MirrorRoot,
 		Protocol:  opts.Protocol,
 		Secrets:   opts.GitOpts.Secrets,
+		// 离线 verify 不注入 ResolveRemoteRef，这条分支就是它的唯一出口；
+		// 不带 Offline 时冷 mirror 会回退到 CloneURL——"绝不触网"于是失效。
+		Offline: opts.Offline,
 	})
 }
 

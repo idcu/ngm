@@ -25,6 +25,11 @@ type ResolveOptions struct {
 	Protocol Protocol
 	// Secrets 是需要在错误输出中脱敏的字面量（通常来自 tokenEnvVars 的值）。
 	Secrets []string
+	// Offline 为 true 时**绝不回退到远端**：只认 GitURL 或 MirrorDir 下已存在的
+	// 本地仓库。冷 mirror 会返回 CodeGitFetch(4)，而不是悄悄发起一次网络请求。
+	//
+	// 这是 `verify --offline` / `tree --offline` 的"绝不触网"承诺在解析层的落点。
+	Offline bool
 	// Policy 是权限判定器（可为 nil）。
 	//
 	// 传进来是为了让本包发出的 git 子进程同样受 `run:git` 约束：
@@ -185,7 +190,18 @@ func normalizeCommitRef(ref string) (string, error) {
 
 // resolveNamedRef 处理 tag / branch。
 func resolveNamedRef(ctx context.Context, repo Canonical, ref string, refType RefType, opts ResolveOptions) (string, error) {
-	lsURL, isLocalMirror := pickLSRemoteURL(repo, opts)
+	var lsURL string
+	var isLocalMirror bool
+	if opts.Offline {
+		var oerr error
+		lsURL, oerr = offlineLSRemoteURL(repo, opts)
+		if oerr != nil {
+			return "", oerr
+		}
+		isLocalMirror = true
+	} else {
+		lsURL, isLocalMirror = pickLSRemoteURL(repo, opts)
+	}
 
 	// net 门禁：ls-remote 是网络访问。放在这里而不是调用方，是因为
 	// 只有本函数知道最终用哪个地址（本地 mirror 路径不算网络访问，
@@ -245,6 +261,29 @@ func pickLSRemoteURL(repo Canonical, opts ResolveOptions) (string, bool) {
 		proto = ProtocolHTTPS
 	}
 	return repo.CloneURL(proto), false
+}
+
+// offlineLSRemoteURL 是 `Offline` 模式下的地址选择：只认**已存在**的本地仓库。
+//
+// 它刻意不复用 pickLSRemoteURL：后者的最后一步是 `repo.CloneURL(proto)`，
+// 而离线承诺恰恰是"连构造远端地址这一步都不做"。冷 mirror 在这里就失败，
+// 退出码 4（Git/网络类，缺资源也归这一档——见 architecture/observability.md）。
+func offlineLSRemoteURL(repo Canonical, opts ResolveOptions) (string, error) {
+	if opts.GitURL != "" {
+		if st, err := os.Stat(opts.GitURL); err == nil && st.IsDir() {
+			return opts.GitURL, nil
+		}
+	}
+	if opts.MirrorDir != "" {
+		p := filepath.Join(opts.MirrorDir, filepath.FromSlash(repo.MirrorRelPath()+".git"))
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			return p, nil
+		}
+	}
+	return "", errs.New(errs.CodeGitFetch,
+		fmt.Sprintf("%s: offline and no local mirror is present", repo.Slug()),
+		"run `ngm install` or `ngm update` while online to populate the mirror, then retry; "+
+			"or drop --offline if network access is allowed")
 }
 
 // decorateFetchError 给网络类失败补充上下文（镜像/远端），并把 hint 指向凭证配置。

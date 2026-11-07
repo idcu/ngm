@@ -129,6 +129,9 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 				Protocol:  env.Protocol,
 				Secrets:   env.GitOpts.Secrets,
 				Policy:    env.GitOpts.Policy,
+				// `tree --offline` 连"构造远端地址"都不该发生：冷 mirror 下
+				// 漂移检查读取失败，退 4，而不是悄悄联网（S1-3）。
+				Offline: *offline,
 			})
 			if rerr != nil {
 				unresolved++
@@ -142,9 +145,17 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		if unresolved > 0 {
-			treeNotes = append(treeNotes, fmt.Sprintf(
-				"drift was not checked for %d dependency(ies): the local mirror is incomplete (%s)",
-				unresolved, firstErr))
+			if *offline {
+				// 离线时刻意不展开错误文本：错误里含 `GitFetch`/镜像路径，
+				// 会让"图完整、无需 mirror"的 tree 看起来像碰过 mirror（S1-3）。
+				treeNotes = append(treeNotes, fmt.Sprintf(
+					"drift was not checked for %d dependency(ies): --offline and the local mirror is incomplete",
+					unresolved))
+			} else {
+				treeNotes = append(treeNotes, fmt.Sprintf(
+					"drift was not checked for %d dependency(ies): the local mirror is incomplete (%s)",
+					unresolved, firstErr))
+			}
 		}
 	} else {
 		// `--offline` 必须**穿进图解析**：解析要读上游 manifest，而离线时它只能来自
