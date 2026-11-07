@@ -1,8 +1,8 @@
 # 路线图
 
 > ngm 的产品路线。**v0.1 ~ v0.101 均已交付**（证据见各版[复盘](../development/)与计划）。
-> **一百个 tag 全部已打**；发布则是另一回事，2026-10-10 直接问过两个源的 API：
-> GitHub 有 101 个里的 60 个 release（各 7 个资产），它的 tag 有 101 个（全部版本；镜像转发 tag 但不触发 workflow，所以 `v0.66.0` 起的 tag 有 tag 无 release），
+> **101 个 tag 全部已打**；发布则是另一回事，2026-11-03 复核过两个源的 API：
+> GitHub 有 101 个里的 63 个 release（本轮回填 3 个；附件数与最新版见[发布流水线](../guides/release-pipeline.md)），它的 tag 有 101 个（全部版本；镜像转发 tag 但不触发 workflow，所以 `v0.66.0` 起的 tag 有 tag 无 release），
 > Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
 > Gitee 侧现在有读数可复跑：`bash scripts/check-gitee-release-status.sh`

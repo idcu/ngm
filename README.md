@@ -37,15 +37,16 @@ ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `
 | 测试与 CI | 三平台（Linux / macOS / Windows）build + vet + test，另有 `-race`、验收测试、真实引擎集成与文档链接检查 |
 | 许可 | MIT |
 
-发布读数（2026-10-30 文档记录，本轮未联网复核）：
+发布读数（2026-11-03；权威读数与复核方式见 [release-pipeline.md](docs/guides/release-pipeline.md)）：
 
 | 源 | 有 release 的版本 | 说明 |
 |---|---|---|
-| GitHub | 只有较早的一部分 tag | release 覆盖到 `v0.64.0` 一带；镜像转发的 tag 不会触发 release workflow |
-| Gitee | 仅 `v0.2.0`–`v0.4.0` | 只有这几个版本有附件 |
+| GitHub | **63** 个正式版（`v0.1.0`–`v0.4.0`、`v0.9.0`–`v0.64.0`、`v0.99.0`/`v0.100.0`/`v0.101.0`）+ **1** 个预发布（`v0.102.0-dev.2`） | 镜像转发的 tag 不触发 release workflow |
+| Gitee | 仅 `v0.2.0`–`v0.4.0`（3 个） | 只有这几个版本有附件；`GITEE_UPLOAD` / `GITEE_TOKEN` 未启用 |
 
-两个主机上的 tag 集合一致（以 `git tag` 与远端 ref 的读数为准），差的就是 release 附件覆盖：
-差的 0 个是未推送的。
+两个主机上的 tag 集合一致（101 个正式 tag + 2 个预发布 tag）；差的只是 release 附件覆盖。
+正式 tag 的 release 缺口是 **38 个**（`v0.5.0`–`v0.8.0` 与 `v0.65.0`–`v0.98.0`），补发决定与理由见
+[release-pipeline.md](docs/guides/release-pipeline.md#2-回填范围只补四版)。
 
 > **预编译产物不是最新能力的可靠来源。** 两个源的 release 覆盖都远少于 tag。要使用当前源码的行为，请按[从源码构建](#方式一从源码构建推荐)。
 

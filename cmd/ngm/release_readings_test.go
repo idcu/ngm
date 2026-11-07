@@ -117,6 +117,106 @@ var (
 	reVersionToken = regexp.MustCompile(`v[0-9]+\.[0-9]+(?:\.[0-9]+)?`)
 )
 
+// TestV126LiveDocsAgreeWithReleasePipeline 把 E1（P1-7）的同源要求钉成判据：
+// `docs/guides/release-pipeline.md` 是唯一事实源，README、`docs/README.md` 与
+// `docs/guides/installation.md` 三份对外文档必须写出**同一个**读数。
+//
+// 为什么 v0.58 那条不够：它只检查"处处相同 + 算术关系"，而 63 / 38 这些新读数
+// 在同步后的写法（"63 个正式版"、"release 缺口是 38 个"）本就不在它的模式集里。
+// 也就是说文档改了、它照样全绿——它**没看着**这几个数。这一条把事实源本身
+// 解析出来（源里读不到锚点即 Fatal），再逐份文档要求"读得到、且等于源"。
+func TestV126LiveDocsAgreeWithReleasePipeline(t *testing.T) {
+	src := mustReadDoc(t, "../../docs/guides/release-pipeline.md")
+
+	formalTags := sourceInt(t, src, `正式 tag \| (\d+)（`, "正式 tag 数")
+	ghReleases := sourceInt(t, src, `有 release 的版本 \| \*\*(\d+)\*\* 个正式版`, "GitHub release 数")
+	giteeReleases := sourceInt(t, src, `\| \*\*(\d+)\*\*（`+"`v0.2.0`", "Gitee 发行版数")
+	gap := sourceInt(t, src, `缺口是 \*\*(\d+) 个\*\*：`, "release 缺口")
+	latest := sourceString(t, src, `最新有 release 的版本 \| `+"`(v[0-9]+\\.[0-9]+\\.[0-9]+)`（正式）",
+		"最新有 release 的版本")
+
+	checks := []struct {
+		doc     string
+		pattern string
+		what    string
+		want    int
+	}{
+		{"../../README.md", `(\d+) 个正式 tag`, "正式 tag 数", formalTags},
+		{"../../README.md", `\*\*(\d+)\*\* 个正式版`, "GitHub release 数", ghReleases},
+		{"../../README.md", `（(\d+) 个）`, "Gitee 发行版数", giteeReleases},
+		{"../../README.md", `release 缺口是 \*\*(\d+) 个\*\*`, "release 缺口", gap},
+
+		{"../../docs/README.md", `(\d+) 个正式 tag`, "正式 tag 数", formalTags},
+		{"../../docs/README.md", `GitHub 上有 \*\*(\d+) 个\*\* release`, "GitHub release 数", ghReleases},
+		{"../../docs/README.md", `Gitee 上只有 \*\*(\d+) 个\*\*`, "Gitee 发行版数", giteeReleases},
+		{"../../docs/README.md", `正式版缺口 (\d+) 个`, "release 缺口", gap},
+
+		{"../../docs/guides/installation.md", `共 (\d+) 个正式版`, "GitHub release 数", ghReleases},
+		{"../../docs/guides/installation.md", `正式版缺口共 (\d+) 个`, "release 缺口", gap},
+
+		{"../../docs/README.md", "最新正式版 `(v[0-9]+\\.[0-9]+\\.[0-9]+)`", "最新正式版", 0},
+		{"../../docs/guides/installation.md", "最新正式版 `(v[0-9]+\\.[0-9]+\\.[0-9]+)`", "最新正式版", 0},
+	}
+
+	readings := 0
+	for _, c := range checks {
+		text := mustReadDoc(t, c.doc)
+		re := regexp.MustCompile(c.pattern)
+		ms := re.FindAllStringSubmatch(text, -1)
+		if len(ms) == 0 {
+			t.Errorf("%s: 读不到 %s——写法变了而判据没跟上（这会让同源检查静默变松）", c.doc, c.what)
+			continue
+		}
+		for _, m := range ms {
+			readings++
+			if c.want == 0 {
+				if m[1] != latest {
+					t.Errorf("%s: %s 写着 %s，而 release-pipeline 的最新正式版是 %s",
+						c.doc, c.what, m[1], latest)
+				}
+				continue
+			}
+			if got := mustAtoi(t, m[1]); got != c.want {
+				t.Errorf("%s: %s 写着 %d，而 release-pipeline 是 %d", c.doc, c.what, got, c.want)
+			}
+		}
+	}
+	if readings == 0 {
+		t.Fatal("一处读数都没核对到——这条判据的范围缩到零了")
+	}
+	t.Logf("release-pipeline 同源读数：tags=%d · github=%d · gitee=%d · gap=%d · latest=%s · %d 处核对",
+		formalTags, ghReleases, giteeReleases, gap, latest, readings)
+}
+
+func mustReadDoc(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读不到 %s：%v", path, err)
+	}
+	return string(b)
+}
+
+// sourceInt 从事实源里读出唯一一个锚点数字；读不到即 Fatal（锚点失效时
+// 判据不能默默改看别的东西）。
+func sourceInt(t *testing.T, text, pattern, what string) int {
+	t.Helper()
+	m := regexp.MustCompile(pattern).FindStringSubmatch(text)
+	if m == nil {
+		t.Fatalf("release-pipeline.md 里读不到 %s（锚点失效）", what)
+	}
+	return mustAtoi(t, m[1])
+}
+
+func sourceString(t *testing.T, text, pattern, what string) string {
+	t.Helper()
+	m := regexp.MustCompile(pattern).FindStringSubmatch(text)
+	if m == nil {
+		t.Fatalf("release-pipeline.md 里读不到 %s（锚点失效）", what)
+	}
+	return m[1]
+}
+
 func TestV58PublishedReadingsAgreeWithTheirSource(t *testing.T) {
 	delivered, latest := deliveredVersions(t)
 	if delivered < 10 {
