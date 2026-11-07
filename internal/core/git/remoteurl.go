@@ -3,7 +3,50 @@ package git
 import (
 	"net/url"
 	"strings"
+
+	"github.com/idcu/ngm/internal/core/errs"
 )
+
+// ValidateRemoteURL 只接受 ngm 认识的远端地址形状。
+//
+// 为什么需要它（C3）：`git clone <url>` 会把 URL 交给**远程 helper**，
+// 而 `ext::sh -c ...` / `fd::` 这类 helper 能执行任意命令；URL 以 `-` 开头
+// 时还会被 git 当成选项（可以注入 `-c core.sshCommand=...`）。ngm 只支持
+// 常规协议与本地路径，其余形状在构造子进程之前就拒绝。
+//
+// 允许：https/http/ssh/git/file 的 URL、scp 形式（`git@host:org/repo.git`）、
+// 以及本地路径（绝对/相对/UNC/盘符——测试与预置 mirror 都依赖它）。
+func ValidateRemoteURL(raw string) error {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return errs.New(errs.CodeConfigInvalid, "empty remote URL",
+			"check the dependency declaration")
+	}
+	if strings.HasPrefix(s, "-") {
+		return errs.New(errs.CodeConfigInvalid,
+			"refusing a remote URL that starts with '-': "+s,
+			"the address is passed to `git clone` directly; an option-shaped value is not a repository")
+	}
+	// `ext::` / `fd::` / 任何 `helper::addr` 都是远程 helper。
+	if !strings.Contains(s, "://") && strings.Contains(s, "::") {
+		return errs.New(errs.CodeConfigInvalid,
+			"refusing git remote helper address: "+s,
+			"only https/ssh/git/file URLs, scp-style addresses, or local paths are supported")
+	}
+	if _, network := HostFromRemoteURL(s); network {
+		if i := strings.Index(s, "://"); i > 0 {
+			switch strings.ToLower(s[:i]) {
+			case "https", "http", "ssh", "git", "file":
+				return nil
+			}
+			return errs.New(errs.CodeConfigInvalid,
+				"unsupported remote URL scheme: "+s,
+				"use https/ssh/git, or a local path")
+		}
+		return nil // scp 形式
+	}
+	return nil // 本地路径
+}
 
 // HostFromRemoteURL 从远端 URL 里取出主机名。
 //

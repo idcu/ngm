@@ -31,6 +31,9 @@ func CloneMirror(ctx context.Context, opts Options, remoteURL, localPath string)
 	if strings.TrimSpace(remoteURL) == "" {
 		return errs.New(errs.CodeGitFetch, "clone: empty remote URL", "check the dependency declaration")
 	}
+	if verr := ValidateRemoteURL(remoteURL); verr != nil {
+		return verr
+	}
 	if localPath == "" {
 		return errs.New(errs.CodeGitFetch, "clone: empty local path", "pass the mirror path explicitly")
 	}
@@ -92,6 +95,9 @@ const PartialFilter = "blob:none"
 func ClonePartial(ctx context.Context, opts Options, remoteURL, localPath string) error {
 	if strings.TrimSpace(remoteURL) == "" {
 		return errs.New(errs.CodeGitFetch, "clone: empty remote URL", "check the dependency declaration")
+	}
+	if verr := ValidateRemoteURL(remoteURL); verr != nil {
+		return verr
 	}
 	if localPath == "" {
 		return errs.New(errs.CodeGitFetch, "clone: empty local path",

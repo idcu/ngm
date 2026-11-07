@@ -46,18 +46,23 @@ func v4NewSignerKeys(t *testing.T) v4SignerKeys {
 
 // v4PointGitAt 让**本进程里跑的 git** 用这份信任配置。
 //
-// 判定用的必须是用户自己的密钥配置（ADR-014 决策 2）——测试通过 GIT_CONFIG_GLOBAL
-// 扮演"用户已经配好了 keyring"这一前提。
+// 判定用的必须是用户自己的密钥配置（ADR-014 决策 2）——测试通过隔离的
+// $HOME/.gitconfig 扮演"用户已经配好了 keyring"这一前提。
+// 不用 GIT_CONFIG_GLOBAL：ngm 的 git 子进程现在会剔除所有 GIT_CONFIG_* 覆盖
+// （P1-3），用户自己的配置文件才是被保留的那条通道。
 func v4PointGitAt(t *testing.T, allowedSigners string) {
 	t.Helper()
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	home := strings.TrimSpace(os.Getenv("HOME"))
+	if home == "" {
+		t.Fatalf("isolateUserEnv must set HOME before pointing git at a config")
+	}
+	cfg := filepath.Join(home, ".gitconfig")
 	// 正斜杠：git 配置里反斜杠是转义字符，Windows 路径会被判为非法配置。
 	body := "[gpg]\n\tformat = ssh\n[gpg \"ssh\"]\n\tallowedSignersFile = " +
 		filepath.ToSlash(allowedSigners) + "\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
 }
 
 // v4SignedUpstream 建一个 commit 已签名的上游 fixture。

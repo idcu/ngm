@@ -155,6 +155,33 @@ var repoLocatingEnvVars = map[string]bool{
 	"GIT_PREFIX":                       true,
 }
 
+// hijackEnvVars 是"能把 git 的行为改成执行另一段程序或读写另一份配置"的变量。
+//
+// 它们比 GIT_DIR 一类更危险：GIT_SSH_COMMAND / GIT_ASKPASS / GIT_PAGER 可以直接
+// 执行命令，GIT_CONFIG_* 能覆盖 git 读取的配置文件、把 ngm 的显式参数改成任意值。
+// 继承它们等于把"ngm 决定做什么"交给调用环境。保留的通道是凭证本身
+// （token / ssh-agent / credential helper）与用户自己的 ~/.gitconfig——
+// 那些不在本表里，显式 deny 仍由 deny 列表处理。
+var hijackEnvVars = map[string]bool{
+	"GIT_SSH_COMMAND":       true,
+	"GIT_SSH":               true,
+	"GIT_ASKPASS":           true,
+	"SSH_ASKPASS":           true,
+	"GIT_EXTERNAL_DIFF":     true,
+	"GIT_PROXY_COMMAND":     true,
+	"GIT_PAGER":             true,
+	"GIT_CONFIG":            true, // 旧版：指向配置文件
+	"GIT_CONFIG_GLOBAL":     true,
+	"GIT_CONFIG_SYSTEM":     true,
+	"GIT_CONFIG_PARAMETERS": true,
+}
+
+// hijackEnvPrefixes 是按前缀匹配的同一类变量。
+//
+// GIT_CONFIG_COUNT / KEY_n / VALUE_n 能把任意键值塞进 git 的配置而不需要用户
+// 写文件；GIT_CONFIG_NOSYSTEM 不在表里——它只会**收紧**系统配置的读取。
+var hijackEnvPrefixes = []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
+
 // buildEnv 构造子进程环境。
 //
 // 关键点：
@@ -188,7 +215,10 @@ func buildEnv(opts Options) []string {
 		}
 		upper := strings.ToUpper(name)
 		// Windows 环境变量名不区分大小写
-		if repoLocatingEnvVars[upper] || deniedEnv[upper] {
+		if repoLocatingEnvVars[upper] || hijackEnvVars[upper] || deniedEnv[upper] {
+			continue
+		}
+		if hasHijackPrefix(upper) {
 			continue
 		}
 		env = append(env, e)
@@ -199,6 +229,16 @@ func buildEnv(opts Options) []string {
 	env = append(env, "LC_ALL=C", "LANG=C")
 	env = append(env, opts.ExtraEnv...)
 	return env
+}
+
+// hasHijackPrefix 报告大写变量名是否落在 hijackEnvPrefixes 之一。
+func hasHijackPrefix(upper string) bool {
+	for _, p := range hijackEnvPrefixes {
+		if strings.HasPrefix(upper, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // hintForGitFailure 依据 stderr 内容给出可操作建议。

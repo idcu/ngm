@@ -132,18 +132,22 @@ func TestCommitSignature_RealSSHSignature(t *testing.T) {
 	runGitIn(t, dir, nil, "commit", "-q", "-S", "-m", "signed")
 	signed := strings.TrimSpace(runGitIn(t, dir, nil, "rev-parse", "HEAD"))
 
-	// 验证端配置：通过 GIT_CONFIG_GLOBAL 指向一份 allowed_signers。
+	// 验证端配置：写进隔离的 $HOME/.gitconfig。
 	// 关键点——判定用的是**用户自己的**密钥配置，ngm 不参与密钥管理。
+	// 不用 GIT_CONFIG_GLOBAL：buildEnv 会剔除所有 GIT_CONFIG_* 覆盖（P1-3），
+	// 用户的配置文件才是被保留的那条通道。
 	//
 	// 路径写成正斜杠：git 配置文件里反斜杠是转义字符，Windows 的 `C:\...`
 	// 会被判为非法配置（实测 `fatal: bad config line`）。
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cfg := filepath.Join(home, ".gitconfig")
 	body := "[gpg]\n\tformat = ssh\n[gpg \"ssh\"]\n\tallowedSignersFile = " +
 		filepath.ToSlash(keys.allowedSigners) + "\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
 
 	sig, err := CommitSignature(context.Background(), Options{Dir: dir}, dir, signed)
 	if err != nil {
