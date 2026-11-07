@@ -74,12 +74,20 @@
 
 ## 已知 flaky（记录在案，不隐藏）
 
-- `TestV106WhyBoundsTheSearchEvenWhenNothingMatches`（`internal/observability/v106_test.go`）：
-  判据内置 500ms 墙钟预算（"不限量时 0.78s；有预算时应当两个数量级更快"）。**触发条件**：
-  多个全量测试并发跑、机器负载高时，有界搜索会超过 500ms 而判红。实测：h7（`cb31978`）首次
-  全量与并行验证同时进行时该用例 645.97ms 判红；同一 worktree 单独复跑 20.4183ms PASS；随后
-  单独全量重跑 `internal/observability` 4.680s、整体 BUILD/VET/TEST 全 0。**处理约定**：不放松
-  500ms 上界，只在单独/低负载环境复跑；若单跑仍超预算，按真实性能回归处理。
+- ~~`TestV106WhyBoundsTheSearchEvenWhenNothingMatches`~~ **已修复（v0.131）**：
+  原判据用 `elapsed > 500ms` 作为"工作量预算生效"的代理，并发高负载下 h7 验证时
+  实测 645.97ms 判红（同一 worktree 单独复跑 20.4183ms PASS）。现在改为**结构性断言**：
+  `findPaths` 额外返回访问计数，判据钉住"预算恰好在 `MaxWhyWork+1` 次访问处停手"，
+  再注入小预算（5 次）证明参数真的控制停点；生产入口 `FindPaths` 另行钉住
+  `truncated=true`。预算值未调大、未加 retry——只把墙钟代理换成了它代理的那个量。
+  复跑读数：3 路并发 × `-count=20`（共 60 次）叠加全量套件负载，全部 PASS。
+
+- 其它同类**墙钟上界**用例（本轮只登记，不改；阈值相对被测耗时均留 8–10 倍余量，
+  暂未观察到抖动，若出现按 V106 同一思路改成计数/结构断言）：
+  - `TestV17WhyPathsAreBoundedAndSaySo`（`internal/observability/limits_test.go`，100ms 上界）
+  - `internal/adapter/waitdelay_test.go`（20s 上界）
+  - `internal/core/git/waitdelay_test.go`（20s 上界）
+  - `internal/core/vendor/store_scale_test.go`（`Usage()` 30s 上界）
 
 ## 验收（每批）
 
