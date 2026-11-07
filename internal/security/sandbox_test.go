@@ -109,7 +109,10 @@ func TestGrants_DenoArgs(t *testing.T) {
 	t.Run("everything ungranted is denied explicitly", func(t *testing.T) {
 		args := Grants{}.DenoArgs()
 		joined := strings.Join(args, " ")
-		for _, want := range []string{"--deny-read", "--deny-net", "--deny-run", "--deny-env", "--deny-write"} {
+		for _, want := range []string{
+			"--deny-read", "--deny-net", "--deny-run", "--deny-env", "--deny-write",
+			"--deny-sys", "--deny-ffi", "--deny-hrtime",
+		} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("argv must state the denial explicitly (%s is missing): %v", want, args)
 			}
@@ -211,18 +214,32 @@ func TestV105SandboxDeniesModuleLoading(t *testing.T) {
 	}
 }
 
-func TestEnvWithout(t *testing.T) {
-	env := []string{"PATH=/bin", "GITHUB_TOKEN=secret", "HOME=/home/x"}
-	got := envWithout(env, []string{"github_token"})
-	joined := strings.Join(got, " ")
-	if strings.Contains(joined, "secret") {
-		t.Errorf("the denied variable survived: %v", got)
+func TestSandboxEnvIsMinimal(t *testing.T) {
+	t.Setenv("NGM_SANDBOX_SECRET", "s3cr3t")
+	t.Setenv("PATH", "/sandbox/bin")
+
+	// 默认：只保留运行时必需的变量，token 类不进入子进程。
+	joined := strings.Join(sandboxEnv(Grants{}, nil), " ")
+	if strings.Contains(joined, "s3cr3t") {
+		t.Errorf("an unneeded variable leaked into the sandbox: %v", sandboxEnv(Grants{}, nil))
 	}
-	if !strings.Contains(joined, "PATH=/bin") || !strings.Contains(joined, "HOME=/home/x") {
-		t.Errorf("unrelated variables must survive: %v", got)
+	if _, ok := os.LookupEnv("PATH"); ok && !strings.Contains(joined, "PATH=/sandbox/bin") {
+		t.Errorf("PATH must survive: %v", sandboxEnv(Grants{}, nil))
 	}
-	if len(envWithout(env, nil)) != len(env) {
-		t.Error("with nothing denied the environment must pass through")
+
+	// 显式授权过的名字才进入。
+	if got := strings.Join(sandboxEnv(Grants{Env: []string{"NGM_SANDBOX_SECRET"}}, nil), " "); !strings.Contains(got, "s3cr3t") {
+		t.Errorf("a granted env var must reach the child: %v", got)
+	}
+
+	// deny 永远优先于 allow（与 git / 引擎两个施力点同一语义）。
+	if got := strings.Join(sandboxEnv(Grants{Env: []string{"NGM_SANDBOX_SECRET"}}, []string{"ngm_sandbox_secret"}), " "); strings.Contains(got, "s3cr3t") {
+		t.Errorf("deny must win over allow: %v", got)
+	}
+
+	// 逗号路径必须 fail-closed：Deno 的 allow-read 用逗号分隔且不可转义。
+	if _, err := (&Policy{}).PlanSandbox(Needs{ReadDirs: []string{"/tmp/a,b"}}); err == nil {
+		t.Error("a read path containing ',' must be rejected, not silently split")
 	}
 }
 

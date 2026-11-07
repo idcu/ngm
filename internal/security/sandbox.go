@@ -78,6 +78,17 @@ func (pol *Policy) PlanSandbox(n Needs) (Grants, error) {
 	var g Grants
 
 	for _, dir := range n.ReadDirs {
+		// Deno 的 `--allow-read` 只有一个值，多个路径用逗号分隔——而
+		// 逗号同时是**路径字符**。含逗号的路径会被拆成两项，等于授予了
+		// 另一个（相对解析的）位置。实测 Deno 1.45.2 拒绝重复的
+		// `--allow-read=a --allow-read=b`（"cannot be used multiple times"），
+		// 所以这里只能 fail-closed：表达不出来就不授予。
+		if strings.Contains(dir, ",") {
+			return Grants{}, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("sandbox read path %q contains a comma", dir),
+				"Deno expresses multiple read paths as one comma-separated flag and has no escaping; "+
+					"move the dependency out of a directory whose name contains ','")
+		}
 		if err := pol.Check(Permission{Namespace: Read, Target: dir}); err != nil {
 			return Grants{}, err
 		}
@@ -129,6 +140,20 @@ func (g Grants) DenoArgs() []string {
 	// 沙箱在文件系统与网络两个维度上的约束都可以被一次性绕开。
 	// 沙箱的意义就在于这两条约束，因此这里不给任何开口。
 	args = append(args, "--deny-run")
+
+	// 其余三个"默认拒绝"的权限也显式写出来，理由同上：读 argv 的人
+	// 应当直接看到边界，而不是需要相信运行时默认值。
+	//
+	// - ffi：加载动态库等于得到整个进程的文件系统与网络能力；
+	// - sys：暴露主机信息（主机名、内存、OS 版本），是 fingerprinting 与
+	//   绕过"无网络"承诺的辅路；
+	// - hrtime：高精度计时让脚本可以做侧信道测量。
+	//
+	// Deno 没有 `--deny-node`（1.45.2 的 `deno run --help` 里不存在这个 flag，
+	// 传了会让整个沙箱启动失败）。Node 兼容面由 `--no-npm` 与上面的
+	// read/write/net/run/env 拒绝共同约束：`node:` 内置模块的每次访问仍要过
+	// 同一套权限检查，而 npm 解析已在模块加载层关掉。
+	args = append(args, "--deny-sys", "--deny-ffi", "--deny-hrtime")
 	if len(g.Env) > 0 {
 		args = append(args, "--allow-env="+strings.Join(g.Env, ","))
 	} else {
@@ -233,6 +258,8 @@ func (d Deno) Probe(ctx context.Context) error {
 	args = append(args, script)
 
 	cmd := exec.CommandContext(runCtx, d.Path, args...)
+	// 探测同样只拿到最小环境：探测脚本与真实脚本走同一条边界。
+	cmd.Env = sandboxEnv(Grants{Read: []string{dir}}, d.DeniedEnv)
 	// 见 runProcess 的同类说明（internal/adapter/subprocess.go）：
 	// ctx 只杀直接子进程，孙进程持有管道时 Wait() 会越过期限。
 	// **这里尤其要紧**：跑的是用户自己的 postinstall 钩子，
@@ -284,7 +311,7 @@ func (d Deno) RunScript(ctx context.Context, req ScriptRequest) (*Result, error)
 	if len(req.Stdin) > 0 {
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
-	cmd.Env = envWithout(os.Environ(), d.DeniedEnv)
+	cmd.Env = sandboxEnv(req.Grants, d.DeniedEnv)
 
 	// 输出必须有上界（v0.107）：沙箱约束了网络、写入与派生，而**内存**
 	// 是同一个边界内最容易打穿的一维——一条 `while(true) console.log("x")`
@@ -359,12 +386,43 @@ func firstLine(s string) string {
 	return s
 }
 
-// envWithout 从环境里剔除指定变量（大小写不敏感，Windows 环境变量名不区分大小写）。
+// sandboxEnvVars 是沙箱子进程**必须**保留的系统变量。
 //
-// 实现在 [envutil.Without]：`deny: ["env:X"]` 有三个施力点（git / 沙箱 / 引擎），
-// 三者必须共用同一份语义——v0.105 的引擎侧缺陷正是"只修了其中两份"。
-func envWithout(env, drop []string) []string {
-	return envutil.Without(env, drop)
+// 只留下运行时启动、证书与临时目录所必需的项：沙箱脚本能读到什么由
+// `--allow-env` 决定，但把父进程的 token 带进子进程环境本身就是不必有的
+// 暴露面（`node:process.env` 之外的路径也可能读到它）。授权过的名字
+// （Needs.EnvVars）另行加入；`deny: ["env:X"]` 永远优先。
+var sandboxEnvVars = []string{
+	"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR",
+	"TEMP", "TMP", "TMPDIR", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT",
+	"DENO_DIR", "DENO_NO_UPDATE_CHECK", "DENO_TLS_CA_STORE",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+}
+
+// sandboxEnv 构造沙箱子进程的最小环境。
+//
+// 实现在 [envutil.Without] 上收尾：`deny: ["env:X"]` 有三个施力点
+// （git / 沙箱 / 引擎），三者必须共用同一份"deny 优先"语义——v0.105 的
+// 引擎侧缺陷正是"只修了其中两份"。这里是第四个施力点，但同样是**收缩**。
+func sandboxEnv(g Grants, denied []string) []string {
+	keep := make(map[string]bool, len(sandboxEnvVars)+len(g.Env))
+	for _, n := range sandboxEnvVars {
+		keep[strings.ToUpper(n)] = true
+	}
+	for _, n := range g.Env {
+		keep[strings.ToUpper(n)] = true
+	}
+	kept := make([]string, 0, len(sandboxEnvVars))
+	for _, kv := range os.Environ() {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		if keep[strings.ToUpper(name)] {
+			kept = append(kept, kv)
+		}
+	}
+	return envutil.Without(kept, denied)
 }
 
 // ScriptPath 返回依赖目录下的自证脚本路径。
