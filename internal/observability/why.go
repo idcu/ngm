@@ -181,11 +181,22 @@ const MaxWhyWork = 100_000
 // 而不是由"碰到了上限"推断：图里**恰好**只有 max 条路径时，truncated 必须是 false——
 // 否则报告会把"全部列完了"说成"还有更多"，同样是一种说谎。
 func FindPaths(g *resolve.Graph, target string, max int) ([][]string, bool) {
+	paths, truncated, _ := findPaths(g, target, max, MaxWhyWork)
+	return paths, truncated
+}
+
+// findPaths 是 FindPaths 的实现；visited 是这次枚举**访问过的节点次数**
+// （同一节点经不同路径会各算一次，因此它衡量的是工作量而不是图的大小）。
+//
+// 它单独存在是为了让判据能直接断言"预算停在哪一次访问"，而不是靠墙钟：
+// v0.106 的原始用例用 500ms 作代理上界，并发负载下会偶发误伤（见 tasks.md
+// 的 flaky 记录）。计数与机器速度无关，同一条图在任何负载下都得到同一个数。
+func findPaths(g *resolve.Graph, target string, max, workBudget int) ([][]string, bool, int) {
 	limit := 0
 	work := 0
 	if max > 0 {
 		limit = max + 1
-		work = MaxWhyWork
+		work = workBudget
 	}
 	w := &walker{target: target, children: childrenOf(g), limit: limit, work: work}
 
@@ -207,14 +218,14 @@ func FindPaths(g *resolve.Graph, target string, max int) ([][]string, bool) {
 	// （"目标不可达"与"我们没搜完"是两件事，这里只能诚实地说后者）。
 	if w.budgetHit {
 		if max > 0 && len(w.out) > max {
-			return w.out[:max], true
+			return w.out[:max], true, w.visited
 		}
-		return w.out, true
+		return w.out, true, w.visited
 	}
 	if max > 0 && len(w.out) > max {
-		return w.out[:max], true
+		return w.out[:max], true, w.visited
 	}
-	return w.out, false
+	return w.out, false, w.visited
 }
 
 // walker 承载一次枚举的状态；stopped 让达到上限后**立刻停止遍历**——
