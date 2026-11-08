@@ -313,6 +313,9 @@ func gcReachability(lf *lock.File) (gcReach, error) {
 		digests: map[string]bool{},
 		mirrors: map[string]bool{},
 	}
+	if lf == nil {
+		return out, nil
+	}
 	seenVendor := map[string]bool{}
 	for i := range lf.Dependencies {
 		d := &lf.Dependencies[i]

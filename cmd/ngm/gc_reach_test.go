@@ -21,9 +21,9 @@ func TestGCReachability(t *testing.T) {
 		}
 	})
 
-	// 缺陷登记（本轮只报不改）：`gcReachability(nil)` 会 panic——它直接遍历
-	// `lf.Dependencies` 而没有 nil 检查。调用方目前总在 load 成功后调用，
-	// 所以是潜在缺陷；是否要容忍 nil 属于接口语义决策，单独处理。
+	// gcReachability 对 nil lock 必须安全：命令层已经拦过"没有 lock"，但函数本身
+	// 不该在 nil 上 panic——空的可达集是唯一诚实的答案。
+	// （见 TestGCReachabilityNilLock。）
 
 	t.Run("digests mirrors and vendor paths", func(t *testing.T) {
 		lf := &lock.File{Dependencies: []lock.Dependency{
@@ -84,4 +84,16 @@ func TestGCReachability(t *testing.T) {
 			t.Error("the hint must tell the user to regenerate the lock")
 		}
 	})
+}
+
+// nil lock 在命令层已经被拦下（"no ngm.lock"），但函数本身也要安全：
+// 可达集是一张"还能留什么"的表，nil 表示什么都不知道，空表就是诚实的答案。
+func TestGCReachabilityNilLock(t *testing.T) {
+	r, err := gcReachability(nil)
+	if err != nil {
+		t.Fatalf("a nil lock must not be an error: %v", err)
+	}
+	if len(r.digests) != 0 || len(r.mirrors) != 0 || len(r.vendorPaths) != 0 {
+		t.Errorf("reachability=%+v, want empty", r)
+	}
 }
