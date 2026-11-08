@@ -233,24 +233,6 @@ func newestSemverTag(tags []versionedTag) (versionedTag, bool) {
 	return best, found
 }
 
-// newestSemver 在能解析为 semver 的 tag 中取最大者。
-func newestSemver(tags []string) (string, bool) {
-	best := ""
-	var bk [3]int
-	found := false
-	for _, t := range tags {
-		m := reSemver.FindStringSubmatch(t)
-		if m == nil {
-			continue
-		}
-		n := [3]int{atoi(m[1]), atoi(m[2]), atoi(m[3])}
-		if !found || gt(n, bk) {
-			best, bk, found = t, n, true
-		}
-	}
-	return best, found
-}
-
 // isNewer 判定 latest 是否比 current 新；任一不是 semver 时退化为"不相等"。
 func isNewer(current, latest string) bool {
 	cm, lm := reSemver.FindStringSubmatch(current), reSemver.FindStringSubmatch(latest)

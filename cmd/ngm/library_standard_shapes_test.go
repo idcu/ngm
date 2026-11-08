@@ -231,10 +231,3 @@ func writeFileAt(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
-
-func rmDir(t *testing.T, path string) {
-	t.Helper()
-	if err := os.RemoveAll(path); err != nil {
-		t.Fatal(err)
-	}
-}
