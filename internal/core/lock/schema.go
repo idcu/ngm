@@ -474,10 +474,10 @@ func (f *File) Find(name, subPath string) (*Dependency, bool) {
 
 // Index 返回 name+subPath → 条目的索引。
 func (f *File) Index() map[string]*Dependency {
-	out := make(map[string]*Dependency, len(f.Dependencies))
 	if f == nil {
-		return out
+		return map[string]*Dependency{}
 	}
+	out := make(map[string]*Dependency, len(f.Dependencies))
 	for i := range f.Dependencies {
 		d := &f.Dependencies[i]
 		out[lockKey(d.Name, d.SubPath)] = d

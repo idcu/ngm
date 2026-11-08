@@ -153,7 +153,14 @@ func TestDependencyIdentityAndDigest(t *testing.T) {
 	if len(idx) != 2 || idx["github:acme/root"] == nil || idx["github:acme/root#packages/ui"] == nil {
 		t.Errorf("Index keys = %v", idx)
 	}
-	// 缺陷登记（本轮只报不改）：`(*File)(nil).Index()` 会 panic——`Index` 先
-	// `len(f.Dependencies)` 再判 nil。`Find` 没有这个问题。是否要让它像 Find 一样
-	// 返回空 map，属于接口语义决策，单独处理。
+}
+
+// nil 接收者必须像 Find 一样安全：消费端（Validate/why）会在"lock 不存在"时
+// 拿到 nil，而 Index 的返回值是一张表，空表就是诚实的"没有条目"。
+func TestNilFileIndexIsEmpty(t *testing.T) {
+	var f *File
+	idx := f.Index()
+	if len(idx) != 0 {
+		t.Fatalf("(*File)(nil).Index() = %v, want an empty map", idx)
+	}
 }
