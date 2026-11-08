@@ -137,6 +137,16 @@ jobs:
           echo "cross-package coverage: ${total}%"
           echo "floor: ${floor}%"
           echo "margin: ${margin}pp"
+          # 三个数同时写进 job summary：首跑红时，先判断是口径还是真下滑。
+          {
+            echo "### internal/core/verify coverage (cross-package)"
+            echo
+            echo "- measured: ${total}%"
+            echo "- floor: ${floor}%"
+            echo "- margin: ${margin}pp"
+            echo
+            echo "若首跑偏低，先查单包退化守卫（\`cmd/ngm … in ./internal/core/verify\` 行是否存在）再校准——那说明是口径问题，不是覆盖率真下滑。"
+          } >> "$GITHUB_STEP_SUMMARY"
           awk -v t="$total" -v f="$floor" 'BEGIN { exit (t + 0 >= f + 0) ? 0 : 1 }' || {
             echo "::error::internal/core/verify coverage ${total}% is below the ${floor}% floor (margin ${margin}pp)"
             exit 1
