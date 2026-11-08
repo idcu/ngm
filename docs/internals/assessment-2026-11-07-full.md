@@ -614,7 +614,7 @@ fixture 验证方式），问题是**另外三份文档没有跟着它更新**�
 | P2-5 | OSV 硬化 | `CheckRedirect` 限同源、`LimitReader`、cache 写失败降级为 warning、`--offline --no-cache` 不读 stale | 端点替身 | S |
 | P2-6 | 沙箱补 deny | 显式 deny `ffi/sys/hrtime/node`；`--allow-read` 用重复 flag 而非逗号拼接；最小环境变量集 | argv 断言 + 真 Deno | M |
 | P2-7 | SARIF/注解修正 | 补 `ngm.vendor/` 前缀；`ghEscape` 补 `:`/`,`；fixture 去掉自带前缀 | 快照测试 | S |
-| P2-8 | 测试基建 | 覆盖率门槛（verify ≥ 60%）；3 个 fuzz（digest 清单 / lock schema / ghEscape）；审计 59 个 skip，禁止跳过边界类 | `go test -fuzz` 短跑 + CI 门槛 | M |
+| P2-8 | 测试基建 | 覆盖率门槛（verify ≥ 60%；实际落地为跨包口径 ≥ 80%，见 [tasks.md](../specs/assessment-2026-11-07-followup/tasks.md)）；3 个 fuzz（digest 清单 / lock schema / ghEscape）；审计 59 个 skip，禁止跳过边界类 | `go test -fuzz` 短跑 + CI 门槛 | M |
 | P2-9 | 性能 | cat-file 流式化；`Has` 结果缓存（带失效信号）；大依赖树基准进 CI | benchmark 对比 | L |
 | P2-10 | 构建可离线性 | 评估 `modproof` 的 vendoring 或镜像；在 CI 里加"无 Gitee 凭据构建"探测 | 冷构建 | M |
 

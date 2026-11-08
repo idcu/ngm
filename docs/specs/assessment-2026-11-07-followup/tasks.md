@@ -43,17 +43,21 @@
 - [x] F3 modules semver 统一（`parseModuleVersion`）+ origin URL 脱敏（`resolve.RedactURL`）
 - [x] F4 沙箱补 deny（`--deny-sys/ffi/hrtime`；`--deny-node` 在 Deno 1.45.2 不存在）+ 最小环境 + 逗号路径 fail-closed
 - [x] G1 OSV 硬化（同源重定向、8 MiB 上限、缓存写失败降级 warning、`--offline --no-cache` 明确失败）
-- [x] G2 覆盖率门槛（CI，verify ≥ 55%，实测下界）+ 3 个 fuzz 目标 + [`t.Skip` 审计](../../internals/test-skip-audit.md)（59 → 57）
+- [x] G2 覆盖率门槛（CI，verify 跨包 ≥ 80%，本机实测 82.1%）+ 3 个 fuzz 目标 + [`t.Skip` 审计](../../internals/test-skip-audit.md)（59 → 57）
 - [x] G3 cat-file 流式（digest 重放不保留 blob；判据 `TestV130StreamedDigestMatchesRetainedMaterial`）。`Has` 缓存**评估后继续拒绝**：已有基准注释记录的失效信号（同进程内被外部改写）无法消除，缓存会把"检查"变成"猜"
 - [x] G4 构建可离线性：[评估](../../internals/build-offline-assessment.md)（实测无凭据冷构建 14.3s 通过；决定维持现状 + CI 探测）
 
 ## 取舍记录（为什么这样定）
 
-- **覆盖率门槛取 verify ≥ 55%，而不是评估表里写的 60%。** 2026-11-07 本机只跑 M5+M7 两条验收
-  时实测 54.4%，全量套件只会更高，但那个更高值没有在"本机跑全量"的窗口里量过。60% 是一条
-  从未被验证过是否可达的门槛：若它其实不可达，CI 会长期红，而**长期红等于没有门禁**（人们
-  会开始忽略它）。所以先取实测可达的 55% 作为"不许回退"的下界，等全量读数稳定一段时间后
-  再按实测值抬到 60%；不为了够到 60% 去写只被覆盖率需要的测试。
+- **覆盖率门槛取 verify ≥ 80%（跨包口径）；旧的 "≥ 55%" 与 35% / 54.4% 读数作废。**
+  口径修正（2026-11-08）：35.0% 是 `internal/core/verify` **包内自测**（只有包自己的测试），
+  54.4% 是只跑 M5+M7 两条验收的**子集**读数——两者都不是 CI 指标。CI 用
+  `go test -coverpkg=./internal/core/verify ./...` 让全部测试（主要是 `cmd/ngm` 的验收）
+  给 verify 记数，合并后本机（Windows，CI 等价命令）实测 **82.1%**。门槛取 80%：略低于
+  实测值、留 2.1pp 给平台差异，且远高于 35.0%，所以"退化回单包读数"会同时撞上门槛和
+  CI 的日志断言（`cmd/ngm … in ./internal/core/verify` 行必须存在）。评估表里的 60% 是
+  早期建议值，已被本次实测取代。Linux CI 上的实际读数尚未在本机验证（本机没有 CI runner），
+  80% 是"本机实测可达"的下界，不是"CI 已验证可达"。
 
 - **`Has` 结果缓存：评估后拒绝。** 缓存要正确，必须有可靠的"条目变了"失效信号；而本项目的
   真实威胁恰恰是**同一进程内内容被外部改写**（`Has` 的基准注释已记录这个信号无法消除）。

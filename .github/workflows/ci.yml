@@ -84,34 +84,50 @@ jobs:
         run: |
           set -o pipefail
           # P2-8：在 Linux 这一个分片上顺带测 `internal/core/verify` 的覆盖率。
-          # 为什么顺带：verify 的行为主要由 `cmd/ngm` 的验收测试驱动，包内自测只有
-          # 35%；再开一个 job 重跑全量测试只是为了量一个数，成本是双倍的。
-          cov_flags=""
+          # 为什么顺带：verify 的行为主要由 `cmd/ngm` 的验收测试驱动；包内自测的
+          # 读数（35.0%）只说明"包自己测自己"，不是验收水位。跨包测量才是口径。
+          #
+          # 每个参数单独加引号：2026-11-08 本机复现过"未加引号时某个 shell 把
+          # `-coverpkg=… ./...` 吞成单包运行"，读数退化成 35.0% 的包内自测。
+          # 用数组展开以保留引号，避免这一步变成"看起来在测跨包、实际只测了 verify"。
+          cov_args=()
           if [ "${{ runner.os }}" = "Linux" ]; then
-            cov_flags="-coverpkg=./internal/core/verify -coverprofile=$RUNNER_TEMP/verify.cover"
+            cov_args=("-coverpkg=./internal/core/verify" "-coverprofile=$RUNNER_TEMP/verify.cover")
           fi
-          go test -count=1 -timeout 40m $cov_flags ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+          go test -count=1 -timeout 40m "${cov_args[@]}" "./..." 2>&1 | tee "$RUNNER_TEMP/go-test.log"
           rc=${PIPESTATUS[0]}
           echo "$rc" > "$RUNNER_TEMP/go-test.exit"
           exit "$rc"
 
       # 覆盖率门槛（P2-8）：verify 是"判定核心"，它的分支决定了退出码 0/1/2/4/5。
       #
-      # 门槛定在 55% 而不是评估里写的 60%：本机实测（2026-11-07）只跑 M5+M7 两条
-      # 验收就已经到 54.4%，全量套件只会更高，但那个数没有在本机跑全量的窗口里量过。
-      # 一条"从未被验证过是否可达"的门槛会让 CI 长期红，而长期红等于没有门禁。
-      # 等全量读数稳定一段时间后，按实测值把它抬到 60%。
-      - name: verify coverage floor (>= 55%)
+      # 口径必须是**跨包**：`-coverpkg=./internal/core/verify` 让全部测试二进制
+      # （主要是 `cmd/ngm` 的验收测试）都给 verify 记数，合并后的读数是 82.1%
+      # （2026-11-08 本机按 CI 等价命令实测）。此前记录的 35.0% 是 verify 包内自测，
+      # 54.4% 是只跑 M5+M7 的子集读数——三者口径不同，不可混用。
+      #
+      # 门槛取 80%：略低于实测 82.1%（留 2.1pp 给平台差异），远高于 35.0%，因此
+      # 既防回退，也把"退化回单包读数"挡在下一条断言上。
+      - name: verify coverage floor (>= 80%)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           cov="$RUNNER_TEMP/verify.cover"
+          log="$RUNNER_TEMP/go-test.log"
           [ -f "$cov" ] || { echo "::error::no coverage profile; the Linux test step did not run with -coverpkg"; exit 1; }
+
+          # 退化守卫：单包读数时日志里只有 verify 自己那一行带 "in ./internal/core/verify"；
+          # 跨包测量时 `cmd/ngm` 的行也会带它。缺这一行就说明 -coverpkg 没有生效。
+          grep -qE '^ok[[:space:]]+github\.com/idcu/ngm/cmd/ngm[[:space:]].*coverage: [0-9.]+% of statements in \./internal/core/verify' "$log" || {
+            echo "::error::coverage was not measured across packages (the cmd/ngm line is missing)"
+            exit 1
+          }
+
           total="$(go tool cover -func "$cov" | awk '/^total:/ { gsub(/%/,"",$3); print $3 }')"
-          echo "internal/core/verify coverage: ${total}%"
-          awk -v t="$total" 'BEGIN { exit (t + 0 >= 55) ? 0 : 1 }' || {
-            echo "::error::internal/core/verify coverage ${total}% is below the 55% floor"
+          echo "internal/core/verify coverage (cross-package): ${total}%"
+          awk -v t="$total" 'BEGIN { exit (t + 0 >= 80) ? 0 : 1 }' || {
+            echo "::error::internal/core/verify coverage ${total}% is below the 80% floor"
             exit 1
           }
 
