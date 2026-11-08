@@ -28,9 +28,10 @@ var skipSitePattern = regexp.MustCompile(`t\.Skipf?\(`)
 //   - 删除一处 skip → 也红（防止账本漂移成"只增不减"的摆设）；
 //   - 审计时发现"不是边界、而是跳过掩盖漂移"的，改成真断言并从账本里减掉。
 //
-// 本轮已经从账本里拿掉 2 处这类 skip：resolve 的 `TestResolveRef_NoGitInPath`
-// （函数体只有一句 t.Skip）与 cmd 的 JSON 信封扫面（"某条错误面现在退 0"被静默跳过）。
-// 因此基线是 57，不是 59。
+// 本轮已经从账本里拿掉 3 处这类 skip：resolve 的 `TestResolveRef_NoGitInPath`
+// （函数体只有一句 t.Skip）、cmd 的 JSON 信封扫面（"某条错误面现在退 0"被静默跳过），
+// 以及 `internal/core/git/waitdelay_test.go` 的 `sh` 依赖——那条墙钟用例已被
+// "构造点字段断言"取代，不再需要外部 shell。因此基线是 56，不是 59。
 var skipLedger = map[string]int{
 	"cmd/ngm/acceptance_m3_test.go":                 2,
 	"cmd/ngm/acceptance_m4_test.go":                 1,
@@ -61,7 +62,6 @@ var skipLedger = map[string]int{
 	"internal/core/git/ancestry_test.go":            1,
 	"internal/core/git/auth_test.go":                2,
 	"internal/core/git/signature_test.go":           2,
-	"internal/core/git/waitdelay_test.go":           1,
 	"internal/core/lock/v066_write_test.go":         1,
 	"internal/core/vendor/content_legacy_test.go":   2,
 	"internal/core/vendor/integrity_test.go":        2,

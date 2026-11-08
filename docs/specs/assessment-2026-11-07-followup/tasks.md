@@ -43,7 +43,7 @@
 - [x] F3 modules semver 统一（`parseModuleVersion`）+ origin URL 脱敏（`resolve.RedactURL`）
 - [x] F4 沙箱补 deny（`--deny-sys/ffi/hrtime`；`--deny-node` 在 Deno 1.45.2 不存在）+ 最小环境 + 逗号路径 fail-closed
 - [x] G1 OSV 硬化（同源重定向、8 MiB 上限、缓存写失败降级 warning、`--offline --no-cache` 明确失败）
-- [x] G2 覆盖率门槛（CI，verify 跨包 ≥ 80%，本机实测 82.1%）+ 3 个 fuzz 目标 + [`t.Skip` 审计](../../internals/test-skip-audit.md)（59 → 57）
+- [x] G2 覆盖率门槛（CI，verify 跨包 ≥ 80%，本机实测 82.1%）+ 3 个 fuzz 目标 + [`t.Skip` 审计](../../internals/test-skip-audit.md)（59 → 56）
 - [x] G3 cat-file 流式（digest 重放不保留 blob；判据 `TestV130StreamedDigestMatchesRetainedMaterial`）。`Has` 缓存**评估后继续拒绝**：已有基准注释记录的失效信号（同进程内被外部改写）无法消除，缓存会把"检查"变成"猜"
 - [x] G4 构建可离线性：[评估](../../internals/build-offline-assessment.md)（实测无凭据冷构建 14.3s 通过；决定维持现状 + CI 探测）
 

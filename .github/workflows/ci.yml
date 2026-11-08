@@ -128,10 +128,17 @@ jobs:
             exit 1
           }
 
+          floor=80
           total="$(go tool cover -func "$cov" | awk '/^total:/ { gsub(/%/,"",$3); print $3 }')"
-          echo "internal/core/verify coverage (cross-package): ${total}%"
-          awk -v t="$total" 'BEGIN { exit (t + 0 >= 80) ? 0 : 1 }' || {
-            echo "::error::internal/core/verify coverage ${total}% is below the 80% floor"
+          # 首次校准要靠这三个数：实际值、门槛、余量。只打一句话（"below the floor"）
+          # 时，读的人还得回头翻日志去区分**口径问题**（-coverpkg 没生效 → 35.0%）
+          # 与**覆盖率真下滑**（口径对了但代码退化）——两者处置完全不同。
+          margin="$(awk -v t="$total" -v f="$floor" 'BEGIN { printf "%.1f", t - f }')"
+          echo "cross-package coverage: ${total}%"
+          echo "floor: ${floor}%"
+          echo "margin: ${margin}pp"
+          awk -v t="$total" -v f="$floor" 'BEGIN { exit (t + 0 >= f + 0) ? 0 : 1 }' || {
+            echo "::error::internal/core/verify coverage ${total}% is below the ${floor}% floor (margin ${margin}pp)"
             exit 1
           }
 

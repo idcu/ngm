@@ -20,7 +20,7 @@
 账本用的是**每个文件的个数**，不是行号：行号会因任何无关编辑漂移，会误报的
 门禁最终会被忽略；个数能抓住"多了/少了一处 skip"，这正是需要人解释的动作。
 
-基线：59 处 → 审计后 **57 处 / 39 个文件**（减掉的 2 处见 §4）。
+基线：59 处 → 审计后 **56 处 / 38 个文件**（减掉的 3 处见 §4）。
 
 ## 2. 分类规则
 
@@ -34,7 +34,7 @@
 | 已登记排除 | 扫描器里显式列出的例外项（**先断言失败，再跳过附加契约**） | 是（例外本身被断言覆盖） |
 | 漂移遮蔽 | 函数体只有 skip；或"预期失败"的样例成功后被跳过 | **否**——改成断言 |
 
-## 3. 清单（57 处）
+## 3. 清单（56 处）
 
 | 文件 | 处数 | 类别 | 说明 |
 |------|-----|------|------|
@@ -67,7 +67,6 @@
 | `internal/core/git/ancestry_test.go` | 1 | fixture | amend 后同一 commit id 不可得 |
 | `internal/core/git/auth_test.go` | 2 | 环境 | 端口不可达；git 缺失 |
 | `internal/core/git/signature_test.go` | 2 | 工具 | ssh-keygen / git |
-| `internal/core/git/waitdelay_test.go` | 1 | 工具 | `sh` |
 | `internal/core/lock/v066_write_test.go` | 1 | 平台 | Windows 权限位 |
 | `internal/core/vendor/content_legacy_test.go` | 2 | 平台 | symlink |
 | `internal/core/vendor/integrity_test.go` | 2 | 平台 | symlink |
@@ -78,12 +77,13 @@
 | `internal/security/sandbox_test.go` | 2 | 工具 | deno 缺失 / 旧版本缺 flag |
 | `internal/testutils/gitrepo_test.go` | 3 | 工具 / 平台 | symlink、exec bit、annotated tag |
 
-## 4. 本轮修正的两处"漂移遮蔽"
+## 4. 本轮修正的三处"漂移遮蔽"
 
 | 位置 | 原来 | 现在 |
 |------|------|------|
 | `internal/core/resolve/reftype_test.go` | `TestResolveRef_NoGitInPath` 的函数体只有一句 `t.Skip`，"git 未安装 → exit 4 + 安装提示"从未被断言 | 把 `PATH` 指向空目录后调用 `ResolveRef`，断言 `CodeGitFetch` 且 hint 提到 git |
 | `cmd/ngm/json_error_envelope_test.go` | 遍历只挑预期失败的样例，某条现在退 0 时 `t.Skipf` 静默跳过 | `t.Fatalf`：要么在 `surfaceCases` 里声明 `expectZero`，要么把失败修回来 |
+| `internal/core/git/waitdelay_test.go` | 20s 墙钟上界 + `sh` 缺失时 `t.Skip`；跳过时"WaitDelay 是否被配置"完全没人守 | 构造点字段断言（`newGitCommand` 的 `WaitDelay`），不需要外部 shell，因此这处 skip 被删除 |
 
 ## 5. 复核
 
