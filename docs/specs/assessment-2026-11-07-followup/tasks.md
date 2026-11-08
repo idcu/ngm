@@ -104,6 +104,29 @@
     只能靠时间。它默认 `t.Skip`，仅在显式设置 `NGM_STORE_SCALE_BLOBS` 时运行，不进入
     日常/CI 全量，因此不会随全套件负载抖动。
 
+## 有意不覆盖的分支（结论，不是待办）
+
+来源：任务 2 补测后 `go test -cover ./internal/observability` 的剩余缺口（整包 97.8%）。
+**给不可达代码补测试会把噪声固化成"契约"**——后来人会以为这些分支真的可以被触发，
+于是为它们保留断言、为变更辩护。因此以下分支不补测试。
+
+- `gt` 的全等分支（75%）：`checkTag` 在调用 `isNewer` 前已用 `best.Version != current`
+  短路；`newestSemverTag` 只有两个 tag 的数值版本完全相同（如 `v1.0.0` 与 `1.0.0`
+  同时存在）时才会走到"三项相等 → false"。全等即"没有更新"，结论已被上层吸收；
+  要触发它只能构造依赖 tag 顺序/时间戳的镜像样貌，判据本身会变成噪声。
+- 三个 `Marshal` 的错误返回（各 75%）：`OutdatedReport`/`TreeReport`/`WhyReport` 只含
+  字符串、布尔、整数与切片，`json.MarshalIndent` 不会失败（无 channel、函数、循环引用）。
+  这条 `if err != nil` 是防御性写法，不是可触发边界。
+- `findPaths` 的预算命中后置裁剪（96.2%）：`walker` 在 `visited > work` 时已置
+  `budgetHit/stopped` 并立即返回；`findPaths` 随后再判 `len(out) > max` 是"上一层已经
+  拦下"后的复核（条数上限 `max+1` 先于预算生效），正常输入下不可达。
+- `walk` 入口的 `if w.stopped { return }`（95.2%）：两个调用点（`findPaths` 的根循环与
+  `walk` 的子节点循环）都在调用前检查了 `stopped`；这一行是防御性早退。
+
+另有 3 个**可达但未覆盖**的小分支（`CheckOutdated` 的 nil lock、`checkTag` 的
+"无 tag 且无 subPath"与"module 的 tag-date 说明"）：它们不是不可达，只是本轮没有
+为它们单独造夹具；不构成缺陷，留待自然覆盖。
+
 ## 验收（每批）
 
 - [x] `go build ./... && go vet ./...`
