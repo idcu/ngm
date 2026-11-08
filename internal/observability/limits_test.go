@@ -3,7 +3,6 @@ package observability
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/idcu/ngm/internal/core/resolve"
 )
@@ -26,9 +25,7 @@ func TestV17WhyPathsAreBoundedAndSaySo(t *testing.T) {
 	g := lattice(20)
 	leaf := leafOf(20)
 
-	start := time.Now()
-	paths, truncated := FindPaths(g, leaf, MaxWhyPaths)
-	bounded := time.Since(start)
+	paths, truncated, visited := findPaths(g, leaf, MaxWhyPaths, MaxWhyWork)
 
 	if len(paths) != MaxWhyPaths {
 		t.Errorf("paths=%d want exactly %d (the cap)", len(paths), MaxWhyPaths)
@@ -36,12 +33,14 @@ func TestV17WhyPathsAreBoundedAndSaySo(t *testing.T) {
 	if !truncated {
 		t.Error("truncated must be true when the cap was reached and more paths exist")
 	}
-	// ③ 的判据是时间，因此阈值要留足余量：不限量时是 0.78s，
-	// 提前停止后应当是微秒级。100ms 在两边都有 8 倍以上的余量。
-	if bounded > 100*time.Millisecond {
-		t.Errorf("bounded enumeration took %v — the cap must bound the WORK, not just the output", bounded)
+	// ③ 的判据是**访问次数**而不是墙钟（与 TestV106 同一条纪律）：条数上界是 64，
+	// 枚举在命中第 65 条时立刻停止。每条命中的路径最多贡献 depth+1 = 21 次访问，
+	// 再加正在展开的那条，上界是 (MaxWhyPaths+1)*22。这个数与机器速度、并发负载
+	// 无关，同一条图永远得到同一个访问数。
+	if maxVisits := (MaxWhyPaths + 1) * 22; visited > maxVisits {
+		t.Errorf("visited=%d > %d — the cap must bound the WORK, not just the output", visited, maxVisits)
 	}
-	t.Logf("bounded: %d paths in %v (unbounded would be 1048576 paths / 626 MB)", len(paths), bounded)
+	t.Logf("bounded: %d paths, %d node visits (unbounded would be 1048576 paths / 626 MB)", len(paths), visited)
 
 	// ④ 恰好等于上限：列完了，就不许说"还有更多"。
 	exact := lattice(6) // 2^6 = 64 条

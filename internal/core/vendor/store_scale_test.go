@@ -112,6 +112,10 @@ func TestV09BlobPoolScale(t *testing.T) {
 	if got := u.BlobSharedBytes + u.BlobExclusiveBytes + u.BlobOrphanBytes; got != u.BlobBytes {
 		t.Errorf("三段之和 %d != BlobBytes %d", got, u.BlobBytes)
 	}
+	// 这条只能靠时间：它量的是"10 万 blob 的真实池上，唯一读数入口要多久"，
+	// 是吞吐/可用性判断，没有可结构化的等价布尔性质（正确性另有 BlobOrphans 与
+	// 三段之和两条确定性断言）。本用例默认 t.Skip，只在显式设置
+	// NGM_STORE_SCALE_BLOBS 时跑，不进入日常/CI 全量，因此不随套件负载抖动。
 	if usageTook > 30*time.Second {
 		t.Errorf("Usage() 在 %d 个 blob 上花了 %s —— 这一层的唯一读数入口已经不好用了",
 			u.Blobs, usageTook)

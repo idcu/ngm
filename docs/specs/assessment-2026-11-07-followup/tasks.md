@@ -88,12 +88,21 @@
   `truncated=true`。预算值未调大、未加 retry——只把墙钟代理换成了它代理的那个量。
   复跑读数：3 路并发 × `-count=20`（共 60 次）叠加全量套件负载，全部 PASS。
 
-- 其它同类**墙钟上界**用例（本轮只登记，不改；阈值相对被测耗时均留 8–10 倍余量，
-  暂未观察到抖动，若出现按 V106 同一思路改成计数/结构断言）：
-  - `TestV17WhyPathsAreBoundedAndSaySo`（`internal/observability/limits_test.go`，100ms 上界）
-  - `internal/adapter/waitdelay_test.go`（20s 上界）
-  - `internal/core/git/waitdelay_test.go`（20s 上界）
-  - `internal/core/vendor/store_scale_test.go`（`Usage()` 30s 上界）
+- 其它同类**墙钟上界**用例的处置（2026-11-08，按 V106 同一思路逐条判断）：
+  - ✅ `TestV17WhyPathsAreBoundedAndSaySo`（`internal/observability/limits_test.go`，100ms 上界）
+    → 改为 `findPaths` 的访问计数断言：`visited <= (MaxWhyPaths+1)*22`（64 条命中 ×
+    每条 ≤21 次访问，加正在展开的一条）。判据与机器速度、并发负载无关。
+  - ✅ `internal/adapter/waitdelay_test.go`（20s 上界）→ 改为**结构断言**：引擎子进程的
+    唯一构造点 `newProcessCommand` 必须持有 `WaitDelay == waitDelayAfterCancel`；删掉
+    "孙进程活 40s"的端到端墙钟用例。回归形态是"构造点丢了这行/被绕过"，读字段即可抓住。
+  - ✅ `internal/core/git/waitdelay_test.go`（20s 上界）→ 同上，只保留
+    `TestV11GitWaitDelayIsConfigured`（构造点字段）+ 正常运行对照；"没有第二个构造点"
+    由 `TestSpawn_OnlyOneFileBuildsProcesses` 机械守住。
+  - ⏸ `internal/core/vendor/store_scale_test.go`（`Usage()` 30s 上界）→ **保留**。它量的是
+    10 万 blob 的池上"这一层唯一读数入口还能不能用"的吞吐判断，没有等价的布尔性质：
+    正确性另有 `BlobOrphans >= n` 与"三段之和 = BlobBytes"两条确定性断言，而"多久算慢"
+    只能靠时间。它默认 `t.Skip`，仅在显式设置 `NGM_STORE_SCALE_BLOBS` 时运行，不进入
+    日常/CI 全量，因此不会随全套件负载抖动。
 
 ## 验收（每批）
 

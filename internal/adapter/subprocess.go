@@ -456,6 +456,16 @@ func artifactTooLarge(program string, bytesKept int) error {
 // 超时则截断——对一个卡住的外部命令，**有界的失败远好过无界的挂起**。
 const waitDelayAfterCancel = 2 * time.Second
 
+// newProcessCommand 是引擎子进程的**唯一构造点**：ctx → 进程的映射与 WaitDelay
+// 放在一处。v0.11 的原始用例靠"孙进程活 40s、20s 内必须返回"的墙钟判据，
+// 并发负载下会误伤；改成读字段后，回归形态（这一行被删掉/被绕过）仍是确定的。
+func newProcessCommand(ctx context.Context, program string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, program, args...)
+	// 见上方说明：没有这一行，ctx 只是"杀直接子进程"，管不住继承管道的孙进程。
+	cmd.WaitDelay = waitDelayAfterCancel
+	return cmd
+}
+
 func runProcess(ctx context.Context, program string, args []string, dir string, stdin []byte, extraEnv []string) (*runResult, error) {
 	return runProcessEnv(ctx, program, args, dir, stdin, extraEnv, nil)
 }
@@ -478,7 +488,7 @@ func runProcessEnvLimit(ctx context.Context, program string, args []string, dir 
 	if p, ok := resolveProgram(program, dir); ok {
 		program = p
 	}
-	cmd := exec.CommandContext(ctx, program, args...)
+	cmd := newProcessCommand(ctx, program, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -486,8 +496,6 @@ func runProcessEnvLimit(ctx context.Context, program string, args []string, dir 
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
-	// 见上方说明：没有这一行，ctx 只是"杀直接子进程"，管不住继承管道的孙进程。
-	cmd.WaitDelay = waitDelayAfterCancel
 
 	// 有上界的捕获（v0.107）：引擎是外部程序，`tsc --watch` 误用或一个
 	// 循环打印的插件都能让 `ngm build` 被 OOM 打死。截断带显式标记。
