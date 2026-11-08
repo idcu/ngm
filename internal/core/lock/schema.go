@@ -331,7 +331,8 @@ func (d *Dependency) validate() error {
 // IsSafeRelPath 报告 p 是否是"可以安全拼接到一个根目录之下"的相对路径。
 //
 // 接受 `a/b/c` 与 `a`；拒绝绝对路径、盘符、反斜杠、`..`/`.` 段、空段，
-// 以及任何看起来像 URL 的值（`github:org/repo` 不是路径，不该出现在这里）。
+// 以及任何含冒号的值（盘符、`github:org/repo` 这类 slug、URL / scp 形态都不是
+// 路径，不该出现在这里；Windows 本身也禁止路径分量里出现冒号）。
 //
 // 导出是为了让**读取端**也做同一判定（verify 的 vendor 树、--sandbox 的脚本
 // 定位）：schema 校验是第一道门，读取端不该只信任它（S1-4）。
@@ -345,11 +346,10 @@ func IsSafeRelPath(p string) bool {
 	if strings.HasPrefix(p, "/") {
 		return false
 	}
-	// `C:/x` 与 `C:x` 都是盘符形态（Windows 下 filepath.IsAbs 只认前者）。
-	if len(p) >= 2 && p[1] == ':' {
-		return false
-	}
-	if strings.Contains(p, "://") {
+	// 冒号在任何位置都不是合法的相对路径：`C:/x`/`C:x` 是盘符，`github:org/repo`
+	// 是 slug，`git@host:org/repo` 是 scp 形态，`https://…` 是 URL。调用方会把这些
+	// 值 filepath.Join 到 vendor 根之下，所以必须在拼路径之前拦住。
+	if strings.Contains(p, ":") {
 		return false
 	}
 	for _, part := range strings.Split(p, "/") {

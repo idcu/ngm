@@ -41,6 +41,10 @@ func TestIsSafeRelPathBoundaries(t *testing.T) {
 		"../x",
 		"https://evil.example/x",
 		"git://evil.example/x",
+		// slug / scp 形状同样是"值不是路径"：两者都会被调用方 filepath.Join 到
+		// vendor 根之下（verify 的 vendor 树、--sandbox 的脚本定位），必须先拒绝。
+		"github:org/repo",
+		"git@github.com:org/repo",
 	}
 	for _, p := range reject {
 		if IsSafeRelPath(p) {
