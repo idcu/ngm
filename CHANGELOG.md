@@ -47,15 +47,14 @@
 
 ### Changed
 
-- `ngm.lock` 的路径校验收紧：`vendorPath` / `subPath` 现在**拒绝任何含 `:` 的值**。
-  受影响形状包括 slug（`github:org/repo`）、scp（`git@host:org/repo`）、URL
-  （`https://…`）与盘符（`C:` 前缀）——后两类此前就已拒绝，本次统一为
-  "含冒号即拒绝"（Windows 本身也禁止路径分量里出现冒号）。
-  **兼容性影响**：`vendorPath` 由 `host/org/repo` 投影而来，不可能含冒号，因此正常
-  `ngm install` / `ngm update` 生成的 lock 不受影响；会变化的只有 `subPath` 本身
-  就含冒号的情况（仅 POSIX 仓库可能出现这种目录名，Windows 无法创建），以及手写
-  或篡改的 lock——它们从"可验证"变为 exit 3，提示重跑 `ngm install` 或修正
-  `subPath`。
+- `ngm.lock` 的路径校验：`vendorPath` 拒绝 scheme / scp / slug 形状（`https://…`、
+  `ssh://…`、`git@host:org/repo`、`github:org/repo`）与盘符（`C:` 前缀；盘符此前
+  就已拒绝），判据是"冒号落在第一段"或含 `//`。**`subPath` 可以含冒号**：`dir:name`
+  只是相对路径分量，拼进 `filepath.Join` 仍在 vendor 根之内；由它派生的
+  `vendorPath`（如 `github.com/acme/a/dir:name`）冒号在后续段，同样放行。
+  兼容性影响：正常 `ngm install` / `ngm update` 生成的 lock 不受影响；历史 lock
+  中 `subPath` 含冒号（仅 POSIX 仓库可能出现这种目录名）仍可验证；仍会 exit 3 的
+  只有手写或篡改的 slug / scp / URL / 盘符形状。
 - `NGM_HOME` 现在**真的**决定全局配置的位置：设置后全局配置读
   `<NGM_HOME>/config.json`（与 mirror / content store / global vendor 同一根）。
   此前只有目录布局跟随 `NGM_HOME`，全局配置仍固定读 `<home>/.ngm/config.json`——

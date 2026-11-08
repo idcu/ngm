@@ -881,7 +881,7 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	// 被直接喂一个内存里构造的 lock。拼接到 vendor 根之前再判一次，越界的条目
 	// 不参与任何 os.Stat / 哈希（S1-4）。
 	rel := vendor.VendorPathFor(d.VendorPath, d.SubPath)
-	if !lock.IsSafeRelPath(rel) {
+	if !lock.IsSafeVendorPath(rel) {
 		critical = append(critical, "lock path escapes the vendor root: "+rel+" (refused to look at it)")
 		if proof != nil {
 			proof.Mismatches = append(proof.Mismatches, ContentMismatch{

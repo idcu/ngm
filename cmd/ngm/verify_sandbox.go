@@ -29,7 +29,7 @@ func collectSandboxScripts(env *projectEnv, pf *config.ProjectFile, lf *lock.Fil
 		d := &lf.Dependencies[i]
 		rel := vendor.VendorPathFor(d.VendorPath, d.SubPath)
 		// 读取端第二道门：伪 lock 的 vendorPath 不得把脚本指到 vendor 之外（S1-4）。
-		if !lock.IsSafeRelPath(rel) {
+		if !lock.IsSafeVendorPath(rel) {
 			continue
 		}
 		dir := filepath.Join(root, filepath.FromSlash(rel))

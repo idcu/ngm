@@ -18,6 +18,13 @@ func TestIsSafeRelPathBoundaries(t *testing.T) {
 		"packages/ui/src/index.ts",
 		".hidden/file", // `.hidden` 是普通文件名，不是 "." 段
 		"a/b c/d",      // 空格是合法文件名字符
+		// 冒号在**后续段**里只是普通字符：`subPath` 的 `dir:name` 是 POSIX 合法目录名。
+		"dir:name",
+		"a/b:c",
+		// slug / scp 形状本身不越界（它们没有 `..`/绝对路径）；拼进 vendor 根之前
+		// 由 vendorPath 专用的判定拒绝（见 TestIsSafeVendorPathBoundaries）。
+		"github:org/repo",
+		"git@github.com:org/repo",
 	}
 	for _, p := range accept {
 		if !IsSafeRelPath(p) {
@@ -39,17 +46,77 @@ func TestIsSafeRelPathBoundaries(t *testing.T) {
 		"..",
 		".",
 		"../x",
-		"https://evil.example/x",
-		"git://evil.example/x",
-		// slug / scp 形状同样是"值不是路径"：两者都会被调用方 filepath.Join 到
-		// vendor 根之下（verify 的 vendor 树、--sandbox 的脚本定位），必须先拒绝。
-		"github:org/repo",
-		"git@github.com:org/repo",
 	}
 	for _, p := range reject {
 		if IsSafeRelPath(p) {
 			t.Errorf("IsSafeRelPath(%q) = true, want false (it can escape the root)", p)
 		}
+	}
+}
+
+// vendorPath 比 subPath 多一道"这不是 scheme/scp/slug"的判定：URL、scp、slug 的
+// 冒号都落在**第一段**；后续段里的冒号来自 subPath（`dir:name`），必须继续放行。
+func TestIsSafeVendorPathBoundaries(t *testing.T) {
+	accept := []string{
+		"github.com/acme/a",
+		"github.com/acme/a/packages/ui",
+		"github.com/acme/a/dir:name", // 冒号来自 subPath，不是 slug
+	}
+	for _, p := range accept {
+		if !IsSafeVendorPath(p) {
+			t.Errorf("IsSafeVendorPath(%q) = false, want true", p)
+		}
+	}
+
+	reject := []string{
+		"github:org/repo",         // slug
+		"git@github.com:org/repo", // scp
+		"https://evil.example/x",  // scheme
+		"ssh://git@host/x",        // scheme
+		"C:/Windows",              // 盘符
+		"C:x",                     // 盘符（无分隔符）
+		`C:\Windows`,              // 盘符（反斜杠）
+		"",
+		"/etc/passwd",
+		"a/../b",
+		"a//b",
+	}
+	for _, p := range reject {
+		if IsSafeVendorPath(p) {
+			t.Errorf("IsSafeVendorPath(%q) = true, want false", p)
+		}
+	}
+}
+
+// 收窄后的兼容性判据：旧 lock 的 `subPath` 含冒号（仅 POSIX 仓库能产生这种目录名）
+// 必须重新通过 Validate——它拼进 filepath.Join 仍是 vendor 内的相对路径。
+func TestLockSubPathColonStillValidates(t *testing.T) {
+	cases := []struct {
+		name       string
+		vendorPath string
+		subPath    string
+	}{
+		{"derived vendorPath also carries the colon", "github.com/acme/a/dir:name", "dir:name"},
+		{"subPath alone carries the colon", "github.com/acme/a", "dir:name"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lf := NewFile()
+			lf.Dependencies = []Dependency{{
+				Name:         "github:acme/a",
+				Ref:          "main",
+				RefType:      "branch",
+				Commit:       strings.Repeat("a", 40),
+				SubPath:      tc.subPath,
+				ModuleDigest: "sha256:" + strings.Repeat("b", 64),
+				SubtreeOid:   "sha1:" + strings.Repeat("c", 40),
+				VendorPath:   tc.vendorPath,
+				RequiredBy:   []string{RootRequirer},
+			}}
+			if err := lf.Validate(); err != nil {
+				t.Fatalf("a historical lock with a colon in subPath must validate: %v", err)
+			}
+		})
 	}
 }
 

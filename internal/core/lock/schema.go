@@ -314,8 +314,9 @@ func (d *Dependency) validate() error {
 	}
 	// 路径字段是**信任根的一部分**：verify / --sandbox 会把它拼进 vendor 根
 	// 再 os.Stat / 找 verify.js。只校验"非空"时，一份恶意 lock 可以把校验脚本
-	// 指到 vendor 之外（S1-4）。白名单只接受 `a/b/c` 形状的相对路径。
-	if !IsSafeRelPath(d.VendorPath) {
+	// 指到 vendor 之外（S1-4）。白名单只接受 `a/b/c` 形状的相对路径，且
+	// vendorPath 额外拒绝 scheme / scp / slug 形状（冒号在第一段）。
+	if !IsSafeVendorPath(d.VendorPath) {
 		return errs.New(errs.CodeConfigInvalid,
 			"`vendorPath` for "+d.Name+" must be a relative slash path inside vendor (got "+d.VendorPath+")",
 			"re-run `ngm install` to regenerate the lock; ngm never writes paths that escape vendor")
@@ -330,9 +331,10 @@ func (d *Dependency) validate() error {
 
 // IsSafeRelPath 报告 p 是否是"可以安全拼接到一个根目录之下"的相对路径。
 //
-// 接受 `a/b/c` 与 `a`；拒绝绝对路径、盘符、反斜杠、`..`/`.` 段、空段，
-// 以及任何含冒号的值（盘符、`github:org/repo` 这类 slug、URL / scp 形态都不是
-// 路径，不该出现在这里；Windows 本身也禁止路径分量里出现冒号）。
+// 接受 `a/b/c` 与 `a`；拒绝绝对路径、盘符（`C:` 前缀）、反斜杠、`..`/`.` 段、
+// 空段。**冒号本身不是拒绝理由**：`dir:name` 是 POSIX 合法目录名，作为 `subPath`
+// 拼进 filepath.Join 仍在根目录之内。scheme / scp / slug 形状由
+// [IsSafeVendorPath] 在 vendorPath 上单独拒绝。
 //
 // 导出是为了让**读取端**也做同一判定（verify 的 vendor 树、--sandbox 的脚本
 // 定位）：schema 校验是第一道门，读取端不该只信任它（S1-4）。
@@ -346,10 +348,9 @@ func IsSafeRelPath(p string) bool {
 	if strings.HasPrefix(p, "/") {
 		return false
 	}
-	// 冒号在任何位置都不是合法的相对路径：`C:/x`/`C:x` 是盘符，`github:org/repo`
-	// 是 slug，`git@host:org/repo` 是 scp 形态，`https://…` 是 URL。调用方会把这些
-	// 值 filepath.Join 到 vendor 根之下，所以必须在拼路径之前拦住。
-	if strings.Contains(p, ":") {
+	// 盘符形态（`C:/x` 与 `C:x`）：`p[1] == ':'` 只可能是单字符盘符 + 冒号；
+	// 多字符段里的冒号（`dir:name`）不属于这一类。
+	if len(p) >= 2 && p[1] == ':' {
 		return false
 	}
 	for _, part := range strings.Split(p, "/") {
@@ -358,6 +359,34 @@ func IsSafeRelPath(p string) bool {
 		}
 	}
 	return true
+}
+
+// IsSafeVendorPath 是 vendorPath 专用的路径判定：在 [IsSafeRelPath] 之上拒绝
+// scheme / scp / slug 形状。
+//
+// 判据是"冒号出现在**第一段**"或含 `//`：
+//
+//	https://evil/x      → 第一段 `https:`，拒绝
+//	ssh://git@host/x    → 第一段 `ssh:`，拒绝
+//	git@github.com:org/repo → 第一段 `git@github.com:`，拒绝
+//	github:org/repo     → 第一段 `github:`，拒绝
+//	github.com/acme/a/dir:name → 冒号在后续段（来自 subPath），放行
+//
+// 为什么不直接"含冒号即拒绝"：`vendorPath` 由 `vendorPathFor(canonical, subPath)`
+// 推导，`subPath` 里的冒号会出现在后续段；旧 lock 中这类条目是合法的（S1-4 要防的
+// 是跳出 vendor 根，而不是拒绝 POSIX 目录名）。盘符形态由 IsSafeRelPath 拦住。
+func IsSafeVendorPath(p string) bool {
+	if !IsSafeRelPath(p) {
+		return false
+	}
+	if strings.Contains(p, "//") {
+		return false
+	}
+	first := p
+	if i := strings.IndexByte(p, '/'); i >= 0 {
+		first = p[:i]
+	}
+	return !strings.ContainsRune(first, ':')
 }
 
 // isSubtreeOid 校验 Git tree 对象 ID 的算法前缀与长度。
