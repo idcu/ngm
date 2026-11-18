@@ -299,8 +299,9 @@ func VulnRemediation(n int) string {
 
 // VulnCount 数出树里所有条目的漏洞总数（含子节点）。
 //
-// 与 `cmd/ngm` 里的 countVulns 是同一件事，但那一个在 package main、
-// 且用途是决定退出码；这里让渲染与报告装配都从同一个定义出发。
+// 这是唯一的漏洞计数定义：渲染与报告装配都从这里出发。
+// 曾在 cmd/ngm 里另有一份 countVulns 且无人调用（2026-11-18 F3 删除），
+// 两份同义实现迟早会在口径上分叉。
 func VulnCount(entries []*TreeEntry) int {
 	n := 0
 	for _, e := range entries {

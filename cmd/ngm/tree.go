@@ -228,15 +228,6 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return exit
 }
 
-func countVulns(entries []*observability.TreeEntry) int {
-	n := 0
-	for _, e := range entries {
-		n += len(e.Vulns)
-		n += countVulns(e.Children)
-	}
-	return n
-}
-
 // projectLabel 取树的根节点名：项目名优先，缺失时退回通用名。
 func projectLabel(pf *config.ProjectFile) string {
 	if pf != nil && pf.Name != "" {
