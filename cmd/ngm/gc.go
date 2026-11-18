@@ -36,6 +36,7 @@ REACHABILITY:
 
     store    every archiveDigest / moduleDigest in the lock (layer 2 entries)
     mirror   every repository named by a dependency (layer 1 bare clones)
+    module-cache the same repositories as mirror (layer 1.5 partial clones)
     vendor   every vendorPath in the lock, including monorepo subPath directories
              (a parent directory that contains a reachable path is preserved)
 
@@ -99,15 +100,16 @@ type gcTotal struct {
 
 // gcReport 是 `ngm gc --json` 的顶层结构，同时是人工输出的唯一数据源。
 type gcReport struct {
-	Version int     `json:"version"`
-	DryRun  bool    `json:"dryRun"`
-	Applied bool    `json:"applied"`
-	Project string  `json:"project"`
-	Lock    string  `json:"lock"`
-	Store   gcClass `json:"store"`
-	Mirror  gcClass `json:"mirror"`
-	Vendor  gcClass `json:"vendor"`
-	Total   gcTotal `json:"total"`
+	Version     int     `json:"version"`
+	DryRun      bool    `json:"dryRun"`
+	Applied     bool    `json:"applied"`
+	Project     string  `json:"project"`
+	Lock        string  `json:"lock"`
+	Store       gcClass `json:"store"`
+	Mirror      gcClass `json:"mirror"`
+	ModuleCache gcClass `json:"moduleCache"`
+	Vendor      gcClass `json:"vendor"`
+	Total       gcTotal `json:"total"`
 	// Warnings 是"本次没有删、但你需要知道"的事实。
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -190,6 +192,10 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
+	mcu, err := vendor.NewModuleCache(env.Layout.ModuleCacheRoot(), env.GitOpts).Usage()
+	if err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
 	vendorRoot := env.VendorRoot(pf)
 	mode := "local"
 	if pf != nil && pf.Vendor != nil && strings.EqualFold(strings.TrimSpace(pf.Vendor.Mode), "global") {
@@ -244,6 +250,39 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// ---- 层 1.5：module cache（partial clone）
+	//
+	// 与 mirror 同一把钥匙：lock 里的每个仓库都按 `repo.git` 可达。
+	// 一个仓库同时有 mirror 与 module cache 是正常的（模块条目用后者）；
+	// 因此这里只回收"连 mirror 都不再引用"的仓库，避免删掉仍被别的
+	// 形态使用的缓存。被删的 partial clone 可由 mirror/远端重建。
+	rep.ModuleCache = gcClass{Root: mcu.Root, Exists: mcu.Exists}
+	for _, e := range mcu.Entries {
+		if reach.mirrors[e.Repo] {
+			continue
+		}
+		rep.ModuleCache.Candidates = append(rep.ModuleCache.Candidates,
+			gcItem{ID: e.Repo, Bytes: e.Bytes})
+	}
+	sort.Slice(rep.ModuleCache.Candidates, func(i, j int) bool {
+		return rep.ModuleCache.Candidates[i].ID < rep.ModuleCache.Candidates[j].ID
+	})
+	rep.ModuleCache.Objects = len(rep.ModuleCache.Candidates)
+	for _, it := range rep.ModuleCache.Candidates {
+		rep.ModuleCache.Bytes += it.Bytes
+	}
+	if *apply {
+		for _, it := range rep.ModuleCache.Candidates {
+			path := filepath.Join(mcu.Root, filepath.FromSlash(it.ID))
+			if rerr := os.RemoveAll(path); rerr != nil {
+				rep.ModuleCache.Errors = append(rep.ModuleCache.Errors, path+": "+rerr.Error())
+				continue
+			}
+			rep.ModuleCache.Removed++
+			rep.ModuleCache.BytesFreed += it.Bytes
+		}
+	}
+
 	// ---- 层 3：vendor
 	rep.Vendor = gcClass{Root: vplan.Root, Exists: vplan.Exists, Mode: mode}
 	if mode == "global" {
@@ -281,8 +320,8 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	rep.Total.Objects = rep.Store.Objects + rep.Mirror.Objects + rep.Vendor.Objects
-	rep.Total.Bytes = rep.Store.Bytes + rep.Mirror.Bytes + rep.Vendor.Bytes
+	rep.Total.Objects = rep.Store.Objects + rep.Mirror.Objects + rep.ModuleCache.Objects + rep.Vendor.Objects
+	rep.Total.Bytes = rep.Store.Bytes + rep.Mirror.Bytes + rep.ModuleCache.Bytes + rep.Vendor.Bytes
 
 	if *jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -359,10 +398,11 @@ func renderGCHuman(w io.Writer, rep gcReport) {
 	fmt.Fprintln(w)
 
 	if rep.Total.Objects == 0 {
-		fmt.Fprintf(w, "nothing to reclaim: store, mirror and vendor hold no object outside %s\n", rep.Lock)
+		fmt.Fprintf(w, "nothing to reclaim: store, mirror, module-cache and vendor hold no object outside %s\n", rep.Lock)
 	} else {
 		renderGCClass(w, "store (layer 2)", rep.Store, rep.DryRun)
 		renderGCClass(w, "mirror (layer 1)", rep.Mirror, rep.DryRun)
+		renderGCClass(w, "module-cache (layer 1.5)", rep.ModuleCache, rep.DryRun)
 		renderGCClass(w, "vendor (layer 3)", rep.Vendor, rep.DryRun)
 		fmt.Fprintf(w, "\ntotal: %d object(s), %s\n", rep.Total.Objects, storeBytes(rep.Total.Bytes))
 	}
@@ -378,7 +418,7 @@ func renderGCHuman(w io.Writer, rep gcReport) {
 	for _, warning := range rep.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", warning)
 	}
-	for _, e := range append(append(append([]string{}, rep.Store.Errors...), rep.Mirror.Errors...), rep.Vendor.Errors...) {
+	for _, e := range append(append(append(append([]string{}, rep.Store.Errors...), rep.Mirror.Errors...), rep.ModuleCache.Errors...), rep.Vendor.Errors...) {
 		fmt.Fprintf(w, "error: %s\n", e)
 	}
 	if rep.Total.Objects > 0 {
@@ -391,8 +431,8 @@ func renderGCHuman(w io.Writer, rep gcReport) {
 		fmt.Fprintln(w, "dry run: re-run with --apply to delete these object(s).")
 	}
 	if rep.Applied {
-		removed := rep.Store.Removed + rep.Mirror.Removed + rep.Vendor.Removed
-		freed := rep.Store.BytesFreed + rep.Mirror.BytesFreed + rep.Vendor.BytesFreed
+		removed := rep.Store.Removed + rep.Mirror.Removed + rep.ModuleCache.Removed + rep.Vendor.Removed
+		freed := rep.Store.BytesFreed + rep.Mirror.BytesFreed + rep.ModuleCache.BytesFreed + rep.Vendor.BytesFreed
 		fmt.Fprintf(w, "removed %d object(s), freeing %s\n", removed, storeBytes(freed))
 	}
 }

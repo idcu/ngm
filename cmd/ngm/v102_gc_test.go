@@ -276,3 +276,59 @@ func TestV102GCKeepsGlobalVendor(t *testing.T) {
 			rep.Store.Removed, rep.Mirror.Removed)
 	}
 }
+
+// TestV134GCReclaimsModuleCache 验证 D3：module cache（层 1.5）纳入 gc 的可达性判定。
+//
+// 一个当前 lock 不引用的 partial clone 目录必须出现在 moduleCache 候选里，
+// 而 lock 里声明的仓库即使同时存在于 mirror 与 module cache 也保留。
+func TestV134GCReclaimsModuleCache(t *testing.T) {
+	testutils.MustHaveGit(t)
+	isolateUserEnv(t)
+
+	proj, _ := gcProject(t)
+	layout := defaultLayoutForTest(t)
+	moduleRoot := layout.ModuleCacheRoot()
+
+	// 手工造一个 stale partial clone 目录（形状与 PathFor 一致）。
+	stale := filepath.Join(moduleRoot, "github.com", "m5", "stale.git")
+	if err := os.MkdirAll(filepath.Join(stale, "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "objects", "junk"), []byte("junk\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 一个"仍被 lock 引用"的 module cache 目录必须保留。
+	kept := filepath.Join(moduleRoot, "github.com", "m5", "gckeep.git")
+	if err := os.MkdirAll(kept, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, rep, out := gcJSON(t, "--dir="+proj)
+	if code != 0 {
+		t.Fatalf("dry run exit=%d:/n%s", code, out)
+	}
+	if _, ok := gcFind(rep.ModuleCache.Candidates, "github.com/m5/stale.git"); !ok {
+		t.Fatalf("stale module cache should be a candidate:/n%s", out)
+	}
+	if _, ok := gcFind(rep.ModuleCache.Candidates, "github.com/m5/gckeep.git"); ok {
+		t.Fatalf("a repo named by the lock must be kept:/n%s", out)
+	}
+	if rep.ModuleCache.Objects < 1 {
+		t.Errorf("moduleCache.Objects = %d, want >= 1", rep.ModuleCache.Objects)
+	}
+
+	// --apply 真的删除 stale，保留 kept。
+	code, rep, out = gcJSON(t, "--apply", "--dir="+proj)
+	if code != 0 {
+		t.Fatalf("apply exit=%d:/n%s", code, out)
+	}
+	if rep.ModuleCache.Removed < 1 {
+		t.Errorf("moduleCache.Removed = %d, want >= 1", rep.ModuleCache.Removed)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale module cache still present after --apply: %v", err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("kept module cache was deleted: %v", err)
+	}
+}
