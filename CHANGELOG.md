@@ -72,6 +72,28 @@
 
 ### Fixed
 
+- **安全（S0）**：`~/.ngm/config.json` 完全不存在时，引擎探测闸门此前不注册，
+  `ngm engines list` / `engines validate` 会真实 spawn 被克隆仓库
+  `ngm.engines.json` 声明的程序（环境变量全继承）。现在探测闸门无条件注册，
+  nil Policy 按默认档位拒绝 `run:<engine>`。新增零配置"探针零命中"负向判据。
+- `verify --content` 现在做 store 清单的**反向集合**校验：多出一条不在锁定 Git
+  tree 里的条目会判 critical(2)（此前重放只按 tree 正向取值，注入的文件会被
+  materialize 落地而校验全绿）。模块条目由 `subtreeOid` 绑定，不受影响。
+- git 子进程的 `GIT_EXEC_PATH` / `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` 现在与
+  `GIT_SSH_COMMAND` 同等待遇被剔除；`ExtraEnv` 也走同一套 deny/hijack 过滤，
+  "追加"不再能绕过权限。
+- `ngm doctor --json` 在位置参数错误时现在也返回机器可读错误信封（此前 stdout
+  为空）。`contracts/exit-codes.json` 修正了点错的守门测试名，并新增一条
+  "契约点名的测试真实存在"判据。
+- 版本解析收进 `internal/version`：`outdated` 的严格 semver 与引擎版本门槛的
+  宽松解析并列保留、各有测试，不再两处各写一份正则。
+- `ngm adopt` 现在能从 `pnpm-lock.yaml` / `yarn.lock` 里提取 **Git 来源**的
+  依赖（url + commit）写进 provenance；registry 条目仍按设计保持 unknown，
+  notes 会说明覆盖范围。不引入 YAML 依赖，只做窄形状解析。
+- `ngm gc` 现在覆盖 module cache（层 1.5）：与 mirror 同一可达性判据，
+  默认 dry-run，删除失败汇总为 exit 4。
+- vendored 依赖的 `.bin` shim 按 [ADR-043](docs/adr/adr-043-vendored-bin-shim.md)
+  决定暂缓：它越过 ADR-042 的边界并从第三方内容创建可执行面，需先有威胁模型。
 - `ngm adopt`：缺少 `package.json` 的**作用域包**（`node_modules/@scope/name`）
   现在回退为 `@scope/name`，不再丢掉 scope（此前只剩 `name`）。
 - README 不再硬编码 tag 数量（此前写 101，实测已漂移）；改为“以 `git tag` 读数为准”。
