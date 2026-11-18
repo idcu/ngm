@@ -839,9 +839,15 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 		// "Git 有、store 没有"，但看不到"store 多了一个文件"。而 Materialize
 		// 会落地 store 清单的**全部**条目，第 3 步又拿同一份 storeEntries 与
 		// vendor 比——两侧一致，于是注入的文件在 `--deep` 下全绿。
-		// 根条目的形状权威在 Git tree；模块条目的形状与 moduleDigest 已在
-		// checkModuleProof 里由 subtreeOid 绑死，store 多条目会改变重放的
-		// moduleDigest 而被 :854 的比对抓住，因此这里只需覆盖根条目。
+		// 根条目的形状权威在 Git tree；模块条目的 moduleDigest 是**按 store 清单
+		// 重放**的（`replayModuleDigestFromEntries`），多一条记录就会改变重放结果，
+		// 于是被下面的 digest 比对抓住（kind 是 `module-digest`，不是
+		// `extra-store-entry`），因此这里只需覆盖根条目。
+		//
+		// 这句推理**有判据**：`TestV135ModuleExtraStoreEntryIsCritical` 往模块的
+		// store 清单里注入一条额外记录，断言 exit 2 且 kind=module-digest。
+		// 若哪天模块改成不重放清单，那条会红——那时必须把本函数扩展到模块分支，
+		// 否则"多一个条目"会重新变成不可见。
 		if !d.IsModule() && hasStore && entriesOK && mirrorPath != "" {
 			if extras := extraStoreEntries(ctx, mirrorPath, allEntries, d, opts); len(extras) > 0 {
 				for _, p := range extras {
