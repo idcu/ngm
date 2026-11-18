@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/idcu/ngm/internal/core/errs"
@@ -87,5 +90,63 @@ func TestV119ExitCodesJsonContract(t *testing.T) {
 	}
 	if len(doc.Codes) != 7 {
 		t.Errorf("契约有 %d 条，代码里只有 0..6 七个码", len(doc.Codes))
+	}
+}
+
+// TestV133ContractNamesRealTests 防止契约文件再次登记一个不存在的守门人。
+//
+// 缺陷形态（2026-11-18）：description 里写 TestV119ExitCodeContractMatchesCode，
+// 实际测试叫 TestV119ExitCodesJsonContract——于是这条承诺在仓库里没有任何
+// 判据守住，而读契约的人以为有人守。判据从 JSON 文本里抽出反引号测试名，
+// 再在整个 Go 源码里找 func 定义。
+func TestV133ContractNamesRealTests(t *testing.T) {
+	raw, err := os.ReadFile("../../contracts/exit-codes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	names := regexp.MustCompile("`([A-Za-z][A-Za-z0-9_]*)`").FindAllStringSubmatch(doc.Description, -1)
+	if len(names) == 0 {
+		t.Fatal("the contract description must name at least one guard test")
+	}
+
+	// 收集整个仓库的 func 名（只需要 cmd/ngm 与 internal）。
+	sources := map[string]bool{}
+	for _, root := range []string{"../.."} {
+		err := filepath.Walk(root, func(p string, info os.FileInfo, werr error) error {
+			if werr != nil {
+				return werr
+			}
+			if info.IsDir() {
+				if info.Name() == ".git" || info.Name() == "dist" || info.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(p, ".go") {
+				return nil
+			}
+			b, rerr := os.ReadFile(p)
+			if rerr != nil {
+				return rerr
+			}
+			for _, m := range regexp.MustCompile(`(?m)^func\s+([A-Za-z][A-Za-z0-9_]*)\s*\(`).FindAllStringSubmatch(string(b), -1) {
+				sources[m[1]] = true
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, m := range names {
+		if !sources[m[1]] {
+			t.Errorf("contract names test %q, but no such func exists in the repository", m[1])
+		}
 	}
 }
