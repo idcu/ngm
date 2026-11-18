@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/core/verify"
 	"github.com/idcu/ngm/internal/testutils"
 )
@@ -195,4 +196,61 @@ func TestV102VerifyContentCost(t *testing.T) {
 	}
 	t.Logf("content-level cost: dependencies=1 files=%d structure=%s content=%s",
 		files, structure.Round(time.Millisecond), content.Round(time.Millisecond))
+}
+
+// TestV132VerifyContentExtraStoreEntryIsCritical 是 B1 的端到端判据：
+// 往 v2 content store 清单里塞一个不在 Git tree 里的条目（指向一个已存在的
+// 合法 blob），`verify --content` 必须把它判成 critical(2)，而不是像此前那样
+// 因为"重放只遍历权威 tree、vendor↔store 又同源"而全绿。
+func TestV132VerifyContentExtraStoreEntryIsCritical(t *testing.T) {
+	testutils.MustHaveGit(t)
+	isolateUserEnv(t)
+	proj, dep := contentProject(t)
+
+	layout := defaultLayoutForTest(t)
+	store := vendor.NewContentStore(layout.ContentRoot())
+	manifestPath := store.ManifestPath(dep.ContentDigest())
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read content manifest: %v", err)
+	}
+	var mf vendor.Manifest
+	if err := json.Unmarshal(raw, &mf); err != nil {
+		t.Fatalf("parse content manifest: %v", err)
+	}
+	if len(mf.Entries) == 0 {
+		t.Fatal("fixture has no entries to clone into an injected one")
+	}
+	// 用一个已存在条目的 blob 作为"合法内容"，只是路径在 Git tree 里不存在。
+	injected := mf.Entries[0]
+	injected.Path = "injected/evil.js"
+	mf.Entries = append(mf.Entries, injected)
+	mutated, err := json.Marshal(mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, mutated, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, rep, out := runVerifyJSON(t, "--content", "--json", "--dir="+proj)
+	if code != 2 {
+		t.Fatalf("an extra store entry must be critical (2), got %d:/n%s", code, out)
+	}
+	if rep.Summary.Critical != 1 {
+		t.Errorf("summary should count one critical dependency: %+v", rep.Summary)
+	}
+	proof := rep.Dependencies[0].Content
+	if proof == nil {
+		t.Fatalf("content proof missing:/n%s", out)
+	}
+	var found bool
+	for _, m := range proof.Mismatches {
+		if m.Path == "injected/evil.js" && m.Kind == "extra-store-entry" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("mismatch must locate the injected entry:/n%s", out)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -832,6 +833,31 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 	}
 
 	if opts.Deep {
+		// 2c) (store 清单 ⊆ Git tree) 的**反向集合**校验（2026-11-18）。
+		//
+		// replayDigestFromEntries 只按 Git tree 的条目去 store 取值：它能发现
+		// "Git 有、store 没有"，但看不到"store 多了一个文件"。而 Materialize
+		// 会落地 store 清单的**全部**条目，第 3 步又拿同一份 storeEntries 与
+		// vendor 比——两侧一致，于是注入的文件在 `--deep` 下全绿。
+		// 根条目的形状权威在 Git tree；模块条目的形状与 moduleDigest 已在
+		// checkModuleProof 里由 subtreeOid 绑死，store 多条目会改变重放的
+		// moduleDigest 而被 :854 的比对抓住，因此这里只需覆盖根条目。
+		if !d.IsModule() && hasStore && entriesOK && mirrorPath != "" {
+			if extras := extraStoreEntries(ctx, mirrorPath, allEntries, d, opts); len(extras) > 0 {
+				for _, p := range extras {
+					critical = append(critical, fmt.Sprintf(
+						"content store has an entry not present in the locked tree: %s "+
+							"(the store manifest was modified after install)", p))
+					if proof != nil {
+						proof.Mismatches = append(proof.Mismatches, ContentMismatch{
+							Path: p, Kind: "extra-store-entry",
+							Expected: "an entry in the locked commit tree", Actual: "present only in the content store",
+						})
+					}
+				}
+			}
+		}
+
 		switch {
 		case mirrorPath == "" && !d.IsModule():
 			// 内容级承诺要求聚合 digest 真的与 lock 对齐。根条目的 shape 来自
@@ -997,6 +1023,41 @@ func replayModuleDigestFromEntries(entries []vendor.ContentEntry) (string, error
 		records = append(records, rec)
 	}
 	return digest.Digest(digest.BuildModuleManifest(records)), nil
+}
+
+// extraStoreEntries 返回"在 content store 清单里、却不在 lock 钉住的 Git tree 里"的路径。
+//
+// 与 replayDigestFromEntries 的分工：那一个按 Git tree 正向取字节算 digest，
+// 本函数做**反向集合**比对。只有两者合起来才能同时抓住"少了"与"多了"——
+// 聚合 digest 对"多了"不敏感（重放只遍历权威 tree），而落地层按 store 清单
+// 全部物化，所以"多了"会真实出现在 vendor 里。
+//
+// 无法读取 Git tree 时返回 nil：这不是"没有多余条目"的结论，而是一次没查成；
+// 调用方另有 mirror 缺失/不可读的 operational 分支负责报资源缺失（exit 4），
+// 本函数绝不能把"没查成"伪装成"查过了、没问题"。
+func extraStoreEntries(ctx context.Context, mirrorPath string, storeEntries []vendor.ContentEntry,
+	d *lock.Dependency, opts Options) []string {
+	entries, err := git.ListTree(ctx, opts.GitOpts, mirrorPath, d.Commit)
+	if err != nil {
+		return nil
+	}
+	inTree := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if e.Mode == digest.ModeTree {
+			continue
+		}
+		inTree[e.Path] = true
+	}
+	var extra []string
+	seen := map[string]bool{}
+	for _, e := range storeEntries {
+		if !inTree[e.Path] && !seen[e.Path] {
+			extra = append(extra, e.Path)
+			seen[e.Path] = true
+		}
+	}
+	sort.Strings(extra)
+	return extra
 }
 
 func replayDigestFromEntries(ctx context.Context, mirrorPath string, storeEntries []vendor.ContentEntry,
