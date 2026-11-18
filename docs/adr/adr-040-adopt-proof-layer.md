@@ -82,6 +82,22 @@ ngm **不再要求**用户换掉安装器。新增 `ngm adopt`：读已有的 `n
 - **不为 registry 条目做来源解析**（含 pnpm/yarn lock）。理由见决定 2 的注：
   那既不是 ngm 的轴，又要换来一个永久的解析器负担。已从路线图移除。
 
+## 补记（2026-11-19，v0.135）：pnpm / yarn lock 的**窄解析**
+
+决定 2 的注否掉的是"为 **registry** 条目去解析 pnpm/yarn lock"——那要吃一个 YAML
+解析器，换来的 `resolution.integrity` 不是 ngm 的轴。**这次补的是被那句话顺带盖住的
+另一半**：这两个 lock 里 **Git 来源**的条目（pnpm 的 `resolution: {repo, commit}`、
+yarn berry 的 `resolved "<url>#<commit>"`、yarn v1 的单行 `resolved`）与 npm 的
+`git+…#<commit>` 是同一件事，而 **commit 正是 ngm 的轴**。
+
+- 解析是**窄形状**的：不引入 YAML 依赖，只认上面那两种已知写法；
+- registry 条目仍然一律 `unknown`，`notes` 与 `coverage.unknown` 的语义一个字没变；
+- 判据：`TestV134AdoptPNPMAndYarnGitProvenance`（npm / pnpm / yarn 三类夹具各出一份证明，
+  断言 provenance 的 commit 与 lock 一致、registry 条目仍如实标 unknown）。
+
+于是 `adopt` 的"读不了"清单只剩**真正读不了**的那些（未知 lock 版本、结构变化）。
+不变的仍是那句：**adopt 出证据，主干是 `ngm.lock`**。
+
 ## 相关文档
 
 - [CLI 参考 · `ngm adopt`](../guides/cli.md)
