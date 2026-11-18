@@ -2,11 +2,10 @@ package adapter
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/version"
 )
 
 // 本文件是 v0.2 E 组新增引擎的 argv 翻译：typescript（tsc）/ deno / postcss。
@@ -213,20 +212,17 @@ func probeVersion(e Entry, dir string, deniedEnv []string) (string, error) {
 	return newSubprocessEngine(e, dir, deniedEnv).Version()
 }
 
-// reVersionNumber 从版本串里取出第一段数字序列（"deno 2.4.3" → "2.4.3"）。
-var reVersionNumber = regexp.MustCompile(`\d+(?:\.\d+)*`)
-
 // versionAtLeast 判定 actual 是否不低于 min（按 major.minor.patch 逐段比较）。
 //
 // 只比较 min 里写到的段数：`min="2.4"` 时 2.4.0 / 2.4.3 / 2.5.0 都算满足，
 // 2.3.9 不算。解析不出版本号时返回 false——**"不知道"不等于"够新"**，
 // 放行一个无法确定版本的实验特性会让失败发生在更后面、更难诊断的地方。
 func versionAtLeast(actual, min string) bool {
-	found := reVersionNumber.FindString(actual)
+	found := version.LooseNumber(actual)
 	if found == "" {
 		return false
 	}
-	a, m := versionParts(found), versionParts(min)
+	a, m := version.DottedParts(found), version.DottedParts(min)
 	if len(a) == 0 || len(m) == 0 {
 		return false
 	}
@@ -239,18 +235,6 @@ func versionAtLeast(actual, min string) bool {
 		}
 	}
 	return true
-}
-
-func versionParts(s string) []int {
-	var out []int
-	for _, p := range strings.Split(s, ".") {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			break
-		}
-		out = append(out, n)
-	}
-	return out
 }
 
 // stringList 把选项值归一化为字符串列表（支持字符串与数组两种写法）。

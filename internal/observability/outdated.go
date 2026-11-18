@@ -5,16 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/version"
 )
-
-// reSemver 识别形如 `v1.2.3` / `1.2.3` 的版本标签。
-var reSemver = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)([-+].*)?$`)
 
 // OutdatedEntry 是一个依赖的更新检查结果。
 type OutdatedEntry struct {
@@ -221,11 +218,10 @@ func newestSemverTag(tags []versionedTag) (versionedTag, bool) {
 	var bk [3]int
 	found := false
 	for _, t := range tags {
-		m := reSemver.FindStringSubmatch(t.Version)
-		if m == nil {
+		n, ok := version.SemverParts(t.Version)
+		if !ok {
 			continue
 		}
-		n := [3]int{atoi(m[1]), atoi(m[2]), atoi(m[3])}
 		if !found || gt(n, bk) {
 			best, bk, found = t, n, true
 		}
@@ -235,12 +231,11 @@ func newestSemverTag(tags []versionedTag) (versionedTag, bool) {
 
 // isNewer 判定 latest 是否比 current 新；任一不是 semver 时退化为"不相等"。
 func isNewer(current, latest string) bool {
-	cm, lm := reSemver.FindStringSubmatch(current), reSemver.FindStringSubmatch(latest)
-	if cm == nil || lm == nil {
+	cn, cmOK := version.SemverParts(current)
+	ln, lmOK := version.SemverParts(latest)
+	if !cmOK || !lmOK {
 		return current != latest
 	}
-	cn := [3]int{atoi(cm[1]), atoi(cm[2]), atoi(cm[3])}
-	ln := [3]int{atoi(lm[1]), atoi(lm[2]), atoi(lm[3])}
 	return gt(ln, cn)
 }
 
@@ -251,11 +246,6 @@ func gt(a, b [3]int) bool {
 		}
 	}
 	return false
-}
-
-func atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
 }
 
 // Marshal 输出机器可读报告。
