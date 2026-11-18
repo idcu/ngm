@@ -188,8 +188,8 @@ func TestV105AdoptSaysWhatItCannotRead(t *testing.T) {
 	if p.Source.LockfileDigest == "" {
 		t.Error("even an unparsed lock gets its bytes hashed: the evidence points at what it looked like")
 	}
-	if !hasNote(p, "does not parse it") {
-		t.Errorf("the note must name the limitation: %v", p.Notes)
+	if !hasNote(p, "Git-sourced entries only") {
+		t.Errorf("the note must name the coverage boundary: %v", p.Notes)
 	}
 	if p.Coverage.Unknown != 1 {
 		t.Errorf("unknown = %d", p.Coverage.Unknown)
@@ -356,4 +356,77 @@ func TestV122AdoptZeroPackagesHint(t *testing.T) {
 	if !strings.Contains(ne.Hint, "pnpm/workspaces") {
 		t.Errorf("hint should name the linked layout it cannot read: %q", ne.Hint)
 	}
+}
+
+// TestV134AdoptPNPMAndYarnGitProvenance 验证 D1：pnpm / yarn lock 里的 Git 来源
+// 被提取进 provenance，而 registry 条目保持 unknown（设计决定，ADR-040）。
+func TestV134AdoptPNPMAndYarnGitProvenance(t *testing.T) {
+	const sha = "1111111111111111111111111111111111111111"
+	t.Run("pnpm", func(t *testing.T) {
+		root := t.TempDir()
+		os.MkdirAll(filepath.Join(root, "node_modules", "fromgit"), 0o755)
+		write(t, filepath.Join(root, "node_modules", "fromgit", "package.json"), `{"name":"fromgit","version":"1.0.0"}`)
+		write(t, filepath.Join(root, "pnpm-lock.yaml"), `lockfileVersion: '9.0'
+packages:
+  github.com/foo/fromgit/`+sha+`:
+    name: fromgit
+    version: 1.0.0
+    resolution: {git: https://github.com/foo/fromgit.git, commit: `+sha+`}
+  /registry-pkg@1.2.3:
+    resolution: {integrity: sha512-AAA}
+`)
+		p, err := Run(Options{Dir: root, ToolVersion: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Source.Manager != "pnpm" || p.Source.Lockfile != "pnpm-lock.yaml" {
+			t.Fatalf("source = %+v", p.Source)
+		}
+		var found bool
+		for _, pkg := range p.Packages {
+			if pkg.Name == "fromgit" {
+				found = true
+				if pkg.Provenance.Kind != KindGit || pkg.Provenance.Commit != sha {
+					t.Errorf("pnpm git provenance = %+v", pkg.Provenance)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("fromgit package missing: %+v", p.Packages)
+		}
+		if !hasNote(p, "Git-sourced entries only") {
+			t.Errorf("coverage note missing: %v", p.Notes)
+		}
+	})
+
+	t.Run("yarn", func(t *testing.T) {
+		root := t.TempDir()
+		os.MkdirAll(filepath.Join(root, "node_modules", "fromgit"), 0o755)
+		write(t, filepath.Join(root, "node_modules", "fromgit", "package.json"), `{"name":"fromgit","version":"1.0.0"}`)
+		write(t, filepath.Join(root, "yarn.lock"), `# yarn lockfile v1
+"fromgit@git+https://github.com/foo/fromgit.git":
+  version "1.0.0"
+  resolved "git+https://github.com/foo/fromgit.git#`+sha+`"
+  integrity sha512-BBB
+`)
+		p, err := Run(Options{Dir: root, ToolVersion: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Source.Manager != "yarn" || p.Source.Lockfile != "yarn.lock" {
+			t.Fatalf("source = %+v", p.Source)
+		}
+		var found bool
+		for _, pkg := range p.Packages {
+			if pkg.Name == "fromgit" {
+				found = true
+				if pkg.Provenance.Kind != KindGit || pkg.Provenance.Commit != sha {
+					t.Errorf("yarn git provenance = %+v", pkg.Provenance)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("fromgit package missing: %+v", p.Packages)
+		}
+	})
 }

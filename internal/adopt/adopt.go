@@ -493,30 +493,36 @@ func readLock(root string) (map[string]lockEntry, []string, Source) {
 		return entries, notes, src
 	}
 
-	for _, c := range []struct{ file, manager string }{
-		{"pnpm-lock.yaml", "pnpm"},
-		{"yarn.lock", "yarn"},
+	for _, c := range []struct {
+		file, manager string
+		parse         func([]byte) (map[string]lockEntry, error)
+	}{
+		{"pnpm-lock.yaml", "pnpm", parsePNPMLock},
+		{"yarn.lock", "yarn", parseYarnLock},
 	} {
 		path := filepath.Join(root, c.file)
-		st, err := os.Stat(path)
-		if err != nil || st.IsDir() {
+		raw, err := os.ReadFile(path)
+		if err != nil {
 			continue
 		}
 		src.Manager = c.manager
-		// Lockfile **必须记下**：它是"我们看到了但没读懂"的那个文件。
-		// 此前这里只设 Manager，于是人读那行打印 "no lock file"——
-		// 而眼睛看到的是"项目里有 pnpm-lock.yaml"，两句话互相矛盾。
 		src.Lockfile = c.file
-		if raw, rerr := os.ReadFile(path); rerr == nil {
-			src.LockfileDigest = "sha256:" + digest.HashBytes(raw)
+		src.LockfileDigest = "sha256:" + digest.HashBytes(raw)
+		entries, perr := c.parse(raw)
+		if perr != nil {
+			notes = append(notes, fmt.Sprintf(
+				"%s was found but could not be parsed (%v); provenance is unknown for every package",
+				c.file, perr))
+			return nil, notes, src
 		}
+		// 只给 Git 条目 provenance；registry 条目仍 unknown——这是设计决定
+		// （ADR-040），不是"没解析完"。notes 如实说明覆盖范围。
 		notes = append(notes, fmt.Sprintf(
-			"%s is present but ngm does not parse it, and will not: registry provenance "+
-				"is your installer's integrity field, not ngm's axis (ngm proves `content <-> commit`). "+
-				"Every package below is reported with provenance=unknown; the content digests are still exact. "+
-				"To put a *git* dependency under ngm, declare it with `ngm add` — ngm.vendor/ and "+
-				"node_modules/ coexist", c.file))
-		return nil, notes, src
+			"%s: ngm reads Git-sourced entries only (%d found); registry provenance is "+
+				"your installer's integrity field, not ngm's axis (ngm proves `content <-> commit`). "+
+				"Registry packages stay provenance=unknown; their content digests are still exact",
+			c.file, len(entries)))
+		return entries, notes, src
 	}
 
 	notes = append(notes, "no lock file was found; every package below is reported with "+
