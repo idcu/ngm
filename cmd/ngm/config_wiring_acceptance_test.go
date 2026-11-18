@@ -148,6 +148,10 @@ func TestDeclaredSupportedInputIsListed(t *testing.T) {
 // 为什么必须是"信息"而不是错误：旧版本的引擎常常照样能跑，把声明与实际不一致
 // 判为失败会让 validate 变成版本管理器。这条测试固定的是**说出来**，不是拦下来。
 func TestDeclaredEngineVersionIsComparedWithTheLocalOne(t *testing.T) {
+	// v0.135：探测现在**无条件**走 `run:<引擎>` 闸门（无全局配置时也按默认档位拒绝）。
+	// 这条用例要问的是"声明的版本有没有被比对"，所以必须先授权那一次探测；
+	// 不授权的形态由 `TestV131NoGlobalConfigDoesNotSpawnProbe` 守着。
+	testutils.AllowEngines(t, "fake-engine")
 	isolateUserEnv(t)
 
 	fake := testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
