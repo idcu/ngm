@@ -174,6 +174,13 @@ var hijackEnvVars = map[string]bool{
 	"GIT_CONFIG_GLOBAL":     true,
 	"GIT_CONFIG_SYSTEM":     true,
 	"GIT_CONFIG_PARAMETERS": true,
+	// 2026-11-18：以下三个同样能把"git 执行哪段程序"从 ngm 手里拿走。
+	// GIT_EXEC_PATH 让 git 从指定目录加载 git-remote-https / git-upload-pack
+	// 等 helper，等价于已拦截的 GIT_SSH_COMMAND；
+	// LD_PRELOAD / DYLD_INSERT_LIBRARIES 更底层，可在进程启动时替换任意函数。
+	"GIT_EXEC_PATH":         true,
+	"LD_PRELOAD":            true,
+	"DYLD_INSERT_LIBRARIES": true,
 }
 
 // hijackEnvPrefixes 是按前缀匹配的同一类变量。
@@ -227,7 +234,21 @@ func buildEnv(opts Options) []string {
 		env = append(env, "GIT_TERMINAL_PROMPT=0")
 	}
 	env = append(env, "LC_ALL=C", "LANG=C")
-	env = append(env, opts.ExtraEnv...)
+	// ExtraEnv 与 os.Environ() 走**同一套**过滤：它是调用方（verify 的
+	// GIT_NO_LAZY_FETCH、modules 的索引选项）追加的，但"追加"不能成为
+	// 绕过 deny / hijack 表的通道（2026-11-18）。当前所有生产调用方传的
+	// 都是内部安全开关，过滤不会改变它们的行为。
+	for _, e := range opts.ExtraEnv {
+		name := e
+		if i := strings.IndexByte(e, '='); i >= 0 {
+			name = e[:i]
+		}
+		upper := strings.ToUpper(name)
+		if repoLocatingEnvVars[upper] || hijackEnvVars[upper] || deniedEnv[upper] || hasHijackPrefix(upper) {
+			continue
+		}
+		env = append(env, e)
+	}
 	return env
 }
 
