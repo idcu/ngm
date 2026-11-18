@@ -85,3 +85,30 @@ func TestV108PositionalFailuresCarryAnEnvelope(t *testing.T) {
 		}
 	})
 }
+
+// TestV133DoctorPositionalFailureCarriesEnvelope 钉住 doctor 的 parse→位置参数
+// 失败通道。缺陷形态（2026-11-18）：doctor 用 c.parse(..., nil) 解析，于是
+// --json 没被记进 ctx，位置参数失败只写 stderr —— 用户拿到 exit 3 + 空 stdout。
+func TestV133DoctorPositionalFailureCarriesEnvelope(t *testing.T) {
+	isolateUserEnv(t)
+	p := newProject(t)
+	var out, errb bytes.Buffer
+	code := dispatch([]string{"doctor", "ZZ-JUNK-ARG", "--json", "--dir=" + p}, &out, &errb)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3: stdout://n%s//nstderr://n%s", code, out.String(), errb.String())
+	}
+	var env struct {
+		Version int `json:"version"`
+		Error   *struct {
+			Code     string `json:"code"`
+			ExitCode int    `json:"exitCode"`
+			Message  string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not the error envelope: %v\n%s", err, out.String())
+	}
+	if env.Error == nil || env.Error.ExitCode != 3 {
+		t.Fatalf("envelope must carry exitCode 3: %+v", env)
+	}
+}

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/idcu/ngm/internal/config"
+	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/vendor"
@@ -56,15 +58,19 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	c.usage(doctorUsage)
 	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "json", Bool: true},
-	}, nil) {
+	}, jsonOut) {
 		// v0.105：`doctor` 是 v0.104 新增的命令，没被 v0.54 那张网接管——
 		// 实测 `ngm doctor --json --bogus` 的 stdout 是 **0 字节**，
 		// 而用户明明提了 `--json`（要机器可读，却只拿到人读的 usage）。
 		return 3
 	}
+	// 注意：doctor 用 `c.parse(..., jsonOut)` 记下 --json，因此这里起的所有失败
+	// 都经 c.fail 出机器可读信封（此前这条分支只写 stderr，--json 拿到空 stdout）。
 	if fs.NArg() != 0 {
 		fmt.Fprint(stderr, doctorUsage)
-		return 3
+		return c.fail(errs.New(errs.CodeConfigInvalid,
+			"unexpected argument(s): "+strings.Join(fs.Args(), " "),
+			"doctor takes no positional arguments"))
 	}
 
 	env, code := c.env(*dir)
