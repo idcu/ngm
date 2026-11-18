@@ -90,7 +90,17 @@ func TestV39ArgumentDimensionHoldsItsContracts(t *testing.T) {
 					// （`store` 的只有 `PRUNE FLAGS:` 那样的小节）。
 					// 现实支持的那一条是：**首行要点名这个命令**（`ngm <cmd> — …`）——
 					// 它挡的是"打错了一个命令的用法"，而不是"某段标题不在"。
-					if first := firstLine(text); !strings.HasPrefix(first, "ngm "+spec.Name+" ") {
+					//
+					// 第二次收窄（v0.135）：带 `--json` 的命令会把**机器可读信封**写到
+					// stdout、把用法写到 stderr，拼接后首行是信封（`doctor` 的 junk-arg
+					// 就是这一种——matrixArgs 只给它带了 `--json`）。此时改判 stderr
+					// 的首行：这条判据守的是"打出来的是**这个命令**的用法"，
+					// 不是"它必须排在所有输出的第一行"。
+					head := text
+					if strings.HasPrefix(strings.TrimSpace(body), "{") {
+						head = errb.String()
+					}
+					if first := firstLine(head); !strings.HasPrefix(first, "ngm "+spec.Name+" ") {
 						t.Errorf("the text printed is a usage, but not **this** command's usage:\n  %s", first)
 					}
 				case reErrPrefix.MatchString(stderr):
