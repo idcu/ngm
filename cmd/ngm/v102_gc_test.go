@@ -305,13 +305,13 @@ func TestV134GCReclaimsModuleCache(t *testing.T) {
 
 	code, rep, out := gcJSON(t, "--dir="+proj)
 	if code != 0 {
-		t.Fatalf("dry run exit=%d:/n%s", code, out)
+		t.Fatalf("dry run exit=%d:\n%s", code, out)
 	}
 	if _, ok := gcFind(rep.ModuleCache.Candidates, "github.com/m5/stale.git"); !ok {
-		t.Fatalf("stale module cache should be a candidate:/n%s", out)
+		t.Fatalf("stale module cache should be a candidate:\n%s", out)
 	}
 	if _, ok := gcFind(rep.ModuleCache.Candidates, "github.com/m5/gckeep.git"); ok {
-		t.Fatalf("a repo named by the lock must be kept:/n%s", out)
+		t.Fatalf("a repo named by the lock must be kept:\n%s", out)
 	}
 	if rep.ModuleCache.Objects < 1 {
 		t.Errorf("moduleCache.Objects = %d, want >= 1", rep.ModuleCache.Objects)
@@ -320,7 +320,7 @@ func TestV134GCReclaimsModuleCache(t *testing.T) {
 	// --apply 真的删除 stale，保留 kept。
 	code, rep, out = gcJSON(t, "--apply", "--dir="+proj)
 	if code != 0 {
-		t.Fatalf("apply exit=%d:/n%s", code, out)
+		t.Fatalf("apply exit=%d:\n%s", code, out)
 	}
 	if rep.ModuleCache.Removed < 1 {
 		t.Errorf("moduleCache.Removed = %d, want >= 1", rep.ModuleCache.Removed)

@@ -235,14 +235,14 @@ func TestV132VerifyContentExtraStoreEntryIsCritical(t *testing.T) {
 
 	code, rep, out := runVerifyJSON(t, "--content", "--json", "--dir="+proj)
 	if code != 2 {
-		t.Fatalf("an extra store entry must be critical (2), got %d:/n%s", code, out)
+		t.Fatalf("an extra store entry must be critical (2), got %d:\n%s", code, out)
 	}
 	if rep.Summary.Critical != 1 {
 		t.Errorf("summary should count one critical dependency: %+v", rep.Summary)
 	}
 	proof := rep.Dependencies[0].Content
 	if proof == nil {
-		t.Fatalf("content proof missing:/n%s", out)
+		t.Fatalf("content proof missing:\n%s", out)
 	}
 	var found bool
 	for _, m := range proof.Mismatches {
@@ -251,6 +251,6 @@ func TestV132VerifyContentExtraStoreEntryIsCritical(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("mismatch must locate the injected entry:/n%s", out)
+		t.Fatalf("mismatch must locate the injected entry:\n%s", out)
 	}
 }

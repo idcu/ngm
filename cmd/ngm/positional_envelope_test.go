@@ -95,7 +95,7 @@ func TestV133DoctorPositionalFailureCarriesEnvelope(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := dispatch([]string{"doctor", "ZZ-JUNK-ARG", "--json", "--dir=" + p}, &out, &errb)
 	if code != 3 {
-		t.Fatalf("exit = %d, want 3: stdout://n%s//nstderr://n%s", code, out.String(), errb.String())
+		t.Fatalf("exit = %d, want 3: stdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
 	}
 	var env struct {
 		Version int `json:"version"`
