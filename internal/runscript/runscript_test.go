@@ -139,6 +139,44 @@ func TestChildEnvIsTheDocumentedMinimum(t *testing.T) {
 	}
 }
 
+// TestChildEnvStripsDeniedVariables 证明 `deny: ["env:X"]` 在脚本侧真的被施加。
+//
+// 背景：这条策略此前只有 git 子进程、Deno 沙箱、引擎子进程三处生效，
+// `ngm run` 把父环境整体透传——同一条 deny 在 ngm 启动的最大一类子进程上
+// 无声失效。判据必须能区分"剔除了"与"没读过"：父环境里**有**这个变量，
+// 子进程环境里**没有**。
+func TestChildEnvStripsDeniedVariables(t *testing.T) {
+	t.Setenv("NGM_DENY_ME", "secret-value")
+	t.Setenv("NGM_KEEP_ME", "public-value")
+
+	env := ChildEnv(ExecSpec{
+		Command: "echo hi", Event: "build",
+		PackageName: "demo", PackageVersion: "1.0.0",
+		DeniedEnv: []string{"NGM_DENY_ME"},
+	})
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, "NGM_DENY_ME") {
+		t.Errorf("denied variable leaked into the child env:\n%s", joined)
+	}
+	if !strings.Contains(joined, "NGM_KEEP_ME=public-value") {
+		t.Errorf("non-denied variable must still be inherited")
+	}
+	// ngm 自己的契约变量不受 deny 治理：即使被拒绝也照旧注入，
+	// 否则一次 `deny: ["env:PATH"]` 就能让脚本失去 PATH（见 ExecSpec.DeniedEnv）。
+	env = ChildEnv(ExecSpec{
+		Command: "echo hi", Event: "build",
+		PackageName: "demo", PackageVersion: "1.0.0",
+		DeniedEnv: []string{"PATH", "npm_lifecycle_event"},
+	})
+	joined = strings.Join(env, "\n")
+	if !strings.Contains(joined, "npm_lifecycle_event=build") {
+		t.Error("lifecycle contract vars must survive deny: they are not inherited state")
+	}
+	if !strings.Contains(joined, "PATH=") {
+		t.Error("injected PATH must survive deny: it is ngm's own contract")
+	}
+}
+
 func TestAppendArgsVerbatim(t *testing.T) {
 	if got := AppendArgs("echo hi", nil); got != "echo hi" {
 		t.Errorf("no extra args must not change the command: %q", got)
@@ -147,7 +185,6 @@ func TestAppendArgsVerbatim(t *testing.T) {
 		t.Errorf("AppendArgs = %q", got)
 	}
 }
-
 func TestExecPassesThroughExitCode(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := "exit 7"

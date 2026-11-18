@@ -358,6 +358,11 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 
 权限命名空间（`read:` / `write:` / `net:` / `run:` / `env:`）与默认值定义见[安全模型](../architecture/security-model.md)。
 
+`deny` 里的 `env:<NAME>` 对**所有** ngm 启动的子进程生效：git、引擎、Deno 沙箱，以及
+`ngm run` 的脚本（v0.135 起）。被拒绝的名字从子进程环境里被**剔除**（ngm 不读取它的值），
+而 ngm 自己的 lifecycle 契约变量（`PATH`、`INIT_CWD`、`npm_lifecycle_*`、`npm_package_*`）
+不受此治理——它们不是从父环境继承来的状态。
+
 ---
 
 ## schema 版本策略

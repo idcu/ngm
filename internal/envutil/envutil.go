@@ -1,12 +1,13 @@
 // Package envutil 提供环境变量列表的最小工具。
 //
-// 为什么单独成包（v0.105）：`deny: ["env:X"]` 这条策略有**三个**施加点——
+// 为什么单独成包（v0.105）：`deny: ["env:X"]` 这条策略有**四个**施加点——
 // git 子进程（internal/core/git）、Deno 沙箱（internal/security）、
-// 引擎子进程（internal/adapter）。共享语义只有一处，否则"修好一个、漏掉另一个"
+// 引擎子进程（internal/adapter）、`ngm run` 的脚本子进程（internal/runscript，
+// v0.135 补上）。共享语义只有一处，否则"修好一个、漏掉另一个"
 // 是这类缺陷最稳定的复发形态：v0.105 正是在引擎侧发现它没被施加，
-// 而 git 与沙箱两侧都做对了。
+// 而 git 与沙箱两侧都做对了；v0.135 又把脚本侧补上。
 //
-// 包放成叶子（不依赖任何 internal 包），使三个施力点都能引用它而不产生环。
+// 包放成叶子（不依赖任何 internal 包），使四个施力点都能引用它而不产生环。
 package envutil
 
 import "strings"

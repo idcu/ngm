@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -199,6 +200,42 @@ func TestRunRequiresRunScriptPermission(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("permission hint must contain %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestRunScriptDoesNotSeeDeniedEnv 是 `deny: ["env:X"]` 在脚本侧的端到端判据。
+//
+// 与 git / 引擎 / 沙箱共用同一个名单：变量父进程**有**、子进程**没有**。
+// 用脚本自己打印出来判定，而不是读 ExecSpec——否则测的是"参数传对了"，
+// 不是"策略生效了"。
+func TestRunScriptDoesNotSeeDeniedEnv(t *testing.T) {
+	home := isolateUserEnv(t)
+	path := config.EffectiveGlobalPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(
+		`{"permissions":{"allow":["run:script"],"deny":["env:NGM_SCRIPT_SECRET"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NGM_SCRIPT_SECRET", "s3cr3t-value")
+	t.Setenv("NGM_SCRIPT_PUBLIC", "public-value")
+
+	// 正向对照与反向判据写在同一条脚本里：同一个子进程既要看见没被拒绝的变量，
+	// 又看不见被拒绝的那个。少了正向对照，"什么都没传过去"也能让这条测试变绿。
+	proj := newRunProject(t, `{"leak":`+strconv.Quote(platformCommand(
+		"echo KEEP=%NGM_SCRIPT_PUBLIC% && echo VALUE=%NGM_SCRIPT_SECRET%",
+		"echo KEEP=$NGM_SCRIPT_PUBLIC; echo VALUE=$NGM_SCRIPT_SECRET"))+`}`)
+
+	code, out := runCaptureCode(t, "run", "leak", "--dir="+proj)
+	if code != 0 {
+		t.Fatalf("exit=%d\n%s", code, out)
+	}
+	if !strings.Contains(out, "KEEP=public-value") {
+		t.Fatalf("the parent env was not inherited at all; the negative check below would be vacuous:\n%s", out)
+	}
+	if strings.Contains(out, "s3cr3t-value") {
+		t.Fatalf("deny:[\"env:NGM_SCRIPT_SECRET\"] was not applied to the script child:\n%s", out)
 	}
 }
 

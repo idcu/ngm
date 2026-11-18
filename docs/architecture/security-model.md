@@ -76,7 +76,7 @@ ngm 把这套思路映射到自己的操作：
 |------|--------|-------------|
 | `net:<host>` | ①`vendor.Mirror.Ensure`（clone / fetch 的唯一出口）与 `resolve` 的 `ls-remote`；②ngm 自己的 **HTTP 出口**（OSV 查询：`ngm audit` / `ngm tree --osv`，主机取自**实际端点**，产品端点是 `api.osv.dev`） | `exit 3`，**未发起任何网络请求** |
 | `run:git` | **git 包唯一的子进程构造点** `newGitCommand`——三个出口（`Run` / `RunAllowFailure` / `CatFileBatch`）共用它 | `exit 3`，git 从未启动 |
-| `env:<NAME>` | git 子进程的环境构造（`buildEnv`） | 变量被**剔除**，ngm 仍不读取它的值 |
+| `env:<NAME>` | 四个施加点：①git 子进程（`buildEnv`）；②引擎子进程（`adapter` 的 `envutil.Without`）；③Deno 沙箱（`--allow-env` / `--deny-env`）；④`ngm run` 的脚本子进程（`runscript.ChildEnv`，v0.135 补上） | 变量从子进程环境里被**剔除**，ngm 仍不读取它的值；ngm 自己的 lifecycle 契约变量（PATH、`npm_lifecycle_*`、`INIT_CWD`）不受 deny 治理——它们不是继承来的状态 |
 | `read:` / `write:` | **裁决（v0.5 C 组）：不在 ngm 自身路径上施加，仅在沙箱内**（`read:` 按依赖子树授予、`write:` 恒不授予）。两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能——没有需要拦下的场景 | — |
 | `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**），以及**所有探测路径**共用的 `Catalog.Probe`（`engines list` / `engines validate` / 版本探测） | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
 

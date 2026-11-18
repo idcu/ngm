@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/envutil"
 )
 
 // ExecSpec 描述一次脚本执行。
@@ -28,6 +29,14 @@ type ExecSpec struct {
 	ExtraArgs []string
 	// BinDirs 是注入 PATH 前端的目录（见 BinDirs）。
 	BinDirs []string
+	// DeniedEnv 是 `deny: ["env:X"]` 的名单（security.Policy.DeniedEnvVars）。
+	//
+	// 它治理的是**从父环境透传**的那一部分：被拒绝的名字不出现在子进程里。
+	// ngm 自己为 lifecycle 契约设置的最小集（PATH / INIT_CWD / npm_*）照旧注入，
+	// 与 git 子进程侧对 GIT_TERMINAL_PROMPT / LC_ALL 的处理同源——
+	// 「deny 管透传，不管 ngm 自己的契约变量」（见 architecture/security-model.md）。
+	// 于是 `deny: ["env:PATH"]` 不会让脚本失去 PATH：那不是一个有意义的拒绝。
+	DeniedEnv []string
 }
 
 // Shell 返回平台 shell 及其固定参数。
@@ -63,9 +72,15 @@ func AppendArgs(command string, extra []string) string {
 // 刻意不设 `npm_execpath`（ngm 不是 npm，脚本不该据此重新调用 npm），
 // 也不承诺 `npm_config_*`——那是 npm 的内部实现细节，模拟得越像，
 // 越容易被误认为兼容层。
+//
+// v0.135 起 `deny: ["env:X"]` 在这里也生效（此前只有 git 子进程、Deno 沙箱与
+// 引擎子进程三处施加）：脚本是 ngm 启动的最大一类子进程，同一条策略在它身上
+// 无声失效，是“修好一个、漏掉另一个”的翻版。剔除动作发生在**透传**这一段，
+// 见 ExecSpec.DeniedEnv 关于 PATH 的说明。
 func ChildEnv(spec ExecSpec) []string {
 	path := injectedPath(spec.BinDirs)
-	env := dropKeys(os.Environ(), "PATH", "INIT_CWD",
+	env := envutil.Without(os.Environ(), spec.DeniedEnv)
+	env = dropKeys(env, "PATH", "INIT_CWD",
 		"npm_lifecycle_event", "npm_lifecycle_script",
 		"npm_package_name", "npm_package_version")
 

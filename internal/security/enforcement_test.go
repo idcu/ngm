@@ -76,9 +76,16 @@ func TestEnforcementPointsAreRegistered(t *testing.T) {
 			docMarker: "`run:",
 		},
 		{
-			ns:        Env,
-			enforced:  "git 子进程的环境构造（buildEnv 剔除被拒绝的变量；ngm 不读取其值）+ 沙箱的 --allow-env/--deny-env",
-			byTests:   []string{"TestBuildEnv_StripsDeniedVariables", "TestV03CredentialDiscipline"},
+			ns: Env,
+			enforced: "四个施加点：git 子进程的环境构造（buildEnv 剔除被拒绝的变量；ngm 不读取其值）、" +
+				"引擎子进程（envutil.Without）、沙箱的 --allow-env/--deny-env、" +
+				"`ngm run` 的脚本子进程（runscript.ChildEnv，v0.135）",
+			byTests: []string{
+				"TestBuildEnv_StripsDeniedVariables",
+				"TestV03CredentialDiscipline",
+				"TestChildEnvStripsDeniedVariables",
+				"TestRunScriptDoesNotSeeDeniedEnv",
+			},
 			docMarker: "`env:",
 		},
 	}

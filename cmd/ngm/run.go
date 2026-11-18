@@ -45,6 +45,11 @@ ENVIRONMENT (contract, not "npm-compatible"):
   npm_package_version. Nothing else is promised: npm_execpath is NOT set and
   npm_config_* is not simulated. Scripts that need them should still use npm.
 
+  The parent environment is passed through MINUS the names denied by
+  permissions.deny: ["env:<NAME>"] — the same list that keeps git, engine and
+  sandbox subprocesses from seeing them. The five names above and the injected
+  PATH are ngm's own contract and are always set.
+
 PERMISSION:
   One gate, "run:script", denied by default. Project scripts run OUTSIDE ngm's
   sandbox — that is why this gate is separate from supplyChain.postInstallPolicy
@@ -187,6 +192,9 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			PackageVersion: set.PackageVersion,
 			ExtraArgs:      stepArgs,
 			BinDirs:        binDirs,
+			// 与 git / 引擎 / 沙箱共用同一个名单（`Policy.DeniedEnvVars`）：
+			// 被拒绝的名字从**透传**给脚本的那一份环境里剔除（2026-11-19）。
+			DeniedEnv: env.Policy.DeniedEnvVars(),
 		}, stdout, stderr)
 		if err != nil {
 			return runErr(ctx, stdout, stderr, err)
