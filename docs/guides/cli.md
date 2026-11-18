@@ -75,6 +75,9 @@
 `runTarget`，退出 0，因为"没问"是一个事实而不是失败；`validate` 的职责是**给结论**——
 版本核对没有完成就不能报 `ok`，因此 `probe-denied` 是显式条目，进入 `issues` 与
 "N issue(s) found" 的计数，消息里点名要授予的 `run:<engine>`，进程退出 3。
+**闸门与是否配置无关**（2026-11-18 修）：即使 `~/.ngm/config.json` 完全不存在，
+探测同样按默认档位拒绝（nil Policy 在 `run:<engine>` 上是 fail-closed），
+不会比"配过权限"的用户更宽松。
 
 **两层磁盘的占用与回收**（[ADR-018](../adr/adr-018-store-reclaim.md) / [ADR-023](../adr/adr-023-orphan-reclaim.md) / [ADR-030](../adr/adr-030-mirror-reclaim.md)）：
 占用可见（`ngm store usage`，只读，**v0.7**；**v0.100 起连层 1 一起报**）、残骸可回收（`ngm store prune`，**v0.7**）、

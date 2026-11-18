@@ -54,23 +54,28 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	// `os.Environ()`——于是这条 deny 只对前两者生效，esbuild / tsc /
 	// 用户自定义引擎照旧看得到 token（v0.105）。三处现在共用
 	// internal/envutil 的同一份实现。
-	if env.Policy != nil {
-		deniedEnv := env.Policy.DeniedEnvVars()
-		runner.WithDeniedEnv(deniedEnv)
-		// v0.109：**探测**也要走同一道闸门。
-		//
-		// 版本探测是一次真实的 spawn，此前它绕过了 `run:<engine>`：
-		// `ngm engines list` / `validate` / `build --dry-run` 都会执行仓库
-		// 声明的程序（S0-1）。闸门挂到 catalog 上，让 `Probe` 在 spawn 前
-		// 问一次；被拒绝时不探测，`engines list` 如实显示 "not probed"。
-		cat.WithProbeGate(func(entry adapter.Entry) error {
-			target := engineRunTarget(entry)
-			if target == "" {
-				return nil
-			}
-			return env.Policy.CheckRun(target)
-		}, deniedEnv)
-	}
+	// `deny: ["env:X"]` 的施力点不依赖全局配置是否存在：没有 config.json 时
+	// DeniedEnvVars() 返回 nil，等价于"没有额外要剔除的变量"，仍然要挂上去。
+	// 同理，探测闸门也不能放进 `if env.Policy != nil`——那会让"从未配过权限"
+	// 的用户反而比"配过权限"的用户更宽松：无配置 → 不挂 gate → Probe 直接
+	// spawn 仓库 ngm.engines.json 声明的程序（2026-11-18 S0）。
+	// Policy 的所有方法对 nil receiver 都是 fail-closed 的（Check → Allows →
+	// DefaultTier(run:*)=Configurable → 拒绝），所以这里无条件注册是安全的。
+	deniedEnv := env.Policy.DeniedEnvVars()
+	runner.WithDeniedEnv(deniedEnv)
+	// **探测**与执行走同一道 `run:<engine>` 闸门。
+	//
+	// 版本探测是一次真实的 spawn，此前它绕过了闸门：
+	// `ngm engines list` / `validate` 会执行仓库声明的程序（S0-1）。
+	// 闸门挂到 catalog 上，让 `Probe` 在 spawn 前问一次；被拒绝时不探测，
+	// `engines list` 如实显示 "not probed"。
+	cat.WithProbeGate(func(entry adapter.Entry) error {
+		target := engineRunTarget(entry)
+		if target == "" {
+			return nil
+		}
+		return env.Policy.CheckRun(target)
+	}, deniedEnv)
 	// 回退是隐式行为，必须让用户看见：primary 挂了却只看到 fallback 的
 	// 输出，会让人误判是哪个引擎在干活。
 	runner.OnWarn(func(format string, args ...any) {
