@@ -55,14 +55,15 @@ func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	tsconfig := fs.String("tsconfig", "", "tsconfig path")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, typecheckUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(typecheckUsage)
+	if !c.parse([]flagSpec{
 		{Name: "engine"},
 		{Name: "tsconfig"},
 		{Name: "dry-run", Bool: true},
 		{Name: "dir"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() > 1 {
@@ -72,7 +73,7 @@ func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 	ec, err := newEngineContext(*dirFlag, stderr)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	// 类型检查的入口可以省略（很多检查器只吃 tsconfig）；bundle 则必须给
@@ -83,7 +84,7 @@ func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 	sel, err := ec.selectionFor(adapter.KindTypeCheck, *engineFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	opts := adapter.TypeCheckOptions{TSConfig: *tsconfig}
@@ -91,7 +92,7 @@ func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if *dryRun {
 		plans, perr := ec.runner.Plans(adapter.KindTypeCheck, sel, opts, entry)
 		if perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+			return c.fail(perr)
 		}
 		if entry == "" {
 			fmt.Fprintln(stdout, "would type-check the project")
@@ -115,7 +116,7 @@ func runTypecheck(ctx context.Context, args []string, stdout, stderr io.Writer) 
 				fmt.Fprintln(stdout, line)
 			}
 		}
-		return runErr(ctx, stdout, stderr, cerr)
+		return c.fail(cerr)
 	}
 
 	// 引擎退出码 0 就是"没有类型错误"——这来自 P4 的协议
@@ -167,15 +168,16 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	minify := fs.Bool("minify", false, "minify the output")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, cssUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(cssUsage)
+	if !c.parse([]flagSpec{
 		{Name: "engine"},
 		{Name: "outfile"},
 		{Name: "minify", Bool: true},
 		{Name: "dry-run", Bool: true},
 		{Name: "dir"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	// 这是本目录里唯一一处此前**没有**位置参数计数校验的命令：多余参数被整份丢弃，
@@ -189,7 +191,7 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	input := fs.Arg(0)
 	if strings.TrimSpace(input) == "" {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"no input file",
 			"usage: ngm css <input.css>"))
@@ -197,11 +199,11 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	ec, err := newEngineContext(*dirFlag, stderr)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	sel, err := ec.selectionFor(adapter.KindCSS, *engineFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	opts := adapter.CSSOptions{Outfile: *outfile, Minify: *minify}
@@ -209,7 +211,7 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if *dryRun {
 		plans, perr := ec.runner.Plans(adapter.KindCSS, sel, opts, "")
 		if perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+			return c.fail(perr)
 		}
 		fmt.Fprintf(stdout, "would compile %s\n", input)
 		printPlans(stdout, plans)
@@ -218,12 +220,12 @@ func runCSS(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	body, err := readInputFile(ec.env.ProjectDir, input)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	res, cerr := ec.runner.Compile(ctx, sel, body, opts)
 	if cerr != nil {
-		return runErr(ctx, stdout, stderr, cerr)
+		return c.fail(cerr)
 	}
 	// 两条通道都要转：**引擎的 stderr** 与 **ngm 自己的说明**。
 	//

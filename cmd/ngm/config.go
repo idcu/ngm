@@ -49,9 +49,10 @@ EXIT CODES:
 func runConfig(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("config", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, configUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{{Name: "dir"}})); err != nil {
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(configUsage)
+	if !c.parse([]flagSpec{{Name: "dir"}}, nil) {
 		return 3
 	}
 	// 恰好一个子命令：多给的输入宁可拒绝，也不静默丢掉（v0.15 的纪律）。

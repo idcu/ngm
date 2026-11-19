@@ -106,8 +106,10 @@ func runStore(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 // 用户对这个目录只有"越用越大"的印象——连"被什么占了"都无从回答。
 func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("store usage", stderr)
-	fs.Usage = func() { fmt.Fprint(stderr, storeUsage) }
-	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
+
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(storeUsage)
+	if !c.parse(nil, nil) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -117,7 +119,7 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 
 	layout, err := vendor.DefaultLayout()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	// 两层都读：**层 1 不能挂在层 2 的提前返回后面**。
 	//
@@ -127,15 +129,15 @@ func runStoreUsage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// 而他打开这个命令正是想看那些 mirror 占了多大。
 	mirror, err := vendor.NewMirror(layout.MirrorRoot(), git.Options{}).Usage()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	mc, err := vendor.NewModuleCache(layout.ModuleCacheRoot(), git.Options{}).Usage()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	u, err := vendor.NewContentStore(layout.ContentRoot()).Usage()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	if !mirror.Exists && !mc.Exists && !u.Exists {
 		fmt.Fprintf(stdout,
@@ -356,8 +358,9 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 		"also remove blob bytes that NO manifest references (and that are older than --older-than)")
 	olderThan := fs.Duration("older-than", 24*time.Hour,
 		"age guard for --orphans: blobs newer than this are never removed (a concurrent install writes bytes before publishing its manifest)")
-	fs.Usage = func() { fmt.Fprint(stderr, storeUsage) }
-	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(storeUsage)
+	if !c.parse(nil, nil) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -377,20 +380,20 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 		}
 	})
 	if !*orphans && olderThanSet {
-		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+		return c.fail(errs.New(errs.CodeConfigInvalid,
 			"--older-than 只在 --orphans 下有效",
 			"加上 --orphans，或去掉 --older-than"))
 	}
 
 	layout, err := vendor.DefaultLayout()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	store := vendor.NewContentStore(layout.ContentRoot())
 
 	res, err := store.Prune(*dryRun)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	verb := "removed"
@@ -419,7 +422,7 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if *orphans {
 		ores, oerr := store.PruneOrphans(*olderThan, time.Now(), *dryRun)
 		if oerr != nil {
-			return runErr(ctx, stdout, stderr, oerr)
+			return c.fail(oerr)
 		}
 		overb := "removed"
 		if ores.DryRun {
@@ -446,7 +449,7 @@ func runStorePrune(ctx context.Context, args []string, stdout, stderr io.Writer)
 	mres, merr := vendor.NewMirror(layout.MirrorRoot(), git.Options{}).
 		PruneResidue(vendor.MirrorResidueGrace, time.Now(), *dryRun)
 	if merr != nil {
-		return runErr(ctx, stdout, stderr, merr)
+		return c.fail(merr)
 	}
 	mverb := "removed"
 	if mres.DryRun {
@@ -496,8 +499,9 @@ func runStoreGC(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs := newFlagSet("store gc", stderr)
 	dryRun := fs.Bool("dry-run", false,
 		"print which mirrors would be collected without running git")
-	fs.Usage = func() { fmt.Fprint(stderr, storeUsage) }
-	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(storeUsage)
+	if !c.parse(nil, nil) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -513,9 +517,9 @@ func runStoreGC(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	// 代价是**坏掉的全局配置会在这里退 3**（`store usage` 则不受影响）：
 	// 这是有意的——跑 git 之前必须先把"允不允许跑、哪些值要脱敏"读对，
 	// 而把它当成"没配"会让用户以为自己写的 deny 已经生效（env.go 那条注释同源）。
-	env, err := newProjectEnv("")
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env("")
+	if code != 0 {
+		return code
 	}
 
 	res, gerr := env.Mirror.GC(ctx, *dryRun)
@@ -556,7 +560,7 @@ func runStoreGC(ctx context.Context, args []string, stdout, stderr io.Writer) in
 				"      shorten that window (a branch the upstream deleted stays recoverable).")
 	}
 	if gerr != nil {
-		return runErr(ctx, stdout, stderr, gerr)
+		return c.fail(gerr)
 	}
 	return 0
 }

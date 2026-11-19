@@ -47,15 +47,16 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	production := fs.Bool("production", false, "production build")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, buildUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(buildUsage)
+	if !c.parse([]flagSpec{
 		{Name: "engine"},
 		{Name: "outfile"},
 		{Name: "production", Bool: true},
 		{Name: "dry-run", Bool: true},
 		{Name: "dir"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() > 1 {
@@ -65,7 +66,7 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 	ec, err := newEngineContext(*dirFlag, stderr)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	entry := fs.Arg(0)
@@ -73,7 +74,7 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		entry = ec.pf.Main
 	}
 	if strings.TrimSpace(entry) == "" {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"no entry file",
 			"pass one (`ngm build src/index.ts`) or set `main` in ngm.json"))
@@ -81,12 +82,12 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 	sel, err := ec.selectionFor(adapter.KindBundle, *engineFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	alias, err := ec.mappingsAlias()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	opts := adapter.BundleOptions{
@@ -98,7 +99,7 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if *dryRun {
 		plans, perr := ec.runner.Plans(adapter.KindBundle, sel, opts, entry)
 		if perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+			return c.fail(perr)
 		}
 		fmt.Fprintf(stdout, "would bundle %s\n", entry)
 		printPlans(stdout, plans)
@@ -107,7 +108,7 @@ func runBuild(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 	res, berr := ec.runner.Bundle(ctx, sel, entry, opts)
 	if berr != nil {
-		return runErr(ctx, stdout, stderr, berr)
+		return c.fail(berr)
 	}
 
 	// 引擎的诊断原样转发到 stderr（不转述、不吞掉）

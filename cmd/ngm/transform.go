@@ -91,9 +91,10 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	sourcemap := fs.Bool("sourcemap", false, "inline source map")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, transformUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(transformUsage)
+	if !c.parse([]flagSpec{
 		{Name: "engine"},
 		{Name: "outfile"},
 		{Name: "loader"},
@@ -103,7 +104,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		{Name: "sourcemap", Bool: true},
 		{Name: "dry-run", Bool: true},
 		{Name: "dir"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() > 1 {
@@ -113,7 +114,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 	ec, err := newEngineContext(*dirFlag, stderr)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	input := fs.Arg(0)
@@ -132,7 +133,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 	sel, err := ec.selectionFor(adapter.KindTransform, *engineFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	opts := adapter.TransformOptions{
@@ -155,7 +156,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	// 才告诉用户参数不对。
 	plans, perr := ec.runner.Plans(adapter.KindTransform, sel, opts, "")
 	if perr != nil {
-		return runErr(ctx, stdout, stderr, perr)
+		return c.fail(perr)
 	}
 
 	if *dryRun {
@@ -179,20 +180,20 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 			return errs.CodeInternal.ExitCode()
 		}
 		if len(body) > maxTransformStdin {
-			return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			return c.fail(errs.New(errs.CodeConfigInvalid,
 				fmt.Sprintf("stdin exceeds the %d-byte limit", maxTransformStdin),
 				"pass a file path instead of piping an unbounded stream into `ngm transform`"))
 		}
 	} else {
 		body, err = readInputFile(ec.env.ProjectDir, input)
 		if err != nil {
-			return runErr(ctx, stdout, stderr, err)
+			return c.fail(err)
 		}
 	}
 
 	res, cerr := ec.runner.Transform(ctx, sel, body, opts)
 	if cerr != nil {
-		return runErr(ctx, stdout, stderr, cerr)
+		return c.fail(cerr)
 	}
 	// 引擎的说明原样转发（与 build / css 一致）：吞掉它等于替用户决定"不必知道"。
 	for _, w := range res.Warnings {
@@ -214,11 +215,11 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		dest = filepath.Join(ec.env.ProjectDir, dest)
 	}
 	if derr := os.MkdirAll(filepath.Dir(dest), 0o755); derr != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "create output directory",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory",
 			"check that the path is writable, or point --outdir at a directory that exists", derr))
 	}
 	if werr := os.WriteFile(dest, res.Code, 0o644); werr != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "write "+*outfile,
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write "+*outfile,
 			"the path is resolved relative to the project directory ("+ec.env.ProjectDir+")", werr))
 	}
 	src := "stdin"

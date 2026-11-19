@@ -62,10 +62,12 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	runtime := fs.String("runtime", "node", "project runtime (node|deno)")
 	dir := fs.String("dir", ".", "target directory")
 	force := fs.Bool("force", false, "overwrite existing ngm.json")
-	fs.Usage = func() { fmt.Fprint(stderr, initUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(initUsage)
+	if !c.parse([]flagSpec{
 		{Name: "runtime"}, {Name: "dir"}, {Name: "force", Bool: true},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() != 1 {
@@ -75,7 +77,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	name := fs.Arg(0)
 
 	if !validRuntimeChoice(*runtime) {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			fmt.Sprintf("invalid --runtime=%q", *runtime),
 			"choose one of: node, deno",
@@ -84,18 +86,18 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	target, err := filepath.Abs(*dir)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve target dir",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "resolve target dir",
 			"pass an absolute --dir, or run ngm from the directory you mean", err))
 	}
 	if err := os.MkdirAll(target, 0o755); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "create target dir",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create target dir",
 			"check that the parent directory exists and is writable (a read-only filesystem "+
 				"or a missing drive letter looks like this)", err))
 	}
 
 	cfgPath := filepath.Join(target, "ngm.json")
 	if _, err := os.Stat(cfgPath); err == nil && !*force {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			cfgPath+" already exists",
 			"pass --force to overwrite, or remove the file manually",
@@ -104,7 +106,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	tmpl := renderInitTemplate(name, config.Runtime(*runtime))
 	if err := os.WriteFile(cfgPath, tmpl, 0o644); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "write ngm.json",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write ngm.json",
 			"check that the directory is writable; the directory itself was created, "+
 				"no ngm.json was written", err))
 	}
@@ -118,11 +120,11 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := os.MkdirAll(filepath.Dir(entryPath), 0o755); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "create src dir",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create src dir",
 			"check that the project directory is writable", err))
 	}
 	if err := os.WriteFile(entryPath, []byte(initEntryStub), 0o644); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "write entry file",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write entry file",
 			"check that the src directory is writable; ngm.json was written, the entry file was not", err))
 	}
 	fmt.Fprintf(stdout, "created %s\n", entryPath)

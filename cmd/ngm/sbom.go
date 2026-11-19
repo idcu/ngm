@@ -51,42 +51,43 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	dirFlag := fs.String("dir", ".", "project directory")
 	formatFlag := fs.String("format", string(sbom.FormatCycloneDX), "output format (cyclonedx|spdx)")
 	outFlag := fs.String("out", "", "write to this file instead of stdout")
-	fs.Usage = func() { fmt.Fprint(stderr, sbomUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(sbomUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "format"}, {Name: "out"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() > 0 {
-		// 这里**不加** `failEarly`：`sbom` 不接受 `--json`——它的 stdout 本身就是
-		// 机器可读的文档（CycloneDX / SPDX）。`ngm sbom --json` 会在 `fs.Parse`
-		// 那一支失败，而按 v0.16 规则④，"命令不接受 --json 时 stdout 仍为空"
-		// 是**正确**的行为。加一行永远走不到的调用只会是死代码。
+		// `sbom` 不接受 `--json`——它的 stdout 本身就是机器可读的文档
+		// （CycloneDX / SPDX）。因此这条命令用 newCmdContextNoJSON：
+		// `ngm sbom --json` 在解析那一支失败时**不写**错误信封，按 v0.16 规则④
+		// "命令不接受 --json 时 stdout 仍为空"才是正确行为。
 		fmt.Fprint(stderr, sbomUsage)
 		return 3
 	}
 
 	format, ferr := sbom.ParseFormat(*formatFlag)
 	if ferr != nil {
-		return runErr(ctx, stdout, stderr, ferr)
+		return c.fail(ferr)
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	lf, err := lock.Read(env.LockPath())
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	if lf == nil {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"no ngm.lock found at "+env.LockPath(),
 			"run `ngm install` to resolve dependencies and create the lock"))
@@ -94,7 +95,7 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	entries, err := sbom.FromLock(lf)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	// v0.81：过期的 lock 必须**说出来**。
@@ -130,7 +131,7 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			GraphComplete: graphComplete,
 		})
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout——
@@ -141,7 +142,7 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		// 会留下一个**截断的 JSON**，而它名字是对的、mtime 是新的，
 		// 看文件的人没有理由怀疑它。
 		if werr := atomicfile.Write(out, data); werr != nil {
-			return runErr(ctx, stdout, stderr, werr)
+			return c.fail(werr)
 		}
 		fmt.Fprintf(stdout, "wrote %s (%d component(s), %s)\n", out, len(entries), format)
 		return 0

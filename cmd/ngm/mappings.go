@@ -31,9 +31,10 @@ EXIT CODES:
 func runMappings(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("mappings", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, mappingsUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{{Name: "dir"}})); err != nil {
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(mappingsUsage)
+	if !c.parse([]flagSpec{{Name: "dir"}}, nil) {
 		return 3
 	}
 	if fs.NArg() != 1 {

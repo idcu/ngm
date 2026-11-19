@@ -28,8 +28,10 @@ EXIT CODES:
 // runCache 处理 `ngm cache <subcommand>`。
 func runCache(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("cache", stderr)
-	fs.Usage = func() { fmt.Fprint(stderr, cacheUsage) }
-	if err := fs.Parse(normalizeArgs(args, nil)); err != nil {
+
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(cacheUsage)
+	if !c.parse(nil, nil) {
 		return 3
 	}
 	if fs.NArg() != 1 {

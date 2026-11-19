@@ -59,23 +59,25 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := newFlagSet("attest", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	outFlag := fs.String("out", "", "write to this file instead of stdout")
-	fs.Usage = func() { fmt.Fprint(stderr, attestUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(attestUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "out"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() > 0 {
 		// 同 `sbom`：不接受 `--json`（stdout 就是 in-toto 语句本身），
-		// 因此这里没有可给的信封，加 `failEarly` 会是死代码。
+		// 因此这条命令用 newCmdContextNoJSON——解析失败时**不写**错误信封，
+		// 依据 v0.16 规则④："命令不接受 `--json` 时 stdout 仍为空"。
 		fmt.Fprint(stderr, attestUsage)
 		return 3
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	// ngm.json 是外部参数之一（它的哈希要写进语句），因此必须在场——
 	// 与 sbom 同口径：空目录不是一个 ngm 项目，早失败比导出一份无主文档好。
@@ -93,26 +95,26 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	manifestBytes, rerr := os.ReadFile(env.ManifestPath())
 	if rerr != nil {
 		if os.IsNotExist(rerr) {
-			return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
+			return c.fail(errs.New(errs.CodeConfigInvalid,
 				"ngm.json not found at "+env.ManifestPath(),
 				"run `ngm init <name>` first to create a project"))
 		}
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 			"read "+env.ManifestPath(), "check that the file is readable", rerr))
 	}
 	pf, err := config.ParseProjectFile(manifestBytes, env.ManifestPath())
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	lockBytes, rerr := os.ReadFile(env.LockPath())
 	if rerr != nil {
 		if os.IsNotExist(rerr) {
-			return runErr(ctx, stdout, stderr, errs.New(
+			return c.fail(errs.New(
 				errs.CodeConfigInvalid,
 				"no ngm.lock found at "+env.LockPath(),
 				"run `ngm install` to resolve dependencies and create the lock"))
 		}
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 			"read "+env.LockPath(), "check that the file is readable", rerr))
 	}
 
@@ -124,10 +126,10 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// 证据，这属于不该存在的那一类：签名之后没有任何东西能发现它。
 	lf, err := lock.Parse(lockBytes, env.LockPath())
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	if lf == nil {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"no ngm.lock found at "+env.LockPath(),
 			"run `ngm install` to resolve dependencies and create the lock"))
@@ -147,7 +149,7 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	entries, err := sbom.FromLock(lf)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	data, err := attest.Build(entries, attest.Options{
@@ -156,7 +158,7 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		LockDigest:     fileHexDigest(lockBytes),
 	})
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout（v0.42 的不变量）。
@@ -166,7 +168,7 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// 一个截断的 statement 会以正确的名字、最新的 mtime 躺在那里，
 		// 而签名工具会照常签它。
 		if werr := atomicfile.Write(out, data); werr != nil {
-			return runErr(ctx, stdout, stderr, werr)
+			return c.fail(werr)
 		}
 		fmt.Fprintf(stdout, "wrote %s (%d subject(s), SLSA provenance v1)\n", out, len(entries))
 		return 0

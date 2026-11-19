@@ -249,10 +249,12 @@ func runModulesList(ctx context.Context, args []string, stdout, stderr io.Writer
 	dir := fs.String("dir", ".", "project directory")
 	jsonOut := fs.Bool("json", false, "machine-readable output")
 	limit := fs.Int("limit", 1000, "maximum modules to list")
-	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(modulesUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "json", Bool: true}, {Name: "limit"},
-	})); err != nil {
+	}, jsonOut) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -260,7 +262,7 @@ func runModulesList(ctx context.Context, args []string, stdout, stderr io.Writer
 		return 3
 	}
 	if *limit <= 0 {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"--limit must be a positive integer",
 			"use a positive bound, or omit --limit (default 1000)"))
@@ -268,7 +270,7 @@ func runModulesList(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	mods, err := scanModules(*dir)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	rep := modulesListReport{Version: 1, Modules: mods, Limit: *limit}
 	if len(rep.Modules) > *limit {
@@ -300,10 +302,12 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	jsonOut := fs.Bool("json", false, "machine-readable output")
 	strict := fs.Bool("strict", false, "require name/version and semver-like version")
 	indexPath := fs.String("index", "", "compare against an existing collection index")
-	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(modulesUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "json", Bool: true}, {Name: "strict", Bool: true}, {Name: "index"},
-	})); err != nil {
+	}, jsonOut) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -313,7 +317,7 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 
 	mods, err := scanModules(*dir)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	errsList := validateModuleManifests(*dir, mods)
 	errsList = append(errsList, validateModules(mods, *strict)...)
@@ -321,7 +325,7 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	if *indexPath != "" {
 		indexErrs, ierr := validateIndexAgainstModules(*dir, *indexPath, mods)
 		if ierr != nil {
-			return runErr(ctx, stdout, stderr, ierr)
+			return c.fail(ierr)
 		}
 		errsList = append(errsList, indexErrs...)
 		sort.Strings(errsList)
@@ -425,10 +429,12 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 	dir := fs.String("dir", ".", "project directory")
 	since := fs.String("since", "HEAD~1", "git ref to diff from")
 	jsonOut := fs.Bool("json", false, "machine-readable output")
-	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(modulesUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "since"}, {Name: "json", Bool: true},
-	})); err != nil {
+	}, jsonOut) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -437,11 +443,11 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 	}
 	gitOpts, oerr := modulesGitOpts(*dir)
 	if oerr != nil {
-		return runErr(ctx, stdout, stderr, oerr)
+		return c.fail(oerr)
 	}
 	out, err := changedModules(ctx, gitOpts, *dir, *since)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	rep := modulesChangedReport{Version: 1, Since: *since, Modules: out}
@@ -468,10 +474,12 @@ func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer
 	since := fs.String("since", "HEAD~1", "git ref to diff from")
 	bump := fs.String("bump", "patch", "version bump: patch | minor | major")
 	jsonOut := fs.Bool("json", false, "machine-readable output")
-	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(modulesUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "since"}, {Name: "bump"}, {Name: "json", Bool: true},
-	})); err != nil {
+	}, jsonOut) {
 		return 3
 	}
 	if fs.NArg() != 0 {
@@ -481,24 +489,24 @@ func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer
 	switch *bump {
 	case "patch", "minor", "major":
 	default:
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid, "--bump must be patch, minor or major",
 			"pass one of: --bump=patch, --bump=minor, --bump=major"))
 	}
 
 	gitOpts, oerr := modulesGitOpts(*dir)
 	if oerr != nil {
-		return runErr(ctx, stdout, stderr, oerr)
+		return c.fail(oerr)
 	}
 	changed, err := changedModules(ctx, gitOpts, *dir, *since)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	rep := modulesPlanReport{Version: 1, Since: *since, Bump: *bump}
 	for _, m := range changed {
 		next, nerr := nextModuleVersion(m.Version, *bump)
 		if nerr != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 				m.Path+": cannot plan version", "set a semver `version` in the module manifest", nerr))
 		}
 		rep.Modules = append(rep.Modules, modulesPlanItem{
@@ -548,12 +556,14 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	releases := fs.Bool("releases", true, "include version→commit mappings from local tags")
 	shards := fs.Bool("shards", false, "write releases/<module>.json instead of inline releases")
 	branch := fs.String("branch", "ngm-index", "local index branch to update (empty disables)")
-	fs.Usage = func() { fmt.Fprint(stderr, modulesUsage) }
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+
+	c := newCmdContext(ctx, args, stdout, stderr, fs)
+	c.usage(modulesUsage)
+	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "out"}, {Name: "dry-run", Bool: true},
 		{Name: "json", Bool: true}, {Name: "releases", Bool: true}, {Name: "shards", Bool: true},
 		{Name: "branch"},
-	})); err != nil {
+	}, jsonOut) {
 		return 3
 	}
 	branchSet := false
@@ -572,25 +582,25 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	// 带门禁的选项驱动（见 modulesGitOpts）。
 	gitOpts, oerr := modulesGitOpts(*dir)
 	if oerr != nil {
-		return runErr(ctx, stdout, stderr, oerr)
+		return c.fail(oerr)
 	}
 
 	mods, err := scanModules(*dir)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	if problems := validateModules(mods, false); len(problems) > 0 {
 		for _, p := range problems {
 			fmt.Fprintf(stderr, "✗ %s\n", p)
 		}
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"cannot write a collection index with invalid modules",
 			"fix the module manifests, then re-run `ngm modules index`"))
 	}
 	if len(mods) == 0 {
 		if *branch != "" && branchSet && !isGitDir(ctx, gitOpts) {
-			return runErr(ctx, stdout, stderr, errs.New(
+			return c.fail(errs.New(
 				errs.CodeConfigInvalid,
 				"--branch requires a Git repository",
 				"run inside a Git repo, or pass --branch= to disable the index branch"))
@@ -614,12 +624,12 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	if len(releaseMods) > 0 {
 		rel, rerr := collectReleases(ctx, gitOpts, *dir, releaseMods)
 		if rerr != nil {
-			return runErr(ctx, stdout, stderr, rerr)
+			return c.fail(rerr)
 		}
 		if *shards {
 			releaseFiles, rerr = buildReleaseShards(rel)
 			if rerr != nil {
-				return runErr(ctx, stdout, stderr, rerr)
+				return c.fail(rerr)
 			}
 			if len(releaseFiles) > 0 {
 				idx.ReleaseDir = "releases"
@@ -630,7 +640,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 	src, warnings, serr := collectSource(ctx, gitOpts, *dir)
 	if serr != nil {
-		return runErr(ctx, stdout, stderr, serr)
+		return c.fail(serr)
 	}
 	for _, w := range warnings {
 		fmt.Fprintf(stderr, "warning: %s\n", w)
@@ -662,21 +672,21 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		return 0
 	}
 	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 			"create index directory for "+absOut, "check directory permissions", err))
 	}
 	if err := atomicfile.Write(absOut, data); err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 			"write collection index "+absOut, "check free disk space and permissions", err))
 	}
 	for _, relPath := range releasePaths {
 		abs := filepath.Join(filepath.Dir(absOut), filepath.FromSlash(relPath))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 				"create release shard directory", "check directory permissions", err))
 		}
 		if err := atomicfile.Write(abs, releaseFiles[relPath]); err != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 				"write release shard "+abs, "check free disk space and permissions", err))
 		}
 	}
@@ -691,7 +701,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	if *branch != "" && len(idx.Modules) > 0 {
 		if !isGitDir(ctx, gitOpts) {
 			if branchSet {
-				return runErr(ctx, stdout, stderr, errs.New(
+				return c.fail(errs.New(
 					errs.CodeConfigInvalid,
 					"--branch requires a Git repository",
 					"run inside a Git repo, or pass --branch= to disable the index branch"))
@@ -699,7 +709,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		} else {
 			branchCommit, err = writeIndexBranch(ctx, gitOpts, *dir, *branch, branchFiles)
 			if err != nil {
-				return runErr(ctx, stdout, stderr, err)
+				return c.fail(err)
 			}
 		}
 	}

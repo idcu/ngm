@@ -30,10 +30,29 @@ type cmdContext struct {
 	stdout io.Writer
 	stderr io.Writer
 	fs     *flag.FlagSet
+	// jsonAware 表示这条命令**接受** `--json`（默认 true）。
+	//
+	// 只有那些 stdout 本身就是机器可读文档的命令会关掉它（`sbom` / `attest`：
+	// 它们的输出是 CycloneDX / in-toto 语句，再加一个 `--json` 没有意义）。
+	// 关掉之后解析失败**不写**错误信封——依据 v0.16 规则④："命令不接受 `--json`
+	// 时 stdout 仍为空"是正确行为，给一个它从未承诺的信封反而是一条新契约。
+	// 判据：`early_failure_envelope_test.go` 的对照二（`add --json` 的 stdout 为空）。
+	jsonAware bool
 }
 
 // newCmdContext 绑定一次调用的四个流/参数，以及命令自己已经造好的 flagset。
+//
+// 默认这条命令接受 `--json`：解析失败时按 v0.54 从**原始参数**里问一次，
+// 该给信封就给。
 func newCmdContext(ctx context.Context, args []string, stdout, stderr io.Writer, fs *flag.FlagSet) *cmdContext {
+	return &cmdContext{ctx: ctx, args: args, stdout: stdout, stderr: stderr, fs: fs, jsonAware: true}
+}
+
+// newCmdContextNoJSON 同 newCmdContext，但这条命令**不接受** `--json`。
+//
+// 用于 stdout 本身即文档的命令（`sbom` / `attest`）。语义差别只有一处：
+// `--json` 出现在参数里时，解析失败**不写**错误信封（见 jsonAware）。
+func newCmdContextNoJSON(ctx context.Context, args []string, stdout, stderr io.Writer, fs *flag.FlagSet) *cmdContext {
 	return &cmdContext{ctx: ctx, args: args, stdout: stdout, stderr: stderr, fs: fs}
 }
 
@@ -45,13 +64,17 @@ func (c *cmdContext) usage(text string) {
 // parse 解析参数并把 `--json` 记进 `c.ctx`（随后调用方 `ctx = c.ctx`）。
 //
 // 解析失败时：给 `--json` 信封（看的是**原始参数**，因为此刻命令还不知道自己有没有
-// 该 flag），返回 false；调用方统一 `return 3`。
+// 该 flag），返回 false；调用方统一 `return 3`。命令不接受 `--json` 时不写信封。
 //
-// jsonOut 为 nil 表示这条命令没有 `--json` 开关：此时不标记 ctx，行为与抽离前一致。
+// jsonOut 为 nil 表示不把 flag 的值记进 ctx——注意这与"命令没有 `--json`"**不是**
+// 一回事：`verify` 就是先用 nil 调（它要把 `--format` 的校验放在 `--json` 生效之前），
+// 但它接受 `--json`，所以解析失败时照样给信封。是否需要信封看 jsonAware。
 func (c *cmdContext) parse(specs []flagSpec, jsonOut *bool) bool {
 	if err := c.fs.Parse(normalizeArgs(c.args, specs)); err != nil {
-		failEarly(c.args, c.stdout, err.Error(),
-			"run `ngm "+c.fs.Name()+" --help` for the flags it accepts")
+		if c.jsonAware {
+			failEarly(c.args, c.stdout, err.Error(),
+				"run `ngm "+c.fs.Name()+" --help` for the flags it accepts")
+		}
 		return false
 	}
 	if jsonOut != nil && *jsonOut {

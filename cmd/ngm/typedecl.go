@@ -48,14 +48,15 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	engineFlag := fs.String("engine", "", "engine name")
 	dryRun := fs.Bool("dry-run", false, "print the resolved command and exit")
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, typedeclUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(typedeclUsage)
+	if !c.parse([]flagSpec{
 		{Name: "outdir"},
 		{Name: "engine"},
 		{Name: "dry-run", Bool: true},
 		{Name: "dir"},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() > 1 {
@@ -65,7 +66,7 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 
 	ec, err := newEngineContext(*dirFlag, stderr)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	entry := fs.Arg(0)
@@ -77,7 +78,7 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	// 猜一个默认目录等于替用户决定把文件写到哪里。
 	dir := strings.TrimSpace(*outdir)
 	if dir == "" {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			"no output directory",
 			"pass --outdir=<dir>; without a destination `ngm typedecl` cannot report what it produced"))
@@ -85,7 +86,7 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 
 	sel, err := ec.selectionFor(adapter.KindTypeDecl, *engineFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	opts := adapter.TypeDeclOptions{OutDir: dir}
@@ -93,7 +94,7 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	if *dryRun {
 		plans, perr := ec.runner.Plans(adapter.KindTypeDecl, sel, opts, entry)
 		if perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+			return c.fail(perr)
 		}
 		what := entry
 		if strings.TrimSpace(what) == "" {
@@ -106,7 +107,7 @@ func runTypeDecl(ctx context.Context, args []string, stdout, stderr io.Writer) i
 
 	res, cerr := ec.runner.GenerateTypeDecl(ctx, sel, entry, opts)
 	if cerr != nil {
-		return runErr(ctx, stdout, stderr, cerr)
+		return c.fail(cerr)
 	}
 	// 引擎退出 0 也可能说话（tsc 把提示写到 stdout）。转出去，而不是替它决定
 	// "不必知道"——与 `ngm css` 转 `Warnings` 是同一条规矩。

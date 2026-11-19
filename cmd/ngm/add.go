@@ -55,12 +55,13 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	pathFlag := fs.String("path", "", "monorepo sub-path")
 	dirFlag := fs.String("dir", ".", "project directory")
 	dryRun := fs.Bool("dry-run", false, "print the resulting ngm.json without writing")
-	fs.Usage = func() { fmt.Fprint(stderr, addUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(addUsage)
+	if !c.parse([]flagSpec{
 		{Name: "ref-type"}, {Name: "infer-ref-type", Bool: true},
 		{Name: "path"}, {Name: "dir"}, {Name: "dry-run", Bool: true},
-	})); err != nil {
+	}, nil) {
 		return 3
 	}
 	if fs.NArg() != 1 {
@@ -72,7 +73,7 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// 1) 解析规格
 	spec, err := resolve.ParseAddSpec(specArg)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	// --path 覆盖 `#path=`（显式 flag 优先）
@@ -86,9 +87,9 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		*refType = string(resolve.RefTypeCommit)
 	}
 	if *refType == "" && *infer {
-		env, ierr := newProjectEnv(*dirFlag)
-		if ierr != nil {
-			return runErr(ctx, stdout, stderr, ierr)
+		env, code := c.env(*dirFlag)
+		if code != 0 {
+			return code
 		}
 		inferred, ierr := resolve.InferRefTypeFromRemote(ctx, spec.Repo, spec.Ref, resolve.ResolveOptions{
 			GitURL:   spec.Repo.CloneURL(env.Protocol),
@@ -97,18 +98,18 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			Policy:   env.Policy,
 		})
 		if ierr != nil {
-			return runErr(ctx, stdout, stderr, ierr)
+			return c.fail(ierr)
 		}
 		*refType = string(inferred)
 		fmt.Fprintf(stderr, "inferred refType %s from the remote for %s@%s\n",
 			inferred, spec.Repo.Slug(), spec.Ref)
 	}
 	if *refType == "" {
-		return runErr(ctx, stdout, stderr, missingRefTypeError(spec))
+		return c.fail(missingRefTypeError(spec))
 	}
 	rt := resolve.RefType(*refType)
 	if !rt.IsValid() {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			fmt.Sprintf("invalid --ref-type %q", *refType),
 			fmt.Sprintf("must be one of %v", resolve.ValidRefTypes())))
@@ -116,7 +117,7 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	// 3) ref 处理：commit 需要显式 hash；tag/branch 需要名字
 	if spec.Ref == "" {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			fmt.Sprintf("missing ref in %q", specArg),
 			"append `@<ref>` (e.g. `github:org/repo@v1.2.3`) or pass it explicitly"))
@@ -125,14 +126,14 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// 4) 读取并更新 ngm.json
 	projectDir, err := filepath.Abs(*dirFlag)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
 			"pass an absolute --dir, or run ngm from the directory you mean", err))
 	}
 	cfgPath := filepath.Join(projectDir, "ngm.json")
 
 	pf, err := config.ReadProjectFile(cfgPath)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	dep := config.Dependency{
@@ -146,7 +147,7 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		// 形状，只在**内层没话说**时才用它——否则用户会为 path 挨骂、却被指去查仓库标识。
 		// v0.49 起 `dep.Validate()` 的每个字段分支都自己带建议，于是这句兜底
 		// 只在"说不出是哪个字段"时出场。
-		return runErr(ctx, stdout, stderr, errs.WrapUnlessHinted(errs.CodeConfigInvalid,
+		return c.fail(errs.WrapUnlessHinted(errs.CodeConfigInvalid,
 			"invalid dependency",
 			"the accepted shape is `<host>:<org>/<repo>[@<ref>]` with --ref-type=tag|branch|commit; "+
 				"see `ngm add --help`", err))
@@ -154,20 +155,20 @@ func runAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	added, err := pf.UpsertDependency(dep)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	if *dryRun {
 		out, merr := config.MarshalProjectFile(pf)
 		if merr != nil {
-			return runErr(ctx, stdout, stderr, merr)
+			return c.fail(merr)
 		}
 		fmt.Fprint(stdout, string(out))
 		return 0
 	}
 
 	if err := config.WriteProjectFile(cfgPath, pf); err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	verb := "updated"

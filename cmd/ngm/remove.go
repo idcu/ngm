@@ -40,9 +40,10 @@ EXIT CODES:
 func runRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("remove", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
-	fs.Usage = func() { fmt.Fprint(stderr, removeUsage) }
 
-	if err := fs.Parse(normalizeArgs(args, []flagSpec{{Name: "dir"}})); err != nil {
+	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
+	c.usage(removeUsage)
+	if !c.parse([]flagSpec{{Name: "dir"}}, nil) {
 		return 3
 	}
 	if fs.NArg() != 1 {
@@ -52,31 +53,31 @@ func runRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	name := fs.Arg(0)
 	target, err := resolve.ParseTarget(name)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
-	env, err := newProjectEnv(*dirFlag)
-	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+	env, code := c.env(*dirFlag)
+	if code != 0 {
+		return code
 	}
 	pf, err := env.ReadManifest()
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	removed, err := pf.RemoveDependencyAt(target.Repo.Slug(), target.SubPath, target.HasPath)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 	if !removed {
-		return runErr(ctx, stdout, stderr, errs.New(
+		return c.fail(errs.New(
 			errs.CodeConfigInvalid,
 			fmt.Sprintf("dependency %q is not declared in ngm.json", name),
 			"check the slug (e.g. `github:org/repo`), or run `ngm config show` to list declarations"))
 	}
 
 	if err := config.WriteProjectFile(env.ManifestPath(), pf); err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return c.fail(err)
 	}
 
 	fmt.Fprintf(stdout, "removed %s from %s\n", name, env.ManifestPath())
