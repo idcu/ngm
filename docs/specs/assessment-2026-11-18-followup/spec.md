@@ -128,7 +128,7 @@ v0.135 doctor 又写成第三种），而每次都是"某条命令没走骨架"�
 | H1 | 14 条命令 / 24 处手写骨架迁 `cmdContext` | 做：纯机械，失败面统一 |
 | H2 | 拆出 `newCmdContextNoJSON` | 做：v0.16 规则④要求"不接受 `--json` 的命令 stdout 为空"，与"给信封"直接冲突，必须显式分叉 |
 | H3 | 机械守卫 `TestCmdContextIsTheOnlySkeleton` | 做：迁移没有守卫就会退回原状（新命令照抄旧写法就能编译通过） |
-| H4 | F1（JSON encoder 收敛） | **不做**：盘点后发现唯一实际差别是 HTML 转义，而那是对外形态问题；见 tasks.md 的决策记录 |
+| H4 | F1（JSON encoder 收敛） | **改判为做**（同日）：先立 [ADR-045](../../adr/adr-045-json-output-contract.md) 定契约层级（解码语义是契约、字节不是），收敛就变成机械动作。见 tasks.md F1 |
 
 H1/H2 的唯一用户可观察变化：`modules` 的五个子命令在 `--json` 下失败（解析与运行期都算）
 现在给错误信封，与 `verify` / `tree` / `install` 等早已如此的命令一致。
@@ -138,3 +138,18 @@ H1/H2 的唯一用户可观察变化：`modules` 的五个子命令在 `--json` 
 没进形状表、A1 让一条旧的版本比对用例失去前提、C1 让参数维度判据的首行断言失配。
 四处的修法与"为什么不能靠定向测试"记在 [tasks.md](./tasks.md) 的 G5–G8 一节。
 
+
+## 8. 收口（2026-11-19 末）
+
+这份评估派生出的 F1–F3 全部关闭，另外顺手落地了两件它没有列、但由同一批讨论逼出来的事：
+
+| 项 | 结果 |
+|---|---|
+| F1 | 先立 [ADR-045](../../adr/adr-045-json-output-contract.md)（解码语义是契约、字节不是），再收敛四套 JSON 写出点 |
+| F2 | 14 条命令迁 `cmdContext`，并加机械守卫（`TestCmdContextIsTheOnlySkeleton`） |
+| F3 | 死代码清理（上一批） |
+| 追加 | [ADR-044](../../adr/adr-044-independent-ecosystem.md)：ngm 是独立生态，npm / pnpm 只是迁移来源 |
+| 追加 | 主 CI 自 2026-11-07 起红了 12 天，[run 286](../../development/ci-red-2026-11-07.md) 起全绿 |
+
+留开的两条都有明确的重启条件，不是"待办"：`.bin` shim（ADR-043）、release 附件补发
+（缺凭据，见 project-state §3.2）。
