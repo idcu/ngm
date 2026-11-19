@@ -251,16 +251,6 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 	"cmd/ngm/engines.go :: runEnginesList": {{
 		role: roleSource, category: catInternal, why: "`write listing: %v`",
 	}},
-	"cmd/ngm/engines.go :: writeJSON": {
-		{
-			role: roleSource, category: catInternal,
-			why: "`marshal json: %v`（engines 的 info / validate 共用这一个出口）",
-		},
-		{
-			role: roleSource, category: catInternal,
-			why: "`write json: %v`——同一函数的第二处",
-		},
-	},
 	"cmd/ngm/install.go :: emitWriteReport": {{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——install / update 的 `--json` 写不出去（v0.66 新增的出口）",
@@ -269,22 +259,20 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——SBOM 文档写不出去（v0.69 新增的出口）",
 	}},
-	// v0.102：gc 的 --json 写不出去（`write report: %v`）。
-	"cmd/ngm/gc.go :: runGC": {{
-		role: roleSource, category: catInternal,
-		why: "`write report: %v`——gc 报告写不出去（v0.102 新增的出口）",
-	}},
-	// v0.120：`ngm run --list --json` 的两个出口（编码 / 写出）。
+	// v0.136（ADR-045）：stdout 上的报告只有一个写出点，原先四处（engines 的
+	// `writeJSON`、modules 的 `writeModulesJSON`、`writeIntegrationsJSON`、gc 内联）
+	// 各写各的错误文案，现在都折进这里。两条出口：编码失败、写出失败。
+	//
 	// 注意：项目脚本自身的退出码**不**在这里——它们原样透传，不属于 0–6，
 	// 也不经过错误模型（见 `runscript.Exec` 的契约）。
-	"cmd/ngm/run.go :: runList": {
+	"cmd/ngm/json_document.go :: writeJSONDocument": {
 		{
 			role: roleSource, category: catInternal,
-			why: "`encode run report`——`ngm run --list --json` 的编码失败",
+			why: "`write report: %v`——报告编不出来",
 		},
 		{
 			role: roleSource, category: catInternal,
-			why: "`write run report`——同一函数的第二处：报告写不出去",
+			why: "`write report: %v`——同一函数的第二处：报告写不出去",
 		},
 	},
 	"internal/runscript/exec.go :: Exec": {{
@@ -295,14 +283,6 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——in-toto 语句写不出去（v0.70 新增的出口）",
 	}},
-	"cmd/ngm/integrations.go :: writeIntegrationsJSON": {
-		{
-			role: roleSource, category: catInternal, why: "`encode report: %v`",
-		},
-		{
-			role: roleSource, category: catInternal, why: "`write report: %v`——同一函数的第二处",
-		},
-	},
 }
 
 func TestV57ExitCodeSourcesAreRegistered(t *testing.T) {
