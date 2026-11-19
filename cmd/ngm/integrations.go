@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -192,14 +191,6 @@ func writeIntegrationsJSON(stdout, stderr io.Writer, tool string, dryRun bool, o
 		})
 	}
 
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		fmt.Fprintf(stderr, "encode report: %v\n", err)
-		return errs.CodeInternal.ExitCode()
-	}
-	if _, werr := stdout.Write(append(data, '\n')); werr != nil {
-		fmt.Fprintf(stderr, "write report: %v\n", werr)
-		return errs.CodeInternal.ExitCode()
-	}
-	return code
+	// 报告用统一写出点（ADR-045）：解码语义是契约，字节不是。
+	return writeJSONDocument(stdout, stderr, payload, code)
 }

@@ -135,7 +135,7 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	if *jsonOut {
-		return writeModulesJSON(stdout, stderr, rep)
+		return writeJSONDocument(stdout, stderr, rep, 0)
 	}
 	for _, c := range rep.Checks {
 		fmt.Fprintf(stdout, "%-8s %-5s %s\n", c.Name, c.Status, c.Detail)

@@ -278,7 +278,7 @@ func runModulesList(ctx context.Context, args []string, stdout, stderr io.Writer
 		rep.Truncated = true
 	}
 	if *jsonOut {
-		return writeModulesJSON(stdout, stderr, rep)
+		return writeJSONDocument(stdout, stderr, rep, 0)
 	}
 	for _, m := range rep.Modules {
 		switch {
@@ -337,7 +337,7 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 		Errors:  errsList,
 	}
 	if *jsonOut {
-		writeErr := writeModulesJSON(stdout, stderr, rep)
+		writeErr := writeJSONDocument(stdout, stderr, rep, 0)
 		if writeErr != 0 {
 			return writeErr
 		}
@@ -452,7 +452,7 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 
 	rep := modulesChangedReport{Version: 1, Since: *since, Modules: out}
 	if *jsonOut {
-		return writeModulesJSON(stdout, stderr, rep)
+		return writeJSONDocument(stdout, stderr, rep, 0)
 	}
 	if len(out) == 0 {
 		fmt.Fprintf(stdout, "no module changes since %s\n", *since)
@@ -516,7 +516,7 @@ func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	if *jsonOut {
-		return writeModulesJSON(stdout, stderr, rep)
+		return writeJSONDocument(stdout, stderr, rep, 0)
 	}
 	if len(rep.Modules) == 0 {
 		fmt.Fprintf(stdout, "no module changes since %s; nothing to release\n", *since)
@@ -606,10 +606,10 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 				"run inside a Git repo, or pass --branch= to disable the index branch"))
 		}
 		if *jsonOut {
-			return writeModulesJSON(stdout, stderr, modulesIndexReport{
+			return writeJSONDocument(stdout, stderr, modulesIndexReport{
 				Version: 1, Out: *out, DryRun: *dryRun,
 				Index: collectionIndex{SchemaVersion: 1, Modules: []collectionModule{}},
-			})
+			}, 0)
 		}
 		fmt.Fprintln(stdout, "no modules found; nothing written")
 		return 0
@@ -714,10 +714,10 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		}
 	}
 	if *jsonOut {
-		return writeModulesJSON(stdout, stderr, modulesIndexReport{
+		return writeJSONDocument(stdout, stderr, modulesIndexReport{
 			Version: 1, Out: relOut, Branch: *branch, BranchCommit: branchCommit,
 			ReleaseFiles: releasePaths, Index: idx,
-		})
+		}, 0)
 	}
 	if branchCommit != "" {
 		fmt.Fprintf(stdout, "wrote %s (%d modules) + %d release shard(s); updated branch %s at %s\n",
@@ -1305,17 +1305,4 @@ func displayName(m moduleInfo) string {
 		return m.Name
 	}
 	return "(unnamed)"
-}
-
-func writeModulesJSON(stdout, stderr io.Writer, v any) int {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		fmt.Fprintf(stderr, "internal error: marshal modules report: %v\n", err)
-		return 6
-	}
-	if _, err := stdout.Write(append(data, '\n')); err != nil {
-		fmt.Fprintf(stderr, "cannot write modules report: %v\n", err)
-		return 6
-	}
-	return 0
 }

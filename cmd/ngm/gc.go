@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -324,13 +323,10 @@ func runGC(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	rep.Total.Bytes = rep.Store.Bytes + rep.Mirror.Bytes + rep.ModuleCache.Bytes + rep.Vendor.Bytes
 
 	if *jsonOut {
-		enc := json.NewEncoder(stdout)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(rep); err != nil {
-			fmt.Fprintf(stderr, "write report: %v\n", err)
-			return errs.CodeInternal.ExitCode()
-		}
-		return gcExitCode(rep)
+		// 统一写出点（ADR-045）。此前这里用 `SetEscapeHTML(false)`，与另外三份
+		// 实现不同——差别没有任何文档说得清，而**解码后完全等价**。
+		// 退出码仍是本命令自己的判定（回收失败要退 4），写出点只负责送出去。
+		return writeJSONDocument(stdout, stderr, rep, gcExitCode(rep))
 	}
 	renderGCHuman(stdout, rep)
 	return gcExitCode(rep)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -128,7 +127,7 @@ func runEnginesList(ec *engineContext, jsonOut bool, stdout, stderr io.Writer) i
 	rows := engineRows(ec.catalog, ec.env.ProjectDir, "")
 
 	if jsonOut {
-		return writeJSON(stdout, stderr, rows)
+		return writeJSONDocument(stdout, stderr, rows, 0)
 	}
 
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
@@ -163,7 +162,7 @@ func runEnginesInfo(ctx context.Context, ec *engineContext, name string, jsonOut
 	}
 
 	if jsonOut {
-		return writeJSON(stdout, stderr, rows)
+		return writeJSONDocument(stdout, stderr, rows, 0)
 	}
 
 	for i, r := range rows {
@@ -213,7 +212,7 @@ func runEnginesValidate(ec *engineContext, jsonOut bool, stdout, stderr io.Write
 			withAdvice[i].Remediation = issueAdvice(withAdvice[i].Kind)
 		}
 		payload := enginesValidateReport{Version: ec.catalog.Version, OK: len(issues) == 0, Issues: withAdvice}
-		if code := writeJSON(stdout, stderr, payload); code != 0 {
+		if code := writeJSONDocument(stdout, stderr, payload, 0); code != 0 {
 			return code
 		}
 		return adapter.ExitCode(issues)
@@ -375,18 +374,4 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
-}
-
-// writeJSON 输出确定格式的 JSON（2 空格缩进、LF、末尾换行）。
-func writeJSON(stdout, stderr io.Writer, v any) int {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		fmt.Fprintf(stderr, "marshal json: %v\n", err)
-		return errs.CodeInternal.ExitCode()
-	}
-	if _, werr := stdout.Write(append(data, '\n')); werr != nil {
-		fmt.Fprintf(stderr, "write json: %v\n", werr)
-		return errs.CodeInternal.ExitCode()
-	}
-	return 0
 }

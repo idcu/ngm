@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -251,16 +250,8 @@ func runList(ctx context.Context, set *runscript.Set, asJSON bool, stdout, stder
 		})
 	}
 	if asJSON {
-		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeInternal, "encode run report",
-				"the report could not be encoded as JSON; re-run without --json", err))
-		}
-		if _, err := fmt.Fprintln(stdout, string(data)); err != nil {
-			return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeInternal, "write run report",
-				"the report could not be written; check that stdout is writable", err))
-		}
-		return 0
+		// 统一写出点（ADR-045）：四份实现曾经各写各的错误文案与转义策略。
+		return writeJSONDocument(stdout, stderr, report, 0)
 	}
 
 	fmt.Fprintf(stdout, "scripts in %s (%d):\n", set.Project, len(report.Scripts))
