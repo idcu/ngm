@@ -55,6 +55,12 @@ func TestV127EnginesListProbesOncePerProgram(t *testing.T) {
 //
 // 内置引擎也要授权：validate 是 fail-closed 的（探针被拒绝 → 3），
 // 而本用例关心的是"探测次数"，不是权限本身。
+//
+// 退出码**不能断言为 0**（2026-11-19 修的假红）：`validate` 总会把内置清单
+// （esbuild / tsc / postcss）一起校验，而这台机器上装没装它们与本用例的命题
+// ——"每条清单只探测一次"——无关。CI 的 `build/vet/test` job 是 hermetic 的、
+// 不装那三样，于是它一直是 5，而开发机上装了就是 0：同一条判据两个答案。
+// 现在只排除"权限/配置"（3）那种**真的**让探测没发生的情形。
 func TestV127ValidateProbesOncePerEntry(t *testing.T) {
 	testutils.AllowEngines(t, "fake-engine", "esbuild", "tsc", "postcss")
 	isolateUserEnv(t)
@@ -66,8 +72,16 @@ func TestV127ValidateProbesOncePerEntry(t *testing.T) {
 	t.Setenv("FAKE_VERSION_MARKER", marker)
 
 	var out, errb bytes.Buffer
-	if code := dispatch([]string{"engines", "validate", "--dir=" + proj}, &out, &errb); code != 0 {
-		t.Fatalf("engines validate exit = %d, stdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	code := dispatch([]string{"engines", "validate", "--dir=" + proj}, &out, &errb)
+	switch code {
+	case 0:
+		// 三样内置引擎都在：清单全绿。
+	case 5:
+		// 内置引擎不全在这台机器上（CI 的 hermetic job 就是这样）。这只影响
+		// "validate 的结论"，不影响"探测发生了几次"。
+	default:
+		t.Fatalf("engines validate exit = %d (only 3 would mean the probe never ran), stdout:\n%s\nstderr:\n%s",
+			code, out.String(), errb.String())
 	}
 	if n := markerCalls(t, marker); n != 1 {
 		t.Fatalf("validate probed %d times, want exactly 1", n)
