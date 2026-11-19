@@ -4,7 +4,7 @@
 
 ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `ngm.lock` 锁定 commit 与内容摘要、用 `ngm verify` 重放证明，并可从 lock 直接导出 SBOM 与 in-toto / SLSA 语句。
 
-它**不是** npm / pnpm / Yarn / Bun 的替代品：它只管理直接来自 Git 仓库的依赖，不解析 registry 包，不接管 `node_modules`，也不替你决定运行时或签名体系。
+它**不是** npm / pnpm / Yarn / Bun 的替代品，也不是它们的兼容层——[**不是同类东西**](docs/adr/adr-044-independent-ecosystem.md)：它管理的是直接来自 Git 仓库的依赖，不解析 registry 包，不接管 `node_modules`，也不替你决定运行时或签名体系。npm 世界在这里只以两种身份出现：`ngm adopt` 读它（输入），或者你正在从它搬过来（坡道）。
 
 ---
 
