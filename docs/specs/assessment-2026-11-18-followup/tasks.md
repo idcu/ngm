@@ -271,9 +271,15 @@
   依据：`check-runs/{id}/annotations` **免认证**可读，而 job summary 与日志都要 token；
   这 12 天公开侧只有 "exit code 1"，诊断只能靠猜。名字过字符白名单，防止 `::` 伪造
   工作流命令（与 `ghEscape` 同一顾虑）。
-- [ ] **I3** 按 annotation 给出的名字定位并修复。**下一轮**做：需要先有一次新的 run
-  把名字写出来。不同时猜着修——换 runner 镜像、放宽超时、跳过某组测试都能把红变绿，
-  却没有一处说清"为什么红"，那正是本项目最反对的那类处置。
+- [x] **I3** 按 annotation 给出的名字修完，**run 286（`54d0fb8`）24/24 全绿**——
+  主 CI 自 2026-11-07 起第一次绿。三条原因（外加一条夹具自伤）互不相关：
+  1. `readCache` 只把 `ENOENT` 当未命中 → POSIX 上缓存不可读时 `ngm audit` 直接失败；
+  2. `engines validate` 的退出码被当成"探测成功"的判据（开发机 0 / CI 5）；
+  3. `npm_config_*` 只"不设"仍透传 → 从 npm 启动与从 shell 启动行为不同；
+  4. `TestV03SandboxRealDeno/…not a pass`：子用例名含逗号 → `t.TempDir()` 把逗号
+     写进路径 → 沙箱按设计拒绝含逗号的读路径。夹具改用无标点临时目录，并给那条
+     限制补了判据（`internal/security` 的 comma 子用例）。
+  第 4 条只有"0.43s 就失败"这一个线索，真正原因来自 I2 的**细节 annotation**。
 
 **提交纪律**：一主题一提交；每个提交在独立 worktree 上三读数全绿才合并；
 旧/新二进制的 `--help`、`--bogus`、`--json` 错误面对照（若改了命令骨架或输出）。
