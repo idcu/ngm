@@ -47,6 +47,10 @@
 
 ### Changed
 
+- `ngm run` 不再把父环境里的 `npm_config_*` 透传给脚本（此前只保证"不设置"）：
+  否则同一份脚本从 shell 启动与从 npm 脚本启动会因为这段看不见的环境而行为不同。
+  与 [ADR-044](docs/adr/adr-044-independent-ecosystem.md) 一致——ngm 不是兼容层，
+  没有理由继承 npm 的配置命名空间；需要 npm 自己的变量的脚本应当用 npm。
 - `ngm run` 的子进程环境现在也遵守 `permissions.deny: ["env:<NAME>"]`：被拒绝的
   变量不再出现在脚本里。此前这条策略只施加于 git 子进程、Deno 沙箱与引擎子进程，
   而脚本是 ngm 启动的**最大**一类子进程——同一条 deny 在它身上无声失效。

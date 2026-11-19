@@ -42,8 +42,10 @@ EXECUTION:
 
 ENVIRONMENT (contract, not "npm-compatible"):
   INIT_CWD, npm_lifecycle_event, npm_lifecycle_script, npm_package_name,
-  npm_package_version. Nothing else is promised: npm_execpath is NOT set and
-  npm_config_* is not simulated. Scripts that need them should still use npm.
+  npm_package_version. Nothing else is promised: npm_execpath is NOT set, and
+  the npm_config_* namespace is neither simulated NOR inherited (a script must
+  not behave differently depending on whether you launched ngm from a shell or
+  from an npm script). Scripts that need npm's own variables should use npm.
 
   The parent environment is passed through MINUS the names denied by
   permissions.deny: ["env:<NAME>"] — the same list that keeps git, engine and

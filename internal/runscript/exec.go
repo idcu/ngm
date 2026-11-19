@@ -70,8 +70,14 @@ func AppendArgs(command string, extra []string) string {
 //	npm_package_name、npm_package_version
 //
 // 刻意不设 `npm_execpath`（ngm 不是 npm，脚本不该据此重新调用 npm），
-// 也不承诺 `npm_config_*`——那是 npm 的内部实现细节，模拟得越像，
-// 越容易被误认为兼容层。
+// `npm_config_*` 既**不设**也**不透传**——那是 npm 的内部实现细节，模拟得越像，
+// 越容易被误认为兼容层（ADR-042 / ADR-044）。
+//
+// 为什么"不透传"也要做（v0.136，2026-11-19）：此前只有"不设"，而父进程环境里
+// 若有 `npm_config_*`（从 npm 脚本里调用 `ngm run`、或 runner 自带），它们会
+// 原样落到脚本里——于是**同一份脚本，从 shell 启动与从 npm 启动行为不同**，
+// 差别来自一段看不见的环境。ngm 在别处（git 子进程的环境净化、deny 名单）正是
+// 按"不吃环境里的偶然状态"处理的，这里没有理由例外。
 //
 // v0.135 起 `deny: ["env:X"]` 在这里也生效（此前只有 git 子进程、Deno 沙箱与
 // 引擎子进程三处施加）：脚本是 ngm 启动的最大一类子进程，同一条策略在它身上
@@ -83,6 +89,7 @@ func ChildEnv(spec ExecSpec) []string {
 	env = dropKeys(env, "PATH", "INIT_CWD",
 		"npm_lifecycle_event", "npm_lifecycle_script",
 		"npm_package_name", "npm_package_version")
+	env = dropPrefixes(env, "npm_config_")
 
 	cwd, _ := os.Getwd()
 	env = append(env,
@@ -127,6 +134,32 @@ func dropKeys(env []string, keys ...string) []string {
 			continue
 		}
 		out = append(out, kv)
+	}
+	return out
+}
+
+// dropPrefixes 丢掉名字以任一前缀开头的变量（大小写不敏感）。
+//
+// 只用于 `npm_config_`：它是一整个**命名空间**（npm 会为每个配置项生成一个变量），
+// 逐个列名字既不可穷举、也会随 npm 版本变化。
+func dropPrefixes(env []string, prefixes ...string) []string {
+	if len(prefixes) == 0 {
+		return env
+	}
+	out := env[:0]
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		up := strings.ToUpper(k)
+		drop := false
+		for _, p := range prefixes {
+			if strings.HasPrefix(up, strings.ToUpper(p)) {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
 	}
 	return out
 }

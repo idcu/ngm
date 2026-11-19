@@ -33,6 +33,16 @@ peer 求解不在其中。
    `npm_package_name`、`npm_package_version`。不设 `npm_execpath`，不承诺
    `npm_config_*`——**这是契约，不是“近似 npm”**。模拟得越像，越容易被当成兼容层。
 
+   > **补记（2026-11-19，v0.136）：`npm_config_*` 从"不设"扩展到"也不透传"。**
+   > 原句只说了"不设"，而父进程环境里若有这一族（从 npm 脚本里调用 `ngm run`，
+   > 或 CI runner 自带），它们会原样落进脚本——于是同一份脚本从 shell 启动与从
+   > npm 启动行为不同，差别来自一段看不见的环境。现在整段前缀被剔除。
+   > 触发这件事的是一个只在 Windows runner 上红的判据
+   > （`TestChildEnvIsTheDocumentedMinimum`：那条 Windows 镜像的环境里有
+   > `npm_config_*`，于是"没承诺"被读成了"没出现"）。
+   > 定位依据见 [ADR-044](./adr-044-independent-ecosystem.md)：ngm 不是兼容层，
+   > 也就没有理由继承 npm 的配置命名空间。
+
 ## 代价与边界
 
 - 脚本看到的 `node_modules/.bin` 是既有的，ngm 不会为缺失的依赖补链；
