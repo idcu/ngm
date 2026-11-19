@@ -147,6 +147,9 @@ jobs:
             echo
             echo "若首跑偏低，先查单包退化守卫（\`cmd/ngm … in ./internal/core/verify\` 行是否存在）再校准——那说明是口径问题，不是覆盖率真下滑。"
           } >> "$GITHUB_STEP_SUMMARY"
+          # 同一个读数也发成 annotation：job summary 要登录才能看，annotation 不用。
+          # 覆盖率是**随时间会下滑**的数，看不见就会静默地贴着门槛走。
+          echo "::notice title=verify coverage (cross-package)::measured ${total}% · floor ${floor}% · margin ${margin}pp"
           awk -v t="$total" -v f="$floor" 'BEGIN { exit (t + 0 >= f + 0) ? 0 : 1 }' || {
             echo "::error::internal/core/verify coverage ${total}% is below the ${floor}% floor (margin ${margin}pp)"
             exit 1
