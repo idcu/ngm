@@ -47,6 +47,8 @@
 
 ### Changed
 
+- `ngm transform` 建输出目录失败的提示不再指向**不存在的** `--outdir`，改为指向
+  命令真正接受的 `--outfile`。
 - `ngm init`（`ngm.json` 与入口文件）、`ngm transform --outfile`、`adapter=wasm` 的
   `--outfile` 改为**原子写**（与 `sbom` / `attest` 的 `--out`、`ngm.json` / `ngm.lock`
   走同一条实现）：中断或磁盘满不会再留下一个看着像成功产物的截断文件；写出的

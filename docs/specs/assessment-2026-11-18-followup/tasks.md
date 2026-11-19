@@ -338,3 +338,25 @@ M4 那次本机全量先被**默认 10m 超时**杀掉：panic 说 "test timed o
       跑过：同进程批量运行里只有 V79 / V87 红，原因仍是已登记的 `[safe-delete]`
       输出污染；两者**各自单跑全绿**（13.7s / 58.7s），0 回归。
       skip 账本未变（57 处 / 39 文件）。
+
+---
+
+## Batch O：报错让人去用一个不存在的 flag
+
+`ngm transform` 建输出目录失败时说 "point --outdir at a directory that exists"，
+而 transform 的选项叫 `--outfile`。这类错位不会让任何判据变红——脚本照样拿到
+exit 3，人却照提示去试一个会被拒的选项。
+
+- [x] **O1** 修正提示为 `--outfile`，并在 `TestV05TransformAcceptance` 加一条
+      **平台无关**的端到端子用例：父路径是普通文件 ⇒ `MkdirAll` 必失败，
+      断言提示点名 `--outfile` 且绝不出现 `--outdir`。
+- [x] **O2** 新增 `cmd/ngm/flag_hint_guard_test.go`：AST 解析每份命令源码，
+      flag 从 `fs.String/Bool/Int/...` 派生，`--xxx` 只从**字符串字面量**取
+      （注释不算），大小写混写的外部工具参数（tsc 的 `--noEmit`）整词排除。
+      跨文件引用逐条登记理由（全局 flag、给 esbuild/git 的参数、别的命令的 flag），
+      并要求登记项仍被引用。变异检验：把提示改回 `--outdir` ⇒ 判据红，已还原。
+- [x] **O3** 新增判据同时带空跑保护（文件数 / 提及数下界），防止扫描面塌掉后
+      永远绿。**口径边界**：按文件而非按单个子命令派生，因此同一文件里
+      A 子命令引用 B 子命令的 flag 仍需人工判断——这一点写在测试注释里。
+- [x] **O4** CI 对最新提交 24/24 全绿（N 批次之后复核过），本批定向测试、
+      build/vet、docs links、discipline 全绿。

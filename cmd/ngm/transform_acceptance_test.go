@@ -85,6 +85,25 @@ func TestV05TransformAcceptance(t *testing.T) {
 		}
 	})
 
+	t.Run("a bad output directory names the flag transform actually has", func(t *testing.T) {
+		proj := newProj()
+		testutils.WriteFile(t, proj, "src/index.ts", "export const x = 1;\n")
+		// 父路径是普通文件 ⇒ MkdirAll 必失败，不必依赖权限位（Windows 上也成立）。
+		testutils.WriteFile(t, proj, "blocker", "not a directory\n")
+
+		code, out := runCaptureCode(t, "transform", "src/index.ts",
+			"--outfile=blocker/out.js", "--dir="+proj)
+		if code != 3 {
+			t.Fatalf("a bad --outfile path is a config error (exit 3), got %d:\n%s", code, out)
+		}
+		if !strings.Contains(out, "--outfile") {
+			t.Errorf("the hint must name the flag the user can fix:\n%s", out)
+		}
+		if strings.Contains(out, "--outdir") {
+			t.Errorf("transform has no --outdir flag; pointing users at it sends them nowhere:\n%s", out)
+		}
+	})
+
 	t.Run("stdin is the default input", func(t *testing.T) {
 		proj := newProj()
 		t.Setenv("FAKE_ECHO_STDIN", "1")

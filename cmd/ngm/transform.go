@@ -217,7 +217,7 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	}
 	if derr := os.MkdirAll(filepath.Dir(dest), 0o755); derr != nil {
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory",
-			"check that the path is writable, or point --outdir at a directory that exists", derr))
+			"check that the path is writable, or point --outfile at a path in a directory that exists", derr))
 	}
 	// 与 sbom / attest 的 --out 同一条纪律：产物要么整个到位，要么保持原样。
 	// 裸 os.WriteFile 在中断 / 磁盘满时会留下一个看着像成功产物的截断文件。
