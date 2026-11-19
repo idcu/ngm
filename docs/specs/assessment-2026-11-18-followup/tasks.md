@@ -124,11 +124,45 @@
 
 ## Batch F（技术债，D 之后）
 
-- [~] **F1**（本轮未做：收敛 JSON encoder 触及多命令 golden，风险/收益不匹配，留下一轮） 收敛多套 JSON encoder（engines `writeJSON`、integrations、
-  `gcReport`、`runList`、各 modules writer）到 `cmdContext.writeReport` 或
-  一个共享 helper；保持字节级输出不变（golden 测试守住）。
-- [~] **F2**（本轮未做：15 条命令迁 cmdContext 同上） 剩余约 15 条手写 flag 模板命令迁到 `cmdContext`；`run` 因 `--` 拆分
-  与自有错误通道保留（见 `cmd_context.go:23-25`）。
+- [~] **F1**（2026-11-19 复勘后**仍未做**，但把债换成了可决策的清单）收敛 JSON encoder。
+
+  实测盘点（`cmd/ngm` 非测试代码）：stdout 报告写出点 9 处，全部在写失败时退 **6**
+  （ADR-026 语义已经一致），差别只在**编码**：
+
+  | 写法 | 位置 | 转义 |
+  |---|---|---|
+  | `json.MarshalIndent(v,"","  ")` + 手动补 `\n` | `engines.writeJSON`、`init`、`install`、`integrations`、`modules`×3、`run --list` | HTML 转义（默认） |
+  | `json.NewEncoder` + `SetEscapeHTML(false)` | `gc --json` | **不转义** |
+
+  两处实际差异只有 `&` `<` `>` 写成 `\u0026` 与否——**解码后完全相同**，
+  因此这不是对外契约问题，而是一致性问题。`sbom` / `attest` 的 `SetEscapeHTML(false)`
+  是**另一类**：它们的字节要被人拿去比对/签名，注释已写明理由，不该被统一掉。
+
+  决策（本轮拍板）：**暂不合并**。合并要求先回答"报告 JSON 该不该 HTML 转义"——
+  那是一个对外形态问题（`--json` 的字节稳定性算不算契约），不是纯重构；
+  而当下没有任何消费者依赖其中一种。把它记为一条待决问题，比现在改 9 处
+  再猜一个答案更便宜。重启条件：出现按字节比对 `--json` 输出的消费者。
+- [x] **F2**（2026-11-19 完成）14 条命令 / 24 处手写骨架迁到 `cmdContext`：
+  - 已迁移：`add` `attest` `mappings` `remove` `sbom`（有 env 的一批）、
+    `build` `cache` `config` `init` `transform` `typedecl`（无 env 的一批）、
+    `modules`（5 个子命令）`store`（3 个）`typecheck`（2 个：`typecheck` / `css`）。
+  - **新增一条分叉判据**（`cmd_context.go` 的 `jsonAware`）：迁移立刻撞上 v0.16 规则④——
+    `add --json` 必须 stdout 为空。于是拆出 `newCmdContextNoJSON`：只有
+    stdout 本身即文档的命令（`sbom` / `attest`）与真正不接受 `--json` 的命令
+    才走它，解析失败不写信封。`nil` 这个参数**不能**复用为这个语义：
+    `verify` 就是用 `nil` 调 parse（把 `--format` 校验放在 `--json` 生效之前）
+    却需要信封。
+  - **机械守卫** `TestCmdContextIsTheOnlySkeleton`（`cmd_context_guard_test.go`）：
+    `fs.Parse(normalizeArgs(...))` 只准出现在 `cmd_context.go` 与 `run.go`（例外登记了理由：
+    `--` 拆分是 run 自己的语义）；`fs.Usage = func()` 只准出现在 `cmd_context.go`；
+    每个文件的 `newFlagSet` 数必须等于 `newCmdContext*` 数。已做变异检验：
+    把 `cache` 改回手写，立刻红。
+  - 唯一保留的手写骨架是 `run`（`--` 之后的参数不进 flagset，且它有 `runArgError`
+    这条更细的错误通道）。
+  - 用户可观察的变化只有一处：`modules` 的五个子命令在 `--json` 下**失败**时现在
+    给错误信封（此前解析失败与运行期错误都不给，stdout 为空）。
+    这条是**顺带的修正**：那五个子命令早就有 `--json`，但 ctx 从未被标记成 JSON 模式
+    （它们只把 `*jsonOut` 用来选输出形态），于是所有 `runErr` 都走人读通道。
 - [x] **F3** 清理死代码 `cmd/ngm/tree.go:231-238` 的 `countVulns`（实际用的是
   `observability.VulnCount`）。
 

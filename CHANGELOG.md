@@ -79,6 +79,11 @@
 
 ### Fixed
 
+- `ngm modules list|validate|changed|plan|index` 在 `--json` 下**失败**时现在也给
+  错误信封（此前无论参数解析失败还是运行期错误，stdout 都是空的，只有人读文本落在
+  stderr）——它们早就声称支持 `--json`，却在最该给机器读的那条路上什么都不给。
+  其余不接受 `--json` 的命令（`add` / `sbom` / `attest` / `remove` 等）保持
+  stdout 为空，这是 v0.16 规则④，未被这次统一改动波及。
 - **安全（S0）**：`~/.ngm/config.json` 完全不存在时，引擎探测闸门此前不注册，
   `ngm engines list` / `engines validate` 会真实 spawn 被克隆仓库
   `ngm.engines.json` 声明的程序（环境变量全继承）。现在探测闸门无条件注册，
