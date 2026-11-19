@@ -31,37 +31,48 @@ type commandSpec struct {
 	// 打印的是 "help not yet implemented"（占位），而 help.go 的包注释声称
 	// "--help 在所有子命令上下文可用"：注释说的是"能被解析"，用户看到的是另一回事。
 	Usage string
+	// JSON 表示这条命令**接受** `--json`。
+	//
+	// 为什么需要它（v0.136）：分流层要在**命令自己的 flagset 存在之前**决定
+	// "这次失败要不要给信封"。此前那一处只看原始参数里有没有 `--json`，于是
+	// `ngm add --dir= --json` 会拿到一份信封，而 `ngm add --json`（flag 不认识）
+	// 的 stdout 是空的——同一个命令、同一种"它不支持 JSON"，两个答案。
+	// 现在两处问的是同一件事：**这条命令说话算不算数**。
+	//
+	// 它必须与 flagset 的事实一致，由 `TestEveryCommandKnowsWhetherItSpeaksJSON`
+	// 逐条实测核对（扫 usage 文本那种做法不可靠，这条字段是声明，那条判据是事实）。
+	JSON bool
 }
 
 // commands 是全部已实现的命令；表项顺序即 help 输出顺序（与 rootUsage 字符串顺序一致）。
 // 每一项目前都有真实 Run——0.1 时代的 nil 占位与 notImplementedYet 已随 v0.3 移除。
 var commands = []*commandSpec{
 	{Name: "init", Run: runInit, Usage: initUsage},
-	{Name: "adopt", Run: runAdopt, Usage: adoptUsage},
+	{Name: "adopt", Run: runAdopt, Usage: adoptUsage, JSON: true},
 	{Name: "add", Run: runAdd, Usage: addUsage},
-	{Name: "install", Run: runInstall, Usage: installUsage},
-	{Name: "run", Run: runRun, Usage: runUsage},
-	{Name: "update", Run: runUpdate, Usage: updateUsage},
+	{Name: "install", Run: runInstall, Usage: installUsage, JSON: true},
+	{Name: "run", Run: runRun, Usage: runUsage, JSON: true},
+	{Name: "update", Run: runUpdate, Usage: updateUsage, JSON: true},
 	{Name: "remove", Run: runRemove, Usage: removeUsage},
-	{Name: "modules", Run: runModules, Usage: modulesUsage},
-	{Name: "doctor", Run: runDoctor, Usage: doctorUsage},
-	{Name: "verify", Run: runVerify, Usage: verifyUsage},
-	{Name: "audit", Run: runAudit, Usage: auditUsage},
-	{Name: "why", Run: runWhy, Usage: whyUsage},
-	{Name: "tree", Run: runTree, Usage: treeUsage},
-	{Name: "outdated", Run: runOutdated, Usage: outdatedUsage},
+	{Name: "modules", Run: runModules, Usage: modulesUsage, JSON: true},
+	{Name: "doctor", Run: runDoctor, Usage: doctorUsage, JSON: true},
+	{Name: "verify", Run: runVerify, Usage: verifyUsage, JSON: true},
+	{Name: "audit", Run: runAudit, Usage: auditUsage, JSON: true},
+	{Name: "why", Run: runWhy, Usage: whyUsage, JSON: true},
+	{Name: "tree", Run: runTree, Usage: treeUsage, JSON: true},
+	{Name: "outdated", Run: runOutdated, Usage: outdatedUsage, JSON: true},
 	{Name: "typecheck", Run: runTypecheck, Usage: typecheckUsage},
 	{Name: "typedecl", Run: runTypeDecl, Usage: typedeclUsage},
 	{Name: "build", Run: runBuild, Usage: buildUsage},
 	{Name: "transform", Run: runTransform, Usage: transformUsage},
 	{Name: "css", Run: runCSS, Usage: cssUsage},
 	{Name: "mappings", Run: runMappings, Usage: mappingsUsage},
-	{Name: "integrations", Run: runIntegrations, Usage: integrationsUsage},
+	{Name: "integrations", Run: runIntegrations, Usage: integrationsUsage, JSON: true},
 	{Name: "cache", Run: runCache, Usage: cacheUsage},
 	{Name: "store", Run: runStore, Usage: storeUsage},
-	{Name: "gc", Run: runGC, Usage: gcUsage},
+	{Name: "gc", Run: runGC, Usage: gcUsage, JSON: true},
 	{Name: "config", Run: runConfig, Usage: configUsage},
-	{Name: "engines", Run: runEngines, Usage: enginesUsage},
+	{Name: "engines", Run: runEngines, Usage: enginesUsage, JSON: true},
 	{Name: "sbom", Run: runSbom, Usage: sbomUsage},
 	{Name: "attest", Run: runAttest, Usage: attestUsage},
 }
@@ -322,7 +333,15 @@ func dispatchInner(args []string, stdout, stderr io.Writer) int {
 		// 因此不在 v0.54 的信封覆盖里——实测 `ngm verify --json --dir=` 的
 		// stdout 为 0 字节。用户提了 `--json` 就必须给一份信封
 		// （v0.51 规则④：没有报告可给 ⇒ 完整的错误信封）。
-		failEarly(args, stdout, "invalid --dir", msg)
+		//
+		// v0.136：**但前提是这条命令真的接受 `--json`**（spec.JSON）。
+		// 此前这里无条件看原始参数，于是 `ngm add --dir= --json` 给信封、
+		// `ngm add --json`（同一条命令、同样不支持 JSON）stdout 为空——
+		// 两条早期失败路径对同一种情况给了两个答案。规则只有一条：
+		// 命令不支持机器可读输出时，出错也不假装有（cli.md 规矩 4）。
+		if spec.JSON {
+			failEarly(args, stdout, "invalid --dir", msg)
+		}
 		return 3
 	}
 

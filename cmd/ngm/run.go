@@ -97,6 +97,13 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		{Name: "json", Bool: true},
 	})); err != nil {
 		fmt.Fprint(stderr, runUsage)
+		// 信封里的 message 必须说清**是哪个 flag**（V54 的第③条），而 flag 包
+		// 已经把那条具体的错误打到 stderr 了——人读侧再说一遍是重复，机器侧
+		// 说"invalid arguments"又太含糊。两边各拿自己该拿的那一句。
+		if wantsJSON(ctx) || jsonAskedEarly(args) {
+			failEarly(args, stdout, err.Error(), "run `ngm run --help` for the flags it accepts")
+			return errs.CodeConfigInvalid.ExitCode()
+		}
 		return runArgError(ctx, args, stdout, stderr,
 			"invalid arguments for `ngm run`", "see `ngm run --help`")
 	}
@@ -217,7 +224,13 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 // JSON 模式生效，单靠它会让人读模式的失败只剩 usage 而看不到怎么改（v0.54 的同一族教训）。
 func runArgError(ctx context.Context, args []string, stdout, stderr io.Writer, msg, hint string) int {
 	ne := errs.New(errs.CodeConfigInvalid, msg, hint)
-	if wantsJSON(ctx) {
+	// 是否给信封按**原始参数**判定，不只按 ctx（v0.136）。
+	//
+	// 解析失败发生在 `--json` 生效之前——那时 ctx 还没被标记，于是
+	// `ngm run --json --bogus` 的 stdout 是空的，而同一台机器上
+	// `ngm verify --json --bogus` 有信封。这条不一致一直藏着，因为派生的
+	// flag 表只认 `newFlagSet`，看不见 run 这个手写骨架（`flag.NewFlagSet`）。
+	if wantsJSON(ctx) || jsonAskedEarly(args) {
 		failEarly(args, stdout, msg, hint)
 	} else {
 		// 与 `runErr` 同一个渲染器：错误行必须以**错误码名**开头，否则
