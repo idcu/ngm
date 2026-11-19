@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,34 @@ func TestPlanSandbox(t *testing.T) {
 		pol := sandboxPolicy(t, []string{"net:example.com"}, []string{"net:example.com"})
 		if _, err := pol.PlanSandbox(Needs{NetHosts: []string{"example.com"}}); err == nil {
 			t.Error("a denied host must not be granted")
+		}
+	})
+
+	// 含逗号的读路径**不授予**——表达不出来就不授予。
+	//
+	// Deno 的 `--allow-read` 只有一个值、多个路径用逗号分隔，而逗号同时是路径字符，
+	// 没有转义：`/vendor/a,b/dep` 会被拆成 `/vendor/a` 与 `b/dep` 两项，等于把权限
+	// 授给了另一个（相对解析的）位置。所以这里 fail-closed，并给一条能照做的下一步。
+	//
+	// 2026-11-19 的来由：`TestV03SandboxRealDeno` 有一个子用例名叫
+	// "a hanging self-check is a failure, not a pass"，而 `t.TempDir()` 会把子用例名
+	// 写进路径——于是 CI 上那条判据红在"沙箱拿不到读权限"（exit 3 而不是 2），
+	// 从用例名上看起来却像"没有超时"。这个限制本身是对的，被误伤的是夹具。
+	t.Run("a comma in a read path is refused, not mis-granted", func(t *testing.T) {
+		pol := sandboxPolicy(t, nil, nil)
+		_, err := pol.PlanSandbox(Needs{ReadDirs: []string{"/vendor/a,b/dep"}})
+		if err == nil {
+			t.Fatal("a comma path must be refused: --allow-read is comma-separated and cannot escape a path")
+		}
+		var ne *errs.NgmError
+		if !errors.As(err, &ne) {
+			t.Fatalf("want an NgmError, got %T: %v", err, err)
+		}
+		if ne.Code != errs.CodeConfigInvalid {
+			t.Errorf("code = %v, want ConfigInvalid", ne.Code)
+		}
+		if !strings.Contains(ne.Hint, "comma-separated") {
+			t.Errorf("the hint must explain why, got %q", ne.Hint)
 		}
 	})
 

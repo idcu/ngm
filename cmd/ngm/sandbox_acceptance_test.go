@@ -27,7 +27,21 @@ func v3SandboxProject(t *testing.T, extra map[string]string) string {
 	r.Tag("v1", false)
 	seedMirror(t, "github:v3/sbx", r.Dir)
 
-	proj := newProject(t)
+	// 项目目录**不**从 t.Name() 派生：`t.TempDir()` 会把子用例名写进路径，而沙箱
+	// 对含逗号的路径是 fail-closed 的（`--allow-read` 用逗号分隔、无法转义）。
+	// 于是"某个子用例的名字里有个逗号"会让 `verify --sandbox` 退 3，而判据报出来的
+	// 是"没有超时"——2026-11-19 的 CI 就是这么红的，查了半天才发现是夹具在自己
+	// 坑自己（那条子用例名是 "a hanging self-check is a failure, not a pass"）。
+	//
+	// 用固定前缀的临时目录：路径里没有标点，也就与用例名解耦。
+	proj, err := os.MkdirTemp("", "ngm-sbx-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(proj) })
+	if code, out := runCaptureCode(t, "init", "github.com:my-org/app", "--runtime=node", "--dir="+proj); code != 0 {
+		t.Fatalf("init: %s", out)
+	}
 	if code, out := runCaptureCode(t, "add", "github:v3/sbx@v1", "--ref-type=tag", "--dir="+proj); code != 0 {
 		t.Fatalf("add: %s", out)
 	}
