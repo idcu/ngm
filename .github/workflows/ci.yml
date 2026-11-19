@@ -680,10 +680,12 @@ jobs:
           [ -f real-engine.log ] || { echo "no real-engine.log; nothing to annotate"; exit 0; }
           py="$(command -v python3 || command -v python || true)"
           if [ -z "$py" ]; then echo "no python on PATH; skipping detail annotations"; exit 0; fi
+          # `-v` 的输出顺序与不带 `-v` 相反：verbose 是**先把断言行打出来、再打
+          # `--- FAIL`**，所以细节在失败行**之前**。用一行缓冲记住上一条缩进行。
           awk '
-            /^--- FAIL: / { name=$3; pend=1; next }
-            pend && /^[[:space:]]+--- / { next }
-            pend && /^[[:space:]]+[^[:space:]]/ { print name "\t" $0; pend=0 }
+            /^=== RUN/ { prev=""; next }
+            /^[[:space:]]+[^[:space:]]/ && !/--- / { prev=$0; next }
+            /^[[:space:]]*--- FAIL: / { if (prev != "") print $3 "\t" prev; prev="" }
           ' real-engine.log | head -10 > fail-details-re.tsv
           [ -s fail-details-re.tsv ] || { echo "no detail lines"; exit 0; }
           "$py" scripts/sanitize-go-test-log.py fail-details-re.tsv fail-details-re.sanitized.tsv
