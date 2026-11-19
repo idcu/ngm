@@ -293,3 +293,24 @@
 
 **提交纪律**：一主题一提交；每个提交在独立 worktree 上三读数全绿才合并；
 旧/新二进制的 `--help`、`--bogus`、`--json` 错误面对照（若改了命令骨架或输出）。
+
+---
+
+## Batch M（2026-11-19）：产物原子写从"注释里的规则"变成源码判据
+
+- [x] **M1** v0.82 把 `atomicfile` 定为"写用户可见产物"的唯一出口，但 `ngm init`
+      （`ngm.json` + 入口文件）、`ngm transform --outfile`、`internal/adapter/wasm.go`
+      的 `--outfile` 仍是裸 `os.WriteFile`。三处改为 `atomicfile.Write`。
+      用户可观察的变化：中断/磁盘满不再留下截断产物；`--force` 覆盖一个 0600 的
+      `ngm.json` 后是 0644；目标是符号链接时替换链接本身（产物的语义）。
+- [x] **M2** 新增 `cmd/ngm/atomic_write_guard_test.go`：用 AST 扫 `cmd/ngm` + `internal`
+      的产品文件（按 import 别名认 `os.WriteFile`，注释里的字眼不算），四个**非产物**
+      站点登记理由（temp 暂存 / 布局标记 / 0600 探针 / OSV 缓存），并要求账本条目
+      仍能在源码里找到（防止账本腐烂）。反向断言三个曾经裸写的出口仍调用
+      `atomicfile.Write`。临时把 `init` 改回裸写实测过判据会红，随后还原。
+- [x] **M3** 新增 POSIX 行为断言（0644 + 无 `.ngm-*.tmp` 残骸），Windows 权限位
+      是能力边界：登记进 skip 账本（**57 处 / 39 文件**，V130 由此归绿）。
+- [x] **M4** 本机复核：`go build ./...` + `go vet ./...` + docs links + discipline 13/13
+      全绿；`go test ./cmd/ngm -timeout 20m` 的失败集仍是已知的**本机环境**组
+      （V79/V86/V87/V88/V90/V91/V95/V102*），0 回归。默认 10m 超时会杀掉本机
+      18 分钟的全包运行——本机复跑必须显式 `-timeout 20m`。

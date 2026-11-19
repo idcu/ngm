@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/adapter"
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -218,7 +219,9 @@ func runTransform(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory",
 			"check that the path is writable, or point --outdir at a directory that exists", derr))
 	}
-	if werr := os.WriteFile(dest, res.Code, 0o644); werr != nil {
+	// 与 sbom / attest 的 --out 同一条纪律：产物要么整个到位，要么保持原样。
+	// 裸 os.WriteFile 在中断 / 磁盘满时会留下一个看着像成功产物的截断文件。
+	if werr := atomicfile.Write(dest, res.Code); werr != nil {
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write "+*outfile,
 			"the path is resolved relative to the project directory ("+ec.env.ProjectDir+")", werr))
 	}

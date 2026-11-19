@@ -21,6 +21,8 @@
 门禁最终会被忽略；个数能抓住"多了/少了一处 skip"，这正是需要人解释的动作。
 
 基线：59 处 → 审计后 **56 处 / 38 个文件**（减掉的 3 处见 §4）。
+2026-11-19 新增一处平台边界（Windows 上 POSIX 权限位不存在，0644 断言无法成立），
+现为 **57 处 / 39 个文件**；它守的是 `init` 的产物是否按共享权限写出，不是掩盖缺口。
 
 ## 2. 分类规则
 
@@ -34,11 +36,12 @@
 | 已登记排除 | 扫描器里显式列出的例外项（**先断言失败，再跳过附加契约**） | 是（例外本身被断言覆盖） |
 | 漂移遮蔽 | 函数体只有 skip；或"预期失败"的样例成功后被跳过 | **否**——改成断言 |
 
-## 3. 清单（56 处）
+## 3. 清单（57 处）
 
 | 文件 | 处数 | 类别 | 说明 |
 |------|-----|------|------|
 | `cmd/ngm/acceptance_m3_test.go` | 2 | 工具 / fixture | git 缺失；同一 commit 不可得 |
+| `cmd/ngm/atomic_write_guard_test.go` | 1 | 平台 | Windows 权限位不存在；同一断言在 Linux/macOS 上执行 |
 | `cmd/ngm/acceptance_m4_test.go` | 1 | 平台 | symlink 不可用 |
 | `cmd/ngm/acceptance_m5_test.go` | 1 | fixture | 两个夹具没有共享树 |
 | `cmd/ngm/acceptance_m6_test.go` | 1 | 工具 | esbuild 不在 PATH |

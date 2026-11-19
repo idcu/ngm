@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/idcu/ngm/internal/config"
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -105,7 +106,11 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	tmpl := renderInitTemplate(name, config.Runtime(*runtime))
-	if err := os.WriteFile(cfgPath, tmpl, 0o644); err != nil {
+	// ngm.json 是要提交进仓库、供团队共享的文件，走 atomicfile 而不是裸写：
+	// 写到一半被中断时，留下的应该是**原来的** ngm.json，而不是一个截断文件。
+	// 代价是目标位置若是符号链接，替换的是链接本身而非它指向的文件——
+	// 对"产物"而言这是刻意的语义。
+	if err := atomicfile.Write(cfgPath, tmpl); err != nil {
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write ngm.json",
 			"check that the directory is writable; the directory itself was created, "+
 				"no ngm.json was written", err))
@@ -123,7 +128,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create src dir",
 			"check that the project directory is writable", err))
 	}
-	if err := os.WriteFile(entryPath, []byte(initEntryStub), 0o644); err != nil {
+	if err := atomicfile.Write(entryPath, []byte(initEntryStub)); err != nil {
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write entry file",
 			"check that the src directory is writable; ngm.json was written, the entry file was not", err))
 	}

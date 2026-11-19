@@ -31,9 +31,11 @@ var skipSitePattern = regexp.MustCompile(`t\.Skipf?\(`)
 // 本轮已经从账本里拿掉 3 处这类 skip：resolve 的 `TestResolveRef_NoGitInPath`
 // （函数体只有一句 t.Skip）、cmd 的 JSON 信封扫面（"某条错误面现在退 0"被静默跳过），
 // 以及 `internal/core/git/waitdelay_test.go` 的 `sh` 依赖——那条墙钟用例已被
-// "构造点字段断言"取代，不再需要外部 shell。因此基线是 56，不是 59。
+// "构造点字段断言"取代，不再需要外部 shell。因此审计时的基线是 56，不是 59。2026-11-19 新增一处 Windows 权限位边界
+// （atomic_write_guard 的 0644 断言），现为 57。
 var skipLedger = map[string]int{
 	"cmd/ngm/acceptance_m3_test.go":                 2,
+	"cmd/ngm/atomic_write_guard_test.go":            1,
 	"cmd/ngm/acceptance_m4_test.go":                 1,
 	"cmd/ngm/acceptance_m5_test.go":                 1,
 	"cmd/ngm/acceptance_m6_test.go":                 1,

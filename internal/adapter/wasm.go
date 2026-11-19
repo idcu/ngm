@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -230,7 +231,9 @@ func (e *wasmEngine) writeArtifact(outfile string, data []byte) error {
 			return errs.Wrap(errs.CodeEngineNotFound, "create "+dir, "", err)
 		}
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// subprocess 形态下 --outfile 由引擎写，wasm 形态由 ngm 代写；
+	// 两种形态的落盘语义必须一样：走 atomicfile，不留下半个产物。
+	if err := atomicfile.Write(path, data); err != nil {
 		return errs.Wrap(errs.CodeEngineNotFound, "write "+outfile, "", err)
 	}
 	return nil

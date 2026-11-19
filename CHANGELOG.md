@@ -47,6 +47,11 @@
 
 ### Changed
 
+- `ngm init`（`ngm.json` 与入口文件）、`ngm transform --outfile`、`adapter=wasm` 的
+  `--outfile` 改为**原子写**（与 `sbom` / `attest` 的 `--out`、`ngm.json` / `ngm.lock`
+  走同一条实现）：中断或磁盘满不会再留下一个看着像成功产物的截断文件；写出的
+  文件权限固定为 0644（`--force` 覆盖一个 0600 的 `ngm.json` 也会变成 0644）。
+  目标是符号链接时替换的是链接本身而非它指向的文件——这是"产物"的语义。
 - `ngm run --json --bogus` 现在给错误信封（此前 stdout 为空）：`run` 是唯一手写骨架，
   解析失败发生在 `--json` 生效之前；同一条命令的另一种早期失败（空 `--dir`）却给信封。
 - 不接受 `--json` 的命令（`add` / `sbom` / `attest` / `init` 等）在**分流层**被拒时
