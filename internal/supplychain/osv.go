@@ -465,10 +465,17 @@ func readCache(dir, commit string, now time.Time) ([]Vuln, bool, error) {
 	}
 	data, err := os.ReadFile(cachePath(dir, commit))
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, errs.Wrap(errs.CodeConfigInvalid, "read the OSV cache", "", err)
+		// 任何读失败都按**未命中**处理，不按错误上抛。
+		//
+		// 与下面"缓存损坏按未命中"同一条理由：缓存是优化，不是证据。它读不出来
+		// （没有、损坏、目录被一个同名文件占了、权限不够）与"没有缓存"对调用方
+		// 是同一件事——下次会重新拉取。
+		//
+		// 这条不是理论上的：v0.129 的判据把 CacheDir 指到一个普通文件上，
+		// 在 Windows 上 `open` 返回 ENOTDIR 之外的东西、在 macOS/Linux 上返回
+		// ENOTDIR，于是同一条用例在 Windows 绿、在 CI 红（`os.IsNotExist` 只认
+		// ENOENT）。用 **任何** 错误都当未命中，两个平台才是同一件事。
+		return nil, false, nil
 	}
 	var env cacheEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
