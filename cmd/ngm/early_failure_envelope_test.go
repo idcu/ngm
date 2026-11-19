@@ -132,10 +132,81 @@ func TestV54EarlyFailuresAreMachineReadableToo(t *testing.T) {
 		}
 	})
 
+	// ---- ④ 对照三：同一个命令的**另一条**早期失败路径也必须为空 ----
+	//
+	// v0.136 之前这里不一致：`add --json`（flag 不认识）stdout 为空，而
+	// `add --dir= --json`（分流层的空目录拒绝）**给了一份信封**——同一个命令、
+	// 同一种"它不支持 JSON"，两个答案。分流层现在按 spec.JSON 判断，
+	// 两处问的是同一件事。
+	t.Run("add --dir= --json（分流层的拒绝也不许给信封）", func(t *testing.T) {
+		isolateUserEnv(t)
+		var out, errb bytes.Buffer
+		code := dispatch([]string{"add", "github:x/dep@v1", "--ref-type=tag", "--dir=", "--json"}, &out, &errb)
+		if code != 3 {
+			t.Fatalf("空 --dir 必须退 3，got %d", code)
+		}
+		if len(bytes.TrimSpace(out.Bytes())) != 0 {
+			t.Errorf("命令不支持 JSON 时，分流层的拒绝也不许往 stdout 塞东西，而现在有：\n%s", out.String())
+		}
+		// 对照：接受 --json 的命令在同一条路径上**必须**给信封
+		// （否则这条修法就变成了"把信封整个关掉"）。
+		var vout, verrb bytes.Buffer
+		if code := dispatch([]string{"verify", "--json", "--dir="}, &vout, &verrb); code != 3 {
+			t.Fatalf("`verify --json --dir=` 必须退 3，got %d", code)
+		}
+		if !strings.Contains(vout.String(), "\"exitCode\":3") {
+			t.Errorf("接受 --json 的命令在分流层失败时仍要给信封，stdout：\n%s", vout.String())
+		}
+	})
+
 	if checked == 0 {
 		t.Fatalf("没有被查到的命令——这张网的范围缩到零了")
 	}
-	t.Logf("early failures: %d command×order pair(s) + 2 command-level case(s) carry an envelope", checked)
+	t.Logf("early failures: %d command×order pair(s) + 3 command-level case(s) carry an envelope", checked)
+}
+
+// TestEveryCommandKnowsWhetherItSpeaksJSON 核对 commandSpec.JSON 与**源码里的事实**。
+//
+// 为什么要有这条：分流层在命令自己的 flagset 存在之前就要决定"给不给信封"，
+// 于是它只能读一张声明（`spec.JSON`）。声明会漂——加一条 `--json` 却忘了改它，
+// 表现是"某个命令的早期失败少了一份信封"，一声不响。
+//
+// 判据的期望值从**源码**派生（`flagsetBlocksOf` 的 bool flags），不从声明抄：
+// 一条命令说 JSON，当且仅当它自己的 flagset 或它的**任一子命令**的 flagset
+// 声明了 `json`（`modules list` / `store usage` / `engines validate` 都属于后者）。
+func TestEveryCommandKnowsWhetherItSpeaksJSON(t *testing.T) {
+	speaks := func(cmd string) bool {
+		for _, file := range sourceFiles(t) {
+			for _, b := range flagsetBlocksOf(t, file) {
+				if b.name != cmd && !strings.HasPrefix(b.name, cmd+" ") {
+					continue
+				}
+				for _, f := range b.boolFlags() {
+					if f == "json" {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+
+	jsonCapable := 0
+	for _, spec := range commands {
+		want := speaks(spec.Name)
+		if spec.JSON != want {
+			t.Errorf("%s: commandSpec.JSON = %v，而源码里的 flagset %s 声明 json——"+
+				"声明与事实必须一致（分流层靠它决定要不要给信封）",
+				spec.Name, spec.JSON, map[bool]string{true: "有", false: "没有"}[want])
+		}
+		if want {
+			jsonCapable++
+		}
+	}
+	if jsonCapable == 0 {
+		t.Fatal("没有任何命令被判定为 JSON-capable——判据空跑了")
+	}
+	t.Logf("json-capable commands: %d/%d", jsonCapable, len(commands))
 }
 
 // runForEnvelope 跑一次**应当产出信封**的早期失败，并解析它。

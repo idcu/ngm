@@ -111,7 +111,7 @@ func subcommandBoolPairs(t *testing.T) []flagsetBlock {
 }
 
 var (
-	reFlagSetDecl = regexp.MustCompile(`newFlagSet\("([^"]+)"`)
+	reFlagSetDecl = regexp.MustCompile(`(?:newFlagSet|flag\.NewFlagSet)\("([^"]+)"`)
 	reFlagDecl    = regexp.MustCompile(`fs\.(Bool|String|Duration|Int)\("([a-z][a-z-]*)"`)
 )
 

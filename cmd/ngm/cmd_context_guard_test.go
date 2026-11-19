@@ -29,7 +29,8 @@ func TestCmdContextIsTheOnlySkeleton(t *testing.T) {
 	exempt := map[string]string{
 		"cmd_context.go": "骨架本身",
 		"run.go": "`--` 之后的参数不进 flagset；解析 head 与它的错误通道（runArgError）" +
-			"是 run 自己的语义，不套 failEarly",
+			"是 run 自己的语义。它仍然按同一条规则给信封——v0.136 起解析失败也从" +
+			"原始参数里问一次，与 cmdContext.parse 一致；这里例外的只是骨架本身",
 	}
 
 	entries, err := os.ReadDir(".")
