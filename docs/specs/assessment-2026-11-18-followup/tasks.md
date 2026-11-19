@@ -198,8 +198,12 @@
 - [x] **G3** 跨包覆盖率按 CI 口径实测：
   - 命令：`go test -count=1 -timeout 40m -coverpkg=./internal/core/verify -coverprofile=... ./...`
     （与 `ci.yml` 的 Linux 分片等价）。
-  - 读数（2026-11-19，本机 Windows，整套 18 分钟）：**82.6%**（门槛 80%，历史读数 82.1%）。
+  - 读数（2026-11-19，本机 Windows，整套 18 分钟）：**82.6%**（历史读数 82.1%）。
     注意这是**下限**：同一次整套跑里有若干**环境性**失败（见下），覆盖率只会被低估。
+  - **CI（Linux）的真实读数：80.5%**（run 288，门槛那一行现在会把平台名一起发出来）。
+    两个平台不同不是怪事：平台专属判据只在自己的平台上跑，覆盖到的 verify 分支因此
+    不同。真正的教训是**门槛必须用它实际测量的那个平台来校准**——此前 80% 取自
+    Windows 的 82.1%，而跑门槛的是 Linux，余量只剩 0.5pp，见下一条。
 
 - [x] **G4**（顺带，纪律缺口清零）`README.md` 598 行：
   - `check-discipline.mjs` 第 11 问此前是唯一 ❌（README 606 行 > 600）。
@@ -253,7 +257,8 @@
 - [x] 新增判据在默认 `go test` 中执行、无 `t.Skip`
 - [x] 权限改动有"子进程零命中"断言（V131 探针 marker；V135 的 deny-env 端到端）；
       JSON 改动有单文档字节断言
-- [x] `verify` 改动跑 `-coverpkg=./internal/core/verify ./...`：**82.6%**（≥ 80%）
+- [x] `verify` 改动跑 `-coverpkg=./internal/core/verify ./...`：Windows **82.6%** /
+      Linux CI **80.5%**；门槛按 Linux 校准为 **78%**（余量 2.5pp，见 ci.yml 的注释）
 - [x] gofmt 在干净 LF 导出上判定（0 个文件）
 - [x] `check-docs-links.sh` → all docs links OK；`check-discipline.mjs` → **13/13**
 - [x] 完整 `go test ./...`（本机首次，18 分钟）：18 个失败中 6 个是**真回归**（已修）；
