@@ -2,13 +2,13 @@ package vendor
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
 )
@@ -484,23 +484,21 @@ func (lt *LinkTree) linkEntries(entries []ContentEntry, dst string) (used LinkMo
 	return current, files, degraded, nil
 }
 
-// copyFile 复制单个文件并保留权限位（可执行位必须带过去）。
+// copyFile 复制单个文件并**强制**应用清单里的权限位（可执行位必须带过去）。
+//
+// 走 atomicfile.WriteFrom 而不是 os.OpenFile(O_TRUNC)：
+//   - 覆盖既有文件时，O_CREATE 的 perm **不生效**，上游把 0644 改成 0755 后
+//     重新 install 仍是旧权限（写进去的内容与权限因此可以互相矛盾）；
+//   - 直写会把旧文件截断，中断后留下一个"看起来存在、其实只有前半段"的 vendor 文件。
+//
+// 临时文件与 rename 都在目标目录内，因此同卷、原子。
 func copyFile(src, dst string, perm os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
+	return atomicfile.WriteFrom(dst, in, perm)
 }
 
 // symlinkHint 给出与平台相关的可操作建议。

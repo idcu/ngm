@@ -360,3 +360,25 @@ exit 3，人却照提示去试一个会被拒的选项。
       A 子命令引用 B 子命令的 flag 仍需人工判断——这一点写在测试注释里。
 - [x] **O4** CI 对最新提交 24/24 全绿（N 批次之后复核过），本批定向测试、
       build/vet、docs links、discipline 全绿。
+
+---
+
+## Batch P：vendor copy 的权限只在"文件不存在"时生效
+
+`internal/core/vendor/links.go` 的 `copyFile` 用 `os.OpenFile(dst, O_CREATE|O_TRUNC, perm)`
+落盘。`perm` **只在创建时生效**：上游把文件从 0644 改成 0755，重新 install 到既有
+vendor 目录时内容更新了、可执行位仍是旧的。而 `verify --content` 只比字节，
+所以这条错位不会被判红。同一行代码还会在中断时把旧文件截断。
+
+- [x] **P1** `atomicfile` 增加 `WriteFrom(path, io.Reader, perm)`：与 `Write` 共用
+      临时文件 → Chmod(perm) → Sync → rename → fsyncDir 的顺序；`Write` 变成
+      `WriteFrom(bytes.NewReader(data), Perm)`，原子写仍只有一份实现。
+- [x] **P2** `copyFile` 改为 `atomicfile.WriteFrom(dst, src, perm)`：权限来自清单，
+      且覆盖是原子的。`permForMode` 仍是唯一映射（0644 / 0755）。
+- [x] **P3** 判据用**只读位**而不是 0755 断言（Windows 上 0755/0644 不可表达，
+      只读位三平台都有语义）：既有目标先 0644，`copyFile(..., 0444)` 后必须
+      失去写位；反向再证明可写清单能清掉只读位。另有"无 `.ngm-*` 残骸"断言。
+      变异检验：把 `tmp.Chmod(perm)` 改成 `tmp.Chmod(Perm)` ⇒ 两条判据同时红。
+- [x] **P4** 复核：`internal/core/{atomicfile,vendor}` 全包绿（0.2s / 79.8s）；
+      11 条 install 相关 CLI 判据绿（33.3s）；build/vet、docs links、discipline 全绿。
+      **没有新增 t.Skip**，skip 账本仍是 57 处 / 39 文件。

@@ -97,6 +97,10 @@
 
 ### Fixed
 
+- `ngm install` 在 **copy** 落地模式下覆盖既有 vendor 文件时，现在会应用清单里的
+  权限位（此前 `os.OpenFile` 的 perm 只在创建时生效：上游把 0644 改成 0755 后
+  重新 install，内容更新了、可执行位仍是旧的）；落盘改为临时文件 + rename，
+  中途中断不再把旧文件截断成半个。
 - `ngm modules list|validate|changed|plan|index` 在 `--json` 下**失败**时现在也给
   错误信封（此前无论参数解析失败还是运行期错误，stdout 都是空的，只有人读文本落在
   stderr）——它们早就声称支持 `--json`，却在最该给机器读的那条路上什么都不给。

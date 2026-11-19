@@ -25,6 +25,42 @@ func TestV82WriteProducesAReadableFile(t *testing.T) {
 	}
 }
 
+// TestWriteFromStreamsAndUsesTheGivenMode 覆盖 WriteFrom 的两条差别：
+// 内容从 Reader 流进来，权限由调用方给（vendor copy 要保留 0755）。
+func TestWriteFromStreamsAndUsesTheGivenMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "artifact")
+	if err := WriteFrom(path, strings.NewReader("streamed payload"), 0o444); err != nil {
+		t.Fatalf("WriteFrom: %v", err)
+	}
+	// 只读文件在 Windows 上删不掉；先还原，避免清理阶段把测试判红。
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "streamed payload" {
+		t.Errorf("content = %q", body)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o222 != 0 {
+		t.Errorf("mode = %o: WriteFrom must apply the caller's mode, not Perm", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".ngm-") {
+			t.Errorf("temp residue left behind: %s", e.Name())
+		}
+	}
+}
+
 // TestV82WriteIsWorldReadable 钉住权限。
 //
 // 这是 v0.82 的**主要发现**：`os.CreateTemp` 建的文件是 0600，rename 之后

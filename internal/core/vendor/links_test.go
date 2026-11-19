@@ -128,6 +128,71 @@ func TestLinkTree_CopyModeProducesIndependentFiles(t *testing.T) {
 	}
 }
 
+// TestCopyFileAppliesTheManifestModeToAnExistingTarget 钉住"权限来自清单"。
+//
+// 缺陷形态：`os.OpenFile(dst, O_CREATE|O_TRUNC, perm)` 的 perm **只在创建时生效**。
+// 上游把一个文件从 0755 改成 0644（或反向），重新 install 到既有 vendor 目录时
+// 内容更新了、权限没更新——于是"可执行位的权威来源是清单"这句话不成立。
+//
+// 用只读位而不是 0755 来断言：Windows 上 0755 与 0644 都不可表达，
+// 但只读位两边都有语义，因此这条判据在三个平台都真的看了东西。
+func TestCopyFileAppliesTheManifestModeToAnExistingTarget(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	dst := filepath.Join(dir, "dst.bin")
+	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("stale bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 只读文件在 Windows 上删不掉；先还原，避免清理阶段把测试判红。
+	t.Cleanup(func() { _ = os.Chmod(dst, 0o644) })
+
+	if err := copyFile(src, dst, 0o444); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o222 != 0 {
+		t.Errorf("mode = %o: a read-only manifest mode must replace the stale writable mode", info.Mode().Perm())
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "payload" {
+		t.Errorf("content = %q, want the source bytes (the old bytes must not survive)", body)
+	}
+
+	// 反向：可写清单也不能被上一条遗留的只读位卡住。
+	if err := os.Chmod(dst, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst, 0o644); err != nil {
+		t.Fatalf("copyFile (writable): %v", err)
+	}
+	info, err = os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o200 == 0 {
+		t.Errorf("mode = %o: a writable manifest mode must clear a stale read-only bit", info.Mode().Perm())
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".ngm-") {
+			t.Errorf("atomic copy left a temp file behind: %s", e.Name())
+		}
+	}
+}
+
 func TestLinkTree_HardlinkModeReportsFailure(t *testing.T) {
 	// 强制 hardlink 在跨卷时才失败，测试环境难以构造。
 	// 这里只锁定"配置被正确解析"，失败路径由 auto 的降级逻辑覆盖。

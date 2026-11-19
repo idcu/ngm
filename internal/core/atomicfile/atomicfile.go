@@ -12,10 +12,13 @@
 // 这不是"少了一处优化"，是一条**只在另外两个文件上还活着的缺陷**。
 //
 // 合并之后：规则一处，三个文件一起修好；`ngm sbom --out` / `ngm attest --out`
-// 也走同一条路径（它们此前是直接 `os.WriteFile`，中断会留下截断文件）。
+// 也走同一条路径（它们此前是直接 `os.WriteFile`，中断会留下截断文件）；
+// vendor 的 copy 落地走 WriteFrom（它要保留清单里的可执行位）。
 package atomicfile
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -41,6 +44,17 @@ const Perm = 0o644
 //
 // 失败路径一定会清掉临时文件（defer os.Remove），不会留下 `.ngm-*.tmp` 残骸。
 func Write(path string, data []byte) error {
+	return WriteFrom(path, bytes.NewReader(data), Perm)
+}
+
+// WriteFrom 是 Write 的流式版本，并允许调用方指定权限位。
+//
+// 为什么需要它：vendor 的 copy 落地（`vendor.copyFile`）要保留清单里的
+// 可执行位（0644 / 0755），而 `Write` 固定 0644 会把 0755 抹掉。此前那条
+// 路径用 `os.OpenFile(O_TRUNC)` 直写——覆盖既有文件时 **perm 只在创建时生效**，
+// 于是上游把一个文件从非可执行改成可执行，重新 install 后目标仍是旧权限。
+// 统一到这里之后：内容、权限、rename 的顺序只有一份实现。
+func WriteFrom(path string, src io.Reader, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".ngm-*.tmp")
 	if err != nil {
@@ -51,11 +65,11 @@ func Write(path string, data []byte) error {
 	// 成功路径已 rename（此时 Remove 对已不存在的路径无害）；失败路径清理残骸。
 	defer func() { _ = os.Remove(tmpName) }()
 
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := io.Copy(tmp, src); err != nil {
 		tmp.Close()
 		return errs.Wrap(errs.CodeConfigInvalid, "write temp file", "", err)
 	}
-	if err := tmp.Chmod(Perm); err != nil {
+	if err := tmp.Chmod(perm); err != nil {
 		tmp.Close()
 		return errs.Wrap(errs.CodeConfigInvalid, "set temp file permissions",
 			"check permissions on the target directory", err)
