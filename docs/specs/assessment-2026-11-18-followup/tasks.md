@@ -132,16 +132,93 @@
 - [x] **F3** 清理死代码 `cmd/ngm/tree.go:231-238` 的 `countVulns`（实际用的是
   `observability.VulnCount`）。
 
+## Batch G（2026-11-19，S3 残项与最后一条未验收门槛）
+
+- [x] **G1** `ngm run` 的子进程环境遵守 `permissions.deny: ["env:X"]`：
+  - `runscript.ExecSpec` 新增 `DeniedEnv`，`ChildEnv` 走 `envutil.Without`；
+    `run.go` 传 `env.Policy.DeniedEnvVars()`。治理范围是**透传**那一段——
+    lifecycle 契约变量（`PATH` / `INIT_CWD` / `npm_lifecycle_*` / `npm_package_*`）
+    照旧注入，与 `git.buildEnv` 对 `GIT_TERMINAL_PROMPT` / `LC_ALL` 的处理同源。
+  - 判据：`TestChildEnvStripsDeniedVariables`（单元，含"契约变量必须存活"的反面）、
+    `TestRunScriptDoesNotSeeDeniedEnv`（端到端：脚本打印两个变量，被拒绝的那个不出现、
+    未被拒绝的那个出现——正向对照防止"什么都没传过去"也能变绿）。已做变异检验：
+    把 `DeniedEnv` 接成 nil，后者立刻红。
+  - 施加点表与文档同步：`internal/security/enforcement_test.go` 的 `env:` 条目、
+    `docs/architecture/security-model.md` 的表、`ngm run --help`、`configuration.md`。
+
+- [x] **G2** 模块条目"多一条 store 记录"的端到端判据：
+  - 现状：B1 的反向集合只覆盖根条目，模块分支靠"会被 `moduleDigest` 重放抓住"
+    这句注释支撑（`verify.go` 的 2c 段）。注释不是证据。
+  - 判据：`TestV135ModuleExtraStoreEntryIsCritical`——真实 monorepo 子包
+    （`#path=packages/a`）+ `install --offline`，先跑一次干净的 `verify --content`
+    作基线，再往模块的 store 清单注入一条复用合法 blob 的额外条目：
+    `verify --content` 必须 exit 2，且 mismatch 的 `Kind` 是 `module-digest`。
+  - 这条判据同时是一条**结构守卫**：若哪天模块改成不重放 store 清单，它会红，
+    提醒把 `extraStoreEntries` 扩展到模块分支。
+
+- [x] **G3** 跨包覆盖率按 CI 口径实测：
+  - 命令：`go test -count=1 -timeout 40m -coverpkg=./internal/core/verify -coverprofile=... ./...`
+    （与 `ci.yml` 的 Linux 分片等价）。
+  - 读数（2026-11-19，本机 Windows，整套 18 分钟）：**82.6%**（门槛 80%，历史读数 82.1%）。
+    注意这是**下限**：同一次整套跑里有若干**环境性**失败（见下），覆盖率只会被低估。
+
+- [x] **G4**（顺带，纪律缺口清零）`README.md` 598 行：
+  - `check-discipline.mjs` 第 11 问此前是唯一 ❌（README 606 行 > 600）。
+  - 处置：把"发布读数"那段**压缩成 3 行散文**——四个数字（101 个正式 tag / **63** 个正式版 /
+    `v0.2.0`–`v0.4.0`（3 个）/ 缺口 **38 个**）一个不少，因为
+    `TestV126LiveDocsAgreeWithReleasePipeline` 正在读它们。**第一版把整段删掉是错的**：
+    那份"重复"是被判据守着的同源读数，删掉等于让同源检查静默变松（该判据当场就红了）。
+  - 读数：13/13 全绿（此前 12/13）。
+
+---
+
+## G5–G8：完整 `go test ./...` 暴露的漏项（全部是 A–F 的尾巴，已修）
+
+定向测试全绿 ≠ 没问题。首次完整跑全量抓出四处"改了代码/文档，但没同步改判据或索引"：
+
+- [x] **G5** `docs/adr/README.md` 漏登 ADR-043（`TestV71AdrIndexCoversEveryAdrFile`）。
+  新建 ADR 必须同时登记索引——这条判据就是为"读者按索引找不到已定的决策"存在的。
+- [x] **G6** `ngm gc --json` 新增的 `moduleCache` 字段没进 `docs/guides/cli.md` 的形状表
+  （`TestV26EveryFieldOfTheReportIsDocumented`：用户看得见、文档不点名的字段是半个契约）。
+  同时把该行的"三层"改成"四层"。
+- [x] **G7** `TestDeclaredEngineVersionIsComparedWithTheLocalOne` 依赖旧行为（无配置时探测不设防）。
+  回退 A1 是错的方向；改法是让它先 `testutils.AllowEngines(t, "fake-engine")` 再 `isolateUserEnv`
+  ——权限必须在隔离 HOME **之前**声明，否则写不进那份配置。
+- [x] **G8** 参数维度判据（`TestV39`）的 `doctor/junk-arg`：`matrixArgs["doctor"]` 带 `--json`，
+  信封写 stdout、用法写 stderr，拼接后首行是信封。判据改判"stdout 是 JSON 信封时看 stderr 首行"，
+  它守的命题（打出来的是**这个命令**的用法）不变。
+
+---
+
+## 本机跑全量时**必然红**的判据（环境，不是代码）
+
+2026-11-19 首次在本机跑完整 `go test ./...`：**18 个失败 = 6 个真回归（已修）+ 12 个环境**。
+修完复跑（`go test -count=1 ./cmd/ngm`，18 分钟）：**19 个失败全部落在下面三组，0 回归**。
+逐条 `-run` 单跑**全绿**，因此它们是环境或并行干扰：
+
+| 组 | 判据 | 原因 |
+|---|---|---|
+| PowerShell | `TestV90PowerShellWrappersRunTheirImplementation`、`TestV91GiteeReadingRunsOffline` 的 Windows 入口 | 本机 `pwsh` 未安装，`powershell.exe` 的 ExecutionPolicy 为 Restricted → `.ps1` 一律 `UnauthorizedAccess` |
+| 缺工具 | `TestV95HTTPSFetchEndToEnd` | 便携 Git 里没有 `git-http-backend` |
+| 并行干扰 | `TestV79VendoredScan*`、`TestV86*`、`TestV87*`、`TestV88*`、`TestV102GiteeRelease*`、`TestV102ReleaseDriftGuard*` | 整套并行跑时沙箱的批量删除守卫把 `[safe-delete]…` 插进脚本输出，搅乱退出码；单跑全绿 |
+
+**处置**：不改代码、不加 `t.Skip`（那会让 CI 上也少跑这些判据）。CI 的三平台 runner
+不受这三类影响；本机读数只用于"有没有引入回归"，口径写清楚即可。
+
 ---
 
 ## 验收（每批）
 
-- [x/待] `go build ./... && go vet ./...`
-- [x/待] `go test -count=1 ./internal/...`（本机 87s）；受影响命令定向测试
-- [x/待] 新增判据在默认 `go test` 中执行、无 `t.Skip`
-- [x/待] 权限改动有"子进程零命中"断言；JSON 改动有单文档字节断言
-- [x/待] `verify` 改动跑 `-coverpkg=./internal/core/verify ./...`，跨包 ≥ 80%
-- [x/待] gofmt 在干净 LF 导出上判定
+- [x] `go build ./... && go vet ./...`（2026-11-19 复跑：全绿）
+- [x] `go test -count=1 ./internal/...`（本机 107s，23 包全绿）+ 受影响命令定向测试
+- [x] 新增判据在默认 `go test` 中执行、无 `t.Skip`
+- [x] 权限改动有"子进程零命中"断言（V131 探针 marker；V135 的 deny-env 端到端）；
+      JSON 改动有单文档字节断言
+- [x] `verify` 改动跑 `-coverpkg=./internal/core/verify ./...`：**82.6%**（≥ 80%）
+- [x] gofmt 在干净 LF 导出上判定（0 个文件）
+- [x] `check-docs-links.sh` → all docs links OK；`check-discipline.mjs` → **13/13**
+- [x] 完整 `go test ./...`（本机首次，18 分钟）：18 个失败中 6 个是**真回归**（已修）；
+      修完复跑 19 个失败**全为本机环境**（V79/V86/V87/V88/V90/V91/V95/V102*，0 回归）
 
 **提交纪律**：一主题一提交；每个提交在独立 worktree 上三读数全绿才合并；
 旧/新二进制的 `--help`、`--bogus`、`--json` 错误面对照（若改了命令骨架或输出）。

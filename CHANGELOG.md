@@ -47,6 +47,13 @@
 
 ### Changed
 
+- `ngm run` 的子进程环境现在也遵守 `permissions.deny: ["env:<NAME>"]`：被拒绝的
+  变量不再出现在脚本里。此前这条策略只施加于 git 子进程、Deno 沙箱与引擎子进程，
+  而脚本是 ngm 启动的**最大**一类子进程——同一条 deny 在它身上无声失效。
+  治理范围是**透传**那一段：ngm 自己的 lifecycle 契约变量（`PATH`、`INIT_CWD`、
+  `npm_lifecycle_*`、`npm_package_*`）照旧注入，因此 `deny: ["env:PATH"]` 不会让
+  脚本失去 PATH（那不是有意义的拒绝）。安全模型的施加点表与 `ngm run --help`
+  同步更新。
 - `ngm.lock` 的路径校验：`vendorPath` 拒绝 scheme / scp / slug 形状（`https://…`、
   `ssh://…`、`git@host:org/repo`、`github:org/repo`）与盘符（`C:` 前缀；盘符此前
   就已拒绝），判据是"冒号落在第一段"或含 `//`。**`subPath` 可以含冒号**：`dir:name`
@@ -78,7 +85,9 @@
   nil Policy 按默认档位拒绝 `run:<engine>`。新增零配置"探针零命中"负向判据。
 - `verify --content` 现在做 store 清单的**反向集合**校验：多出一条不在锁定 Git
   tree 里的条目会判 critical(2)（此前重放只按 tree 正向取值，注入的文件会被
-  materialize 落地而校验全绿）。模块条目由 `subtreeOid` 绑定，不受影响。
+  materialize 落地而校验全绿）。模块条目的形状由 `moduleDigest` 绑定，而那个 digest
+  是**按 store 清单重放**的，所以多出的条目会改变重放结果、同样判 critical(2)
+  （kind 是 `module-digest`；v0.135 补了端到端判据，免得这条推理只活在注释里）。
 - git 子进程的 `GIT_EXEC_PATH` / `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` 现在与
   `GIT_SSH_COMMAND` 同等待遇被剔除；`ExtraEnv` 也走同一套 deny/hijack 过滤，
   "追加"不再能绕过权限。
@@ -89,9 +98,12 @@
   宽松解析并列保留、各有测试，不再两处各写一份正则。
 - `ngm adopt` 现在能从 `pnpm-lock.yaml` / `yarn.lock` 里提取 **Git 来源**的
   依赖（url + commit）写进 provenance；registry 条目仍按设计保持 unknown，
-  notes 会说明覆盖范围。不引入 YAML 依赖，只做窄形状解析。
+  notes 会说明覆盖范围。不引入 YAML 依赖，只做窄形状解析。这条边界补记在
+  [ADR-040](docs/adr/adr-040-adopt-proof-layer.md) 的补记里——“不为 registry 条目
+  解析”这条非目标没变，补的是“Git 来源的条目本来就是 ngm 的轴”。
 - `ngm gc` 现在覆盖 module cache（层 1.5）：与 mirror 同一可达性判据，
-  默认 dry-run，删除失败汇总为 exit 4。
+  默认 dry-run，删除失败汇总为 exit 4。`--json` 报告相应多出 `moduleCache` 段
+  （与 `store` / `mirror` / `vendor` 同形状），`docs/guides/cli.md` 的形状表已补。
 - vendored 依赖的 `.bin` shim 按 [ADR-043](docs/adr/adr-043-vendored-bin-shim.md)
   决定暂缓：它越过 ADR-042 的边界并从第三方内容创建可执行面，需先有威胁模型。
 - `ngm adopt`：缺少 `package.json` 的**作用域包**（`node_modules/@scope/name`）
