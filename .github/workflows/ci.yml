@@ -221,6 +221,45 @@ jobs:
                 echo "::error title=failing test::$(printf '%s' "$tc" | tr -cd 'A-Za-z0-9_.-/')"
               done
 
+      # 只有用例名仍然不够：`--- FAIL: TestX` 后面那一行才是**为什么**。
+      #
+      # 这一步与上面那条"公开区只放定位信息"的规则的关系要写清楚：那条规则是为了
+      # 不让原始输出（环境变量值、绝对路径、token 形态）进公开区，而不是为了让失败
+      # 不可诊断。所以这里发的是**每个失败用例的第一行细节**，且**先过与 artifact
+      # 同一个脱敏脚本**（scripts/sanitize-go-test-log.py），再过字符白名单。
+      #
+      # 为什么值得放宽这一格（2026-11-19）：那 12 天里，公开侧只有 "exit code 1"，
+      # 拿到用例名之后仍然看不到断言内容——`TestV127ValidateProbesOncePerEntry` 在
+      # Linux/macOS 上红、在 Windows 上绿，没有那一行就只能猜。
+      - name: failure annotations — first detail line
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/go-test.log"
+          [ -f "$log" ] || { echo "no go test log; nothing to annotate"; exit 0; }
+          py="$(command -v python3 || command -v python || true)"
+          if [ -z "$py" ]; then
+            echo "no python on PATH; skipping detail annotations (the names above still go out)"
+            exit 0
+          fi
+          # 取 name + 失败后的第一行非 `---` 缩进行；子用例的 `--- FAIL` 行本身不算细节。
+          awk '
+            /^--- FAIL: / { name=$3; pend=1; next }
+            pend && /^[[:space:]]+--- / { next }
+            pend && /^[[:space:]]+[^[:space:]]/ { print name "\t" $0; pend=0 }
+          ' "$log" | head -10 > "$RUNNER_TEMP/fail-details.tsv"
+          [ -s "$RUNNER_TEMP/fail-details.tsv" ] || { echo "no detail lines"; exit 0; }
+          "$py" scripts/sanitize-go-test-log.py "$RUNNER_TEMP/fail-details.tsv" "$RUNNER_TEMP/fail-details.sanitized.tsv"
+          while IFS="$(printf '\t')" read -r tc detail; do
+            [ -n "$tc" ] || continue
+            clean_name="$(printf '%s' "$tc" | tr -cd 'A-Za-z0-9_.-/')"
+            # 细节行保留原文（多数断言是中文，按 ASCII 白名单过滤会把它抹掉），
+            # 只做三件事：去换行（工作流命令是行协议）、`%` 转义（GitHub 用它转义）、
+            # 已由上一个脚本脱敏过的路径与凭据不动。
+            clean_msg="$(printf '%s' "$detail" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/%/%25/g')"
+            echo "::error title=${clean_name}::${clean_msg}"
+          done < "$RUNNER_TEMP/fail-details.sanitized.tsv"
+
       # 完整日志只进 artifact（7 天），且先做脱敏：环境变量值、HOME/RUNNER_TEMP/
       # WORKSPACE 路径、Bearer/access_token 类文本都替换掉。artifact 对公开仓库
       # 同样可下载，所以脱敏是上传的一部分，不是可选项。
