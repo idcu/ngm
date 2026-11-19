@@ -87,11 +87,54 @@ func TestCmdContextIsTheOnlySkeleton(t *testing.T) {
 		}
 	}
 
+	// 第四件事：stdout 上的 JSON 只有一个写出点（ADR-045）。
+	//
+	// 此前有四份实现（`writeJSON` / `writeModulesJSON` / `writeIntegrationsJSON` /
+	// `gc` 内联），三种错误文案、两种转义策略，没人说得清哪个是对的。
+	// `json.NewEncoder` 只准出现在 main.go——那是**错误信封**，装的是人话、刻意不转义。
+	checkEncoderIsSingle(t)
+
 	if scanned == 0 {
 		t.Fatal("一个 .go 文件都没扫到——这条判据空跑了")
 	}
 	if !sawParseInContext || !sawUsageInContext {
 		t.Fatalf("cmd_context.go 里找不到骨架实现（parse=%v usage=%v）——"+
 			"若实现搬到别处，这条检查会静默通过，必须同步更新", sawParseInContext, sawUsageInContext)
+	}
+}
+
+// checkEncoderIsSingle 检查 `json.NewEncoder(` 只出现在错误信封那一个文件里。
+//
+// 为什么单独一条：报告类写出点当时有四种写法，差别正是转义策略与错误文案；
+// 光靠"记得用 writeJSONDocument"守不住，下一个命令照样能自己 `json.NewEncoder`。
+func checkEncoderIsSingle(t *testing.T) {
+	t.Helper()
+	const allowed = "main.go" // 错误信封：装的是人话，刻意不转义（ADR-045）
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saw := false
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, rerr := os.ReadFile(filepath.Join(".", name))
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if !strings.Contains(string(data), "json.NewEncoder(") {
+			continue
+		}
+		if name == allowed {
+			saw = true
+			continue
+		}
+		t.Errorf("%s 自己造了一个 JSON encoder：stdout 上的报告必须走 writeJSONDocument"+
+			"（ADR-045：解码语义是契约，字节不是），否则转义策略会再一次各写各的", name)
+	}
+	if !saw {
+		t.Errorf("在 %s 里找不到 json.NewEncoder——这条检查会空跑；若错误信封换了写法，请同步更新", allowed)
 	}
 }
