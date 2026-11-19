@@ -181,6 +181,46 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # 名字还要发成 **annotation**，因为 annotation 是唯一**不需要 token** 就能读的公开信号
+      # （`GET /repos/{owner}/{repo}/check-runs/{id}/annotations`），而 job summary 只在
+      # run 页面上人读、日志要认证。
+      #
+      # 为什么补这一步（2026-11-19）：CI 从 2026-11-07 起红了 12 天，而外部能拿到的
+      # 唯一信息是"进程退出码 1"——第一个变红的提交只改了一份 markdown（`cb31978`，
+      # 2 行文档），却有 7 个 job 同时失败，说明断的不是代码而是环境；看不到名字，
+      # 就只能靠猜。
+      #
+      # 每个 step 最多 10 条错误 annotation（GitHub 的硬上限），所以包名与用例名分两步发。
+      - name: failure annotations — packages
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/go-test.log"
+          rc="$(cat "$RUNNER_TEMP/go-test.exit" 2>/dev/null || echo unknown)"
+          # 退出码本身也要发出去：它与"有没有用例名"一起决定下一步查什么。
+          # 127 = 命令没找到（工具链没装好）；2 = 用法/加载错误；1 = 有失败。
+          # 2026-11-19 那次诊断的困难正在这里：公开侧只看到 "exit code 1"，
+          # 而 artifact 里那份日志只有 900 字节——说明 `go test` 根本没跑到用例。
+          echo "::error title=go test exit code::${rc}"
+          [ -f "$log" ] || { echo "no go test log; nothing else to annotate"; exit 0; }
+          grep -E '^FAIL[[:space:]]+github.com/' "$log" 2>/dev/null | awk '{ print $2 }' | sort -u | head -9 \
+            | while IFS= read -r pkg; do
+                # 工作流命令是行协议：名字里出现 `::` 会伪造一条新命令。
+                # 只保留 [A-Za-z0-9_./-]——与 verify 的 ghEscape 是同一个顾虑。
+                echo "::error title=go test package failed::$(printf '%s' "$pkg" | tr -cd 'A-Za-z0-9_.-/')"
+              done
+
+      - name: failure annotations — tests
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/go-test.log"
+          [ -f "$log" ] || { echo "no go test log; nothing to annotate"; exit 0; }
+          grep -E '^--- FAIL' "$log" 2>/dev/null | sed -E 's/^--- FAIL: *([^ ]+).*/\1/' | sort -u | head -10 \
+            | while IFS= read -r tc; do
+                echo "::error title=failing test::$(printf '%s' "$tc" | tr -cd 'A-Za-z0-9_.-/')"
+              done
+
       # 完整日志只进 artifact（7 天），且先做脱敏：环境变量值、HOME/RUNNER_TEMP/
       # WORKSPACE 路径、Bearer/access_token 类文本都替换掉。artifact 对公开仓库
       # 同样可下载，所以脱敏是上传的一部分，不是可选项。
@@ -575,6 +615,19 @@ jobs:
             grep -E '^\s*--- SKIP' real-engine.log
             exit 1
           fi
+
+      # 与 build/vet/test 的同名步骤同一个理由：annotation 是唯一不需要 token 的公开信号。
+      # 这个 job 此前失败时只留"exit 1"——连"是工具没装好、还是断言不成立"都分不出来。
+      - name: failure annotations — real-engine tests
+        if: failure()
+        shell: bash
+        run: |
+          [ -f real-engine.log ] || { echo "no real-engine.log; nothing to annotate"; exit 0; }
+          grep -E '^\s*--- (FAIL|SKIP)' real-engine.log 2>/dev/null \
+            | sed -E 's/^\s*--- (FAIL|SKIP): *([^ ]+).*/\1 \2/' | sort -u | head -10 \
+            | while read -r kind tc; do
+                echo "::error title=real-engine ${kind}::$(printf '%s' "$tc" | tr -cd 'A-Za-z0-9_.-/')"
+              done
 
   # 文档链接检查：仅当 docs/ 目录存在时启用。
   # M0 阶段 docs/ 是空仓；ngm-doc 文档暂未合并进来。
