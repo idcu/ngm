@@ -48,8 +48,17 @@ func TestV40ArgumentSpellingHoldsItsContracts(t *testing.T) {
 	fakeEngine = testutils.BuildHelperBinary(t, "./internal/adapter/testdata/fakeengine", "fake-engine")
 
 	// norm 把各自的临时目录折叠成 <dir>，好让两次运行可比。
+	//
+	// 两种拼写都要折：人读通道里是原始路径，而 `--json` 的错误信封里**反斜杠被转义**
+	// （`C:\\a\\b`）。v0.135 之前 `modules` 的错误只走人读通道，这里只折原始形态就够了；
+	// 那五个子命令现在也给信封（它们本来就有 `--json`，只是 ctx 从未被标记），
+	// 漏折半种拼写会让"重复 --dir"这条判据**假红**——实测两边的差异只是各自的临时目录名。
 	norm := func(s, dir string) string {
-		return strings.ReplaceAll(s, dir, "<dir>")
+		out := strings.ReplaceAll(s, dir, "<dir>")
+		if escaped := strings.ReplaceAll(dir, `\`, `\\`); escaped != dir {
+			out = strings.ReplaceAll(out, escaped, "<dir>")
+		}
+		return out
 	}
 	run := func(t *testing.T, args []string) (int, string) {
 		t.Helper()
