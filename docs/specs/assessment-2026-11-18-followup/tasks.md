@@ -124,7 +124,7 @@
 
 ## Batch F（技术债，D 之后）
 
-- [~] **F1**（2026-11-19 复勘后**仍未做**，但把债换成了可决策的清单）收敛 JSON encoder。
+- [x] **F1**（2026-11-19 收尾：先定契约，再收敛）收敛 JSON encoder。
 
   实测盘点（`cmd/ngm` 非测试代码）：stdout 报告写出点 9 处，全部在写失败时退 **6**
   （ADR-026 语义已经一致），差别只在**编码**：
@@ -138,10 +138,15 @@
   因此这不是对外契约问题，而是一致性问题。`sbom` / `attest` 的 `SetEscapeHTML(false)`
   是**另一类**：它们的字节要被人拿去比对/签名，注释已写明理由，不该被统一掉。
 
-  决策（本轮拍板）：**暂不合并**。合并要求先回答"报告 JSON 该不该 HTML 转义"——
-  那是一个对外形态问题（`--json` 的字节稳定性算不算契约），不是纯重构；
-  而当下没有任何消费者依赖其中一种。把它记为一条待决问题，比现在改 9 处
-  再猜一个答案更便宜。重启条件：出现按字节比对 `--json` 输出的消费者。
+  决策（2026-11-19 拍板，见 [ADR-045](../../adr/adr-045-json-output-contract.md)）：
+  **`--json` 的契约是解码语义，字节不是**。于是可以收敛：
+  - `writeJSON` / `writeModulesJSON` / `writeIntegrationsJSON` / `gc` 内联 → 一个
+    `writeJSONDocument`（`cmd/ngm/json_document.go`），统一 `write report: …` + 退 6；
+  - `gc` 的 `SetEscapeHTML(false)` 去掉，与其余报告一致（**解码后不变**）；
+  - 三档分类写进 ADR：**产物**（sbom/attest，字节是交付物，不转义）/ **报告**（转义）/
+    **错误信封**（main.go，装的是人话，不转义）；
+  - 守卫：`json.NewEncoder(` 在 `cmd/ngm` 只准出现在 `main.go`（`checkEncoderIsSingle`）。
+  按字节 diff `--json` 从此是**未定义行为**——需要稳定字节用产物，不用报告。
 - [x] **F2**（2026-11-19 完成）14 条命令 / 24 处手写骨架迁到 `cmdContext`：
   - 已迁移：`add` `attest` `mappings` `remove` `sbom`（有 env 的一批）、
     `build` `cache` `config` `init` `transform` `typedecl`（无 env 的一批）、

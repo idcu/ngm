@@ -47,6 +47,9 @@
 
 ### Changed
 
+- `ngm gc --json` 的字节与其余报告对齐（HTML 转义，Go 默认）：**解码后不变**。
+  ADR-045 把 `--json` 的契约定在**解码语义**上，字节不是契约；唯一按字节比对的是
+  `sbom` / `attest` 的产物（它们保持不转义，理由在那两处注释里）。
 - `ngm run` 不再把父环境里的 `npm_config_*` 透传给脚本（此前只保证"不设置"）：
   否则同一份脚本从 shell 启动与从 npm 脚本启动会因为这段看不见的环境而行为不同。
   与 [ADR-044](docs/adr/adr-044-independent-ecosystem.md) 一致——ngm 不是兼容层，
