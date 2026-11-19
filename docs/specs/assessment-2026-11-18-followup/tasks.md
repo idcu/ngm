@@ -314,3 +314,27 @@
       全绿；`go test ./cmd/ngm -timeout 20m` 的失败集仍是已知的**本机环境**组
       （V79/V86/V87/V88/V90/V91/V95/V102*），0 回归。默认 10m 超时会杀掉本机
       18 分钟的全包运行——本机复跑必须显式 `-timeout 20m`。
+
+---
+
+## Batch N：`go test` 卡住时，公开侧看不到卡在哪
+
+M4 那次本机全量先被**默认 10m 超时**杀掉：panic 说 "test timed out"，但
+`running tests:` 只给出一条陈旧采样，公开侧没有 `--- FAIL`，annotation 只剩
+退出码和包名——与 CI 红 12 天时"看不到名字，只能靠猜"是同一种失效。
+
+- [x] **N1** `runChecker` 从 `exec.Command` 换成 `exec.CommandContext`，单次自检器
+      上界 **2 分钟**（实测每次约 30s）；错误里点名脚本与参数。
+      同时设 `cmd.WaitDelay = 2s`：自检器起的子进程在直接进程被杀后仍握着
+      stdout 管道，不设这一行，所谓"超时"还会继续挂在 `CombinedOutput` 上。
+- [x] **N2** 拆出 `runCheckerRaw`（返回错误而不是 `t.Fatal`），并用
+      `exec sleep 30` 夹具证明超时在秒级返回、退出码不为正常判据、错误点名脚本。
+      "超时有没有牙齿"从此有判据，不再等下一次真卡住才发现超时只是注释。
+- [x] **N3** `.github/workflows/ci.yml` 新增 `failure annotations — test timeout`：
+      从 panic 头与 `running tests:` 发布两条 annotation（用例名过字符白名单，
+      剩余细节仍只进脱敏 artifact）。用 M4 留下的真实超时日志验证过提取结果
+      能拿到 `TestV80NestedMonorepoIsReportedAsIncomplete`。
+- [x] **N4** 所有 `runChecker` 调用方（V76/V77/V78/V79/V80/V87/V88 + 新自测）
+      跑过：同进程批量运行里只有 V79 / V87 红，原因仍是已登记的 `[safe-delete]`
+      输出污染；两者**各自单跑全绿**（13.7s / 58.7s），0 回归。
+      skip 账本未变（57 处 / 39 文件）。

@@ -233,6 +233,27 @@ jobs:
                 echo "::error title=failing test::$(printf '%s' "$tc" | tr -cd 'A-Za-z0-9_.-/')"
               done
 
+      # `go test` 超时**不产出** `--- FAIL: TestX`：只有 panic 头和
+      # "running tests:"。上面两步因此只发得出退出码和包名——2026-11-19
+      # 本机那次整包超时就是这样，公开侧看不到卡在哪条用例。这里把两行
+      # 都发成 annotation；细节仍只进脱敏后的 artifact。
+      - name: failure annotations — test timeout
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/go-test.log"
+          [ -f "$log" ] || exit 0
+          panic="$(grep -m1 -E '^panic: test timed out' "$log" 2>/dev/null || true)"
+          [ -n "$panic" ] || exit 0
+          echo "::error title=go test timed out::$(printf '%s' "$panic" | tr -cd 'A-Za-z0-9 :.')"
+          awk '
+            /^panic: test timed out/ { pend=1; next }
+            pend && /^[[:space:]]*running tests:/ { getline; sub(/[[:space:]]+\(.*/, "", $0); print; exit }
+          ' "$log" | head -3 | while IFS= read -r tc; do
+                name="$(printf '%s' "$tc" | tr -cd 'A-Za-z0-9_.-/')"
+                [ -n "$name" ] && echo "::error title=test stuck at timeout::$name"
+              done
+
       # 只有用例名仍然不够：`--- FAIL: TestX` 后面那一行才是**为什么**。
       #
       # 这一步与上面那条"公开区只放定位信息"的规则的关系要写清楚：那条规则是为了

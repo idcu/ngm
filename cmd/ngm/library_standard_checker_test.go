@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // v0.76：**自检器自己的判据**。
@@ -94,23 +98,77 @@ func TestV76LibraryStandardCheckerHoldsItsVerdicts(t *testing.T) {
 	}
 }
 
+// checkerTimeout 是**单次**自检器的上界，不是整条判据的。
+//
+// 2026-11-19 本机跑全包时撞到过：一个 bash 自检器卡住，整个 cmd/ngm 包耗到
+// `go test` 默认的 10 分钟才被杀，公开侧只剩 "test timed out" 和一条陈旧的
+// "running tests"（连是哪一次调用都不知道）。自检器每次约 30s，2 分钟足够宽。
+const checkerTimeout = 2 * time.Minute
+
 // runChecker 跑一次自检器（默认加 `--json`），返回输出与退出码。
 func runChecker(t *testing.T, bash, script, dir string, extra ...string) (string, int) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), checkerTimeout)
+	defer cancel()
+	out, code, err := runCheckerRaw(ctx, bash, script, dir, extra...)
+	if err != nil {
+		t.Fatalf("running the checker failed: %v\n%s", err, out)
+	}
+	return out, code
+}
+
+// runCheckerRaw 是同一个执行路径，但把错误**返回**而不是 t.Fatal。
+//
+// 这样"超时到底会不会杀进程"自己就有判据（见下面的 TestCheckerRunner…），
+// 而不是等下一次真卡住时才发现超时只是一句注释。
+func runCheckerRaw(ctx context.Context, bash, script, dir string, extra ...string) (string, int, error) {
 	// 传正斜杠路径：Git bash 认它（反斜杠在它那里是转义字符）
 	args := append([]string{filepath.ToSlash(script), filepath.ToSlash(dir), "--json"}, extra...)
-	cmd := exec.Command(bash, args...)
+	cmd := exec.CommandContext(ctx, bash, args...)
+	// 自检器可能再起子进程：直接进程被杀之后，那些子进程仍握着 stdout 管道，
+	// CombinedOutput 会继续等它们。没有这一行，"超时"仍可能挂成整包超时。
+	cmd.WaitDelay = 2 * time.Second
 	raw, err := cmd.CombinedOutput()
 	out := string(raw)
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, -1, fmt.Errorf("checker timed out: %s %s: %w", bash, strings.Join(args, " "), ctx.Err())
+	}
 	if err == nil {
-		return out, 0
+		return out, 0, nil
 	}
 	var exitErr *exec.ExitError
 	if ok := asExitError(err, &exitErr); ok {
-		return out, exitErr.ExitCode()
+		return out, exitErr.ExitCode(), nil
 	}
-	t.Fatalf("running the checker failed: %v\n%s", err, out)
-	return out, -1
+	return out, -1, err
+}
+
+// TestCheckerRunnerReportsTimeoutInsteadOfHanging 用一个 `exec sleep` 夹具
+// （exec 替换 shell，所以杀进程会同时关掉管道）证明超时真的在秒级返回，
+// 而且错误信息点名是哪一份脚本——这正是上次整包超时时缺的那条线索。
+func TestCheckerRunnerReportsTimeoutInsteadOfHanging(t *testing.T) {
+	bash := findBash(t)
+	script := filepath.Join(t.TempDir(), "hang.sh")
+	if err := os.WriteFile(script, []byte("exec sleep 30\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	out, code, err := runCheckerRaw(ctx, bash, script, t.TempDir())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want a deadline error, got %v (code=%d, out=%q)", err, code, out)
+	}
+	if code != -1 {
+		t.Errorf("a timed-out run must not report a checker verdict, got exit %d", code)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("giving up took %s — a timeout that still hangs is not a timeout", elapsed)
+	}
+	if !strings.Contains(err.Error(), "hang.sh") {
+		t.Errorf("the error must name the script it was running: %v", err)
+	}
 }
 
 // asExitError 是 errors.As 的薄包装（避免在测试里到处 import errors）。
