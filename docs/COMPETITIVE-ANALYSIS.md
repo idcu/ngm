@@ -130,7 +130,8 @@ pnpm 的 content-addressable store + hardlink 已经很高效。ngm 的 vendor �
 
 **所以**：同一份恶意 Git 依赖，在受影响的 npm 上是一条 RCE 路径，
 在 ngm 上是一份**内容被 digest 钉死的普通文件集合**。
-[`scripts/packagegate-demo.sh`](../scripts/packagegate-demo.sh) 把这件事跑给你看——
+[`scripts/packagegate-demo.sh`](../scripts/packagegate-demo.sh)（Windows 用
+[`.ps1` 入口](../scripts/packagegate-demo.ps1)）把这件事跑给你看——
 demo 会**自己断言**（脚本未执行、`.npmrc` 未被解释），不是一张需要你相信的表。
 
 > 一句诚实的话：**免疫这条路径 ≠ 免疫 Git 依赖的全部风险**。
