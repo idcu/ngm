@@ -158,27 +158,25 @@ jobs:
             exit 1
           }
 
-          # pkgcov <prefix>：从同一份 profile 里过滤出 prefix 的语句块，按 (覆盖语句/总语句) 算百分比。
-          # 与 `go tool cover -func` 的口径一致（已对照验证）。用于两件事：
-          #   1) 门槛仍只取 verify 的数值（floor=78 的校准基础未变——broaden coverpkg 不改 verify 自身计数）；
-          #   2) 其余每个产品包发一条 ::notice，让覆盖率随时间下滑可见，但**不设闸**。
+          # pkgcov <prefix>：把 profile 过滤到 prefix 后交给 `go tool cover -func` 算。
+          #
+          # **必须用 go tool cover，不能用 awk 直接求和**：`go test ./...` + broad coverpkg
+          # 下，每个测试二进制都会为同一个包重发一遍语句块——实测 verify 的 380 个块
+          # 各出现 25 次。go tool cover 会按块合并（任一二进制覆盖即算覆盖），awk 直接
+          # 求和会把未覆盖的重复行也算进去，读数从 76.5% 塌到 3.8%——足以把 verify 门槛
+          # 误判为红。这是用完整 ./... profile 对照 go tool cover 才发现的错误口径。
+          #
+          # floor=78 的校准基础未变：broaden coverpkg 不改 verify 自身的语句块集合
+          # （过滤后的 verify-only profile 与旧 coverpkg 的读数逐位一致）。
           pkgcov() {
-            awk -v p="$1" '
-              /^mode:/ { next }
-              index($0, p) == 0 { next }
-              {
-                n = split($0, f, " ")
-                st = f[2] + 0; cnt = f[3] + 0
-                tot += st
-                if (cnt > 0) cov += st
-              }
-              END { if (tot > 0) printf "%.1f", 100 * cov / tot; else printf "0.0" }
-            ' "$cov"
+            local prefix="${1%/}" filtered="$RUNNER_TEMP/pkg-filtered.cover"
+            { head -n 1 "$cov"; grep -F "/${prefix}/" "$cov" || true; } > "$filtered"
+            go tool cover -func="$filtered" | awk '/^total:/ { gsub(/%/,"",$3); print $3 }'
           }
 
           floor=78
           # 只从 verify 的语句块算门槛读数（等价于旧的 verify-only coverpkg）。
-          total="$(pkgcov 'internal/core/verify/')"
+          total="$(pkgcov 'internal/core/verify')"
           # 首次校准要靠这三个数：实际值、门槛、余量。只打一句话（"below the floor"）
           # 时，读的人还得回头翻日志去区分**口径问题**（-coverpkg 没生效 → 35.0%）
           # 与**覆盖率真下滑**（口径对了但代码退化）——两者处置完全不同。

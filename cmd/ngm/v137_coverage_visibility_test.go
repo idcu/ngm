@@ -25,11 +25,15 @@ func TestV137CoverageVisibilityKeepsGateAndAddsNotices(t *testing.T) {
 		why  string
 	}{
 		{"-coverpkg=./internal/...", "coverpkg must instrument every internal package (single test run)"},
-		{"pkgcov 'internal/core/verify/'", "the floor must still be computed from verify lines only"},
+		{"pkgcov 'internal/core/verify'", "the floor must still be computed from verify lines only"},
 		{"floor=78", "the calibrated verify floor must remain (calibrated on Linux 2026-11-19)"},
 		{"::notice title=coverage ", "per-package visibility notices must be emitted"},
 		{"::error::internal/core/verify coverage", "the hard floor gate must remain"},
 		{"/internal/core/verify/", "profile must be checked to contain verify statements"},
+		// 关键口径守卫：读数必须交给 go tool cover 合并重复块。用 awk 直接求和会把
+		// ./... 下每个测试二进制重发的语句块重复计入，实测从 76.5% 塌到 3.8% —— 门槛误红。
+		{"go tool cover -func=\"$filtered\"", "coverage must be computed by go tool cover, which merges duplicate blocks"},
+		{"grep -F \"/${prefix}/\" \"$cov\"", "the per-package filter must match package paths exactly"},
 	}
 	for _, m := range mustContain {
 		if !strings.Contains(ci, m.frag) {
