@@ -74,7 +74,19 @@ func ParseProjectFile(data []byte, path string) (*ProjectFile, error) {
 //   - dependencies 为空时输出 `[]`（而非 null）
 //
 // 写入是原子的：先写同目录临时文件，再 rename，避免中断时留下半个文件。
+// WriteProjectFile 校验后原子写回。
+//
+// 先 Validate 再 Marshal，与 lock.Write 同一条纪律：`ngm add` / `ngm remove`
+// 是"读入已校验的清单 → 改一处 → 写回"，但写回这一步此前不再问一次。
+// 内部构造出错时，坏文件会以正确的名字落盘，下一次任何命令才以
+// "invalid refType" 之类的理由失败——错误离原因隔了一次进程。
 func WriteProjectFile(path string, p *ProjectFile) error {
+	if err := p.Validate(); err != nil {
+		return errs.Wrap(errs.CodeConfigInvalid,
+			"refusing to write an invalid "+filepath.Base(path),
+			"this means the manifest was built incorrectly; re-run the command and "+
+				"report the output above if it persists", err)
+	}
 	out, err := MarshalProjectFile(p)
 	if err != nil {
 		return err

@@ -436,3 +436,23 @@ https fetch: net/http: TLS handshake timeout
       `scripts/*.sh` 有同名 `.ps1` 入口，否则必须登记理由。`go-mod-download.sh`
       是 CI 专用包装（工作流显式 `shell: bash`，无选项可转发），已登记进
       `noWindowsEntry` 并写明原因；单跑该判据绿。
+
+---
+
+## Batch S：两条 schema 写回路径不问"这份内容合法吗"
+
+`lock.Write` 会先 `Validate()` 再落盘，而 `config.WriteProjectFile` 与
+`mappings.Write` 不会。后两者由 `ngm add` / `ngm remove` / `ngm install` 调用，
+模式是"读入已校验的文件 → 改一处 → 写回"；写回这一步不再校验，于是内部构造
+出错时，一份"名字对、内容坏"的文件会落盘，失败推迟到下一条命令，且表现成
+另一个字段的问题（错误离原因隔了一次进程）。
+
+- [x] **S1** `mappings.Write` 写前 `Validate()`，错误里点名"生成 mappings 的那一步"
+      而不是让 `ngm build` 去报"找不到模块"。
+- [x] **S2** `config.WriteProjectFile` 写前 `Validate()`，与 `lock.Write` 同一条纪律。
+      副作用是"完整 40 位 commit 省略 refType"的窄默认会在写回时被补上（此前
+      要等下一次读取才补）；add 的 golden 判据仍绿。
+- [x] **S3** 两条新判据：非法内容（mappings 缺 `to` / ngm.json 缺 `name`）必须
+      报错且**不创建文件**；合法内容照常写出。去掉校验即红。
+- [x] **S4** 复核：`internal/config` 0.37s、`internal/mappings` 0.64s 全绿；
+      add / mappings / config 相关 CLI 判据 19.3s 全绿；build/vet 全绿。

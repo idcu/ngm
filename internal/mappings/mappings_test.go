@@ -500,3 +500,30 @@ func TestValidate_LockNamesNilSkipsThatCheck(t *testing.T) {
 		t.Errorf("with LockNames=nil the lock check should be skipped, got %v", findings)
 	}
 }
+
+// TestWriteRefusesInvalidMappings：写盘前必须 Validate，与 lock.Write 同一纪律。
+//
+// 失败形态是"坏文件以正确的名字落盘"：生成它的那一步看起来成功，
+// 下一次 `ngm build` 才以"找不到模块"失败，原因与表现隔了一次进程。
+func TestWriteRefusesInvalidMappings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+
+	bad := NewFile()
+	bad.Mappings = []Mapping{{From: "github:org/a"}} // 缺 To
+	if err := Write(path, bad); err == nil {
+		t.Fatal("an invalid mappings file must not be written")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the invalid write must not create the file, stat err = %v", err)
+	}
+
+	good := NewFile()
+	good.Mappings = []Mapping{{
+		From: "github:org/a",
+		To:   "./ngm.vendor/github.com/org/a",
+	}}
+	if err := Write(path, good); err != nil {
+		t.Fatalf("a valid mappings file must still be written: %v", err)
+	}
+}

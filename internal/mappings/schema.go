@@ -211,7 +211,17 @@ func Read(path string) (*File, error) {
 }
 
 // Write 以确定性格式写回（原子写）。
+//
+// 先 Validate 再落盘，与 lock.Write 同一条纪律：mappings 是 `ngm build`
+// 解析导入时的键表，写进一份内部不一致的文件，失败会推迟到下一次构建，
+// 且表现成"找不到模块"而不是"生成 mappings 的那一步有问题"。
 func Write(path string, f *File) error {
+	if err := f.Validate(); err != nil {
+		return errs.Wrap(errs.CodeConfigInvalid,
+			"refusing to write an invalid "+FileName,
+			"this means the mappings file was built incorrectly; re-run `ngm install` "+
+				"and report the output above if it persists", err)
+	}
 	data, err := f.Marshal()
 	if err != nil {
 		return err

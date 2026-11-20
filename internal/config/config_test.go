@@ -303,3 +303,36 @@ func TestVendorValidate(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteProjectFileRefusesInvalidManifest：写盘前必须 Validate。
+//
+// `ngm add` / `ngm remove` 的模式是"读入已校验的清单 → 改一处 → 写回"；
+// 写回这一步此前不再问一次，于是内部构造错误会落成一份"名字对、内容坏"的
+// ngm.json，直到下一条命令才以别的字段为由失败。
+func TestWriteProjectFileRefusesInvalidManifest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+
+	bad := &ProjectFile{
+		SchemaVersion: SchemaVersion,
+		Name:          "", // 必填
+		Version:       "0.1.0",
+		Runtime:       RuntimeNode,
+	}
+	if err := WriteProjectFile(path, bad); err == nil {
+		t.Fatal("an invalid ngm.json must not be written")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the invalid write must not create the file, stat err = %v", err)
+	}
+
+	good := &ProjectFile{
+		SchemaVersion: SchemaVersion,
+		Name:          "github.com/org/app",
+		Version:       "0.1.0",
+		Runtime:       RuntimeNode,
+	}
+	if err := WriteProjectFile(path, good); err != nil {
+		t.Fatalf("a valid ngm.json must still be written: %v", err)
+	}
+}
