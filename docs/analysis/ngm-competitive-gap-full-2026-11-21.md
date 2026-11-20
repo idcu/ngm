@@ -336,3 +336,15 @@ registry 协议 / semver 求解 / peer deps / `node_modules` 布局 / lifecycle 
 - [ADR-044：独立生态定位](../adr/adr-044-independent-ecosystem.md)
 - [ADR-014：自证签名不做](../adr/adr-014-self-report-signatures.md)
 - [ADR-027：attestation（未签名 in-toto）](../adr/adr-027-attestation.md)
+
+**本报告之后的推进（2026-11-21，A–D 十项）**——按 [spec + tasks](../specs/assessment-2026-11-21-competitive-followup/spec.md) 落地：
+
+- 产物与默认安全：[ADR-050 默认晾晒期](../adr/adr-050-default-release-age.md) ·
+  [ADR-051 verify 默认级别](../adr/adr-051-verify-level-defaults.md) ·
+  [cosign 签名配方](../guides/signing.md)
+- 结构债测量（**只测量、未重构**，触发条件未达成）：
+  [拆包可行性](./cmd-ngm-split-feasibility-2026-11-21.md) ·
+  [usage 双源审计](./usage-dual-source-audit-2026-11-21.md) ·
+  [契约网复核](./contract-net-review-2026-11-21.md) ·
+  [发布回填就绪](./release-backfill-readiness-2026-11-21.md)
+- 非工程项（**立项/清单，未执行**）：[外部审计立项](./external-audit-brief-2026-11-21.md)
