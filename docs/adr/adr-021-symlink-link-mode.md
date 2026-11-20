@@ -91,6 +91,20 @@ v0.8 的处置（当时认定为**本版唯一一处用户可见的行为变化*
 
 ---
 
+## 补记（2026-11-20，评估报告 M1）
+
+本 ADR 决定"`symlink` 在 v2 下退化为逐条目 hardlink，并如实报告实际 mode"。2026-11-20 的
+全维度评估发现一个与该纪律相关的实现缺陷：`linkMode=auto`（以及 `symlink` 的 v2 退化路径）的
+`linkEntries` 在**循环内**见第一个 `os.Link` 失败就把后续文件改成 copy，于是返回 `Mode=copy`
+时磁盘上可能是"前半 hardlink、后半 copy"的**混合树**——而 `vendor-layers.md` 承诺的是"整树复制"。
+后果：混合树中的 hardlink 部分仍与 content store 共享 inode，就地编辑会污染层 2，
+而报告却说这是 copy（安全副本），使本 ADR 依赖的"如实报告实际 mode"失去意义。
+
+处置（不改本 ADR 的决定，只修实现使之兑现）：把 hardlink 可行性改为**整树探测一次**
+（`canHardlink`，在真实目标卷上试链一个 blob），随后整棵树要么全 hardlink、要么全 copy；
+探测成功后若中途某个 `os.Link` 失败，则 fail-closed 报错，绝不逐文件降级。判据
+`link_auto_whole_tree_test.go` 守住两条不变量（注入式模拟跨卷不可用 / 中途失败，跨平台）。
+
 ## 相关文档
 
 - [ADR-019 层 2 改为按文件内容寻址](./adr-019-content-addressed-blobs.md)（§修订 2：这处行为变化）

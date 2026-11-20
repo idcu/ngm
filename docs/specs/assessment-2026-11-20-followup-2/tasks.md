@@ -1,7 +1,11 @@
 # Tasks：2026-11-20 评估剩余项（第二批）
 
 来源：[spec.md](./spec.md) · 依据 [全维度评估](../../analysis/ngm-full-assessment-2026-11-20.md)。
-状态：**计划中**（H / I / J 三批共 8 项，均未开始，0/8）。基线 `c5f1dcc`。
+状态：**全部完成**（H1/H2 · I1/I2 · J1/J2/J3 共 8 项；基线 `c5f1dcc`，每项判据带变异检验，I2/J 为决策项不改代码）。
+- H1 ✅ `auto` 整树复制：`canHardlink` 预探测 + 中途失败 fail-closed；判据 `link_auto_whole_tree_test.go`（两处变异检验均红）。契约取 (a) 整树 copy。
+- H2 ✅ 歧义 scp 拒绝：`ValidateRemoteURL` 拒绝无 @ 无点单 token；**保持 `HostFromRemoteURL` isNet=true**（否则 net 门禁 fail-open）。判据 `TestValidateRemoteURLRejectsAmbiguousScp` + `TestHostFromRemoteURL` 新行（变异检验红）。
+- I1 ✅ 覆盖率可见化：coverpkg 扩到 `./internal/...`，门槛仍只取 verify（过滤 profile，数值等价），每包一条 `::notice` 不设闸；判据 `TestV137CoverageVisibilityKeepsGateAndAddsNotices`（变异检验红）。
+- I2 ✅ **决定不改**（理由见下）。
 勾选项必须带证据：判据名 + 变异检验结果（撤掉修复即红、装上即绿）。
 每提交在独立干净 worktree 上跑 `go build ./...` + `go vet ./...` + 该批定向判据后才合并。
 
@@ -46,28 +50,31 @@
     变异：删掉某包的读数 annotation → 判据红。
   - 注意：本项动 CI，本机无法直接验证 annotation 内容；至少跑一次 workflow 静态检查 + 确认不破坏现有 verify 门槛步骤。
 
-- [ ] **I2 v089 判据：确认"按引用记账"是否收紧（先做 §3.3 决定；默认不改）**
+- [x] **I2 v089 判据：确认"按引用记账"是否收紧 —— 决定不改（2026-11-20 授权拍板）**
   - 位置：`cmd/ngm/v089_artifacts_test.go:24-27` 与 `explainedNotAutomated` 登记表。
   - 现状：判据自承"按引用记账，一个名字写进说明文字也算被提到"，是筛子不是证明。第一批 D4 已把
     `scripts/build-release.ps1` 收敛为转调 `.sh`（原"完整第二实现"问题已消除）。
-  - 默认决定：**保持按引用**，理由写进本 task 与 spec §5，避免下轮重开；不新增判据、不扩大契约网。
-  - [ ] （仅当 §3.3 改判为"收紧"时执行）增加反向核对：对 `explainedNotAutomated` 里每条理由，
-    检查其所述事实仍成立（文件存在 / 仍是 CI-only / 仍无选项可转发）；判据 + 变异检验。
+  - **决定：保持按引用，不收紧。** 理由：(1) 它守的是"脚本从没被提到不可能悄悄发生"——这个下限
+    已经成立，且"真的跑过一次"由各脚本自己的判据另守，两层分工清晰；(2) `explainedNotAutomated`
+    里每条理由都是人工核对过的历史决定，加"理由仍成立"的反向核对等于新增一张契约网，
+    正是 roadmap 停止清单禁止的；(3) 评估报告把它列为"空转判据"，但它抓的最后一个真问题
+    （build-release.ps1 双实现）已在 D4 修掉，收紧的边际收益没有证据支撑。
+  - 本项不改代码、不加判据。**重启条件**：出现一个"已被引用记账放行、实际从未执行"造成的真实事故。
 
 ## Batch J（结构性技术债的触发条件，先写 ADR 不改代码）
 
-- [ ] **J1 ADR：`package main` 拆包门槛**
+- [x] **J1 ADR：`package main` 拆包门槛**（→ ADR-047，已入索引）
   - 现状：`cmd/ngm` 44 个非测试文件、约 2.2 万行，跨文件耦合靠约定而非接口（`TestCmdContextIsTheOnlySkeleton`
     已在源文件层守骨架）。本轮**不拆**。
   - 产出：一条 ADR（或既有架构 ADR 的补记），写清**触发条件**——例如"新增命令时反复踩同一处跨文件耦合"
     或"出现因约定失守导致的真实缺陷"才启动拆包；写明拆包的边界原则（命令 / 报告渲染 / 环境装配）。
   - 校验：新 ADR 同步 `docs/adr/README.md` 索引（`TestV71` 守护）、docs-links、`TestV126` 不受影响。
 
-- [ ] **J2 ADR：usage 常量与 flag 声明双源的容忍度**
+- [x] **J2 ADR：usage 常量与 flag 声明双源的容忍度**（→ ADR-048，已入索引）
   - 现状：`verifyUsage` 单条 105 行；flag 改了忘改 usage 靠 golden 兜底。本轮**不合并**。
   - 产出：触发条件（例如"golden 漏过一次真实的 usage/flag 漂移"才做单一事实源改造），写清为何当前 golden 已足够。
 
-- [ ] **J3 ADR：契约网停止清单的复核节奏**
+- [x] **J3 ADR：契约网停止清单的复核节奏**（→ ADR-049，已入索引）
   - 现状：约 39 个测试文件用 `go/ast` / 源码扫描做文档↔代码对账；roadmap 自承"最后一个产品缺陷是 v0.55"。
   - 产出：明确"本轮之后不再新建契约网，除非抓到真实产品缺陷"，以及 periodic 复核触发条件。与 spec §5 同源。
 

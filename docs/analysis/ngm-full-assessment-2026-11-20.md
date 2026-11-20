@@ -7,6 +7,11 @@
 > `--` 分隔符 / materialCache / fsyncDir 去重）已全部落地，逐项带判据 + 变异检验。
 > M11/M9/M14 经复核属"已记录的决定"或"描述与代码不符"，明确不改并附理由。逐项状态见
 > [assessment-2026-11-20-followup/tasks.md](../specs/assessment-2026-11-20-followup/tasks.md)。
+>
+> **第二批（2026-11-20 当日，[followup-2](../specs/assessment-2026-11-20-followup-2/tasks.md)）**：
+> 把第一批刻意留下的剩余项收口——H 批修 M1（auto link 混合树 → 整树复制）与 scp 地址误报；
+> I 批让各产品包覆盖率可见（仍只守 verify 门槛）并定下 v089 判据"不改"；J 批为三项结构性债
+> （package main 规模、usage/flag 双源、契约网冻结）各写一条带触发条件的 ADR-047~049。
 > 下文保留**评估当时的原始结论**作为历史快照，不因修复而改写。
 >
 > 它是**评估，不是事实源**。命令行为的权威仍是代码与 `docs/guides/cli.md`；退出码契约的权威是 `contracts/exit-codes.json`；发布读数的权威是 `docs/guides/release-pipeline.md`。本文给结论与出处，不复制这些表。

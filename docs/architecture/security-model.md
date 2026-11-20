@@ -129,7 +129,10 @@ ngm 把这套思路映射到自己的操作：
   签名校验因此仍读**用户自己的**密钥配置（[ADR-014](../adr/adr-014-self-report-signatures.md)）。
 - **远端地址形状**（`ValidateRemoteURL`）：`git clone` 会把地址交给 remote helper，
   因此拒绝 `-` 开头的选项形状、拒绝 `helper::<address>`（`ext::` / `fd::` 等），
-  只接受 https/http/ssh/git/file、scp 形式与本地路径。检查发生在构造子进程之前。
+  只接受 https/http/ssh/git/file、scp 形式（`user@host:path` 或带点的 `host:path`）与本地路径。
+  检查发生在构造子进程之前。无 `@` 又无点的单 token（`foo:bar`）在 clone 前就被拒绝——
+  它不是可信的 scp 地址；但仍按 scp host 计入 `net:` 门禁（ fail-closed：绝不因形状可疑
+  就当本地路径放行，让 git 触网绕过门禁），见 `remoteurl_test.go`。
 - **lock 路径字段**：`vendorPath` / `subPath` 必须是 vendor 根内的相对路径
   （`lock.IsSafeRelPath`：无空段、`.` / `..`、盘符、反斜杠、NUL、URL 形状）；
   `verify` 与 `--sandbox` 在拼接后**再判一次**，越界条目不参与任何 `Stat` / 哈希 / 脚本执行。

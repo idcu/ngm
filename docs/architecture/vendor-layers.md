@@ -138,7 +138,7 @@ project/ngm.vendor/
 
 | linkMode | 行为 | 适用 |
 |---------|------|------|
-| `auto`（默认） | hardlink 优先；跨卷/文件系统不支持时**整树复制** | 大多数场景 |
+| `auto`（默认） | hardlink 优先；跨卷/文件系统不支持时**整树复制**（落地前在真实目标卷上探测一次，整棵树要么全 hardlink、要么全 copy，绝不产生"前半链接后半副本"的混合树） | 大多数场景 |
 | `hardlink` | 强制 hardlink，失败即报错 | 要求零重复磁盘 |
 | `copy` | 普通复制 | 网络文件系统、要提交 vendor 的保守场景 |
 | `symlink` | 依赖目录整体 symlink 指向内容树（不逐文件链接） | 磁盘最省；Windows 需开发者模式 |
@@ -246,7 +246,7 @@ digest 的覆盖内，因此必须说清"哪些结论还成立"。
    它不扫描磁盘、不建项目注册表，因此**别的项目仍可能需要被回收的对象**——恢复方式是
    `ngm install` / 重新 clone，而不是"删除不可逆"。
    `ngm cache clean` 清的是层 4，与层 2 无关
-6. **hardlink 与 content store 共享 inode（就地写入会污染层 2）**：`auto`（默认）落地的是指向 content store 的**硬链接**，因此**就地修改 `ngm.vendor/` 中的文件会同时改写 content store**（同一 inode，不是副本）。更棘手的是后续 `ngm install` **不会察觉**——该 digest 目录已存在，写入被直接跳过，污染被原样保留。需要就地编辑依赖代码的场景请改用 `linkMode: "copy"`（写入副本，不影响层 2）。检测路径是 `ngm verify --content`（旧别名 `--deep`）：从 mirror 重建规范化清单，并与**实际字节**逐文件比对（清单规则见 [ADR-008](../adr/adr-008-archive-digest.md)）
+6. **hardlink 与 content store 共享 inode（就地写入会污染层 2）**：`auto`（默认）落地的是指向 content store 的**硬链接**，因此**就地修改 `ngm.vendor/` 中的文件会同时改写 content store**（同一 inode，不是副本）。更棘手的是后续 `ngm install` **不会察觉**——该 digest 目录已存在，写入被直接跳过，污染被原样保留。需要就地编辑依赖代码的场景请改用 `linkMode: "copy"`（写入副本，不影响层 2）。**`auto` 降级为 copy 时是全树复制**（见上表），因此降级后的 vendor 目录同样是安全的可编辑副本；v0.101 之前曾出现"前半 hardlink 后半 copy"的混合树却报告 `copy`，使这条保证落空——现在由 `link_auto_whole_tree_test.go` 守住。检测路径是 `ngm verify --content`（旧别名 `--deep`）：从 mirror 重建规范化清单，并与**实际字节**逐文件比对（清单规则见 [ADR-008](../adr/adr-008-archive-digest.md)）
 
 ---
 

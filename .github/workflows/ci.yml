@@ -100,9 +100,14 @@ jobs:
           # 每个参数单独加引号：2026-11-08 本机复现过"未加引号时某个 shell 把
           # `-coverpkg=… ./...` 吞成单包运行"，读数退化成 35.0% 的包内自测。
           # 用数组展开以保留引号，避免这一步变成"看起来在测跨包、实际只测了 verify"。
+          # I1（2026-11-20 评估）：coverpkg 从只覆盖 verify 扩到整个 internal/...，
+          # 让**每一个**产品包的覆盖率都进入同一份 profile，读数因此可见；但门槛
+          # 仍只守 verify（从 profile 里过滤 verify 行算，数值与单独 coverpkg 完全一致，
+          # 已用 go tool cover 对照验证）——不给"判据网过剩"再加一道闸。
+          # 只加了一次 go test 的编译覆盖成本，不新增测试进程。
           cov_args=()
           if [ "${{ runner.os }}" = "Linux" ]; then
-            cov_args=("-coverpkg=./internal/core/verify" "-coverprofile=$RUNNER_TEMP/verify.cover")
+            cov_args=("-coverpkg=./internal/..." "-coverprofile=$RUNNER_TEMP/verify.cover")
           fi
           go test -count=1 -timeout 40m "${cov_args[@]}" "./..." 2>&1 | tee "$RUNNER_TEMP/go-test.log"
           rc=${PIPESTATUS[0]}
@@ -111,10 +116,11 @@ jobs:
 
       # 覆盖率门槛（P2-8）：verify 是"判定核心"，它的分支决定了退出码 0/1/2/4/5。
       #
-      # 口径必须是**跨包**：`-coverpkg=./internal/core/verify` 让全部测试二进制
-      # （主要是 `cmd/ngm` 的验收测试）都给 verify 记数，合并后的读数是 82.1%
-      # （2026-11-08 本机按 CI 等价命令实测）。此前记录的 35.0% 是 verify 包内自测，
-      # 54.4% 是只跑 M5+M7 的子集读数——三者口径不同，不可混用。
+      # 口径必须是**跨包**：`-coverpkg=./internal/...`（I1 起，原先只 cover verify）让全部
+      # 测试二进制（主要是 `cmd/ngm` 的验收测试）都给 internal 各包记数，门槛读数从同一份
+      # profile 里**只过滤 verify 语句块**算出——与旧的 verify-only coverpkg 数值完全一致
+      # （已用 go tool cover 对照）。合并后的读数是 82.1%（2026-11-08 本机按 CI 等价命令实测）。
+      # 此前记录的 35.0% 是 verify 包内自测，54.4% 是只跑 M5+M7 的子集读数——三者口径不同，不可混用。
       #
       # **门槛已校准（2026-11-19，run 288 的首次真实读数）**：Linux CI 实测 **80.5%**。
       #
@@ -131,7 +137,7 @@ jobs:
       # 读数历史：35.0%（单包，口径错）→ 54.4%（只跑 M5+M7 子集，口径错）
       # → 82.1%（Windows 2026-11-08）→ 82.6%（Windows 2026-11-19）
       # → **80.5%（Linux CI 2026-11-19）**。前三者不可与最后一个混用。
-      - name: verify coverage floor (>= 80%)
+      - name: verify coverage floor (>= 78%, calibrated on Linux 2026-11-19)
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -140,15 +146,39 @@ jobs:
           log="$RUNNER_TEMP/go-test.log"
           [ -f "$cov" ] || { echo "::error::no coverage profile; the Linux test step did not run with -coverpkg"; exit 1; }
 
-          # 退化守卫：单包读数时日志里只有 verify 自己那一行带 "in ./internal/core/verify"；
+          # 退化守卫：单包读数时日志里只有被测包自己那一行带 "in ./internal/..."；
           # 跨包测量时 `cmd/ngm` 的行也会带它。缺这一行就说明 -coverpkg 没有生效。
-          grep -qE '^ok[[:space:]]+github\.com/idcu/ngm/cmd/ngm[[:space:]].*coverage: [0-9.]+% of statements in \./internal/core/verify' "$log" || {
+          grep -qE '^ok[[:space:]]+github\.com/idcu/ngm/cmd/ngm[[:space:]].*coverage: [0-9.]+% of statements in \./internal/\.\.\.' "$log" || {
             echo "::error::coverage was not measured across packages (the cmd/ngm line is missing)"
             exit 1
           }
+          # profile 必须真的含 verify 的语句块——broaden coverpkg 后仍能定位到门槛要守的包。
+          grep -q '/internal/core/verify/' "$cov" || {
+            echo "::error::coverage profile has no internal/core/verify statements; floor cannot be computed"
+            exit 1
+          }
+
+          # pkgcov <prefix>：从同一份 profile 里过滤出 prefix 的语句块，按 (覆盖语句/总语句) 算百分比。
+          # 与 `go tool cover -func` 的口径一致（已对照验证）。用于两件事：
+          #   1) 门槛仍只取 verify 的数值（floor=78 的校准基础未变——broaden coverpkg 不改 verify 自身计数）；
+          #   2) 其余每个产品包发一条 ::notice，让覆盖率随时间下滑可见，但**不设闸**。
+          pkgcov() {
+            awk -v p="$1" '
+              /^mode:/ { next }
+              index($0, p) == 0 { next }
+              {
+                n = split($0, f, " ")
+                st = f[2] + 0; cnt = f[3] + 0
+                tot += st
+                if (cnt > 0) cov += st
+              }
+              END { if (tot > 0) printf "%.1f", 100 * cov / tot; else printf "0.0" }
+            ' "$cov"
+          }
 
           floor=78
-          total="$(go tool cover -func "$cov" | awk '/^total:/ { gsub(/%/,"",$3); print $3 }')"
+          # 只从 verify 的语句块算门槛读数（等价于旧的 verify-only coverpkg）。
+          total="$(pkgcov 'internal/core/verify/')"
           # 首次校准要靠这三个数：实际值、门槛、余量。只打一句话（"below the floor"）
           # 时，读的人还得回头翻日志去区分**口径问题**（-coverpkg 没生效 → 35.0%）
           # 与**覆盖率真下滑**（口径对了但代码退化）——两者处置完全不同。
@@ -164,11 +194,21 @@ jobs:
             echo "- floor: ${floor}%"
             echo "- margin: ${margin}pp"
             echo
-            echo "若首跑偏低，先查单包退化守卫（\`cmd/ngm … in ./internal/core/verify\` 行是否存在）再校准——那说明是口径问题，不是覆盖率真下滑。"
+            echo "若首跑偏低，先查单包退化守卫（\`cmd/ngm … in ./internal/...\` 行是否存在）再校准——那说明是口径问题，不是覆盖率真下滑。"
           } >> "$GITHUB_STEP_SUMMARY"
           # 同一个读数也发成 annotation：job summary 要登录才能看，annotation 不用。
           # 覆盖率是**随时间会下滑**的数，看不见就会静默地贴着门槛走。
           echo "::notice title=verify coverage (cross-package, ${RUNNER_OS})::measured ${total}% · floor ${floor}% · margin ${margin}pp"
+
+          # I1 可见性：每个顶层产品包一条 ::notice（只报告，不设闸）。包清单从 profile 自身
+          # 派生，新增包自动纳入；数值是"该包语句块被全部测试覆盖的比例"。
+          # 放在门槛检查之前发，这样即使门槛翻红，读数仍然可见（可见性不依赖门槛通过）。
+          awk '/^mode:/ { next } { line=$0; sub(/:.*/,"",line); n=split(line,seg,"/"); pkg=""; for(i=1;i<=n-1;i++){ if(seg[i]=="internal"){ pkg="internal"; for(j=i+1;j<=n-1;j++) pkg=pkg"/"seg[j]; break } } if(pkg!="") print pkg }' "$cov" \
+            | sort -u | while read -r pkg; do
+                pct="$(pkgcov "$pkg/")"
+                echo "::notice title=coverage ${pkg} (${RUNNER_OS})::${pct}% of statements (no floor; visibility only)"
+              done
+
           awk -v t="$total" -v f="$floor" 'BEGIN { exit (t + 0 >= f + 0) ? 0 : 1 }' || {
             echo "::error::internal/core/verify coverage ${total}% is below the ${floor}% floor (margin ${margin}pp)"
             exit 1

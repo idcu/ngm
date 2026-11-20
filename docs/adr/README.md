@@ -54,6 +54,9 @@
 | [ADR-044](./adr-044-independent-ecosystem.md) | ngm 是**独立生态**，npm / pnpm 只是迁移来源 | 已定（2026-11-19）：主轴是"Git 依赖的可证明同一性"；npm / pnpm / Yarn / Bun 不承诺语义（registry 协议、semver 求解、peer deps、`node_modules` 布局、lifecycle 全族、publish）；`adopt` 是坡道而非主干，`run` 读 `package.json.scripts` 的理由是成本而非兼容；路线图准入：唯一理由是"更接近 npm"的条目不进。评估报告 §5 的缺口表因此降级为迁移成本观察 |
 | [ADR-045](./adr-045-json-output-contract.md) | `--json` 的契约层级：**解码语义**是契约、字节不是 | 已定（2026-11-19）：字段名/类型/`version`/错误信封形状/退出码是契约；字节不是。报告类统一 `MarshalIndent` + 末尾 LF（含 HTML 转义）；唯一例外是 `sbom` / `attest` 的**产物**（字节本身要被人比对/签名）。一个实现：`writeJSONDocument`，失败统一 `write report: …` 退 6。按字节 diff `--json` 是未定义行为——需要稳定字节的场合用产物而非报告 |
 | [ADR-046](./adr-046-stale-export-gate.md) | 过期 lock 的审计产物**默认拒绝导出** | 已定**并已实施**（2026-11-20）：`sbom` / `attest` 在 `ngm.json` 与 lock 不一致时 exit 3、不写产物；显式 `--allow-stale` 才放行（事实仍写 stderr，不塞进产物字节以保确定性）。此前只写 warning，导致签名了一份描述过期状态的语句 |
+| [ADR-047](./adr-047-package-main-size.md) | `cmd/ngm` 拆包的**触发条件** | 已定（2026-11-20，暂不重构）：规模本身不是触发条件；只有当同类跨文件耦合缺陷 ≥2 次、现有守卫抓不到的用户可见缺陷、或可观测的编译/测试退化出现才拆。拆时按命令实现/报告渲染/环境装配分三类，沿用 cmdContext |
+| [ADR-048](./adr-048-usage-flag-dual-source.md) | usage 常量与 flag 声明双源的**容忍度** | 已定（2026-11-20，暂不合并）：golden + `TestHintsNameFlagsTheCommandAccepts` 已兜住漂移；只有 golden 漏过真实漂移或 AST 守卫维护成本显著上升才合并。在此之前不得削弱该判据 |
+| [ADR-049](./adr-049-contract-net-freeze.md) | **契约网冻结**：停止新建，保留复核节奏 | 已定（2026-11-20）：新判据必须先指着一个已发生的产品缺陷；存量网作为回归档案保留；仅当某网连续 3 版因自身而红、且删除不影响产品不变量时才复核精简。与 roadmap 停止清单同源 |
 
 ---
 

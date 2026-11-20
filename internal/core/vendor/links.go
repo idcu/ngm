@@ -252,6 +252,39 @@ func (lt *LinkTree) materialize(digest, canonicalPath, subPath string, relative 
 	return LinkResult{Path: dst, Mode: used, Degraded: degraded, Files: files}, nil
 }
 
+// canHardlink 在真实目标文件系统上预探测：把第一个普通 blob 硬链到 dst 下的一个
+// 临时名，成功即删掉探针并返回 true。跨卷 / 文件系统不支持时 os.Link 失败 → false，
+// 让整棵树走 copy。只探测一次，不对每个文件重复问。
+//
+// 为什么用真实的 blob 与真实的 dst：可行性取决于两者是否同卷 + 文件系统能力，
+// 按 GOOS 猜（Linux 上也可能挂 cross-volume）历史上吃过亏（参见大小写探针的同源纪律）。
+func canHardlink(entries []ContentEntry, dst string) bool {
+	var src string
+	for _, e := range entries {
+		if !e.Symlink && e.Full != "" {
+			src = e.Full
+			break
+		}
+	}
+	if src == "" {
+		return true // 没有需要硬链的普通文件，交给 linkEntriesWithHardlink 处理
+	}
+
+	probe, err := os.CreateTemp(dst, ".ngm-hardlink-probe-")
+	if err != nil {
+		return false // 连临时文件都建不了，整树 copy 更稳妥
+	}
+	probeName := probe.Name()
+	_ = probe.Close()
+	_ = os.Remove(probeName)
+	if err := os.Link(src, probeName); err != nil {
+		_ = os.Remove(probeName)
+		return false
+	}
+	_ = os.Remove(probeName) // 清理探针，最终产物里不留痕
+	return true
+}
+
 // validateEntryPaths 在落地前拒绝逃逸条目（fail-closed）。
 //
 // 两类检查：
@@ -432,11 +465,34 @@ func looksLikeAbsPath(p string) bool {
 // 与旧 `linkTree(src, dst)` 的差别只是**来源**：过去扫一个目录，现在吃条目集合——
 // 因为 v2 布局下那份"目录"并不存在。落地规则（hardlink → copy 降级、symlink 原样重建、
 // 权限位保留）与过去完全一致。
-func (lt *LinkTree) linkEntries(entries []ContentEntry, dst string) (used LinkMode, files int, degraded bool, err error) {
-	// auto 模式从 hardlink 起步；首次失败即整树降级为 copy
+//
+// hardlink 是否可用在真实目标文件系统上**整树探测一次**（canHardlink），不在循环里
+// 逐文件见失败就切换——后者会留下"前半 hardlink、后半 copy"的混合树，而返回的
+// Mode=Copy 掩盖了它，使"就地编辑污染 content store"的风险悄悄回来了
+// （vendor-layers.md:141 承诺"整树复制"，:249 警告就地编辑污染层 2）。
+func (lt *LinkTree) linkEntries(entries []ContentEntry, dst string) (LinkMode, int, bool, error) {
+	// 探针需要 dst 已存在；canHardlink 用 os.CreateTemp(dst, ...)，故必须先建目录。
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return "", 0, false, err
+	}
+	return lt.linkEntriesWithHardlink(entries, dst, canHardlink(entries, dst), os.Link)
+}
+
+// linkEntriesWithHardlink 是 linkEntries 的可注入内核：hardlinkOK 由预探测给出、link 是
+// 实际链接操作（判据借此在跨平台模拟"跨卷不可用"或"中途链接失败"，无需真的挂载第二个卷）。
+func (lt *LinkTree) linkEntriesWithHardlink(entries []ContentEntry, dst string, hardlinkOK bool, link func(oldpath, newpath string) error) (used LinkMode, files int, degraded bool, err error) {
+	// 整树一次决定：auto/symlink 且探针说可用 → 全程 hardlink；否则 → 全程 copy。
 	current := lt.mode
-	if current == LinkAuto || current == LinkSymlink {
+	switch current {
+	case LinkAuto, LinkSymlink:
 		current = LinkHardlink
+		if !hardlinkOK {
+			current = LinkCopy
+			degraded = true
+		}
+	case LinkHardlink:
+		// 强制模式不探测、不降级；失败在下面明确报错。
+	default: // LinkCopy
 	}
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return "", 0, false, err
@@ -467,18 +523,23 @@ func (lt *LinkTree) linkEntries(entries []ContentEntry, dst string) (used LinkMo
 		}
 
 		if current == LinkHardlink {
-			if lerr := os.Link(src, target); lerr == nil {
+			if lerr := link(src, target); lerr == nil {
 				files++
 				continue
-			} else if lt.mode == LinkHardlink {
-				// 强制 hardlink：不得降级，明确报错
+			} else {
+				// 探针已确认整树可用 hardlink，到这里还失败是异常（例如中途 blob
+				// 被删、或目标路径被占用）。两种模式都 fail-closed 报错——绝不
+				// 逐文件降级成 copy，那会造出半 hardlink 半 copy 的混合树，
+				// 而返回的 Mode 无法描述它。
+				if lt.mode == LinkHardlink {
+					return "", files, degraded, errs.Wrap(errs.CodeConfigInvalid,
+						"hardlink failed for "+e.Path+" (linkMode=hardlink forbids falling back to copy)",
+						"set vendor.linkMode to \"auto\" or \"copy\" to allow a copy fallback", lerr)
+				}
 				return "", files, degraded, errs.Wrap(errs.CodeConfigInvalid,
-					"hardlink failed for "+e.Path+" (linkMode=hardlink forbids falling back to copy)",
-					"set vendor.linkMode to \"auto\" or \"copy\" to allow a copy fallback", lerr)
+					"hardlink failed for "+e.Path+" after the whole-tree probe succeeded",
+					"re-run `ngm install` (the content store may have changed during the install)", lerr)
 			}
-			// auto：降级为 copy
-			current = LinkCopy
-			degraded = true
 		}
 		// copy 的权限取自**条目**而不是源文件的权限：v2 的 blob 本身就按 mode 落盘，
 		// 但 v1 的树在某些平台（Windows）表达不了可执行位，而清单里的 mode 是权威的。

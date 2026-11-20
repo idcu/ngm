@@ -43,9 +43,49 @@ func ValidateRemoteURL(raw string) error {
 				"unsupported remote URL scheme: "+s,
 				"use https/ssh/git, or a local path")
 		}
-		return nil // scp 形式
+		// scp 形式：`git@host:path` 或 `host:path`。但 `foo:bar` 这种 token 也会被
+		// HostFromRemoteURL 认成 host=foo（它按"非空且无 /\\" 判定），git 同样会
+		// 把 `foo:bar` 当 scp 远端解析。fail-closed 的另一半是**在 clone 前 reject
+		// 这种不可信形状**，而不是放行后让它触网：
+		//   - isNet 必须保持 true（CheckNetAccess 因此仍要求 net:foo，绝不因"看着
+		//     像本地"而放行真实 scp 触网）；
+		//   - 这里另外给一条贴合的报错，点名 token 与正确写法，避免用户被
+		//     "need net:foo" 误导去加一条与意图无关的权限。
+		head := s[:strings.IndexByte(s, ':')]
+		at := strings.LastIndexByte(head, '@')
+		hasAt := at >= 0
+		if hasAt {
+			head = head[at+1:]
+		}
+		// 只有"无 @ 且 host 无点"的单个 token 才拒绝——它既可能是写坏的本地路径，
+		// 也可能被 git 当 scp host；`git@foo:path`（内网单标签主机名带显式 user）
+		// 是有意写出的 scp 形式，照常放行。
+		if !hasAt && !plausibleScpHost(head) {
+			return errs.New(errs.CodeConfigInvalid,
+				"refusing ambiguous scp-like remote address with no recognizable host: "+s,
+				"write it as user@host:path (e.g. git@github.com:org/repo.git), "+
+					"ssh://host/path, or an explicit local path (./… or /…)")
+		}
+		return nil // 合法 scp 形式
 	}
 	return nil // 本地路径
+}
+
+// plausibleScpHost 粗判一个 scp head 是否可能是真实主机。
+//   - 含 `.`（github.com / 1.2.3.4）；
+//   - 或等于 localhost；
+//   - 或带 user@ 前缀（调用方已剥掉 @ 前的部分，这里只看 host）。
+//
+// 刻意保守：只拒绝"绝不可能是 host"的形状（单个无点 token，如 foo），
+// 不试图穷尽合法主机名——误伤一个真实的内网主机名比漏一个畸形 token 更糟。
+func plausibleScpHost(head string) bool {
+	if head == "" {
+		return false
+	}
+	if head == "localhost" || strings.Contains(head, ".") {
+		return true
+	}
+	return false
 }
 
 // HostFromRemoteURL 从远端 URL 里取出主机名。
