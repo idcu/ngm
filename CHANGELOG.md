@@ -97,6 +97,8 @@
 
 ### Fixed
 
+- `ngm adopt --out` 也会自动创建缺失的父目录（相对路径仍按 `--dir` 解析），
+  与 `sbom` / `attest` / `transform` 一致。
 - `ngm sbom --out` / `ngm attest --out` 的相对路径现在与 `--dir` 同根（与
   `ngm transform --outfile` 一致），并自动创建缺失的父目录。此前相对调用方 cwd，
   `--dir=subproj --out=dist/x.json` 会写到两个不同的地方；父目录缺失时还会以

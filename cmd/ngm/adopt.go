@@ -171,6 +171,13 @@ func runAdopt(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(*dirFlag, target)
 	}
+	// 与 sbom / attest / transform 同一条产物纪律：父目录不存在时建出来，
+	// 而不是把"少一层目录"报成磁盘/权限问题。
+	if derr := os.MkdirAll(filepath.Dir(target), 0o755); derr != nil {
+		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
+			"create output directory "+filepath.Dir(target),
+			"check that the path is writable, or point --out at an existing directory", derr))
+	}
 	if werr := atomicfile.Write(target, data); werr != nil {
 		return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid,
 			"write the proof to "+target, "check free disk space and permissions", werr))

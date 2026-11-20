@@ -608,3 +608,17 @@ Windows / macOS 默认卷上是同一个——第二次 Materialize 会把第一
       项目目录下；绝对 `--out=<tmp>/dist/nested/*.json` 必须自动建父目录。
 - [x] **AA3** 复核：exit-code 契约 / report sweep / error-hint 三条判据与
       sbom/attest 定向判据全绿（合计 114s + 3.5s）；build/vet 全绿。
+
+---
+
+## Batch AB：adopt 的 --out 不建父目录
+
+adopt 已经把相对 `--out` 解析到 `--dir` 下（与 sbom/attest 修正后一致），
+但仍不建父目录：`--out=dist/proof.json` 在 `dist` 缺失时会被报成
+"check free disk space and permissions"。
+
+- [x] **AB1** 原子写之前 `MkdirAll(filepath.Dir(target))`；`blocker` 文件占位时
+      仍以 exit 3 结束（父路径是文件）。
+- [x] **AB2** 判据：`adopt --out=<proj>/dist/nested/proof.json` 必须 exit 0
+      且 proof 存在。
+- [x] **AB3** 复核：新判据 + exit-code 契约（含 adopt 的 blocker 用例）49.4s 全绿。
