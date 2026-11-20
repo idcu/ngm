@@ -101,6 +101,13 @@ var claimsLedger = []claimEntry{
 		net: "TestV99HostMapsAreInverse",
 	},
 	{
+		// H2（2026-11-20）：改 scp 形状校验时特意不把 fail-closed 的 isNet 判定改成 false
+		// （那会让 git 触网绕过 net 门禁）。这条"必须保持"由判据坐实：foo:bar 形状被
+		// ValidateRemoteURL 拒绝、同时 HostFromRemoteURL 仍报 isNet=true。
+		file: "internal/core/git/remoteurl.go", phrase: "isNet 必须保持 true",
+		net: "TestValidateRemoteURLRejectsAmbiguousScp",
+	},
+	{
 		file: "internal/sbom/spdx.go", phrase: "两种格式的依赖图形必须一致",
 		net: "TestV99SBOMFormatsDescribeTheSameGraph",
 	},
