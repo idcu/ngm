@@ -456,3 +456,25 @@ https fetch: net/http: TLS handshake timeout
       报错且**不创建文件**；合法内容照常写出。去掉校验即红。
 - [x] **S4** 复核：`internal/config` 0.37s、`internal/mappings` 0.64s 全绿；
       add / mappings / config 相关 CLI 判据 19.3s 全绿；build/vet 全绿。
+
+---
+
+## Batch T：init 能写出一份自己拒绝读取的 ngm.json
+
+实测（改造前二进制）：`ngm init "" --dir=…` 返回 **0**，写出 `name: ""` 的
+`ngm.json`；紧接着 `ngm doctor` 报 `project fail cannot read ngm.json`。
+这正是项目最忌讳的形态——工具自己造出一个自己拒绝的世界。
+
+根因有两条：`runInit` 不校验名字；且它是唯一**绕过** `config.WriteProjectFile`
+的清单写回路径（自己 `MarshalIndent` + `atomicfile.Write`），所以"模板是否合法"
+没有任何判据。上一批刚给 `WriteProjectFile` 加上的写前校验因此没有覆盖它。
+
+- [x] **T1** 名字先 `TrimSpace`，为空则 exit 3，并给出可直接照抄的提示
+      （`github.com:my-org/app`），且**不写任何文件**。
+- [x] **T2** `renderInitTemplate` 改为 `initProjectFile`（返回 `*config.ProjectFile`），
+      init 改走 `config.WriteProjectFile`：格式化、LF、原子写、写前 Validate
+      只有一份实现。旧/新二进制对同一输入生成的 `ngm.json` **逐字节相同**。
+- [x] **T3** 两条判据：合法 init 的产物必须能被 `config.ReadProjectFile` 读回；
+      空名字必须 exit 3、点名 `project name is required`、且不创建 ngm.json。
+- [x] **T4** 复核：init 相关判据（含原子写 0644 那条）全绿；build/vet 全绿。
+      待提交后看 CI。

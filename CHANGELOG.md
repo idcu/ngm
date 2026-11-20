@@ -97,6 +97,8 @@
 
 ### Fixed
 
+- `ngm init ""`（或全空白名字）现在直接以 exit 3 拒绝，不再写出一份 `name` 为空、
+  随后所有命令都拒绝读取的 `ngm.json`。合法的 init 输出逐字节不变。
 - `ngm install` 在 postinstall / 沙箱探针失败回滚时，现在也会把 `ngm.mappings.json`
   恢复到调用前的内容。此前只回滚新建的 vendor 目录，mappings 却留在失败这次写出的
   版本、指向已被删除的目录，而 lock 仍是旧的——项目从“能构建”变成“找不到文件”。

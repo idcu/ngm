@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/atomicfile"
@@ -75,7 +75,15 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, initUsage)
 		return 3
 	}
-	name := fs.Arg(0)
+	name := strings.TrimSpace(fs.Arg(0))
+	if name == "" {
+		// 一个空名字会写出一份**自己拒绝读取**的 ngm.json：init 成功，
+		// 随后 `ngm doctor` / `ngm install` 报 "name is required"。
+		// 这个错误必须在写盘之前以 init 的身份说出来。
+		return c.fail(errs.New(errs.CodeConfigInvalid,
+			"a project name is required",
+			"pass a name like `github.com:my-org/app` as the first argument"))
+	}
 
 	if !validRuntimeChoice(*runtime) {
 		return c.fail(errs.New(
@@ -105,15 +113,12 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		))
 	}
 
-	tmpl := renderInitTemplate(name, config.Runtime(*runtime))
-	// ngm.json 是要提交进仓库、供团队共享的文件，走 atomicfile 而不是裸写：
-	// 写到一半被中断时，留下的应该是**原来的** ngm.json，而不是一个截断文件。
-	// 代价是目标位置若是符号链接，替换的是链接本身而非它指向的文件——
-	// 对"产物"而言这是刻意的语义。
-	if err := atomicfile.Write(cfgPath, tmpl); err != nil {
-		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "write ngm.json",
-			"check that the directory is writable; the directory itself was created, "+
-				"no ngm.json was written", err))
+	// 与 add / remove 走**同一个**写回入口：格式化、LF、原子写、写前校验
+	// 都只有一份实现。此前 init 自己 MarshalIndent 再 atomicfile.Write，
+	// 于是"模板是否合法"没有任何判据——`ngm init ""` 会写出一份
+	// 后续所有命令都拒绝读取的 ngm.json。
+	if werr := config.WriteProjectFile(cfgPath, initProjectFile(name, config.Runtime(*runtime))); werr != nil {
+		return c.fail(werr)
 	}
 	fmt.Fprintf(stdout, "created %s\n", cfgPath)
 
@@ -140,15 +145,15 @@ func validRuntimeChoice(s string) bool {
 	return s == "node" || s == "deno"
 }
 
-// renderInitTemplate 生成最小 ngm.json 模板：仅填写必要字段，依赖数组留空。
+// initProjectFile 生成最小 ngm.json 模板：仅填写必要字段，依赖数组留空。
 //
 // 关键点：
-//   - 字段顺序固定（与 v0.1 lock 序列化纪律一致）；输出末尾带 LF
-//   - 缩进 2 空格（与 guides/configuration.md 示例一致）
+//   - 不再自己序列化：交给 [config.WriteProjectFile]（确定格式、LF、原子写、
+//     写前 Validate 都只有一份实现）
 //   - 不在模板中预填 dependencies —— 用户应通过 `ngm add` 添加
 //   - `main` 指向 init 生成的入口文件，使 `ngm build` 无需参数即可工作
-func renderInitTemplate(name string, runtime config.Runtime) []byte {
-	p := config.ProjectFile{
+func initProjectFile(name string, runtime config.Runtime) *config.ProjectFile {
+	return &config.ProjectFile{
 		SchemaVersion: config.SchemaVersion,
 		Name:          name,
 		Version:       "0.1.0",
@@ -164,12 +169,4 @@ func renderInitTemplate(name string, runtime config.Runtime) []byte {
 			LinkMode: "auto",
 		},
 	}
-	out, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		// marshal 一个静态 struct 不会失败；保留为保险
-		panic(err)
-	}
-	// 确保 LF 行尾，与"全部锁文件与清单统一 LF"对齐
-	out = append(out, '\n')
-	return out
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/testutils"
 )
 
@@ -97,6 +98,42 @@ func TestDispatch_Init(t *testing.T) {
 	}
 	if !strings.HasSuffix(string(data), "\n") {
 		t.Errorf("file should end with LF")
+	}
+}
+
+// TestDispatch_Init_WritesAValidManifest：init 的产物必须能过 config 的读取校验。
+//
+// 之前 init 自己 MarshalIndent，模板"是否合法"没有判据；`ngm init ""` 会写出
+// 一份 name 为空的 ngm.json，init 成功、后续每条命令都拒绝读取。
+func TestDispatch_Init_WritesAValidManifest(t *testing.T) {
+	dir := t.TempDir()
+	out := &bytes.Buffer{}
+	errb := &bytes.Buffer{}
+	if code := dispatch([]string{"init", "github.com:my-org/app", "--dir=" + dir}, out, errb); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	pf, err := config.ReadProjectFile(filepath.Join(dir, "ngm.json"))
+	if err != nil {
+		t.Fatalf("init wrote a manifest that its own reader rejects: %v", err)
+	}
+	if pf.Name != "github.com:my-org/app" || pf.Runtime != config.RuntimeNode {
+		t.Errorf("init lost fields: name=%q runtime=%q", pf.Name, pf.Runtime)
+	}
+}
+
+func TestDispatch_Init_RejectsAnEmptyName(t *testing.T) {
+	dir := t.TempDir()
+	out := &bytes.Buffer{}
+	errb := &bytes.Buffer{}
+	code := dispatch([]string{"init", "  ", "--dir=" + dir}, out, errb)
+	if code != 3 {
+		t.Fatalf("an empty name must be a usage/config error (exit 3), got %d:\n%s", code, out.String()+errb.String())
+	}
+	if !strings.Contains(errb.String(), "project name is required") {
+		t.Errorf("the error must name the missing input:\n%s", errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ngm.json")); !os.IsNotExist(err) {
+		t.Errorf("no ngm.json may be written for an empty name, stat err = %v", err)
 	}
 }
 
