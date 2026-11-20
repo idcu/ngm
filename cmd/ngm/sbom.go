@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -141,6 +143,13 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		// （[atomicfile.Write]）。此前是裸 `os.WriteFile`：写到一半被中断
 		// 会留下一个**截断的 JSON**，而它名字是对的、mtime 是新的，
 		// 看文件的人没有理由怀疑它。
+		// 与 transform --outfile 对齐：父目录不存在时建出来，而不是让
+		// atomicfile 报"create temp file ... check directory permissions"——
+		// 那条提示会把"少一层目录"误报成权限问题。
+		if derr := os.MkdirAll(filepath.Dir(out), 0o755); derr != nil {
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory "+filepath.Dir(out),
+				"check that the path is writable, or point --out at an existing directory", derr))
+		}
 		if werr := atomicfile.Write(out, data); werr != nil {
 			return c.fail(werr)
 		}

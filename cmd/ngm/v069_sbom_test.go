@@ -144,3 +144,22 @@ func TestV69SbomIsDeterministicAcrossRuns(t *testing.T) {
 		t.Error("两次导出在时间戳之外还有差异——diff/快照会看到假改动")
 	}
 }
+
+// `--out=dist/nested/sbom.json` 不应要求用户先建目录：transform 会建，
+// sbom / attest 走同一条产物纪律。
+func TestV69SbomCreatesTheOutputParentDirectory(t *testing.T) {
+	isolateUserEnv(t)
+	testutils.MustHaveGit(t)
+
+	p := newProject(t)
+	seedDep(t, p)
+
+	outFile := filepath.Join(t.TempDir(), "dist", "nested", "sbom.json")
+	code, out, errOut := runSplit(t, "sbom", "--out="+outFile, "--dir="+p)
+	if code != 0 {
+		t.Fatalf("sbom --out with a missing parent exited %d\n%s\n%s", code, out, errOut)
+	}
+	if _, err := os.Stat(outFile); err != nil {
+		t.Fatalf("the output file must exist after creating its parent: %v", err)
+	}
+}

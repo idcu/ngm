@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/idcu/ngm/internal/attest"
@@ -167,6 +168,11 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// 这里的理由比 sbom 更强：这份文件是要**被签名**的，
 		// 一个截断的 statement 会以正确的名字、最新的 mtime 躺在那里，
 		// 而签名工具会照常签它。
+		// 同 sbom / transform：父目录不存在时建出来。
+		if derr := os.MkdirAll(filepath.Dir(out), 0o755); derr != nil {
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory "+filepath.Dir(out),
+				"check that the path is writable, or point --out at an existing directory", derr))
+		}
 		if werr := atomicfile.Write(out, data); werr != nil {
 			return c.fail(werr)
 		}

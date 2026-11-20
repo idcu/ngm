@@ -587,3 +587,18 @@ Windows / macOS 默认卷上是同一个——第二次 Materialize 会把第一
 - [x] **Z3** 判据：目录入口必须 exit 3、点名 `not a regular file`，且
       `ngm.json` 未被创建（证明预检先于写盘）。
 - [x] **Z4** 复核：init 五条判据全绿（0.2s）；build/vet 全绿。
+
+---
+
+## Batch AA：sbom / attest 的 --out 不建父目录
+
+`ngm transform --outfile=dist/x.js` 会建 `dist`；`ngm sbom --out=dist/sbom.json`
+与 `ngm attest --out=dist/attest.json` 不建，直接走 `atomicfile.Write`。父目录
+缺失时错误是 "create temp file in dist: ... check directory permissions"——
+把"少一层目录"误报成权限问题，且与 transform 的产物纪律不一致。
+
+- [x] **AA1** sbom / attest 在原子写之前 `MkdirAll(filepath.Dir(out))`，失败时
+      给出"建输出目录"的明确上下文。
+- [x] **AA2** 判据：`--out=<tmp>/dist/nested/sbom.json` 与 attest 同款路径
+      必须 exit 0 且文件存在。
+- [x] **AA3** 复核：sbom/attest 定向判据 5.6s 全绿；build/vet 全绿。

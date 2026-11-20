@@ -183,3 +183,21 @@ func TestV70AttestIsDeterministicAcrossRuns(t *testing.T) {
 		t.Error("两次导出的字节不同——语句里混进了非确定字段（时间戳/随机 id）")
 	}
 }
+
+// 与 sbom 同一条纪律：`--out` 的父目录不存在时由命令建出来。
+func TestV70AttestCreatesTheOutputParentDirectory(t *testing.T) {
+	isolateUserEnv(t)
+	testutils.MustHaveGit(t)
+
+	p := newProject(t)
+	seedDep(t, p)
+
+	outFile := filepath.Join(t.TempDir(), "dist", "nested", "attest.json")
+	code, out, errOut := runSplit(t, "attest", "--out="+outFile, "--dir="+p)
+	if code != 0 {
+		t.Fatalf("attest --out with a missing parent exited %d\n%s\n%s", code, out, errOut)
+	}
+	if _, err := os.Stat(outFile); err != nil {
+		t.Fatalf("the output file must exist after creating its parent: %v", err)
+	}
+}
