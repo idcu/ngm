@@ -29,7 +29,9 @@ permissions:
 
 env:
   GO_VERSION: '1.27'
-  GOPRIVATE: gitee.com/idcu-go/*
+  # 与 ci.yml 同一个理由：GOPRIVATE 强制直连 Gitee，而 Gitee 的 TLS 会偶发
+  # 握手超时；改走代理，go.sum 仍然校验字节，direct 兜底。
+  GOPROXY: https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct
   GONOSUMDB: gitee.com/idcu-go/*
 
 jobs:

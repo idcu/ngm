@@ -403,3 +403,31 @@ mappings 指向的目录已被删掉。下一次 `ngm build` 从"能跑"变成"�
 - [x] **Q4** 复核：V124（3.9s）、V02 安装模式（11.5s）、V66 JSON 两条（各 1.8s）、
       V73（1.8s）全绿；本机 Deno 1.45 低于门槛，V124 的第二个子用例按既有边界
       skip（账本未变）。build/vet、docs links、discipline 全绿。
+
+---
+
+## Batch R：CI 在跑测试之前就断了（Gitee 模块的 TLS 握手）
+
+`a2081f5` 的 CI 有 4 个 Ubuntu job 红：`build/vet/test`、`-race`、
+`lock 字节可复现`、`engine integration`。annotation 给出的原因不是断言失败：
+
+```
+unrecognized import path "gitee.com/idcu-go/modproof":
+https fetch: net/http: TLS handshake timeout
+```
+
+也就是说 **`go test` 根本没跑到用例**，四个 job 是在拉依赖时一起断的。
+
+- [x] **R1** 根因：三个 workflow 都设了 `GOPRIVATE: gitee.com/idcu-go/*`，
+      它**强制直连** Gitee（绕过代理）。冷缓存时每个 job 都要赌一次到 Gitee 的
+      TLS 握手；2026-11-20 这次同时赌输四次。
+- [x] **R2** 改为代理优先：`GOPROXY=https://goproxy.cn,https://goproxy.io,
+      https://proxy.golang.org,direct`，保留 `GONOSUMDB`（该模块未被
+      sum.golang.org 收录），去掉 `GOPRIVATE`。go.sum 仍逐字节校验，代理改不了内容。
+      本机用**全新的 GOMODCACHE** 分别经 goproxy.cn / goproxy.io 下载成功；
+      proxy.golang.org 对该模块返回 502（所以排在其后）。
+- [x] **R3** 新增 `scripts/go-mod-download.sh`：3 次重试（间隔 10s / 20s），
+      ci.yml 与 release.yml 的 `go mod download` 改用它（显式 `shell: bash`，
+      Windows 上也走同一段实现）。脚本的成功与失败路径都实测过（失败返回 1）。
+- [x] **R4** 这次红**不是代码回归**：同一提交的本机 build/vet 与定向测试全绿，
+      另外 20 个 check 也是 success。修完后重跑 CI 再确认。

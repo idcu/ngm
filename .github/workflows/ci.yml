@@ -16,8 +16,13 @@ env:
   # （内核报 "missing LC_UID Load Command" 并以 abort trap 杀掉进程，
   # 测试二进制启动即崩、0.002s FAIL）。升到当前稳定版。
   GO_VERSION: '1.27'
-  # ngm 直接依赖 gitee.com/idcu-go/modproof；GOPRIVATE 阻止 proxy/sumdb 把它当公共模块。
-  GOPRIVATE: gitee.com/idcu-go/*
+  # gitee.com/idcu-go/modproof 是公开模块，但 Gitee 的 TLS 从 CI runner 会偶发
+  # 握手超时（2026-11-20：4 个 Ubuntu job 在跑测试之前就失败在
+  # `net/http: TLS handshake timeout`）。GOPRIVATE 会**强制直连** Gitee，
+  # 于是冷缓存每次都要赌那一次握手；这里改为先走代理。
+  # go.sum 仍逐字节校验，代理改不了内容；GONOSUMDB 只跳过 sumdb 查询
+  # （该模块未被 sum.golang.org 收录）。direct 是最后的兜底。
+  GOPROXY: https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct
   GONOSUMDB: gitee.com/idcu-go/*
 
 jobs:
@@ -43,8 +48,8 @@ jobs:
           go version
           git --version
 
-      # gitee.com/idcu-go/modproof 是私有 Gitee 模块。仓库为公开时无需 token；
-      # 私有仓库必须在仓库 Secrets 中配置 GITEE_TOKEN。
+      # gitee.com/idcu-go/modproof 当前是公开模块（上面 GOPROXY 列出的代理可直接取）。
+      # 若以后改为私有：代理会取不到、回退 direct，此时必须在 Secrets 配 GITEE_TOKEN。
       - name: Configure Gitee module access
         shell: bash
         env:
@@ -57,7 +62,10 @@ jobs:
           fi
 
       - name: go mod download
-        run: go mod download
+        # 走带重试的包装：Gitee 模块的 TLS 握手会偶发超时（见脚本头注释）。
+        # Windows 默认 shell 是 PowerShell，显式用 bash 跑同一段实现。
+        shell: bash
+        run: bash scripts/go-mod-download.sh
 
       - name: go build ./...
         run: go build ./...
