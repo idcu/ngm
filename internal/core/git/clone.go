@@ -144,9 +144,10 @@ func FetchPartial(ctx context.Context, opts Options, localPath, ref string) erro
 
 // FetchPartialCommit 尽力把 lock 钉住的那个 commit 取进 partial clone。
 //
-// 先试精确 commit（`--depth=1`）；服务端不允许按 SHA fetch 时，再试调用方给的
-// tag/branch。无论走了哪条路，最后都必须能解析出该 commit——否则明确失败，
+// 先试精确 commit；服务端不允许按 SHA fetch 时，再试调用方给的 tag/branch。
+// 无论走了哪条路，最后都必须能解析出该 commit——否则明确失败，
 // 不把“取到了分支尖端”当成“取到了锁定的 commit”。
+// （v0.136 更正：此前注释写"先试 `--depth=1`"，但 FetchPartial 实际没有传该参数。）
 func FetchPartialCommit(ctx context.Context, opts Options, localPath, commit, fallbackRef, refType string) error {
 	if err := FetchPartial(ctx, opts, localPath, commit); err == nil {
 		if ok, _ := CommitExists(ctx, opts, localPath, commit); ok {

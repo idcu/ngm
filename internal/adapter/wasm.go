@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/idcu/ngm/internal/boundbuf"
 	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/tetratelabs/wazero"
@@ -124,6 +125,9 @@ func (e *wasmEngine) Bundle(ctx context.Context, entry string, opts BundleOption
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
 	}
+	if res.Truncated {
+		return nil, artifactTooLarge(e.entry.Name, artifactLimit)
+	}
 	out := &BundleResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
 	if opts.Outfile != "" {
 		if werr := e.writeArtifact(opts.Outfile, res.Stdout); werr != nil {
@@ -145,6 +149,9 @@ func (e *wasmEngine) Transform(ctx context.Context, input []byte, opts Transform
 	res, err := e.run(ctx, inv.Args, stdinFor(inv, input))
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
+	}
+	if res.Truncated {
+		return nil, artifactTooLarge(e.entry.Name, artifactLimit)
 	}
 	return &TransformResult{Code: res.Stdout, Warnings: stderrLines(res.Stderr)}, nil
 }
@@ -190,6 +197,9 @@ func (e *wasmEngine) Compile(ctx context.Context, input []byte, opts CSSOptions)
 	res, err := e.run(ctx, inv.Args, stdinFor(inv, input))
 	if err != nil {
 		return nil, annotate(err, e.entry, inv.Args)
+	}
+	if res.Truncated {
+		return nil, artifactTooLarge(e.entry.Name, artifactLimit)
 	}
 	// 与 subprocess 适配器保持同一套含义：Warnings 是引擎的 stderr，Notes 是 ngm 的说明
 	out := &CSSResult{Warnings: stderrLines(res.Stderr), Notes: inv.Notes}
@@ -296,11 +306,17 @@ func (e *wasmEngine) run(ctx context.Context, args []string, stdin []byte) (*run
 		}
 	}
 
-	var stdout, stderr bytes.Buffer
+	// v0.136：与 subprocess / Deno 沙箱一样给输出加上界。WithMemoryLimitPages
+	// 只约束**模块**的线性内存，不约束宿主侧捕获缓冲——一个循环 fd_write 的
+	// 模块仍能把 ngm 进程 OOM 打死。
+	// stdout 在 bundle/transform 里**就是产物**，用 artifactLimit（64 MiB）而非
+	// 诊断的 1 MiB——否则会静默改坏产物（subprocess 侧同一口径，见 subprocess.go:413）。
+	stdout := boundbuf.New(artifactLimit)
+	stderr := boundbuf.New(boundbuf.DefaultLimit)
 	mc := wazero.NewModuleConfig().
 		WithArgs(args...).
-		WithStdout(&stdout).
-		WithStderr(&stderr).
+		WithStdout(stdout).
+		WithStderr(stderr).
 		// 只读预开放工作目录：模块需要读入口文件与它引用的文件，但没有任何
 		// 理由写盘。写权限在类型层面就不给（ngm 自己代写产物）。
 		WithFSConfig(wazero.NewFSConfig().WithReadOnlyDirMount(e.dir, "/")).
@@ -327,6 +343,7 @@ func (e *wasmEngine) run(ctx context.Context, args []string, stdin []byte) (*run
 
 	res.Stdout = stdout.Bytes()
 	res.Stderr = stderr.Bytes()
+	res.Truncated = stdout.Truncated()
 
 	if ctx.Err() != nil {
 		return res, &EngineError{

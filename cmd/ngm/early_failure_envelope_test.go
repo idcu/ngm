@@ -228,3 +228,41 @@ func runForEnvelope(t *testing.T, args ...string) (jsonErrorEnvelope, int, strin
 	}
 	return env, code, errb.String()
 }
+
+// TestV136ExtraPositionalArgsGetEnvelope 钉住 v0.136 的通道一致性：
+// 接受 `--json` 的命令在“多余位置参数”这条早期失败路径上，也必须给信封。
+// 此前 install/update/outdated/engines 只写 usage 到 stderr、stdout 为 0 字节，
+// 而 why/tree/gc 给信封——同一种失败两个答案。
+func TestV136ExtraPositionalArgsGetEnvelope(t *testing.T) {
+	cases := [][]string{
+		{"install", "--json", "extra"},
+		{"update", "--json", "extra"},
+		{"outdated", "--json", "extra"},
+		{"engines", "list", "--json", "extra"},
+		{"engines", "--json", "unknown-sub"},
+		{"verify", "--json", "--format=bogus"}, // C3 的 verify 校验提前 markJSON
+	}
+	checked := 0
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			isolateUserEnv(t)
+			env, code, _ := runForEnvelope(t, args...)
+			checked++
+			if code == 0 {
+				t.Error("a malformed invocation must not exit 0")
+			}
+			if env.Error.ExitCode != code {
+				t.Errorf("envelope exitCode=%d, process=%d", env.Error.ExitCode, code)
+			}
+			if env.Error.Code == "" || env.Error.Message == "" {
+				t.Errorf("envelope must carry a code and a message: %+v", env.Error)
+			}
+		})
+	}
+	// 空跑保护：这批判据必须真的检查了若干条，不能循环没进去就绿
+	if checked != len(cases) {
+		t.Errorf("checked %d of %d cases", checked, len(cases))
+	}
+	// 反向：不接受 --json 的命令仍须 stdout 为空（v0.16 规则④），
+	// 由既有的 TestV16* 与 add --json 对照守着；这里只钉正向覆盖。
+}

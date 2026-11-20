@@ -93,3 +93,22 @@ func TestQueryOSV_AsksBeforeItReachesOut(t *testing.T) {
 		}
 	})
 }
+
+// TestHostOfRejectsNonHTTPSchemes 钉住 v0.136：OSV 端点必须 http(s)。
+// 此前只查 host，file:// / ftp:// / 无 scheme 都能过——被污染的环境变量
+// 可把审计导向非 HTTP 端点，"无漏洞"结论不再可信。
+func TestHostOfRejectsNonHTTPSchemes(t *testing.T) {
+	for _, raw := range []string{
+		"ftp://osv.dev/api", "file:///etc/passwd", "osv.dev/api", "//osv.dev/api",
+	} {
+		if host, err := hostOf(raw); err == nil {
+			t.Errorf("hostOf(%q) = %q, want a scheme error", raw, host)
+		}
+	}
+	for _, raw := range []string{"https://api.osv.dev/v1/query", "http://127.0.0.1:8080/query"} {
+		host, err := hostOf(raw)
+		if err != nil || host == "" {
+			t.Errorf("hostOf(%q): host=%q err=%v", raw, host, err)
+		}
+	}
+}

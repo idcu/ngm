@@ -1,7 +1,10 @@
 # Spec：`ngm run` + D1/D2/D3 + 发布核实
 
 依据：`docs/analysis/ngm-assessment-2026-11-04.md`（评估结论）与用户 2026-11-04 的拍板决策。
-状态：待批准后执行；批准即按批次提交、推送（禁止强推/改历史/改 git config）。
+状态：`ngm run` 功能已实现并交付（22/23 项完成，见 [tasks.md](./tasks.md)；
+命令行行为见 [CHANGELOG](../../../CHANGELOG.md) 的 `[Unreleased]`）。唯一未勾选项 T4.2
+是“缺产物且凭据可用时幂等重跑发布 workflow”——需要发布凭据，不属于代码工作。
+本文作为**已执行批次的归档记录**保留；禁止强推、改历史、改 git config。
 
 ## 0. 结论
 

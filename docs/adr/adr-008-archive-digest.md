@@ -106,6 +106,18 @@ ADR-004 确立"只有 archiveDigest + commit 能回答字节一样不一样"，�
 
 ---
 
+## 补记（2026-11-20）：清单记录的校验必须在 install 与 verify 两侧同源
+
+决策：遇到“Git 允许、但清单格式无法承载”的路径（含 `\`、CR/LF、NUL、绝对/`.`/`..` 段），
+**install 期以 exit 3 拒绝**，不放宽 `ValidateRecord` 的规则。
+
+- 理由：`path NUL mode NUL sha256 NUL` 用 NUL 作分隔符，这类路径会伪造记录边界；
+  放宽等于改变 digest 的输入契约（属格式变更，必须有 lock 迁移），代价远大于拒绝几个极端文件名。
+- 实现：`digest.ValidatePathAndMode` 是路径/mode 规则的唯一定义，`ValidateRecord` 在它之上再查哈希；
+  install 的 `materialFromEntries` 与 verify 的模块重放共用前者——消除“装得出、验不过”的口径漂移。
+  同时 `parseListTreeZ` 对畸形 `ls-tree -z` 记录由静默跳过改为 fail-closed（否则会算出“看起来合理”的错误 digest）。
+- 代价：含反斜杠/换行文件名的上游仓库无法安装，需上游改名后重新钉 commit。
+
 ## 相关文档
 
 - [ADR-004：为什么声明用 refType 锁定用 commit](./adr-004-reftype.md)

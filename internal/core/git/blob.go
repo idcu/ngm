@@ -32,7 +32,10 @@ func ReadFileAtCommit(ctx context.Context, opts Options, repoPath, commit, path 
 	if err != nil {
 		return nil, false, err
 	}
-	entries := parseListTreeZ(res.Stdout)
+	entries, perr := parseListTreeZ(res.Stdout)
+	if perr != nil {
+		return nil, false, perr
+	}
 	if len(entries) == 0 {
 		return nil, false, nil // 路径不存在
 	}

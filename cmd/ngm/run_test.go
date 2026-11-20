@@ -268,3 +268,33 @@ func TestRunPassesThroughExitCode130(t *testing.T) {
 		t.Errorf("exit=%d, want 130 (SIGINT/130 passthrough)", code)
 	}
 }
+
+// TestRunDoubleDashShieldsHelpAndDirFromRoot 钉住 v0.136：分流层此前扫描
+// `--` 之后的 token 找 --help/--version 与空 --dir=，于是
+// `ngm run build -- --help` 打印了 run 的帮助（而不是把 --help 交给脚本），
+// `ngm run build -- --dir=` 被误判成"空目录"而拒绝。runUsage 明确承诺
+// `-- <extra args>` 原样交给脚本，这两条都是对契约的违背。
+func TestRunDoubleDashShieldsHelpAndDirFromRoot(t *testing.T) {
+	home := isolateUserEnv(t)
+	grantRunScript(t, home)
+	proj := newRunProject(t, `{"show":"echo ARGS"}`)
+
+	for _, extra := range []string{"--help", "--version"} {
+		code, out := runCaptureCode(t, "run", "show", "--dir="+proj, "--", extra, "tail")
+		if code != 0 {
+			t.Fatalf("run -- %s: exit=%d out=%s", extra, code, out)
+		}
+		if !strings.Contains(out, "ARGS "+extra+" tail") {
+			t.Errorf("%s must reach the script verbatim:/n%s", extra, out)
+		}
+		if strings.Contains(out, "ngm run — run project scripts") {
+			t.Errorf("root printed run's help instead of passing --%s through:/n%s", extra, out)
+		}
+	}
+
+	// --dir= 出现在 `--` 之后是脚本参数，不是 ngm 的空目录错误
+	code, out := runCaptureCode(t, "run", "show", "--dir="+proj, "--", "--dir=")
+	if code != 0 || !strings.Contains(out, "ARGS --dir=") {
+		t.Errorf("--dir= after -- must be a script argument: exit=%d out=%s", code, out)
+	}
+}

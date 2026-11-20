@@ -301,8 +301,14 @@ func dispatchInner(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 
-	// 处理子命令自身的 --version/help
+	// 处理子命令自身的 --version/help。
+	// v0.136：`--` 之后是**原样交给子命令/脚本的参数**（runUsage 明确承诺
+	// `-- <extra args>`），不在这里截获——此前 `ngm run build -- --help`
+	// 打印了 run 的帮助而不是把 --help 交给脚本。
 	for _, a := range rest {
+		if a == "--" {
+			break
+		}
 		switch a {
 		case "--version":
 			fmt.Fprintln(stdout, versionLine())
@@ -357,6 +363,11 @@ func dispatchInner(args []string, stdout, stderr io.Writer) int {
 // 只挡**显式给了空值**这一种情况；不给这个 flag 仍然是合法的（默认 `.`）。
 func emptyDirFlag(args []string) bool {
 	for i, a := range args {
+		// v0.136：`--` 之后是子命令/脚本的参数，不是 ngm 的 flag——
+		// `ngm run build -- --dir=` 里的 `--dir=` 是脚本参数，不该被当成空目录。
+		if a == "--" {
+			break
+		}
 		switch a {
 		case "--dir=", "-dir=":
 			return true
@@ -493,10 +504,13 @@ func looksLikeFlag(s string) bool {
 // v0.66 更正：这行注释此前写着 `errs.CodeRefDrift (1)`——那是码 6 引入
 // （ADR-026）之前的说法，代码早已改用 CodeInternal，注释没有跟着改
 // （评估报告 P3：至少三处"注释与代码不符"之一）。
-func runWithRecovery(fn func() int) (exit int) {
+// v0.136：stderr 由调用方传入，与 newFlagSet 的 SetOutput 同一条纪律——
+// 写死 os.Stderr 会让嵌入调用方（测试 / 库化）看不到 panic 文本，
+// 而终端里看起来"正常"，正是这类缺陷只在被嵌入时显形。
+func runWithRecovery(stderr io.Writer, fn func() int) (exit int) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "ngm: internal panic: %v\n", r)
+			fmt.Fprintf(stderr, "ngm: internal panic: %v\n", r)
 			exit = errs.CodeInternal.ExitCode()
 		}
 	}()

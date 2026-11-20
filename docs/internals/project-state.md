@@ -1,5 +1,10 @@
 # 项目状态评估（2026-10-04，附 2026-10-21 当前开发线）
 
+> **更新（2026-11-20）**：本页主体是 v0.100 时期的评估快照，历史数字未逐条重算。
+> 需要**当前**的全维度代码评价、缺陷清单与优先级，请读
+> [全维度代码评估（2026-11-20）](../analysis/ngm-full-assessment-2026-11-20.md)；
+> 发布读数以 [发布流水线](../guides/release-pipeline.md#1-现状实测2026-11-03)为唯一事实源。
+>
 > **2026-10-21 当前开发线（未打 tag）**：本页主体仍是 v0.100 的评估。
 > 当前工作树已加入一仓多模块集合、lock v2（`moduleDigest + subtreeOid`）、
 > 模块级 content store/vendor、partial-clone module cache、集合索引/分片/本地 `ngm-index` 分支、
@@ -134,7 +139,7 @@ bash scripts/check-release-status.sh --published
 | 3s 目标 | v0.5 实测：受控对照（未优化）最大 2.433s **也过线**，而跨机器方差 ≥0.3s > 本轮收益 0.45s | ✅ **已结项**（ADR-022）：3s 降级为观测值，门禁改为 spawn 预算 |
 | `symlink` 模式 | 恢复它要"按需物化一棵 hardlink 树"，是**新决策**不是回滚 | ✅ **已结项**（ADR-021）：保留降级 |
 | 四个 release 未生成 | **镜像转发 tag 不保证触发 `release.yml`**：`v0.5.0`~`v0.8.0`（一批四个）没触发，而 `v0.9.0`/`v0.10.0`/`v0.11.0`/`v0.12.0`（单独打）**四次都触发了**。原因不在本仓库可观测范围内 | ⏸️ **补发已暂缓**（2026-10-04，§3.2）；**新版本不受影响**（走同一条正常通道）· [发布清单](../development/README.md#发布清单每个版本) · v0.8 复盘 §2 |
-| Gitee 发行版 | Gitee 无 API token 时是**人工上传**；工具已就绪（幂等 + 双向校验），读数也已就绪 | ⏸️ **补发已暂缓**（同上）：缺 `v0.1.0` 及 `v0.5.0`~`v0.21.0` **共 18 个版本**（`v0.1.0` 一直缺，此前没人查）· `scripts/gitee-release.sh`（补，幂等 + 双向校验 + dry-run）· `scripts/check-gitee-release-status.sh`（看） |
+| Gitee 发行版 | Gitee 无 API token 时是**人工上传**；工具已就绪（幂等 + 双向校验），读数也已就绪 | ⏸️ **补发已暂缓**（同上）：Gitee 上**只有 3 个**发行版（`v0.2.0`~`v0.4.0`），`v0.1.0` 没有 · `scripts/gitee-release.sh`（补，幂等 + 双向校验 + dry-run）· `scripts/check-gitee-release-status.sh`（看）。权威读数见 [发布流水线](../guides/release-pipeline.md#1-现状实测2026-11-03) |
 | 自建 Git 非默认端口 | `splitURLForm` **显式剥掉端口**，`Canonical` 只存 `Host`+`Path`；修它要给 `Canonical` 加字段 = schema 级变更 | ✅ **"静默"这一半已修**（v0.12：明确拒绝并报出端口，默认端口仍接受）；**支持**仍待真实需求 · [metrics](./metrics.md#已知限制非默认端口v011-c-组实测) |
 | 无 registry 生态 | **非目标是刻意的**：registry 包管理交给 pnpm/npm/yarn。2026-11-19 起这条从"决定"升级为"定位"：ngm 是独立生态，npm / pnpm 只是迁移来源（[ADR-044](../adr/adr-044-independent-ecosystem.md)） | 不变 · capability-matrix · ADR-044 |
 | **采用** | 公开仓库创建于 **2026-09-29**，此前**没有任何许可证**（"保留所有权利"→ 法律上无人可以用）、没有 description 与 topics | 许可证已改为 **MIT**（v0.12）；**description / topics 需在网页上填**；剩下的是"找一个真实使用场景" |
@@ -168,13 +173,13 @@ v0.12 把"可信读数"这一层做掉了（文档纠偏 + MIT + 子命令帮助
 ### 6.1 装
 
 ```bash
-# 方式一：预编译二进制（推荐）
-#   最新可取（GitHub）：v0.64.0 —— 六个平台 + SHA256SUMS
-#   （v0.65.0 的 CI 与 Release 在 tag 上失败过，见 §2 的发布状态表；
-#    它是"跑过工作流但失败"，不是"从未跑过"）
-#   Gitee 侧目前只到 v0.4.0（缺 98 个版本，需 GITEE_TOKEN，见 §3.2）
-# 方式二：从源码
-git clone https://gitee.com/idcu/ngm && cd ngm && go build ./cmd/ngm
+# 方式一：从源码（推荐，能拿到当前能力）
+git clone https://gitee.com/idcu/ngm && cd ngm && go build -o ngm ./cmd/ngm
+
+# 方式二：预编译二进制（覆盖不完整，取前核对）
+#   最新正式 release（GitHub）：v0.101.0；预发布 v0.102.0-dev.2
+#   Gitee 侧只有 v0.2.0~v0.4.0
+#   权威读数与缺口清单见 docs/guides/release-pipeline.md §1
 ```
 
 逐平台命令、`SHA256SUMS` 校验、PATH 配置见[安装指南](../guides/installation.md)。

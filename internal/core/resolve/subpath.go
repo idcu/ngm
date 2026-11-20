@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/pathutil"
 )
 
 // subPathHint 是"该往哪个方向改"的那句话。
@@ -40,7 +41,7 @@ func ValidateSubPath(p string) error {
 		return nil // 没有子路径
 	}
 	// 归一到 `/` 再切分：这样空段（前导/尾部/重复分隔符）能被看见。
-	segs := strings.Split(strings.ReplaceAll(p, `\`, "/"), "/")
+	segs := strings.Split(pathutil.NormalizeSeparators(p), "/")
 	for _, s := range segs {
 		if s == "" {
 			return errs.New(errs.CodeConfigInvalid,
@@ -54,4 +55,10 @@ func ValidateSubPath(p string) error {
 		}
 	}
 	return nil
+}
+
+// NormalizeSubPath 是 [pathutil.NormalizeSubPath] 的转发，保留这个包名下的
+// 调用点；唯一实现在 core/pathutil（叶子包，config / resolve / git 共用）。
+func NormalizeSubPath(p string) string {
+	return pathutil.NormalizeSubPath(p)
 }

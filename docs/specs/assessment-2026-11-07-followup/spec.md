@@ -1,9 +1,9 @@
 # Spec：2026-11-07 评估后的修复批次
 
 依据：`docs/internals/assessment-2026-11-07-full.md`（问题 ID、证据、批次）。
-状态：A、B 已合入 main；C（P1-1…P1-4）已完成，四个代码提交各自在干净 worktree
-通过 `go build ./...` + `go vet ./...` + 全量测试；D–G 待批准。
-禁止强推、改历史、改 git config。
+状态：A–G 全部完成并已合入 main（逐项见 [tasks.md](./tasks.md)，34/34 已勾选）。
+各批代码提交均在干净 worktree 通过 `go build ./...` + `go vet ./...` + 全量测试。
+本文作为**已执行批次的归档记录**保留；禁止强推、改历史、改 git config。
 
 ## 0. 结论
 

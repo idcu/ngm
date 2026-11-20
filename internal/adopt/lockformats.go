@@ -126,19 +126,27 @@ func unquoteYarn(s string) string {
 
 // yarnNameFromKey 从 yarn 的 descriptor key 里取包名：
 //
-//	"github.com/foo/bar#v1.0.0" → "bar"
-//	"@scope/pkg@^1.0.0"          → "@scope/pkg"
 //	"left-pad@1.3.0"             → "left-pad"
+//	"@scope/pkg@^1.0.0"          → "@scope/pkg"
+//	"@scope/pkg#v1.0.0"          → "@scope/pkg"   （v0.136 修）
+//
+// 注意：Git URL 形态（含 `/`）不在这里拆全路径——调用方有 keyName 时用
+// 它；这里只处理 yarn descriptor 的包名部分。
 func yarnNameFromKey(key string) string {
 	key = strings.Trim(key, "\"'")
-	if i := strings.IndexAny(key, "@#"); i > 0 {
-		return key[:i]
-	}
+	// v0.136：scoped 包 + `#ref`（`"@scope/pkg#v1.0.0"`）此前落进 scoped 分支
+	// 只找第二个 `@`、找不到就 `return key`，把版本后缀留在名字里——
+	// provenance 用 node_modules/@scope/pkg 查不到该条，Git 来源被误降为 unknown。
+	// `IndexAny("@#")` 从 i=0 起不匹配（scoped 的 @ 在首位），因此把 `#` 一并
+	// 放进 scoped 分支的查找集。
 	if strings.HasPrefix(key, "@") {
-		// scoped：跳过 scope 段再找 @。
-		if i := strings.Index(key[1:], "@"); i >= 0 {
+		if i := strings.IndexAny(key[1:], "@#"); i >= 0 {
 			return key[:i+1]
 		}
+		return key
+	}
+	if i := strings.IndexAny(key, "@#"); i > 0 {
+		return key[:i]
 	}
 	return key
 }

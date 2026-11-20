@@ -29,7 +29,9 @@ jobs:
   build-test:
     name: build/vet/test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # 必须大于下面 `go test -timeout 40m`：job 先杀进程时，公开侧只有超时 panic、
+    # 看不到失败用例的首行细节（v0.136；与 README 的"放宽到 40m"承诺一致）。
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -353,7 +355,8 @@ jobs:
   # 而默认 checkout 是 `fetch-depth: 1`（看不见）——那会让脚本把每个版本都判成
   # "MISSING TAG"并吵闹。宁可慢一点、把 tag 取全，也不要一条会误报的门禁。
   release-state:
-    name: release state + docs links
+    # v0.136：docs links 由独立的 docs-links job 跑，这里不再重复一遍。
+    name: release state
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -387,9 +390,6 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$rc"
-
-      - name: docs links
-        run: bash scripts/check-docs-links.sh
 
       # 镜像侧的**实测读数**（v0.86）：两次请求，把"tag 数 / release 数 / 未推送数"
       # 摆在 CI 页面上。`continue-on-error`：它是**读数不是门禁**——
@@ -600,7 +600,7 @@ jobs:
   acceptance:
     name: acceptance M1–M7 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -625,7 +625,7 @@ jobs:
   engine-adapter:
     name: engine integration (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -737,9 +737,7 @@ jobs:
             echo "::error title=${clean_name}::${clean_msg}"
           done < fail-details-re.sanitized.tsv
 
-  # 文档链接检查：仅当 docs/ 目录存在时启用。
-  # M0 阶段 docs/ 是空仓；ngm-doc 文档暂未合并进来。
-  # 一旦 ngm-doc 进入本仓（或以 submodule 引入），本任务自动启用。
+  # 文档链接与锚点检查（唯一执行点；v0.136 起不再在 release-state 里重复）。
   docs-links:
     name: docs link check
     runs-on: ubuntu-latest
@@ -749,12 +747,7 @@ jobs:
 
       - name: Check docs links (bash)
         shell: bash
-        run: |
-          if [ -d docs ]; then
-            bash scripts/check-docs-links.sh docs README.md
-          else
-            echo "no docs/ directory yet; will be enabled after ngm-doc merge"
-          fi
+        run: bash scripts/check-docs-links.sh docs README.md
 
   # workflow 文件本身的有效性。
   #

@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/pathutil"
 	"github.com/idcu/ngm/internal/core/resolve"
 )
 
@@ -244,6 +244,8 @@ func (p *ProjectFile) sortDependencies() {
 }
 
 // normalizeSubPath 让子路径比较跨平台一致（`a/b` 与 `a\b` 视为同一路径）。
+// v0.136：委托给 core/pathutil 的唯一实现——此前用 filepath.ToSlash，只在
+// Windows 转换反斜杠，Linux 上两种写法被当成两条依赖，绕过重复根声明判据。
 func normalizeSubPath(p string) string {
-	return strings.Trim(filepath.ToSlash(p), "/")
+	return pathutil.NormalizeSubPath(p)
 }

@@ -53,6 +53,7 @@
 | [ADR-043](./adr-043-vendored-bin-shim.md) | vendored Git 依赖的 `.bin` shim **暂缓** | 已定（2026-11-18）：**不做**。为 vendored 依赖生成 `.bin` shim 等于从第三方内容创建一个新的可执行面，越过 ADR-042 的边界（它只编排用户自己的脚本），而当前没有用户证据支撑这个代价。重启条件写在 ADR 里（出现"纯 Git 依赖 + 依赖自带 CLI"的真实项目，且威胁模型说清 shim 的归属） |
 | [ADR-044](./adr-044-independent-ecosystem.md) | ngm 是**独立生态**，npm / pnpm 只是迁移来源 | 已定（2026-11-19）：主轴是"Git 依赖的可证明同一性"；npm / pnpm / Yarn / Bun 不承诺语义（registry 协议、semver 求解、peer deps、`node_modules` 布局、lifecycle 全族、publish）；`adopt` 是坡道而非主干，`run` 读 `package.json.scripts` 的理由是成本而非兼容；路线图准入：唯一理由是"更接近 npm"的条目不进。评估报告 §5 的缺口表因此降级为迁移成本观察 |
 | [ADR-045](./adr-045-json-output-contract.md) | `--json` 的契约层级：**解码语义**是契约、字节不是 | 已定（2026-11-19）：字段名/类型/`version`/错误信封形状/退出码是契约；字节不是。报告类统一 `MarshalIndent` + 末尾 LF（含 HTML 转义）；唯一例外是 `sbom` / `attest` 的**产物**（字节本身要被人比对/签名）。一个实现：`writeJSONDocument`，失败统一 `write report: …` 退 6。按字节 diff `--json` 是未定义行为——需要稳定字节的场合用产物而非报告 |
+| [ADR-046](./adr-046-stale-export-gate.md) | 过期 lock 的审计产物**默认拒绝导出** | 已定**并已实施**（2026-11-20）：`sbom` / `attest` 在 `ngm.json` 与 lock 不一致时 exit 3、不写产物；显式 `--allow-stale` 才放行（事实仍写 stderr，不塞进产物字节以保确定性）。此前只写 warning，导致签名了一份描述过期状态的语句 |
 
 ---
 

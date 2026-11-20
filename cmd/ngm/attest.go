@@ -21,11 +21,12 @@ import (
 const attestUsage = `ngm attest — emit an in-toto / SLSA v1 statement for ngm.lock
 
 USAGE:
-  ngm attest [--out=<file>] [--dir=<dir>]
+  ngm attest [--out=<file>] [--dir=<dir>] [--allow-stale]
 
 FLAGS:
-  --out   write the statement to this file instead of stdout
-  --dir   project directory containing ngm.lock (default: .)
+  --out          write the statement to this file instead of stdout
+  --dir          project directory containing ngm.lock (default: .)
+  --allow-stale  export even when ngm.lock is out of date with ngm.json (default: refuse)
 
 WHAT IT EMITS:
   One in-toto Statement v1 whose predicate is SLSA provenance v1, binding every
@@ -60,11 +61,12 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := newFlagSet("attest", stderr)
 	dirFlag := fs.String("dir", ".", "project directory")
 	outFlag := fs.String("out", "", "write to this file instead of stdout")
+	allowStale := fs.Bool("allow-stale", false, "export even when ngm.lock is out of date with ngm.json")
 
 	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
 	c.usage(attestUsage)
 	if !c.parse([]flagSpec{
-		{Name: "dir"}, {Name: "out"},
+		{Name: "dir"}, {Name: "out"}, {Name: "allow-stale", Bool: true},
 	}, nil) {
 		return 3
 	}
@@ -141,11 +143,22 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// 结构合法、哈希正确，描述的却是一个已经不存在的状态
 	// （ngm.json 改过、lock 没跟）。
 	if stale := lockManifestMismatch(lf, toDepSpecs(pf.Dependencies)); len(stale) > 0 {
+		// v0.136（ADR-046）：默认拒绝。此前只写 stderr warning，而这份 statement
+		// 是要被签名的——CI 常把 stdout 直接管道给签名工具，warning 会被忽略，
+		// 于是签下一份"结构合法、哈希正确、却描述过期状态"的证据。
+		// 显式 --allow-stale 才放行，且仍把事实写进 stderr（不塞进 statement 字节，
+		// 那会破坏"同一 lock 产出相同字节"的确定性）。
+		detail := strings.Join(stale, "; ")
+		if !*allowStale {
+			return c.fail(errs.New(errs.CodeConfigInvalid,
+				"ngm.lock is out of date with ngm.json ("+detail+")",
+				"run `ngm install` to refresh the lock before signing; "+
+					"pass --allow-stale to export a statement describing the stale lock anyway"))
+		}
 		fmt.Fprintf(stderr,
 			"warning: ngm.lock is out of date with ngm.json (%s); "+
 				"the statement describes the lock, not the manifest — "+
-				"run `ngm install` before signing\n",
-			strings.Join(stale, "; "))
+				"exported only because --allow-stale was given\n", detail)
 	}
 
 	entries, err := sbom.FromLock(lf)

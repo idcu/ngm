@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
 )
@@ -270,20 +271,10 @@ func (s *ContentStore) writeBlob(content []byte, gitMode string) (string, error)
 	return sha, nil
 }
 
-// fsyncDir 尽力把目录项变更刷盘（best-effort）。
-//
-// 为什么忽略错误：POSIX 上目录 fsync 把 rename 的**目录项**持久化；
-// Windows 上对目录句柄做 FlushFileBuffers 不受支持（会报错），
-// 而 NTFS 的 rename 走日志，语义不同。所以这里"尽力而为"——
-// 在能做的平台上把它做对，在不能做的平台上不谎报失败。
-func fsyncDir(dir string) {
-	f, err := os.Open(dir)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_ = f.Sync()
-}
+// fsyncDir 是 [atomicfile.FsyncDir] 的本地别名（v0.136 去重）。
+// 此前这里有一份逐行相同的私有实现——两份会各自漂移，而"只差一点"的复制
+// 正是 atomicfile 这个包要消除的东西。忽略错误的理由见 FsyncDir 的注释。
+var fsyncDir = atomicfile.FsyncDir
 
 // publishManifest 把清单与 meta 写进 `trees/` 下的临时目录，再整体 rename 就位。
 //

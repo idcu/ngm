@@ -375,8 +375,11 @@ func gcReachability(lf *lock.File) (gcReach, error) {
 }
 
 // gcExitCode 把逐对象删除失败折成退出码 4。
+//
+// v0.136：ModuleCache 是层 1.5，同样会逐对象删除（:277 写 Errors、:417 渲染），
+// 漏算它会让“报告里有 error 行、退出码却是 0”，CI 因此误判成功。
 func gcExitCode(rep gcReport) int {
-	if len(rep.Store.Errors)+len(rep.Mirror.Errors)+len(rep.Vendor.Errors) > 0 {
+	if len(rep.Store.Errors)+len(rep.Mirror.Errors)+len(rep.ModuleCache.Errors)+len(rep.Vendor.Errors) > 0 {
 		return 4
 	}
 	return 0

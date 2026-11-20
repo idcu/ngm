@@ -2,14 +2,14 @@
 
 > ngm 的产品路线。**v0.1 ~ v0.101 均已交付**（证据见各版[复盘](../development/)与计划）。
 > **101 个 tag 全部已打**；发布则是另一回事，2026-11-03 复核过两个源的 API：
-> GitHub 有 101 个里的 63 个 release（本轮回填 3 个；附件数与最新版见[发布流水线](../guides/release-pipeline.md)），它的 tag 有 101 个（全部版本；镜像转发 tag 但不触发 workflow，所以 `v0.66.0` 起的 tag 有 tag 无 release），
+> GitHub 有 101 个里的 63 个 release（本轮回填 3 个；附件数与最新版见[发布流水线](../guides/release-pipeline.md)），它的 tag 有 101 个（全部版本；镜像转发 tag 但不触发 workflow，所以 `v0.65.0` 起的 tag 有 tag 无 release），
 > Gitee 只有 `v0.2.0` ~ `v0.4.0` 三个
 > ——**`v0.1.0` 在 Gitee 上没有发行版**，此前这句"两个源都可取到"是错的。
 > Gitee 侧现在有读数可复跑：`bash scripts/check-gitee-release-status.sh`
 > （Windows 入口 `.ps1` 转调同一个实现；**故意不进 CI**，理由见发布清单第 6 步）。
 > **历史版本补发已决定暂缓**（2026-10-04，项目所有者决定；判据与恢复信号见
 > [发布清单](../development/README.md#发布清单每个版本)开头）——缺口涉及的版本功能都在源码里，
-> 最新的 `v0.12.0` 已在 GitHub 上可取。
+> 最新的正式 release `v0.101.0` 已在 GitHub 上可取（另有预发布 `v0.102.0-dev.2`）。
 > **`v0.5.0` ~ `v0.8.0`** 的 tag 于 2026-10-02 补打（此前这四版"已交付但取不到"，
 > 见 [v0.8 复盘 §5.6](../development/v0.8-retrospective.md)），但镜像转发 tag **没有触发**
 > `release.yml`，那四版的 GitHub release 至今未生成——补发走手动入口（Actions → Release →

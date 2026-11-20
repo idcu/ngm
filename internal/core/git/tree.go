@@ -10,6 +10,7 @@ import (
 
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/pathutil"
 )
 
 // TreeEntry 是 commit tree 中的一个非目录条目。
@@ -41,45 +42,52 @@ func ListTree(ctx context.Context, opts Options, repoPath, commit string) ([]Tre
 	if err != nil {
 		return nil, err
 	}
-	return parseListTreeZ(res.Stdout), nil
+	return parseListTreeZ(res.Stdout)
 }
 
-// parseListTreeZ 解析 `git ls-tree -r -z` 的输出。
+// parseListTreeZ 解析 `git ls-tree [-r] [-t] -z` 的输出。
 //
 // 记录格式（-z 模式）：`<mode> SP <type> SP <object> TAB <path> NUL`
-func parseListTreeZ(out []byte) []TreeEntry {
+//
+// v0.136 起对畸形记录 **fail-closed**：此前一律 `continue` 静默跳过，而 digest 的
+// 输入正来自这段解析——一份被改写的 mirror 若产出畸形条目，会被静默排除后算出
+// 一个"看起来合理"的错误 digest（结论正确、证据错误，是最危险的一类）。
+// 现在任何无法解析的记录都返回错误，带脱敏的原始字节预览。
+func parseListTreeZ(out []byte) ([]TreeEntry, error) {
 	var entries []TreeEntry
 	for len(out) > 0 {
 		nul := indexByte(out, 0)
 		if nul < 0 {
-			// 末尾缺 NUL：丢弃残余（不应发生）
-			break
+			return nil, fmt.Errorf("ls-tree -z output has a trailing record without NUL: %q",
+				previewRecord(out))
 		}
 		rec := out[:nul]
 		out = out[nul+1:]
+		bad := func(reason string) error {
+			return fmt.Errorf("malformed ls-tree -z record (%s): %q", reason, previewRecord(rec))
+		}
 		if len(rec) == 0 {
-			continue
+			return nil, bad("empty record")
 		}
 
 		tab := indexByte(rec, '\t')
 		if tab < 0 {
-			continue
+			return nil, bad("missing TAB separator")
 		}
 		meta := string(rec[:tab])
 		path := string(rec[tab+1:])
 
-		// 空路径无意义，且会在清单里产生不可定位的记录——丢弃
 		if path == "" {
-			continue
+			return nil, bad("empty path")
 		}
 
 		// meta = "<mode> <type> <object>"
 		parts := strings.SplitN(meta, " ", 3)
 		if len(parts) != 3 {
-			continue
+			return nil, bad("meta is not '<mode> <type> <object>'")
 		}
 		if parts[0] == "" || parts[1] == "" || parts[2] == "" {
-			continue
+			return nil, bad("empty mode/type/object field")
 		}
 		entries = append(entries, TreeEntry{
 			Mode: parts[0],
@@ -88,7 +96,17 @@ func parseListTreeZ(out []byte) []TreeEntry {
 			Path: path,
 		})
 	}
-	return entries
+	return entries, nil
+}
+
+// previewRecord 把畸形记录截成一个可安全写进错误消息的前缀：
+// 控制字符转义、长度封顶，避免把整棵树的字节或终端控制序列倒进日志。
+func previewRecord(rec []byte) string {
+	const max = 120
+	if len(rec) > max {
+		rec = rec[:max]
+	}
+	return strings.ToValidUTF8(strings.ReplaceAll(string(rec), "\x00", "\\0"), "?")
 }
 
 func indexByte(b []byte, c byte) int {
@@ -183,9 +201,15 @@ func BuildArchiveMaterial(ctx context.Context, opts Options, repoPath, commit st
 // 路径是**相对模块根**的；`moduleDigest` 使用 ngm-module-digest/v1 头部。
 // 兄弟目录的条目不会被读取，也不会进入清单。
 func BuildModuleMaterial(ctx context.Context, opts Options, repoPath, commit, subPath string) (*ArchiveMaterial, error) {
-	sub := strings.Trim(strings.TrimSpace(subPath), "/")
-	if sub == "" {
-		return BuildArchiveMaterial(ctx, opts, repoPath, commit)
+	// v0.136：与复数版、TreeOIDAtPath 一样走 normalizeModulePath——此前这里
+	// 只 Trim 斜杠，导出的 API 可把 `..` 等非法段送进 git rev 语法（commit:sub）。
+	sub, err := normalizeModulePath(subPath)
+	if err != nil {
+		// 空路径在本函数是"根模块"的合法语义（复数版不接受空），保留之。
+		if strings.TrimSpace(subPath) == "" {
+			return BuildArchiveMaterial(ctx, opts, repoPath, commit)
+		}
+		return nil, err
 	}
 	treeish := commit + ":" + sub
 	entries, err := ListTree(ctx, opts, repoPath, treeish)
@@ -227,6 +251,15 @@ func materialFromEntries(ctx context.Context, opts Options, repoPath, commit str
 		}
 		if e.Mode == digest.ModeTree {
 			continue // -r 不应产生 tree 条目；保险起见跳过
+		}
+		// v0.136：安装期就拒绝清单无法承载的路径（反斜杠 / 换行 / NUL / ..）。
+		// 此前 install 不校验、verify 模块分支才校验，于是能"装得出、验不过"。
+		// 与 Verify 共用 digest.ValidatePathAndMode，只有一处口径。
+		if verr := digest.ValidatePathAndMode(digest.Record{Path: e.Path, Mode: e.Mode}); verr != nil {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("commit %s has an unsupported path %q: %v", ShortSHA(commit), e.Path, verr),
+				"ngm cannot prove a path the content manifest cannot encode; "+
+					"rename the file in the upstream repository and re-pin the commit")
 		}
 		kept = append(kept, e)
 		blobSHAs = append(blobSHAs, e.SHA)
@@ -436,7 +469,7 @@ func listTreeWithTrees(ctx context.Context, opts Options, repoPath, treeish stri
 	if err != nil {
 		return nil, err
 	}
-	return parseListTreeZ(res.Stdout), nil
+	return parseListTreeZ(res.Stdout)
 }
 
 // isTreeMode 兼容 `git ls-tree -t` 的 "040000" 与 digest.ModeTree 的 "40000"。
@@ -577,7 +610,10 @@ func BuildModuleMaterials(ctx context.Context, opts Options, repoPath, commit st
 
 // normalizeModulePath 校验并规范化一个模块子路径。
 func normalizeModulePath(raw string) (string, error) {
-	sub := strings.Trim(strings.TrimSpace(raw), "/")
+	// v0.136：先用 resolve 的唯一口径把 `\` 归一到 `/`——此前只按 `/` 切分，
+	// `#path=packages\core` 通过 ValidateSubPath 却在这里原样保留，
+	// install 期按字面量传给 git pathspec，模块找不到。
+	sub := pathutil.NormalizeSubPath(strings.TrimSpace(raw))
 	if sub == "" {
 		return "", errs.New(errs.CodeConfigInvalid,
 			"module sub-path is empty",

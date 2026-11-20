@@ -17,7 +17,7 @@ func main() {
 
 // runMain 是 main 函数的纯函数版本（无 os.Exit），便于测试在子进程外执行。
 func runMain() int {
-	return runWithRecovery(func() int {
+	return runWithRecovery(os.Stderr, func() int {
 		return dispatch(os.Args[1:], os.Stdout, os.Stderr)
 	})
 }

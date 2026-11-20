@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/idcu/ngm/internal/core/errs"
@@ -56,8 +55,7 @@ func runOutdated(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	}
 	ctx = c.ctx
 	if fs.NArg() > 0 {
-		fmt.Fprint(stderr, outdatedUsage)
-		return 3
+		return c.rejectExtraArgs(outdatedUsage, "outdated takes no positional arguments")
 	}
 
 	env, code := c.env(*dirFlag)

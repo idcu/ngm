@@ -146,6 +146,10 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
 		return 3
 	}
+	// v0.136：把 `--json` 标记**提前到校验之前**——下面 `--format` / `--level` 的
+	// 失败也走 runErr(ctx)，若此刻 ctx 尚未标记，用户提了 --json 却拿不到信封
+	// （与 root.go 的 jsonAskedEarly「值写坏也算提出」自相矛盾）。
+	ctx = c.markJSON(*jsonOut)
 	// `--format` 的两条校验都必须在**任何工作之前**完成：
 	//
 	//  1. 显式空值（`--format=` / `--format ""`）必须被拒绝。Go 的 flag 把它解析成
@@ -209,8 +213,6 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			"unknown --level "+strconv.Quote(*level),
 			"supported: structure, content"))
 	}
-
-	ctx = c.markJSON(*jsonOut)
 
 	env, envCode := c.env(*dirFlag)
 	if envCode != 0 {

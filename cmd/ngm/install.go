@@ -86,8 +86,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	ctx = c.ctx
 	if fs.NArg() > 0 {
-		fmt.Fprint(stderr, installUsage)
-		return 3
+		return c.rejectExtraArgs(installUsage, "install takes no positional arguments")
 	}
 
 	env, envCode := c.env(*dirFlag)

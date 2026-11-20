@@ -107,15 +107,18 @@ func WriteFrom(path string, src io.Reader, perm os.FileMode) error {
 // syncDir 是一个**可替换的接缝**，只为判据而存在：
 // "目录项有没有被同步"在没有故障注入的情况下无法从外部观察到，
 // 而库里起一个钩子比让判据去读源码更结实（v0.106）。
-var syncDir = fsyncDir
+var syncDir = FsyncDir
 
-// fsyncDir 尽力同步目录项。
+// FsyncDir 尽力同步目录项。
 //
-// 错误被忽略（与 internal/core/vendor 的实现同一条纪律）：Windows 上对目录句柄
-// Sync 会返回"不支持的函数"，而那是平台能力差异，不是这次写入的失败。
-// 忽略它换来的是"数据内容仍然 sync 过 + rename 仍然原子"，丢掉的只是
-// 掉电窗口的一点点确定性——把整次写入判失败会让 Windows 上所有写操作都失败。
-func fsyncDir(dir string) {
+// 错误被忽略：Windows 上对目录句柄 Sync 会返回"不支持的函数"，而那是平台能力
+// 差异，不是这次写入的失败。忽略它换来的是"数据内容仍然 sync 过 + rename 仍然
+// 原子"，丢掉的只是掉电窗口的一点点确定性——把整次写入判失败会让 Windows 上
+// 所有写操作都失败。
+//
+// v0.136：vendor/content_v2.go 曾有一份逐行相同的私有实现——正是本包文件头
+// 批评的"只差一点的复制"。现在两处共用这一个导出函数。
+func FsyncDir(dir string) {
 	f, err := os.Open(dir)
 	if err != nil {
 		return

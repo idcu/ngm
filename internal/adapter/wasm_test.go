@@ -215,3 +215,27 @@ func TestWasmEngine_TypeDeclIsRefusedWithAReason(t *testing.T) {
 		t.Errorf("the rendered error should point at the workable alternative:\n%s", errs.FormatHuman(err))
 	}
 }
+
+// TestWasmOutputCaptureIsBounded 钉住 v0.136 的 OOM 边界：WASM 模块的 stdout/stderr
+// 必须收进 boundbuf（有上界 + 截断标记），不能像以前那样用无界 bytes.Buffer。
+// 用源码扫描而非真的让模块刷屏——后者不可移植、且会让测试自身吃内存。
+func TestWasmOutputCaptureIsBounded(t *testing.T) {
+	raw, err := os.ReadFile("wasm.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	if !strings.Contains(src, "boundbuf.New(artifactLimit)") {
+		t.Error("wasm stdout must use the bounded artifact buffer")
+	}
+	if !strings.Contains(src, "boundbuf.New(boundbuf.DefaultLimit)") {
+		t.Error("wasm stderr must use the bounded diagnostic buffer")
+	}
+	if !strings.Contains(src, "res.Truncated = stdout.Truncated()") {
+		t.Error("truncation must be propagated so artifact paths can refuse a cut-off output")
+	}
+	// 空跑保护：确认我们在看的是捕获点，不是注释里偶然提到
+	if strings.Contains(src, "var stdout, stderr bytes.Buffer") {
+		t.Error("the unbounded buffer must be gone")
+	}
+}

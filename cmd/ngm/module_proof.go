@@ -66,7 +66,8 @@ func buildModuleProofs(ctx context.Context, env *projectEnv, nodes []*resolve.No
 // moduleVersionFromMaterial 从模块 material 里读 `ngm.json` 的 version。
 //
 // 读不到、没有 version、或清单不是合法 JSON 都返回空串；这不是错误——
-// 测试模块允许没有版本，正式发布由 `modules validate --release` 要求。
+// 测试模块允许没有版本，正式发布由 `modules validate --strict` 要求（v0.136
+// 更正：此前注释写 `--release`，该 flag 不存在）。
 func moduleVersionFromMaterial(m *git.ArchiveMaterial) string {
 	for i, e := range m.Entries {
 		if e.Path != "ngm.json" || i >= len(m.Contents) {

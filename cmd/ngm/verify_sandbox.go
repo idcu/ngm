@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/lock"
@@ -116,20 +117,50 @@ func runSandboxChecks(ctx context.Context, env *projectEnv, pf *config.ProjectFi
 }
 
 // indent 给多行文本统一缩进（最后一行补换行）。
+//
+// v0.136：脚本是**不可信输入**——ANSI 转义序列（CSI / OSC）能伪造报告行、
+// 改写终端标题或在 CI 日志里制造假的 ✓。这里把除 TAB/LF 以外的控制字符
+// 显示为 `\xNN`；同时用 strings.Builder 替代字符串累加（上界内的长输出
+// 此前是 O(n²) 拼接）。verify_sandbox 与 audit_hook 共用这一个出口。
 func indent(s, prefix string) string {
 	if s == "" {
 		return ""
 	}
-	out := ""
+	var out strings.Builder
+	out.Grow(len(s) + len(prefix)*2)
 	start := 0
+	flushLine := func(end int, addNewline bool) {
+		if end > start {
+			out.WriteString(prefix)
+			writeSanitized(&out, s[start:end])
+			if addNewline {
+				out.WriteByte('\n')
+			}
+		}
+	}
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\n' {
-			out += prefix + s[start:i+1]
+			flushLine(i, true) // 不含 \n 本身，由 flushLine 统一补
 			start = i + 1
 		}
 	}
 	if start < len(s) {
-		out += prefix + s[start:] + "\n"
+		flushLine(len(s), true)
 	}
-	return out
+	return out.String()
+}
+
+// writeSanitized 把不可信文本里的控制字符（除 TAB/LF）转义成可见的 \xNN。
+func writeSanitized(w *strings.Builder, s string) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\t' || c == '\n':
+			w.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(w, "\\x%02x", c)
+		default:
+			w.WriteByte(c)
+		}
+	}
 }

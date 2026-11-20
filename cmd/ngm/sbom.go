@@ -19,12 +19,13 @@ import (
 const sbomUsage = `ngm sbom — export a software bill of materials (CycloneDX / SPDX)
 
 USAGE:
-  ngm sbom [--format=cyclonedx|spdx] [--out=<file>] [--dir=<dir>]
+  ngm sbom [--format=cyclonedx|spdx] [--out=<file>] [--dir=<dir>] [--allow-stale]
 
 FLAGS:
-  --format   output format: cyclonedx (default) or spdx
-  --out      write the document to this file instead of stdout
-  --dir      project directory containing ngm.lock (default: .)
+  --format      output format: cyclonedx (default) or spdx
+  --out         write the document to this file instead of stdout
+  --dir         project directory containing ngm.lock (default: .)
+  --allow-stale export even when ngm.lock is out of date with ngm.json (default: refuse)
 
 WHAT IT EXPORTS:
   Every dependency pinned in ngm.lock, each with its commit, its archiveDigest
@@ -53,11 +54,12 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	dirFlag := fs.String("dir", ".", "project directory")
 	formatFlag := fs.String("format", string(sbom.FormatCycloneDX), "output format (cyclonedx|spdx)")
 	outFlag := fs.String("out", "", "write to this file instead of stdout")
+	allowStale := fs.Bool("allow-stale", false, "export even when ngm.lock is out of date with ngm.json")
 
 	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
 	c.usage(sbomUsage)
 	if !c.parse([]flagSpec{
-		{Name: "dir"}, {Name: "format"}, {Name: "out"},
+		{Name: "dir"}, {Name: "format"}, {Name: "out"}, {Name: "allow-stale", Bool: true},
 	}, nil) {
 		return 3
 	}
@@ -107,10 +109,18 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// 而 attest 那份是要被**签名**的。签名之后最难被发现的正是这一类错误：
 	// 结构合法、哈希正确，描述的却是一个已经不存在的状态。
 	if stale := lockManifestMismatch(lf, toDepSpecs(pf.Dependencies)); len(stale) > 0 {
+		// v0.136（ADR-046）：与 attest 同一门槛——默认拒绝，显式 --allow-stale 放行。
+		detail := strings.Join(stale, "; ")
+		if !*allowStale {
+			return c.fail(errs.New(errs.CodeConfigInvalid,
+				"ngm.lock is out of date with ngm.json ("+detail+")",
+				"run `ngm install` to refresh the lock before exporting; "+
+					"pass --allow-stale to export an SBOM describing the stale lock anyway"))
+		}
 		fmt.Fprintf(stderr,
 			"warning: ngm.lock is out of date with ngm.json (%s); "+
-				"this export describes the lock, not the manifest — run `ngm install` first\n",
-			strings.Join(stale, "; "))
+				"this export describes the lock, not the manifest — "+
+				"exported only because --allow-stale was given\n", detail)
 	}
 
 	// v0.81：图不完整必须**说出来**，并且不导出半张图。

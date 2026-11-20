@@ -546,11 +546,10 @@ ngm verify --format=sarif > ngm.sarif
 ### 仍然存在
 
 1. **发布链路不完整。**
-   现有 tag 中，GitHub release 与 Gitee 附件都远未覆盖；文档中的安装地址停留在早期版本。
-   下游 `ngm-repo` 的 `.ngm-version` 固定为 `0.102.0-dev.1`，但没有任何可下载的对应产物，
-   因此其 CI 的 `ngm-validate` job 默认需要在本地构建二进制（见 ngm-repo 的 workflow）。
-   依据：ngm-repo 的 `.github/workflows/ci.yml` 与其仓库根的 `.ngm-version`、
-   [installation.md](docs/guides/installation.md)。
+   现有 tag 中，GitHub release 与 Gitee 附件都远未覆盖；要取当前源码的能力，请[从源码构建](#方式一从源码构建推荐)。
+   下游 `ngm-repo` 的 `.ngm-version` 已从 `0.102.0-dev.1` 更新为 `v0.102.0-dev.2`（已发布、带 13 个附件），
+   CI 的 drift guard 会校验该 pin 必须有可下载产物；权威读数见
+   [发布流水线](docs/guides/release-pipeline.md#1-现状实测2026-11-03)与 [installation.md](docs/guides/installation.md)。
 
 ### 设计性限制（不是缺陷）
 
@@ -590,8 +589,9 @@ go test -race ./...    # 可选；CI 在 ubuntu 上单独跑，同样放宽到 4
 - [快速上手](docs/guides/quickstart.md)、[安装指南](docs/guides/installation.md)
 - [术语表](docs/guides/glossary.md)
 - [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
-- [ADR 索引](docs/adr/README.md) — 41 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc 等）
-- [项目评估与路线图](docs/internals/assessment-2026-11-01-full.md) — 独立评估、缺陷清单与优先级
+- [ADR 索引](docs/adr/README.md) — 45 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc 等）
+- [全维度代码评估（2026-11-20）](docs/analysis/ngm-full-assessment-2026-11-20.md) — 全量审查结论、缺陷清单与优先级（最新）
+- [历史评估归档](docs/internals/assessment-2026-11-07-full.md) — 此前的独立评估、缺陷清单与优先级
 
 ---
 

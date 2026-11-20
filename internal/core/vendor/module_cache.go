@@ -87,6 +87,13 @@ func (c *ModuleCache) Ensure(ctx context.Context, repo resolve.Canonical, remote
 				"module cache path exists but is not a partial clone: "+path,
 				"delete it and re-run; ngm will re-create the module cache")
 		}
+		// 首次 clone 与增量 fetch **同样触网**，必须和 fetch 分支一样过 net 门禁
+		// （v0.136 之前只有 fetch 判 net，deny net: 下首 clone 仍会真实联网）。
+		// 放在这里而不是函数开头：命中有缓存且 commit 已存在时是**离线**路径，
+		// 不该被 net 门禁挡住（verify --offline 依赖它）。
+		if err := git.CheckNetAccess(c.opts.Policy, remoteURL); err != nil {
+			return EnsureResult{Path: path}, err
+		}
 		if err := git.ClonePartial(ctx, c.opts, remoteURL, path); err != nil {
 			return EnsureResult{Path: path}, err
 		}

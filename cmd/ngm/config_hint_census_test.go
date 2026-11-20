@@ -103,7 +103,9 @@ func TestV49ConfigValidationAlwaysCarriesAHint(t *testing.T) {
 	// 没有这条登记，下一个人（或下一个我）会把它当成漏网，或者把字段层的建议删掉。
 	// 10 是**实测值**（`grep -c 'errors.New(|fmt.Errorf('`），不是估的——
 	// v0.43 那条教训：守卫阈值拍错了，红的是我的数字。
-	const durationBareAllow = 10
+	// v0.136 起为 12：新增两处溢出解析错误（字段乘法 / 累加），与原有解析错误
+	// 同一层——"输入太大"的建议由字段层 validate.go 给出，这里只说哪一段看不懂。
+	const durationBareAllow = 12
 	if got := countBareErrorsIn(t, "duration.go"); got > durationBareAllow {
 		t.Errorf("duration.go 有 %d 处不带建议的裸错误，而登记的允许数是 %d ——"+
 			"新增的解析错误要么自己带上建议，要么把这个允许数改大并在注释里写清为什么",

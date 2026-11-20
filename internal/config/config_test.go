@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const validProjectJSON = `{
@@ -334,5 +335,41 @@ func TestWriteProjectFileRefusesInvalidManifest(t *testing.T) {
 	}
 	if err := WriteProjectFile(path, good); err != nil {
 		t.Fatalf("a valid ngm.json must still be written: %v", err)
+	}
+}
+
+// TestNormalizeSubPathIsCrossPlatform 钉住 v0.136：子路径比较在 Linux 与
+// Windows 必须同口径——此前用 filepath.ToSlash 只在 Windows 转 `\`，
+// Linux 上 `a/b` 与 `a\b` 是两把 key，绕过"重复根声明"判重与 Upsert。
+func TestNormalizeSubPathIsCrossPlatform(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"packages/core", `packages\core`},
+		{"a/b/c", `a\b\c`},
+		{"/a/b/", `\a\b\`},
+	} {
+		if got, want := normalizeSubPath(pair[0]), normalizeSubPath(pair[1]); got != want {
+			t.Errorf("normalizeSubPath(%q)=%q, normalizeSubPath(%q)=%q: must agree on all platforms",
+				pair[0], got, pair[1], want)
+		}
+	}
+}
+
+// TestParseISODurationRejectsOverflow 钉住 v0.136：极大的 n 会回绕成小正数，
+// 让"很长的晾晒期"静默变成很短的门禁（安全阈值失效）。必须在解析期拒绝。
+func TestParseISODurationRejectsOverflow(t *testing.T) {
+	for _, s := range []string{
+		"P999999999999999999999999D", // Atoi 失败，已有判据
+		"P999999999999999999D",       // Atoi 成功但乘法溢出
+		"PT9223372036854775807S",     // MaxInt64 秒
+		"P10000000000W",              // 周数溢出
+		"P100000000D",                // 天数（100000000*24h ≈ 11415 年）溢出
+	} {
+		if d, err := ParseISODuration(s); err == nil {
+			t.Errorf("ParseISODuration(%q) = %v, want an overflow error", s, d)
+		}
+	}
+	// 正常值不受影响
+	if d, err := ParseISODuration("P30D"); err != nil || d != 30*24*time.Hour {
+		t.Errorf("P30D: d=%v err=%v", d, err)
 	}
 }

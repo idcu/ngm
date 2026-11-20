@@ -111,6 +111,22 @@ func (c *cmdContext) fail(err error) int {
 	return runErr(c.ctx, c.stdout, c.stderr, err)
 }
 
+// rejectExtraArgs 是"位置参数校验失败"的统一出口（v0.136）。
+//
+// 此前接受 `--json` 的命令里，有的分支写 usage 后直接 return 3（stdout 空），
+// 有的走 failEarly 给信封——同一种失败两个答案。这里把两件事一次做完：
+// 人读用法照旧走 stderr；命令接受 `--json` 时再给一份机器可读信封。
+//
+// 不接受 `--json` 的命令（jsonAware=false）保持 stdout 为空（v0.16 规则④）。
+// 返回 3，调用方直接 `return c.rejectExtraArgs(usage, msg)`。
+func (c *cmdContext) rejectExtraArgs(usage, msg string) int {
+	fmt.Fprint(c.stderr, usage)
+	if c.jsonAware {
+		failEarly(c.args, c.stdout, msg, "run `ngm "+c.fs.Name()+" --help` for the accepted arguments")
+	}
+	return errs.CodeConfigInvalid.ExitCode()
+}
+
 // jsonMarshaler 是一份报告的机器可读形态。outdated / tree / verify / why 的报告
 // 直接用它序列化；audit 与 install 在报告之后还有 hook / 附加层，仍走各自的收尾
 // （install 用的是本包既有的 emitWriteReport）。

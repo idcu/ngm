@@ -20,7 +20,10 @@ func TestParseListTreeZ(t *testing.T) {
 		"100755 blob " + sha2 + "\tscripts/run.sh\x00" +
 		"120000 blob " + sha1 + "\tlink with space.txt\x00"
 
-	got := parseListTreeZ([]byte(in))
+	got, err := parseListTreeZ([]byte(in))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
 	if len(got) != 3 {
 		t.Fatalf("parsed %d entries, want 3: %+v", len(got), got)
 	}
@@ -36,20 +39,32 @@ func TestParseListTreeZ(t *testing.T) {
 	}
 }
 
-func TestParseListTreeZ_Malformed(t *testing.T) {
+func TestParseListTreeZ_MalformedFailsClosed(t *testing.T) {
 	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	in := "garbage\x00" + // 无 TAB
-		"100644 blob " + sha + "\t\x00" + // 空路径
-		"100644 blob\t\t\x00" + // 缺 object 字段
-		" blob " + sha + "\tempty-mode.txt\x00" + // 缺 mode
-		"100644 blob " + sha + "\tok.txt\x00" // 唯一合法记录
-
-	got := parseListTreeZ([]byte(in))
-	if len(got) != 1 {
-		t.Fatalf("expected only the valid record, got %+v", got)
+	// v0.136：畸形记录一律报错，不再静默跳过——digest 的输入来自这里，
+	// 静默丢弃会算出"看起来合理"的错误 digest。
+	cases := []struct {
+		name   string
+		in     string
+		reason string
+	}{
+		{"no TAB", "garbage\x00", "missing TAB"},
+		{"empty path", "100644 blob " + sha + "\t\x00", "empty path"},
+		{"missing object", "100644 blob\t\t\x00", "meta is not"},
+		{"empty mode", " blob " + sha + "\tempty-mode.txt\x00", "empty mode"},
+		{"empty record", "\x00", "empty record"},
+		{"trailing without NUL", "100644 blob " + sha + "\tok.txt", "without NUL"},
 	}
-	if got[0].Path != "ok.txt" {
-		t.Errorf("path=%q", got[0].Path)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseListTreeZ([]byte(tc.in))
+			if err == nil {
+				t.Fatal("a malformed record must be refused, not silently dropped")
+			}
+			if !strings.Contains(err.Error(), tc.reason) {
+				t.Errorf("error should name the reason %q: %v", tc.reason, err)
+			}
+		})
 	}
 }
 

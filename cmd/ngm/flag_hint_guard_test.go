@@ -29,6 +29,7 @@ var crossFileFlags = map[string]string{
 	"alias":       "esbuild --alias generated from ngm.mappings.json, not an ngm flag",
 	"abbrev-ref":  "git argument in modules.go diagnostics",
 	"empty":       "git argument in modules.go diagnostics",
+	"format":      "git for-each-ref --format in modules.go collection index, not an ngm flag",
 	"git-dir":     "git argument in modules.go diagnostics",
 	"index-info":  "git argument in modules.go diagnostics",
 	"list":        "git argument in modules.go diagnostics",

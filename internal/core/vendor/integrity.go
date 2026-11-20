@@ -287,6 +287,14 @@ func compareTrees(left, right map[string]treeEntry, deep bool) (VerifyResult, er
 	}
 
 	sort.Strings(res.Mismatches)
+	// v0.136：`Details` 也进 `verify --content --json`，顺序必须可复现——
+	// 上面两个 range 遍历 Go map，不排序会让同一棵树两次运行产出不同字节。
+	sort.Slice(res.Details, func(i, j int) bool {
+		if res.Details[i].Path != res.Details[j].Path {
+			return res.Details[i].Path < res.Details[j].Path
+		}
+		return res.Details[i].Kind < res.Details[j].Kind
+	})
 	return res, nil
 }
 

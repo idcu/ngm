@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -537,12 +538,23 @@ func nextModuleVersion(current, bump string) (string, error) {
 		return "", fmt.Errorf("version %q is not semver", current)
 	}
 	major, minor, patch := v.major, v.minor, v.patch
+	// v0.136：Atoi 拒绝超大数，但接近 MaxInt 的合法值 +1 会回绕成负数，
+	// 产出 "-9223372036854775808.0.0" 这种不可能的版本号。
 	switch bump {
 	case "major":
+		if major == math.MaxInt {
+			return "", fmt.Errorf("version %q cannot be bumped: major would overflow", current)
+		}
 		major, minor, patch = major+1, 0, 0
 	case "minor":
+		if minor == math.MaxInt {
+			return "", fmt.Errorf("version %q cannot be bumped: minor would overflow", current)
+		}
 		minor, patch = minor+1, 0
 	case "patch":
+		if patch == math.MaxInt {
+			return "", fmt.Errorf("version %q cannot be bumped: patch would overflow", current)
+		}
 		patch++
 	}
 	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
@@ -790,13 +802,33 @@ func collectReleases(ctx context.Context, gitOpts git.Options, dir string, mods 
 	if _, err := git.Run(ctx, gitOpts, "rev-parse", "--git-dir"); err != nil {
 		return nil, nil // 普通目录：没有 releases，不是错误
 	}
-	res, err := git.Run(ctx, gitOpts, "tag", "--list")
+	// v0.136：一次 `for-each-ref` 拿到全部 tag → commit，替代此前"每个 tag 一次
+	// git.RevParse"的 O(tags×modules) spawn——与同文件 writeIndexBranch 把
+	// hash-object 从 N 次降到 1 次是同一条纪律。
+	res, err := git.Run(ctx, gitOpts, "for-each-ref",
+		"--format=%(refname:short) %(objectname) %(*objectname)", "refs/tags")
 	if err != nil {
 		return nil, err
 	}
-	tags := strings.Fields(string(res.Stdout))
 	byPath := make(map[string]map[string]collectionRelease)
-	for _, tag := range tags {
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				"cannot parse a tag from git for-each-ref: "+line,
+				"check that this repository's tag names contain no whitespace")
+		}
+		tag := fields[0]
+		// annotated tag：objectname 是 tag 对象，%(*objectname) 才是它指向的 commit；
+		// lightweight tag：%(*objectname) 为空，objectname 本身就是 commit。
+		commit := fields[1]
+		if len(fields) >= 3 && fields[2] != "" {
+			commit = fields[2]
+		}
 		for _, m := range mods {
 			prefix := m.Path + "/v"
 			if !strings.HasPrefix(tag, prefix) {
@@ -805,12 +837,6 @@ func collectReleases(ctx context.Context, gitOpts git.Options, dir string, mods 
 			version := strings.TrimPrefix(tag, prefix)
 			if !semverLike(version) {
 				continue
-			}
-			commit, rerr := git.RevParse(ctx, gitOpts, dir, tag)
-			if rerr != nil {
-				return nil, errs.Wrap(errs.CodeConfigInvalid,
-					"resolve module release tag "+tag,
-					"check that the tag points at a commit in this repository", rerr)
 			}
 			if byPath[m.Path] == nil {
 				byPath[m.Path] = map[string]collectionRelease{}

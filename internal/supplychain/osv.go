@@ -173,6 +173,13 @@ func hostOf(raw string) (string, error) {
 	if err != nil {
 		return "", errs.Wrap(errs.CodeConfigInvalid, "parse the OSV endpoint "+raw, "", err)
 	}
+	// v0.136：只接受 http(s)。此前 scheme 为空/ftp/file 等也能过 host 检查，
+	// 让一个被污染的环境变量把审计导向非 HTTP 端点（或掩盖"其实没联网"）。
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", errs.New(errs.CodeConfigInvalid,
+			"the OSV endpoint must be an http(s) URL: "+raw,
+			"set NGM_OSV_URL to a full URL such as "+DefaultOSVURL)
+	}
 	host := u.Hostname()
 	if host == "" {
 		return "", errs.New(errs.CodeConfigInvalid,

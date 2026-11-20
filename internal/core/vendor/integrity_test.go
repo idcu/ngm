@@ -216,3 +216,59 @@ func TestVerifyTreeShallow_MissingTreeIsNotEmpty(t *testing.T) {
 		t.Fatal("a missing tree must not compare equal to a non-empty one")
 	}
 }
+
+// TestCompareTreesDetailsAreSorted 钉住 `verify --content --json` 的确定性：
+// Details 与 Mismatches 一一对应、同样会写进 JSON；路径集合差异来自遍历 Go map，
+// 不排序会让同一棵树两次运行产出字段顺序不同的字节（违反确定性纪律）。
+func TestCompareTreesDetailsAreSorted(t *testing.T) {
+	left := map[string]treeEntry{
+		"z/in-vendor.ts": {},
+		"a/in-vendor.ts": {},
+		"m/in-vendor.ts": {},
+	}
+	right := map[string]treeEntry{
+		"y/in-store.ts": {},
+		"b/in-store.ts": {},
+		"n/in-store.ts": {},
+	}
+	const runs = 20
+	var first string
+	for i := 0; i < runs; i++ {
+		res, err := compareTrees(left, right, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Details) != 6 {
+			t.Fatalf("want 6 details, got %d", len(res.Details))
+		}
+		var b strings.Builder
+		for _, d := range res.Details {
+			b.WriteString(d.Path)
+			b.WriteByte('|')
+			b.WriteString(d.Kind)
+			b.WriteByte('\n')
+		}
+		got := b.String()
+		if i == 0 {
+			first = got
+		} else if got != first {
+			t.Fatalf("run %d differs from run 0 — Details order is not deterministic:/n%s/n---/n%s", i, first, got)
+		}
+		// 顺带断言本身有序：missing-in-store 与 missing-in-vendor 各组内按 path 升序
+		var lastStore, lastVendor string
+		for _, d := range res.Details {
+			switch d.Kind {
+			case "missing-in-store":
+				if d.Path < lastStore {
+					t.Errorf("missing-in-store not sorted: %q after %q", d.Path, lastStore)
+				}
+				lastStore = d.Path
+			case "missing-in-vendor":
+				if d.Path < lastVendor {
+					t.Errorf("missing-in-vendor not sorted: %q after %q", d.Path, lastVendor)
+				}
+				lastVendor = d.Path
+			}
+		}
+	}
+}

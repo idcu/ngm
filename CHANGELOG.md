@@ -8,6 +8,38 @@
 
 ## [Unreleased] - 2026-11-04
 
+### Added（2026-11-20 追加）
+
+- `ngm sbom --allow-stale` / `ngm attest --allow-stale`：**lock 过期时默认拒绝导出**
+  （exit 3，不写产物），显式给出该 flag 才放行（事实仍写 stderr，不进产物字节以保确定性）。
+  此前只写一条 stderr warning 就照常产出——而 `attest` 的产物是要被签名的，签下一份
+  "结构合法、哈希正确、却描述过期状态"的语句最难在事后发现（[ADR-046](docs/adr/adr-046-stale-export-gate.md)）。
+
+### Fixed（2026-11-20 追加）
+
+- **安全**：`module cache` 的首次 clone 现在与增量 fetch 一样过 `net:` 门禁——
+  `deny net:<host>` 下不再真实触网；已缓存且 commit 命中的离线路径仍不需要 net 权限。
+- **完整性**：安装期现在拒绝清单无法承载的路径（含 `\`、CR/LF、NUL、`.`/`..` 段，exit 3），
+  与 verify 的模块重放共用同一套规则；`git ls-tree -z` 的畸形记录改为报错而非静默跳过
+  ——此前两者可造出"装得出、验不过"或"看起来合理的错误 digest"（[ADR-008 补记](docs/adr/adr-008-archive-digest.md)）。
+- `ngm verify --content --json` 的 `content.mismatches` 顺序现在可复现（细节切片已排序）。
+- `ngm gc` 的 module cache 逐对象删除失败现在会正确折成 exit 4——此前报告里有 error 行，退出码却是 0。
+- **WASM 引擎**的输出改为有界捕获（stdout 64 MiB 产物上界、stderr 1 MiB），撞上界时拒绝写出产物
+  而不是静默截断——此前无界 `bytes.Buffer` 可被一个循环打印的模块 OOM 打死。
+- 接受 `--json` 的命令在"多余位置参数 / 未知子命令 / verify 的 `--format`/`--level` 非法值"
+  这些早期失败路径上，现在也写机器可读错误信封到 stdout——此前 `install` / `update` /
+  `outdated` / `engines` / `verify` 在这些路径 stdout 为 0 字节。
+- CI：build-test / acceptance / engine 三个 job 的超时从 30 分钟提到 45 分钟，
+  大于 `go test -timeout 40m`（此前 job 先杀进程，失败细节看不到）；docs 链接检查不再重复跑两遍。
+- **子路径跨平台一致**：`\` 在所有平台都等价于 `/`，`a/b` 与 `a\b` 不再被当成两条依赖
+  （此前 Linux 上绕过了"重复根声明"判重），`#path=packages\core` 也能正确解析到模块。
+- **沙箱脚本输出过滤控制字符**：ANSI/CSI 转义不再能伪造终端或 CI 日志里的报告行。
+- `ParseISODuration` 拒绝会溢出的极大值——此前一条很长的 `minimumReleaseAge` 会静默变成一个很短的门禁。
+- OSV 端点只接受 http(s) URL。`ngm modules index` 从"每个 tag 一次 git"改为一次批量解析。
+- yarn v1 的 scoped 包 + `#ref`（`"@scope/pkg#v1.0.0"`）不再被误判为无来源。
+- `ngm run build -- --help` / `-- --dir=`：`--` 之后的参数现在原样交给脚本，不再被
+  ngm 截获成帮助请求或"空目录"错误。此前与 `runUsage` 的透传承诺矛盾。
+
 ### Added
 
 - `ngm run <script> [--if-present] [-- <args>]` / `ngm run --list [--json]`：不加 npm

@@ -199,6 +199,8 @@ func TestV102GCDeletionErrorsBecomeExitFour(t *testing.T) {
 		for _, rep := range []gcReport{
 			{Store: gcClass{Errors: []string{"store: boom"}}},
 			{Mirror: gcClass{Errors: []string{"mirror: boom"}}},
+			// v0.136：层 1.5 同样会逐对象删除并渲染 error 行，漏算它会让报告有错却 exit 0。
+			{ModuleCache: gcClass{Errors: []string{"module cache: boom"}}},
 			{Vendor: gcClass{Errors: []string{"vendor: boom"}}},
 		} {
 			if got := gcExitCode(rep); got != 4 {

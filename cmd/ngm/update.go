@@ -28,7 +28,8 @@ FLAGS:
   --dir       project directory containing ngm.json (default: .)
   --offline   never touch the network; require a warm local mirror (exit 4 if missing)
   --digest    also compute and print the archiveDigest (ADR-008)
-  --store     populate the content store with the resolved content (implies --digest)
+  --store     report content-store status (implies --digest);
+              the store is always populated by update regardless of this flag
   --json      write a machine-readable report to stdout (CI should use this);
               progress text and warnings then go to stderr
 
@@ -67,7 +68,9 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
 	digestFlag := fs.Bool("digest", false, "also compute and print archiveDigest")
-	storeFlag := fs.Bool("store", false, "populate the content store (implies --digest)")
+	// v0.136：Store.Put 在下面无条件执行；这个 flag 只控制是否**报告** store 状态。
+	// 此前 help 写 "populate the content store" 会让用户误以为能跳过落盘。
+	storeFlag := fs.Bool("store", false, "report content-store status (implies --digest)")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 
 	c := newCmdContext(ctx, args, stdout, stderr, fs)
@@ -81,8 +84,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	ctx = c.ctx
 	if !*all && fs.NArg() == 0 {
-		fmt.Fprint(stderr, updateUsage)
-		return 3
+		return c.rejectExtraArgs(updateUsage, "update needs at least one dependency (or --all)")
 	}
 	if *all && fs.NArg() > 0 {
 		return runErr(ctx, stdout, stderr, errs.New(

@@ -32,8 +32,9 @@ import (
 //
 // 或者直接调用 UpdateGoldenForTest(t) 把它绑到 test 标志。
 //
-// 默认 true（CI 安全）：仅当显式传入 -update=true 时更新。
+// 默认 false（CI 安全）：仅当显式传入 -update=true 时更新。
 // 这是为了避免开发者误用本地覆盖；正式 CI 上应不传此 flag。
+// （v0.136 更正：此前注释写"默认 true"，与 flag.Bool(..., false, ...) 相反。）
 var updateGolden = flag.Bool("update", false, "rewrite golden files for failing assertions")
 
 // GoldenPath 返回仓库根目录下 testdata/<name> 的绝对路径。

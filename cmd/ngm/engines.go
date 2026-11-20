@@ -100,24 +100,25 @@ func runEngines(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	switch sub {
 	case "list":
 		if len(rest) > 0 {
-			fmt.Fprint(stderr, enginesUsage)
-			return 3
+			return c.rejectExtraArgs(enginesUsage, "`engines list` takes no positional arguments")
 		}
 		return runEnginesList(ec, *jsonOut, stdout, stderr)
 	case "info":
 		if len(rest) != 1 {
-			fmt.Fprint(stderr, enginesUsage)
-			return 3
+			return c.rejectExtraArgs(enginesUsage, "`engines info` needs exactly one engine name")
 		}
 		return runEnginesInfo(ctx, ec, rest[0], *jsonOut, stdout, stderr)
 	case "validate":
 		if len(rest) > 0 {
-			fmt.Fprint(stderr, enginesUsage)
-			return 3
+			return c.rejectExtraArgs(enginesUsage, "`engines validate` takes no positional arguments")
 		}
 		return runEnginesValidate(ec, *jsonOut, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown subcommand: %s\n\n%s\n", sub, enginesUsage)
+		if c.jsonAware {
+			failEarly(c.args, c.stdout, "unknown engines subcommand: "+sub,
+				"run `ngm engines list|info|validate`")
+		}
 		return 3
 	}
 }

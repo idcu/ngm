@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 )
@@ -65,18 +66,22 @@ func ParseISODuration(s string) (time.Duration, error) {
 		unit := s[i]
 		s = s[i+1:]
 
+		// v0.136：先定单位纳秒数，再检查 n 是否会溢出 int64。此前直接乘，
+		// 极端值回绕成小正数，末尾的 total<=0 检不出来——一条"很长"的
+		// minimumReleaseAge 静默变成很短的门禁（安全阈值失效）。
+		var perUnit time.Duration
 		var d time.Duration
 		switch {
 		case unit == 'W' && !inTime:
-			d = time.Duration(n) * 7 * 24 * time.Hour
+			perUnit = 7 * 24 * time.Hour
 		case unit == 'D' && !inTime:
-			d = time.Duration(n) * 24 * time.Hour
+			perUnit = 24 * time.Hour
 		case unit == 'H' && inTime:
-			d = time.Duration(n) * time.Hour
+			perUnit = time.Hour
 		case unit == 'M' && inTime:
-			d = time.Duration(n) * time.Minute
+			perUnit = time.Minute
 		case unit == 'S' && inTime:
-			d = time.Duration(n) * time.Second
+			perUnit = time.Second
 		case unit == 'Y' || (unit == 'M' && !inTime):
 			return 0, fmt.Errorf(
 				"%q uses %q, which is not supported: a month is 28-31 days and a year is 365-366 days, "+
@@ -86,6 +91,15 @@ func ParseISODuration(s string) (time.Duration, error) {
 		default:
 			return 0, fmt.Errorf(
 				"%q: unsupported unit %q (expected W/D before 'T', H/M/S after it)", orig, string(unit))
+		}
+
+		// 逐字段检查：n * perUnit 不得溢出，且累加后也不得溢出。
+		if n > 0 && time.Duration(n) > math.MaxInt64/perUnit {
+			return 0, fmt.Errorf("%q: %d%c is too large (would overflow time.Duration)", orig, n, unit)
+		}
+		d = time.Duration(n) * perUnit
+		if d > 0 && total > math.MaxInt64-d {
+			return 0, fmt.Errorf("%q: the total duration is too large (would overflow time.Duration)", orig)
 		}
 
 		total += d

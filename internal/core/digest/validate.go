@@ -5,27 +5,13 @@ import (
 	"strings"
 )
 
-// ValidateRecord 报告一条记录能否被**安全地**编码进清单（v0.107）。
+// ValidatePathAndMode 校验一条记录的**路径与 mode**——install 期已知、而
+// BlobSHA256 尚未算出的那部分（v0.136）。
 //
-// 存在理由：清单的字节流是 `path NUL mode NUL sha256 NUL`——**路径本身就是分隔符的
-// 载体**。此前 `BuildManifest` 直接拼接，不做任何字段校验，于是只要有一处把
-// "别人给的字符串"当路径传进来，就能伪造记录边界：
-//
-//	Path = "a\x00100644\x00<64hex>\x00b"   ⇒ 一条记录变成两条
-//
-// 生产路径目前只从 `git ls-tree -z` 取路径（Git 的路径不含 NUL），所以这是个
-// **尚未被利用**的洞；但读回来的路径不只有这一个来源——content store 的清单 JSON
-// 是可改写的，而 `verify --deep` 会把它的 Path/Mode 直接拿去重算摘要。
-// 那意味着 `--deep`（本产品最强的那个承诺）可以被一份改过的清单骗过。
-//
-// 校验规则全部是"语法上不该出现"的东西，不做任何规范化：
-//
-//   - 路径非空，且不含 NUL / CR / LF（记录与行的分隔符）
-//   - 路径不用 `\`（Git 的路径口径是 POSIX；反斜杠会让两台机器得到不同清单）
-//   - 路径不是绝对路径，不以 `./` 开头，不含空段 / `.` / `..` 段
-//   - mode 只能是 100644 / 100755 / 120000（gitlink 与非法 mode 一律拒绝）
-//   - BlobSHA256 必须是 64 位小写十六进制
-func ValidateRecord(r Record) error {
+// 与 ValidateRecord 共用同一套路径/mode 规则（后者先调本函数再查哈希），
+// 这样“install 期拒绝什么”与“verify 重放时拒绝什么”只有一处定义——
+// 否则就又是一处“装得出、验不过”的口径漂移。
+func ValidatePathAndMode(r Record) error {
 	if r.Path == "" {
 		return fmt.Errorf("the record has an empty path")
 	}
@@ -50,9 +36,36 @@ func ValidateRecord(r Record) error {
 	}
 	switch r.Mode {
 	case ModeRegular, ModeExecutable, ModeSymlink:
+		return nil
 	default:
 		return fmt.Errorf("mode %q is not one of %s / %s / %s",
 			r.Mode, ModeRegular, ModeExecutable, ModeSymlink)
+	}
+}
+
+// ValidateRecord 报告一条记录能否被**安全地**编码进清单（v0.107）。
+//
+// 存在理由：清单的字节流是 `path NUL mode NUL sha256 NUL`——**路径本身就是分隔符的
+// 载体**。此前 `BuildManifest` 直接拼接，不做任何字段校验，于是只要有一处把
+// "别人给的字符串"当路径传进来，就能伪造记录边界：
+//
+//	Path = "a\x00100644\x00<64hex>\x00b"   ⇒ 一条记录变成两条
+//
+// 生产路径目前只从 `git ls-tree -z` 取路径（Git 的路径不含 NUL），所以这是个
+// **尚未被利用**的洞；但读回来的路径不只有这一个来源——content store 的清单 JSON
+// 是可改写的，而 `verify --deep` 会把它的 Path/Mode 直接拿去重算摘要。
+// 那意味着 `--deep`（本产品最强的那个承诺）可以被一份改过的清单骗过。
+//
+// 校验规则全部是"语法上不该出现"的东西，不做任何规范化：
+//
+//   - 路径非空，且不含 NUL / CR / LF（记录与行的分隔符）
+//   - 路径不用 `\`（Git 的路径口径是 POSIX；反斜杠会让两台机器得到不同清单）
+//   - 路径不是绝对路径，不以 `./` 开头，不含空段 / `.` / `..` 段
+//   - mode 只能是 100644 / 100755 / 120000（gitlink 与非法 mode 一律拒绝）
+//   - BlobSHA256 必须是 64 位小写十六进制
+func ValidateRecord(r Record) error {
+	if err := ValidatePathAndMode(r); err != nil {
+		return err
 	}
 	if !isLowerHex(r.BlobSHA256) || len(r.BlobSHA256) != 64 {
 		return fmt.Errorf("blob sha256 %q is not 64 lowercase hex characters", r.BlobSHA256)
