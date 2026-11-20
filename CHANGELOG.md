@@ -97,6 +97,9 @@
 
 ### Fixed
 
+- `ngm.mappings.json` 现在拒绝重复的导入标识符（同一 `from` + `path` 出现两次），
+  不再让两个 `to` 在 `build` / `integrations` 的别名表里静默互相覆盖。v1 遗留的
+  “同一 monorepo 多条子路径都没有 `path`”仍按原契约可读并给出警告。
 - `ngm modules validate --index` 现在会读取 `--shards` 布局的
   `releases/<module>.json`：分片截断/写坏、指向未知模块、schemaVersion 不符
   都会报错。此前它只看根索引里的 inline releases，分片布局下等于没校验。

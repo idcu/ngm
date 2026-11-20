@@ -501,6 +501,47 @@ func TestValidate_LockNamesNilSkipsThatCheck(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsDuplicateImportSpecifiers：同一个 (from, path) 只能出现一次。
+//
+// 两条同键、不同 to 的映射不会报错，只会让 build / integrations 的别名表
+// 静默留一条——最终指向哪个包取决于遍历顺序。
+func TestValidateRejectsDuplicateImportSpecifiers(t *testing.T) {
+	f := NewFile()
+	f.Mappings = []Mapping{
+		{From: "github:org/a", Path: "packages/core", To: "./ngm.vendor/github.com/org/a/packages/core"},
+		{From: "github:org/a", Path: "packages/core", To: "./ngm.vendor/github.com/org/a-shadow"},
+	}
+	err := f.Validate()
+	if err == nil {
+		t.Fatal("duplicate import specifiers must be rejected")
+	}
+	if !strings.Contains(err.Error(), "duplicates import specifier") ||
+		!strings.Contains(err.Error(), "github:org/a/packages/core") {
+		t.Errorf("the error must name the duplicated specifier: %v", err)
+	}
+
+	// 同一个 from 的不同子路径是**两个**导入标识符，必须允许。
+	ok := NewFile()
+	ok.Mappings = []Mapping{
+		{From: "github:org/a", To: "./ngm.vendor/github.com/org/a"},
+		{From: "github:org/a", Path: "packages/core", To: "./ngm.vendor/github.com/org/a/packages/core"},
+	}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("distinct subpath specifiers must be accepted: %v", err)
+	}
+
+	// v1 遗留：同一 monorepo 的多条子路径都没有 path，共用 from 作为键。
+	// 历史契约是"可读 + 警告"，不是拒绝。
+	legacy := NewFile()
+	legacy.Mappings = []Mapping{
+		{From: "github:org/a", To: "./ngm.vendor/github.com/org/a"},
+		{From: "github:org/a", To: "./ngm.vendor/github.com/org/a/packages/core"},
+	}
+	if err := legacy.Validate(); err != nil {
+		t.Errorf("legacy v1 mappings without path must remain readable: %v", err)
+	}
+}
+
 // TestWriteRefusesInvalidMappings：写盘前必须 Validate，与 lock.Write 同一纪律。
 //
 // 失败形态是"坏文件以正确的名字落盘"：生成它的那一步看起来成功，

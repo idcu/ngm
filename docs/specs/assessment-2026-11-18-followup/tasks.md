@@ -515,3 +515,22 @@ https fetch: net/http: TLS handshake timeout
       exit 3 并点名具体文件。变异检验：禁用分片校验 ⇒ 两条判据同时红。
 - [x] **V4** 复核：shards / broken-shard / index-consistency 三条判据全绿（5.5s）；
       build/vet 全绿。
+
+---
+
+## Batch W：mappings 的重复导入键
+
+`File.Validate` 逐条检查 from/to/path，但从不比较两条映射的**导入标识符**
+（`from` 或 `from/path`）。两条同键、不同 `to` 的映射不会报错：`build` /
+`integrations` 的别名表只会留一条，最终指向哪个包取决于遍历顺序。
+
+- [x] **W1** 在 `File.Validate` 里按 `Specifier()` 查重，错误点名重复的键与
+      两条下标。
+- [x] **W2** 第一次写成**无条件**查重，立刻被 `TestV03MappingsMonorepoAcceptance`
+      的 v1 子用例抓住：旧文件里同一 monorepo 的多条子路径都没有 `path`，
+      共用 `from` 是历史格式，契约是"可读 + 警告"而不是拒绝。查重因此
+      **只覆盖声明了 `path` 的条目**——生成器产出重复仍会被拦，v1 兼容不破。
+- [x] **W3** 判据：重复 `from+path` 必须被拒绝并点名 `github:org/a/packages/core`；
+      不同子路径必须允许；v1 的两条无 path 条目必须仍然可读。
+- [x] **W4** 复核：`internal/mappings` 全包绿（0.5s）；monorepo 验收 9.4s 全绿；
+      build/vet 全绿。

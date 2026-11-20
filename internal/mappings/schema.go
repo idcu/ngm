@@ -9,13 +9,13 @@ package mappings
 
 import (
 	"encoding/json"
-
-	"github.com/idcu/ngm/internal/core/atomicfile"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -164,6 +164,16 @@ func (f *File) Validate() error {
 			"unsupported mappings `version`",
 			"this build supports version 1; regenerate with `ngm install`")
 	}
+	// 导入标识符（from 或 from/path）是 build / integrations 的**键**：
+	// 两条同键、不同 to 的映射不会报错，只会让其中一个静默覆盖另一个——
+	// 最终解析到哪个包取决于遍历顺序。这种"看起来有两条、实际只有一条"
+	// 必须在协议层拒绝，而不是留给每个消费方各自去重。
+	//
+	// **只查声明了 `path` 的条目**：v1 文件（v0.2 生成）里同一个 monorepo 的
+	// 多个子路径都没有 `path`，于是共用 `from` 作为键——那是历史格式，
+	// `mappings validate` 对它的契约是"仍可读、给一条再生成警告"，不是拒绝。
+	// 生成器产出重复（两个条目声明同一个 path）仍然会被这里拦住。
+	seenSpecifier := make(map[string]int, len(f.Mappings))
 	for i, m := range f.Mappings {
 		if m.From == "" {
 			return errs.New(errs.CodeConfigInvalid,
@@ -172,6 +182,16 @@ func (f *File) Validate() error {
 		if m.To == "" {
 			return errs.New(errs.CodeConfigInvalid,
 				"mappings["+itoa(i)+"] is missing `to`", "")
+		}
+		if m.Path != "" {
+			spec := m.Specifier()
+			if prev, dup := seenSpecifier[spec]; dup {
+				return errs.New(errs.CodeConfigInvalid,
+					"mappings["+itoa(i)+"] duplicates import specifier "+strconv.Quote(spec)+
+						" (also mappings["+itoa(prev)+"])",
+					"each (from, path) pair may appear only once; remove the duplicate entry")
+			}
+			seenSpecifier[spec] = i
 		}
 		if m.Path != "" {
 			p := strings.TrimSpace(m.Path)
