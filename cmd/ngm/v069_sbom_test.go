@@ -145,6 +145,23 @@ func TestV69SbomIsDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+// TestV69SbomRelativeOutLandsUnderTheProject 固定 `--out` 与 `--dir` 同根。
+func TestV69SbomRelativeOutLandsUnderTheProject(t *testing.T) {
+	isolateUserEnv(t)
+	testutils.MustHaveGit(t)
+
+	p := newProject(t)
+	seedDep(t, p)
+
+	code, out, errOut := runSplit(t, "sbom", "--out=dist/sbom.json", "--dir="+p)
+	if code != 0 {
+		t.Fatalf("sbom relative --out exited %d\n%s\n%s", code, out, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(p, "dist", "sbom.json")); err != nil {
+		t.Fatalf("a relative --out must resolve under --dir: %v", err)
+	}
+}
+
 // `--out=dist/nested/sbom.json` 不应要求用户先建目录：transform 会建，
 // sbom / attest 走同一条产物纪律。
 func TestV69SbomCreatesTheOutputParentDirectory(t *testing.T) {

@@ -164,19 +164,24 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout（v0.42 的不变量）。
 	if out := strings.TrimSpace(*outFlag); out != "" {
+		// 与 sbom / transform 同一条解析规则：相对 `--out` 落在项目目录下。
+		dest := out
+		if !filepath.IsAbs(dest) {
+			dest = filepath.Join(env.ProjectDir, dest)
+		}
 		// v0.82：同 sbom —— 走 [atomicfile.Write] 而不是裸 os.WriteFile。
 		// 这里的理由比 sbom 更强：这份文件是要**被签名**的，
 		// 一个截断的 statement 会以正确的名字、最新的 mtime 躺在那里，
 		// 而签名工具会照常签它。
 		// 同 sbom / transform：父目录不存在时建出来。
-		if derr := os.MkdirAll(filepath.Dir(out), 0o755); derr != nil {
-			return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory "+filepath.Dir(out),
+		if derr := os.MkdirAll(filepath.Dir(dest), 0o755); derr != nil {
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory "+filepath.Dir(dest),
 				"check that the path is writable, or point --out at an existing directory", derr))
 		}
-		if werr := atomicfile.Write(out, data); werr != nil {
+		if werr := atomicfile.Write(dest, data); werr != nil {
 			return c.fail(werr)
 		}
-		fmt.Fprintf(stdout, "wrote %s (%d subject(s), SLSA provenance v1)\n", out, len(entries))
+		fmt.Fprintf(stdout, "wrote %s (%d subject(s), SLSA provenance v1)\n", dest, len(entries))
 		return 0
 	}
 

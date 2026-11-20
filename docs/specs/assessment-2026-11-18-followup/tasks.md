@@ -590,15 +590,21 @@ Windows / macOS 默认卷上是同一个——第二次 Materialize 会把第一
 
 ---
 
-## Batch AA：sbom / attest 的 --out 不建父目录
+## Batch AA：sbom / attest 的 --out 路径与 transform 不一致
 
-`ngm transform --outfile=dist/x.js` 会建 `dist`；`ngm sbom --out=dist/sbom.json`
-与 `ngm attest --out=dist/attest.json` 不建，直接走 `atomicfile.Write`。父目录
-缺失时错误是 "create temp file in dist: ... check directory permissions"——
-把"少一层目录"误报成权限问题，且与 transform 的产物纪律不一致。
+`ngm transform --outfile=dist/x.js` 会建 `dist`，且相对路径落在项目目录下；
+`ngm sbom --out=dist/sbom.json` 与 `ngm attest --out=dist/attest.json` 既不建
+父目录、又把相对路径解析到**调用方 cwd**。父目录缺失时错误是
+"create temp file in dist: ... check directory permissions"——把"少一层目录"
+误报成权限问题。
 
-- [x] **AA1** sbom / attest 在原子写之前 `MkdirAll(filepath.Dir(out))`，失败时
-      给出"建输出目录"的明确上下文。
-- [x] **AA2** 判据：`--out=<tmp>/dist/nested/sbom.json` 与 attest 同款路径
-      必须 exit 0 且文件存在。
-- [x] **AA3** 复核：sbom/attest 定向判据 5.6s 全绿；build/vet 全绿。
+- [x] **AA0** 第一版只加了 `MkdirAll`，CI #306 立刻红：v0.111 的
+      `--out=blocker/x.json` 夹具把 `blocker` 文件放在**项目里**，期望 exit 3，
+      而 sbom/attest 把它解析到 cwd——它此前只是靠"cwd 里没有这个父目录"才
+      碰巧测到 3。也就是说那条判据一直没量到它声称的东西。
+- [x] **AA1** 相对 `--out` 改为与 `--dir` 同根（transform 的既有规则），
+      再 `MkdirAll(filepath.Dir(dest))`；`blocker` 夹具因此恢复真实语义。
+- [x] **AA2** 判据：相对 `--out=dist/sbom.json` / `dist/attest.json` 必须落在
+      项目目录下；绝对 `--out=<tmp>/dist/nested/*.json` 必须自动建父目录。
+- [x] **AA3** 复核：exit-code 契约 / report sweep / error-hint 三条判据与
+      sbom/attest 定向判据全绿（合计 114s + 3.5s）；build/vet 全绿。

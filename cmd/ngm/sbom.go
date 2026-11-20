@@ -139,6 +139,14 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// `--out=`（显式空值）与"没给 --out"等价：都走 stdout——
 	// v0.42 的不变量是"两者要么等价、要么失败"，不允许"都成功而结果不同"。
 	if out := strings.TrimSpace(*outFlag); out != "" {
+		// 相对 `--out` 与 `--dir` 同根：与 transform --outfile 一致。
+		// 此前直接用调用方 cwd，`--dir=subproj --out=dist/sbom.json` 会写到
+		// 两个不同的地方；`--out=blocker/x.json` 的"父路径是文件"判据也因此
+		// 一直没真正被量到（blocker 在项目里，而写入点在 cwd）。
+		dest := out
+		if !filepath.IsAbs(dest) {
+			dest = filepath.Join(env.ProjectDir, dest)
+		}
 		// v0.82：走与 lock / ngm.json / mappings 同一条原子写
 		// （[atomicfile.Write]）。此前是裸 `os.WriteFile`：写到一半被中断
 		// 会留下一个**截断的 JSON**，而它名字是对的、mtime 是新的，
@@ -146,14 +154,14 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		// 与 transform --outfile 对齐：父目录不存在时建出来，而不是让
 		// atomicfile 报"create temp file ... check directory permissions"——
 		// 那条提示会把"少一层目录"误报成权限问题。
-		if derr := os.MkdirAll(filepath.Dir(out), 0o755); derr != nil {
-			return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory "+filepath.Dir(out),
+		if derr := os.MkdirAll(filepath.Dir(dest), 0o755); derr != nil {
+			return c.fail(errs.Wrap(errs.CodeConfigInvalid, "create output directory "+filepath.Dir(dest),
 				"check that the path is writable, or point --out at an existing directory", derr))
 		}
-		if werr := atomicfile.Write(out, data); werr != nil {
+		if werr := atomicfile.Write(dest, data); werr != nil {
 			return c.fail(werr)
 		}
-		fmt.Fprintf(stdout, "wrote %s (%d component(s), %s)\n", out, len(entries), format)
+		fmt.Fprintf(stdout, "wrote %s (%d component(s), %s)\n", dest, len(entries), format)
 		return 0
 	}
 

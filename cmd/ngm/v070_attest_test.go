@@ -184,6 +184,23 @@ func TestV70AttestIsDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+// TestV70AttestRelativeOutLandsUnderTheProject 固定 `--out` 与 `--dir` 同根。
+func TestV70AttestRelativeOutLandsUnderTheProject(t *testing.T) {
+	isolateUserEnv(t)
+	testutils.MustHaveGit(t)
+
+	p := newProject(t)
+	seedDep(t, p)
+
+	code, out, errOut := runSplit(t, "attest", "--out=dist/attest.json", "--dir="+p)
+	if code != 0 {
+		t.Fatalf("attest relative --out exited %d\n%s\n%s", code, out, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(p, "dist", "attest.json")); err != nil {
+		t.Fatalf("a relative --out must resolve under --dir: %v", err)
+	}
+}
+
 // 与 sbom 同一条纪律：`--out` 的父目录不存在时由命令建出来。
 func TestV70AttestCreatesTheOutputParentDirectory(t *testing.T) {
 	isolateUserEnv(t)

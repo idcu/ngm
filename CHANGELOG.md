@@ -97,9 +97,10 @@
 
 ### Fixed
 
-- `ngm sbom --out` / `ngm attest --out` 现在会自动创建缺失的父目录，与
-  `ngm transform --outfile` 一致；此前会报“create temp file … check directory
-  permissions”，把“少一层目录”误报成权限问题。
+- `ngm sbom --out` / `ngm attest --out` 的相对路径现在与 `--dir` 同根（与
+  `ngm transform --outfile` 一致），并自动创建缺失的父目录。此前相对调用方 cwd，
+  `--dir=subproj --out=dist/x.json` 会写到两个不同的地方；父目录缺失时还会以
+  “check directory permissions”收场。
 - `ngm init` 在 `src/index.ts` 已存在但**不是普通文件**时现在 exit 3；此前会打印
   `kept ... (already exists)` 并退 0，留下一个 `main` 指向目录的 `ngm.json`。
   预检发生在写 `ngm.json` 之前。
