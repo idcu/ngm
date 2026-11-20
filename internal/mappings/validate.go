@@ -164,9 +164,12 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 			continue
 		}
 
-		// symlink 模式的 vendor 条目是链接，os.Stat 跟随它判断目标可读性
+		// symlink 模式的 vendor 条目是链接，os.Stat 跟随它判断目标可读性。
+		// `to` 必须是**目录**：映射的是包根，一个同名文件（被误建/被别的
+		// 工具覆盖）虽然"存在"，但 build 的别名解析到它只会失败。
 		if toInfo.Mode()&os.ModeSymlink != 0 {
-			if _, serr := os.Stat(toAbs); serr != nil {
+			st, serr := os.Stat(toAbs)
+			if serr != nil {
 				findings = append(findings, Finding{
 					From:    m.From,
 					Message: "`to` is a symlink but its target is unreachable (" + m.To + ")",
@@ -174,6 +177,21 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 				})
 				continue
 			}
+			if !st.IsDir() {
+				findings = append(findings, Finding{
+					From:    m.From,
+					Message: "`to` is a symlink to a non-directory (" + m.To + ")",
+					Fatal:   true,
+				})
+				continue
+			}
+		} else if !toInfo.IsDir() {
+			findings = append(findings, Finding{
+				From:    m.From,
+				Message: "`to` is not a directory (" + m.To + ")",
+				Fatal:   true,
+			})
+			continue
 		}
 
 		// 3) main / types 必须存在（相对 to 解析）
@@ -199,10 +217,19 @@ func Validate(f *File, env ValidateEnvironment) ([]Finding, error) {
 				})
 				return
 			}
-			if _, err := os.Stat(abs); err != nil {
+			st, err := os.Stat(abs)
+			if err != nil {
 				findings = append(findings, Finding{
 					From:    m.From,
 					Message: "`" + kind + "` file does not exist: " + p,
+					Fatal:   true,
+				})
+				return
+			}
+			if !st.Mode().IsRegular() {
+				findings = append(findings, Finding{
+					From:    m.From,
+					Message: "`" + kind + "` is not a regular file: " + p,
 					Fatal:   true,
 				})
 			}

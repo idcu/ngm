@@ -97,6 +97,8 @@
 
 ### Fixed
 
+- `ngm mappings validate` 现在要求 `to` 是目录、`main` / `types` 是普通文件：
+  一个被误建成文件的 vendor 条目、或指向目录的入口，不再被判成健康。
 - `ngm.mappings.json` 现在拒绝重复的导入标识符（同一 `from` + `path` 出现两次），
   不再让两个 `to` 在 `build` / `integrations` 的别名表里静默互相覆盖。v1 遗留的
   “同一 monorepo 多条子路径都没有 `path`”仍按原契约可读并给出警告。

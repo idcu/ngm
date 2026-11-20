@@ -534,3 +534,19 @@ https fetch: net/http: TLS handshake timeout
       不同子路径必须允许；v1 的两条无 path 条目必须仍然可读。
 - [x] **W4** 复核：`internal/mappings` 全包绿（0.5s）；monorepo 验收 9.4s 全绿；
       build/vet 全绿。
+
+---
+
+## Batch X：mappings 只查"存在"，不查"能不能用"
+
+`mappings validate` 对 `to` 只做 `os.Lstat`（存在即可），对 `main` / `types`
+只做 `os.Stat`（存在即可）。于是两种坏形状全绿：
+
+- `to` 是一个**文件**（vendor 条目被误建/被别的工具覆盖）——别名解析到文件；
+- `main` 是一个**目录**——构建工具拿到目录当入口。
+
+- [x] **X1** `to` 必须是目录；symlink 跟随后的目标也必须是目录，否则 fatal。
+- [x] **X2** `main` / `types` 必须是普通文件（symlink 到普通文件仍允许），
+      目录/设备等形状 fatal。
+- [x] **X3** 判据：`to` 是文件、`main` 是目录，两种情况都必须 fatal 且消息可读。
+- [x] **X4** 复核：`internal/mappings` 全包绿（0.57s）；monorepo 验收 10.7s 全绿。

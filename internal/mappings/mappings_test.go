@@ -568,3 +568,54 @@ func TestWriteRefusesInvalidMappings(t *testing.T) {
 		t.Fatalf("a valid mappings file must still be written: %v", err)
 	}
 }
+
+// TestValidateRejectsToThatIsNotADirectory：`to` 映射的是包根，"存在"不够。
+//
+// 一个同名文件（被误建、或 vendor 被别的工具覆盖）会让 build 的别名解析
+// 指向一个文件；validate 若只看 os.Lstat 是否成功，会把它判成健康。
+func TestValidateRejectsToThatIsNotADirectory(t *testing.T) {
+	proj := t.TempDir()
+	writeVendorTree(t, proj, map[string]string{
+		"ngm.vendor/github.com/org/a": "not a directory",
+	})
+	f := NewFile()
+	f.Mappings = []Mapping{{
+		From: "github:org/a",
+		To:   "./ngm.vendor/github.com/org/a",
+	}}
+	findings, err := Validate(f, ValidateEnvironment{ProjectDir: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || !findings[0].Fatal || !strings.Contains(findings[0].Message, "not a directory") {
+		t.Fatalf("a file at `to` must be fatal, got %+v", findings)
+	}
+}
+
+// TestValidateRejectsAnEntryThatIsADirectory：main/types 必须是普通文件。
+func TestValidateRejectsAnEntryThatIsADirectory(t *testing.T) {
+	proj := t.TempDir()
+	pkg := filepath.Join(proj, "ngm.vendor", "github.com", "org", "a")
+	if err := os.MkdirAll(filepath.Join(pkg, "index.ts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := NewFile()
+	f.Mappings = []Mapping{{
+		From: "github:org/a",
+		To:   "./ngm.vendor/github.com/org/a",
+		Main: "./index.ts",
+	}}
+	findings, err := Validate(f, ValidateEnvironment{ProjectDir: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hit bool
+	for _, f := range findings {
+		if f.Fatal && strings.Contains(f.Message, "not a regular file") {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Fatalf("a directory at `main` must be fatal, got %+v", findings)
+	}
+}
