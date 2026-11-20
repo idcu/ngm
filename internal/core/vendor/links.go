@@ -343,6 +343,13 @@ func caseCollision(entries []ContentEntry) (a, b string, ok bool) {
 // 探测失败返回 false（= 按大小写敏感处理，保持既有行为）：
 // 探针目录是落地目标本身，写不进去时后面每一步都会失败并报出真因，
 // 这里不该用一条推测性的拒绝把那个真因盖掉。
+// IsCaseInsensitiveDir 是落地预检的导出入口。
+//
+// install 需要在**跨依赖**层面问同一个问题（两个仓库名只差大小写会不会落到
+// 同一个目录）；判据必须与单依赖内部的 ensureNoCaseCollisions 完全一致，
+// 所以复用这里的探针，而不是在 CLI 层按 GOOS 再猜一次。
+func IsCaseInsensitiveDir(dir string) bool { return isCaseInsensitiveDir(dir) }
+
 func isCaseInsensitiveDir(dir string) bool {
 	f, err := os.CreateTemp(dir, ".ngm-caseprobe-*")
 	if err != nil {

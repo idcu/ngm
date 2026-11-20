@@ -550,3 +550,24 @@ https fetch: net/http: TLS handshake timeout
       目录/设备等形状 fatal。
 - [x] **X3** 判据：`to` 是文件、`main` 是目录，两种情况都必须 fatal 且消息可读。
 - [x] **X4** 复核：`internal/mappings` 全包绿（0.57s）；monorepo 验收 10.7s 全绿。
+
+---
+
+## Batch Y：仅大小写不同的两个依赖会落到同一个 vendor 目录
+
+`ngm add github:Org/Repo` 与 `ngm add github:org/repo` 会被当成两个依赖
+（config 的重复判定按原样 slug 比较）。在大小写敏感的文件系统上它们是两个目录；
+Windows / macOS 默认卷上是同一个——第二次 Materialize 会把第一个的内容整体
+替换掉，两边都返回成功，直到 `verify` 才以 digest 不符报 critical。
+
+- [x] **Y1** 先试过在 `validateUniqueRootDependencies` 里**无条件**折叠大小写，
+      随即否掉：项目既有纪律是"判据跟随磁盘，不跟随 GOOS"（`ensureNoCaseCollisions`
+      连 Linux 挂 case-insensitive 卷都要正确处理）。无条件拒绝会误伤 Linux 上
+      两个真实目录。
+- [x] **Y2** 改为纯检测 `caseOnlyVendorCollision(items)`（不碰磁盘）+
+      `vendor.IsCaseInsensitiveDir(vendorRoot)` 在**目标文件系统**上探测；
+      只有折叠大小写时才拒绝，错误点名两条路径。
+- [x] **Y3** 判据：检测函数必须找出仅大小写不同的一对、且不把完全相同的路径
+      误报为冲突。磁盘探测本身由既有 `ensureNoCaseCollisions` 的判据覆盖。
+- [x] **Y4** 复核：`internal/core/vendor` 全包 72.3s、`internal/config` 0.27s、
+      cmd 定向判据全绿。

@@ -97,6 +97,9 @@
 
 ### Fixed
 
+- `ngm install` 在大小写折叠的文件系统上拒绝“仅大小写不同”的依赖 vendor 路径
+  （如 `github:Org/Repo` 与 `github:org/repo`）：此前第二个依赖会静默覆盖第一个，
+  install 仍报成功。大小写敏感的文件系统上两个真实目录仍被允许。
 - `ngm mappings validate` 现在要求 `to` 是目录、`main` / `types` 是普通文件：
   一个被误建成文件的 vendor 条目、或指向目录的入口，不再被判成健康。
 - `ngm.mappings.json` 现在拒绝重复的导入标识符（同一 `from` + `path` 出现两次），

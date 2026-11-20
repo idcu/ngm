@@ -170,6 +170,22 @@ func materializeVendor(
 	previous *lock.File,
 	stdout, stderr io.Writer,
 ) error {
+	// 先于任何磁盘写入检查大小写折叠后的 vendor 路径冲突：在大小写敏感
+	// 文件系统上它们是两个目录，在 Windows/macOS 上却是同一个——后者会在
+	// 第二次 Materialize 时把前一个依赖的内容覆盖掉，而 install 仍报成功。
+	if a, b, collides := caseOnlyVendorCollision(items); collides {
+		root := env.VendorRoot(pf)
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return errs.Wrap(errs.CodeConfigInvalid, "create vendor root "+root,
+				"check directory permissions", err)
+		}
+		if vendor.IsCaseInsensitiveDir(root) {
+			return errs.New(errs.CodeConfigInvalid,
+				"two dependencies map to the same vendor path on a case-insensitive filesystem: "+
+					a+" and "+b,
+				"declare the repository with one casing; this filesystem cannot hold both directories")
+		}
+	}
 	// 先清理上一次 lock 中、本次已不再需要的 vendor 目录。必须在落地之前：
 	// 旧根依赖被移除、但同仓库的模块子路径仍保留时，删掉旧根再落地模块，
 	// 才不会把旧根文件留在模块目录旁（见 P1 回归：remove 后 install）。
@@ -224,6 +240,30 @@ func materializeVendor(
 		return herr
 	}
 	return nil
+}
+
+// caseOnlyVendorCollision 找出第一对"仅大小写不同"的 vendor 路径。
+//
+// 纯检测、不碰磁盘：是否真的会冲突由 `vendor.IsCaseInsensitiveDir` 在
+// **目标文件系统**上判定（与 ensureNoCaseCollisions 同一条纪律——不按 GOOS 猜，
+// Linux 也能挂 case-insensitive 卷）。这样大小写敏感的文件系统仍然允许两个
+// 真实目录共存，而不是被一条推测性的规则误拒。
+func caseOnlyVendorCollision(items []digestNode) (a, b string, ok bool) {
+	seen := make(map[string]string, len(items))
+	for _, dn := range items {
+		rel := vendor.VendorPathFor(dn.Repo.MirrorRelPath(), dn.SubPath)
+		if rel == "" {
+			continue
+		}
+		key := strings.ToLower(rel)
+		if prev, dup := seen[key]; dup && prev != rel {
+			return prev, rel, true
+		}
+		if _, dup := seen[key]; !dup {
+			seen[key] = rel
+		}
+	}
+	return "", "", false
 }
 
 // existingVendorPaths 返回 items 中**当前已存在**的 vendor 目录（相对路径集合）。
