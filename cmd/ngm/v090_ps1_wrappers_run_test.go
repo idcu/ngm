@@ -291,6 +291,8 @@ func TestV90WrapperOptionsParity(t *testing.T) {
 var noWindowsEntry = map[string]string{
 	"probe-reproducibility.sh": "CI 专用探针（只在 repro-probe.yml 里、靠 push 到它自己或那个脚本触发）；" +
 		"它不是给人手动跑的读数，Windows 上由那个工作流跑",
+	"go-mod-download.sh": "CI 专用包装（ci.yml / release.yml 显式 `shell: bash` 调用）；" +
+		"Windows runner 自带 Git Bash，它没有需要转发的选项，不是给人手动跑的入口",
 }
 
 // ownLongOptions 取一个脚本**自己**接受的长选项：只看 `case "$1" in` 块里 `--xxx)` 形式的分支。

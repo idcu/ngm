@@ -429,5 +429,10 @@ https fetch: net/http: TLS handshake timeout
 - [x] **R3** 新增 `scripts/go-mod-download.sh`：3 次重试（间隔 10s / 20s），
       ci.yml 与 release.yml 的 `go mod download` 改用它（显式 `shell: bash`，
       Windows 上也走同一段实现）。脚本的成功与失败路径都实测过（失败返回 1）。
-- [x] **R4** 这次红**不是代码回归**：同一提交的本机 build/vet 与定向测试全绿，
-      另外 20 个 check 也是 success。修完后重跑 CI 再确认。
+- [x] **R4** 这次红**不是代码回归**：同一提交的本机 build/vet 与定向测试全绿。
+      修完后 CI #296 证明网络那一段已经解决——测试真的跑起来了，`go test` 的
+      失败变成了**判据失败**而不是依赖拉取失败。
+- [x] **R5** 但新脚本被既有判据抓到：`TestV90WrapperOptionsParity` 要求每个
+      `scripts/*.sh` 有同名 `.ps1` 入口，否则必须登记理由。`go-mod-download.sh`
+      是 CI 专用包装（工作流显式 `shell: bash`，无选项可转发），已登记进
+      `noWindowsEntry` 并写明原因；单跑该判据绿。
