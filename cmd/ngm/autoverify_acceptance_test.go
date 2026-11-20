@@ -39,7 +39,10 @@ func TestV02VerifyOnLockAcceptance(t *testing.T) {
 		}
 		writeSupplyChain(t, proj, `{"verifyOnLock": true}`)
 
-		code, out := runCaptureCode(t, "install", "--dir="+proj)
+		// --allow-fresh：本测的 fixture 是刚 commit 的，且写了 supplyChain 段 ⇒
+		// ADR-050 默认 P1D 会先把它挡在 exit 3；晾晒期不是本测对象（本测验的是
+		// verifyOnLock 在 install 后重查 lock），用单命令逃生口隔离掉无关门禁。
+		code, out := runCaptureCode(t, "install", "--allow-fresh", "--dir="+proj)
 		if code != 0 {
 			t.Fatalf("install: %s", out)
 		}

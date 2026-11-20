@@ -46,11 +46,13 @@ inputs:
     default: "ngm.proof.json"
   verify-level:
     description: >-
-      For mode=verify only: structure (default; no byte reads) or content
-      (replay the digest and hash every vendor file). content is slower and
-      should be used for release / post-restore audits, not every push.
+      For mode=verify only: content (default in CI; replay the digest and hash
+      every vendor file) or structure (paths + sizes only; no byte reads).
+      CI is the supply-chain-critical path, so the action defaults to the stronger
+      content check. The CLI still defaults to structure for a light local loop —
+      pass --level=structure here to opt back into the cheap check.
     required: false
-    default: "structure"
+    default: "content"
   args:
     description: Extra arguments forwarded to the ngm command (e.g. "--content --strict")
     required: false
@@ -90,6 +92,8 @@ runs:
         code=0
         # args 里已经写了级别开关时不再注入默认值：--content 与 --level=structure
         # 同时给会被 ngm 拒绝（两种写法指向不同级别），而用户的显式写法应当赢。
+        # 默认值说明（ADR-051）：action 默认 content（CI 是供应链关键路径），
+        # ngm verify 的 CLI 默认仍是 structure（本地轻量循环）；两者不同是有意的。
         level_arg="--level=$NGM_LEVEL"
         case " $NGM_ARGS " in
           *" --content "*|*" --content="*|*" --deep "*|*" --level "*|*" --level="*) level_arg="" ;;

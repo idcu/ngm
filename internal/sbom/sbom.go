@@ -32,7 +32,7 @@ import (
 type Format string
 
 const (
-	// FormatCycloneDX 是 CycloneDX 1.5 的 JSON 形态。
+	// FormatCycloneDX 是 CycloneDX 1.7 的 JSON 形态。
 	FormatCycloneDX Format = "cyclonedx"
 	// FormatSPDX 是 SPDX 2.3 的 JSON 形态。
 	FormatSPDX Format = "spdx"

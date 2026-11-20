@@ -36,7 +36,9 @@ func TestCheckMinimumAge(t *testing.T) {
 		{"hours granularity", "PT12H", 11 * time.Hour, true, 3},
 		{"hours granularity passes", "PT12H", 13 * time.Hour, false, 0},
 		{"weeks", "P1W", 6 * 24 * time.Hour, true, 3},
-		{"no policy never blocks", "", time.Minute, false, 0},
+		// ADR-050：空字符串现在=默认 P1D（会挡 1 分钟前的新 commit）。
+		{"default P1D blocks a fresh commit", "", time.Minute, true, 3},
+		{"default P1D passes an old commit", "", 48 * time.Hour, false, 0},
 	}
 
 	for _, c := range cases {

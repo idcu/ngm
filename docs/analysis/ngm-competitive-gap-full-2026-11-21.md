@@ -13,6 +13,12 @@
 > [competitive-followup spec + tasks](../specs/assessment-2026-11-21-competitive-followup/spec.md)
 > 分 A（合规产物）→ B（默认安全姿态）→ C（签名背书）→ D（结构债测量）四批推进。
 > "不怕风险"解除的是上一轮因风险暂缓的批次，**不解除 ADR-044 定位边界**；每项仍带契约决定与判据。
+>
+> ✅ **已全量推进（同日）**：A–D 共 10 项全部完成（详见 [tasks.md](../specs/assessment-2026-11-21-competitive-followup/tasks.md)）。
+> 落地包括 SBOM→CDX 1.7、attest `--with-timestamps`、`minimumReleaseAge` 默认 P1D + `--allow-fresh`、
+> action verify 默认 content、cosign 签名配方、四份结构债/发布测量报告，新增 ADR-050/051。
+> §6.1 的建议除"外部审计（立项，未执行）"与"发布回填（凭据阻塞 + 38 个定性不回填）"外均已落地；
+> 两处实施安全改判（invocationId 本就是哈希、P0D 被有意拒绝）记在 tasks.md。
 
 ---
 

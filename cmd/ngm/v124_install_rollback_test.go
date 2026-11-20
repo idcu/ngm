@@ -84,7 +84,10 @@ func TestV124HookFailureRollsBackNewVendor(t *testing.T) {
 			t.Fatal(err)
 		}
 		brokenDenoDir(t)
-		code, out := runCaptureCode(t, "install", "--dir="+proj)
+		// --allow-fresh：本测的 fixture 是刚 commit 的仓库，ADR-050 的默认 P1D
+		// 晾晒期会先把它挡在 exit 3——那测的是另一道门禁，与本测"沙箱 runner 坏了→
+		// exit 5 + 回滚"无关。用单命令逃生口隔离掉无关变量（白名单等其他门禁不变）。
+		code, out := runCaptureCode(t, "install", "--allow-fresh", "--dir="+proj)
 		assertRollback(t, code, out, proj, 5)
 
 		after, rerr := os.ReadFile(mappingsPath)

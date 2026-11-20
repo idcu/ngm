@@ -8,6 +8,29 @@
 
 ## [Unreleased] - 2026-11-04
 
+### Added（2026-11-21 追加，竞品差距 followup）
+
+- `ngm sbom` 导出 **CycloneDX 1.7**（此前 1.7 是 pnpm 12 的默认，ngm 停在 1.5）；
+  输出仍字节确定性，`TestV138CycloneDX17SchemaShape` 守关键字段与依赖图引用。
+- `ngm attest --with-timestamps`：显式开启才写 SLSA v1 的 `runDetails.metadata.startedOn` /
+  `finishedOn`；**默认仍无时间字段**（同 lock 同字节），`invocationId` 恒为 lock 的字节哈希。
+  开启后该产物放弃字节确定性——适合要在签名里体现产出时刻的场景（[ADR-027 补记](docs/adr/adr-027-attestation.md)）。
+- **`supplyChain.minimumReleaseAge` 默认 P1D（24h）**：写了 `supplyChain` 段但没写冷却时生效，
+  对齐 pnpm/Deno 的 2026 默认，防"新版本投毒在数小时内被撤回"的窗口（独立安全理由，非兼容 npm）。
+  **完全不配 `supplyChain` 段仍不门禁**（[ADR-009](docs/adr/adr-009-supply-chain-policy.md) 底线不变）。
+  新增 `ngm install --allow-fresh` / `ngm update --allow-fresh` 单命令逃生口（只关晾晒期，白名单等其他门禁不变）
+  （[ADR-050](docs/adr/adr-050-default-release-age.md)）。
+
+### Changed（2026-11-21）
+
+- GitHub composite action 的 `verify-level` 默认从 `structure` 改为 **`content`**：CI 是供应链
+  关键路径，默认做逐文件字节校验（CLI 的 `ngm verify` 仍默认 structure，本地循环保持轻量）。
+  原来 structure 通过的项目在 action 默认下可能因字节不符而 exit 2——这是发现真问题；
+  需要旧行为时显式 `verify-level: structure`（[ADR-051](docs/adr/adr-051-verify-level-defaults.md)）。
+- **破坏性变更**：既有项目若写了 `supplyChain` 段但未显式配置 `minimumReleaseAge`，新解析的依赖
+  现在要满足 24h 晾晒期。需要关闭时：删除整个 `supplyChain` 段（项目级），或对单次命令用 `--allow-fresh`。
+  已锁在 `ngm.lock` 的 commit 走 lock 路径不被追溯重判。
+
 ### Added（2026-11-20 追加）
 
 - `ngm sbom --allow-stale` / `ngm attest --allow-stale`：**lock 过期时默认拒绝导出**

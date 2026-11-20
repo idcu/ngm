@@ -173,7 +173,7 @@ func TestV69CycloneDXCarriesHashesAndPurls(t *testing.T) {
 		t.Fatalf("输出不是合法 JSON: %v", err)
 	}
 
-	if doc.BomFormat != "CycloneDX" || doc.SpecVersion != "1.5" || doc.Version != 1 {
+	if doc.BomFormat != "CycloneDX" || doc.SpecVersion != "1.7" || doc.Version != 1 {
 		t.Errorf("文档头不对: %+v", doc)
 	}
 	if doc.Metadata.Timestamp != "2026-10-09T12:00:00Z" {

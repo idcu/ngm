@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/errs"
@@ -68,6 +69,13 @@ type Options struct {
 	// 那份文件字节的 sha256（不是规范化后的重排字节）。
 	ManifestDigest string
 	LockDigest     string
+	// WithTimestamps  opt-in 写 runDetails.metadata 的 startedOn/finishedOn（SLSA v1 标准字段）。
+	// 默认 false：这份语句的卖点是"同 lock 同字节"，时间戳会让同一份 lock 每次导出都不同。
+	// 开启者获得标准完整性（签名时刻可考），代价是该产物不再能做字节确定性比较（ADR-027 补记）。
+	WithTimestamps bool
+	// Timestamp 是 WithTimestamps 开启时写进语句的时刻；零值时由 Build 用 time.Now 填。
+	// 测试注入固定值以断言确定性；生产路径留零。
+	Timestamp time.Time
 }
 
 // Build 生成语句字节流。
@@ -116,6 +124,19 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 		})
 	}
 
+	// SLSA v1 的 runDetails.metadata 可有 startedOn / finishedOn；默认省略以保持确定性。
+	// 开启时用同一时刻填两个字段——这是"导出这一刻"的时间戳，不是捏造一段构建时长。
+	md := metadata{InvocationID: opts.LockDigest}
+	if opts.WithTimestamps {
+		ts := opts.Timestamp
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+		formatted := ts.UTC().Format(time.RFC3339)
+		md.StartedOn = &formatted
+		md.FinishedOn = &formatted
+	}
+
 	doc := statement{
 		Type:          StatementType,
 		Subject:       subjects,
@@ -140,7 +161,7 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 					ID:      BuilderID,
 					Version: map[string]string{"ngm": opts.ToolVersion},
 				},
-				Metadata: metadata{InvocationID: opts.LockDigest},
+				Metadata: md,
 			},
 		},
 	}
@@ -248,5 +269,7 @@ type builder struct {
 }
 
 type metadata struct {
-	InvocationID string `json:"invocationId"`
+	InvocationID string  `json:"invocationId"`
+	StartedOn    *string `json:"startedOn,omitempty"`
+	FinishedOn   *string `json:"finishedOn,omitempty"`
 }

@@ -2,7 +2,7 @@ package sbom
 
 import "time"
 
-// CycloneDX 1.5 的 JSON 形态（只用**必需 + 有价值**的字段，
+// CycloneDX 1.7 的 JSON 形态（只用**必需 + 有价值**的字段，
 // 不填的字段一律省略——SBOM 里的空字段比没有字段更容易被读成"确认过"）。
 //
 // 结构体的字段顺序即序列化顺序：它决定导出字节的顺序，
@@ -92,7 +92,7 @@ type cdxProperty struct {
 func buildCycloneDX(project Project, entries []Entry, opts Options) cdxDocument {
 	doc := cdxDocument{
 		BomFormat:   "CycloneDX",
-		SpecVersion: "1.5",
+		SpecVersion: "1.7",
 		Version:     1,
 		Metadata: cdxMetadata{
 			Timestamp: opts.Now.UTC().Truncate(time.Second).Format(time.RFC3339),

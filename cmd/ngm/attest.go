@@ -21,12 +21,16 @@ import (
 const attestUsage = `ngm attest — emit an in-toto / SLSA v1 statement for ngm.lock
 
 USAGE:
-  ngm attest [--out=<file>] [--dir=<dir>] [--allow-stale]
+  ngm attest [--out=<file>] [--dir=<dir>] [--allow-stale] [--with-timestamps]
 
 FLAGS:
-  --out          write the statement to this file instead of stdout
-  --dir          project directory containing ngm.lock (default: .)
-  --allow-stale  export even when ngm.lock is out of date with ngm.json (default: refuse)
+  --out              write the statement to this file instead of stdout
+  --dir              project directory containing ngm.lock (default: .)
+  --allow-stale      export even when ngm.lock is out of date with ngm.json (default: refuse)
+  --with-timestamps  also emit runDetails.metadata.startedOn/finishedOn (SLSA v1).
+                     Default off: same lock, same bytes. Turn it on when you want
+                     the signed statement to carry the time it was produced —
+                     note that this gives up byte determinism for that artifact.
 
 WHAT IT EMITS:
   One in-toto Statement v1 whose predicate is SLSA provenance v1, binding every
@@ -35,7 +39,9 @@ WHAT IT EMITS:
     inputs     sha256 of ngm.json and of ngm.lock as committed
     materials  the pinned commit (gitCommit), plus the ref ngm.json declared
   It reads the lock only: no network, no re-resolution, no writes to the project.
-  Same lock, same bytes - there is deliberately no timestamp and no random run id.
+  Same lock, same bytes by default - no timestamp, no random run id. invocationId
+  is the sha256 of the lock bytes. Use --with-timestamps to opt into SLSA v1 time
+  fields (that artifact will no longer be byte-identical across runs).
 
 WHAT IT DOES NOT CLAIM:
   It is unsigned, and ngm does not invent a signing system (ADR-014): sign it with
@@ -62,11 +68,12 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	dirFlag := fs.String("dir", ".", "project directory")
 	outFlag := fs.String("out", "", "write to this file instead of stdout")
 	allowStale := fs.Bool("allow-stale", false, "export even when ngm.lock is out of date with ngm.json")
+	withTimestamps := fs.Bool("with-timestamps", false, "emit SLSA v1 startedOn/finishedOn (gives up byte determinism)")
 
 	c := newCmdContextNoJSON(ctx, args, stdout, stderr, fs)
 	c.usage(attestUsage)
 	if !c.parse([]flagSpec{
-		{Name: "dir"}, {Name: "out"}, {Name: "allow-stale", Bool: true},
+		{Name: "dir"}, {Name: "out"}, {Name: "allow-stale", Bool: true}, {Name: "with-timestamps", Bool: true},
 	}, nil) {
 		return 3
 	}
@@ -170,6 +177,7 @@ func runAttest(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		ToolVersion:    version.Version,
 		ManifestDigest: fileHexDigest(manifestBytes),
 		LockDigest:     fileHexDigest(lockBytes),
+		WithTimestamps: *withTimestamps,
 	})
 	if err != nil {
 		return c.fail(err)

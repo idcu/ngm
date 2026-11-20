@@ -24,13 +24,15 @@ import (
 const installUsage = `ngm install — resolve dependencies and produce ngm.lock
 
 USAGE:
-  ngm install [--dir=<dir>] [--digest] [--frozen-lockfile] [--offline] [--json]
+  ngm install [--dir=<dir>] [--digest] [--frozen-lockfile] [--offline] [--allow-fresh] [--json]
 
 FLAGS:
   --dir               project directory containing ngm.json (default: .)
   --digest            also print each dependency's archiveDigest
   --frozen-lockfile   never resolve a new ref and never write ngm.lock
   --offline           never touch the network
+  --allow-fresh       skip minimumReleaseAge for this install (ADR-050; default P1D
+                      when supplyChain is configured). Whitelists still apply.
   --json              write a machine-readable report to stdout (CI should use this);
                       progress text and warnings then go to stderr
 
@@ -73,6 +75,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	digestFlag := fs.Bool("digest", false, "also print each archiveDigest")
 	frozen := fs.Bool("frozen-lockfile", false, "never resolve a new ref or write ngm.lock")
 	offline := fs.Bool("offline", false, "never touch the network")
+	allowFresh := fs.Bool("allow-fresh", false, "skip the minimumReleaseAge gate for this install (ADR-050)")
 	jsonOut := fs.Bool("json", false, "machine-readable report")
 
 	c := newCmdContext(ctx, args, stdout, stderr, fs)
@@ -80,7 +83,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if !c.parse([]flagSpec{
 		{Name: "dir"}, {Name: "digest", Bool: true},
 		{Name: "frozen-lockfile", Bool: true}, {Name: "offline", Bool: true},
-		{Name: "json", Bool: true},
+		{Name: "allow-fresh", Bool: true}, {Name: "json", Bool: true},
 	}, jsonOut) {
 		return 3
 	}
@@ -150,7 +153,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			strings.Join(missing, ", "))
 	}
 
-	code := installFresh(ctx, env, pf, roots, lf, *digestFlag, *offline, rep, humanOut, stderr)
+	code := installFresh(ctx, env, pf, roots, lf, *digestFlag, *offline, *allowFresh, rep, humanOut, stderr)
 	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
 }
 
@@ -350,11 +353,17 @@ func requiredByRoot(d *lock.Dependency) bool {
 }
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
-func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
+func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline, allowFresh bool, rep *writeReport, stdout, stderr io.Writer) int {
 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
 		return runErr(ctx, stdout, stderr, perr)
+	}
+	// ADR-050：--allow-fresh 只对本次解析跳过晾晒期，白名单等其他门禁仍生效；
+	// 用副本改，避免"一次性逃生"泄漏给同进程后续命令。
+	if allowFresh {
+		pol = pol.WithoutMinimumAge()
+		fmt.Fprintln(stderr, "warning: --allow-fresh skips the minimumReleaseAge gate for this install")
 	}
 	opts := env.GraphOptions()
 	opts.CheckRepo = pol.CheckRepo

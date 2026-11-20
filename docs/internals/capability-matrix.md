@@ -24,7 +24,7 @@
 | 可观测性 | why/tree/outdated | done (v0.2) | pnpm | why 给出**全部**来源路径；outdated 查不到时报 unknown 而非"最新" |
 | 脚本执行 | `ngm run <script>` / `--list` | done（当前开发线） | npm scripts | 读 `package.json.scripts`（`ngm.json.scripts` 回退）；`run:script` 默认拒绝；退出码原样透传，不映射 ngm 的 0–6（[ADR-042](../adr/adr-042-run-outside-sandbox.md)） |
 | 内容级复核 | `ngm verify --content` / `--level=content` | done（当前开发线） | 少见的 archive 级 | 重放 digest + 逐文件字节比对；`--deep` 为旧别名。默认 structure 只比结构与大小 |
-| 审计产物 | `ngm sbom` / `ngm attest` | done（当前开发线） | CycloneDX / SPDX 工具 | 只读 lock 导出 CycloneDX 1.5 / SPDX 2.3 与 in-toto/SLSA v1 未签名语句；确定性字节 |
+| 审计产物 | `ngm sbom` / `ngm attest` | done（当前开发线） | CycloneDX / SPDX 工具 | 只读 lock 导出 CycloneDX 1.7 / SPDX 2.3 与 in-toto/SLSA v1 未签名语句；确定性字节 |
 | 采用扫描 | `ngm adopt` | done（当前开发线） | 少见 | 只读扫 `node_modules` 出内容证明；是迁移坡道不是兼容层（[ADR-040](../adr/adr-040-adopt-proof-layer.md)） |
 | 项目范围回收 | `ngm gc [--apply]` | done（当前开发线） | pnpm store prune | 按当前项目 lock 回收 store / mirror / vendor / module cache 的不可达对象；默认 dry-run（[ADR-041](../adr/adr-041-project-scoped-gc.md)） |
 | Git 签名报告 | `ngm verify --signatures` | done (v0.4) | npm provenance | 报告或强制锁定 commit 的 Git 签名状态；未签名不是失败（[ADR-014](../adr/adr-014-self-report-signatures.md)） |

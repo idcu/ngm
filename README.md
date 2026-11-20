@@ -175,7 +175,7 @@ ngm verify --offline                      # 只比对本地快照，结果标记
 
 | 命令 | 产物 | 关键事实 |
 |---|---|---|
-| `ngm sbom` | CycloneDX 1.5 或 SPDX 2.3 JSON | 只读 `ngm.lock`；每个依赖带 commit、内容 digest 与 purl；SPDX 的许可证写 `NOASSERTION`（不猜） |
+| `ngm sbom` | CycloneDX 1.7 或 SPDX 2.3 JSON | 只读 `ngm.lock`；每个依赖带 commit、内容 digest 与 purl；SPDX 的许可证写 `NOASSERTION`（不猜） |
 | `ngm attest` | in-toto Statement v1，谓词为 SLSA provenance v1 | subject 是依赖的 git purl + 内容摘要；inputs 是 `ngm.json` / `ngm.lock` 的字节 sha256；materials 是 commit + 声明的 ref；**无时间戳、无随机 ID**，同一 lock 产出相同字节 |
 
 两者的 purl 按 host 分流：`pkg:github/<owner>/<repo>`、`pkg:gitlab/...`、`pkg:gitee/...`；

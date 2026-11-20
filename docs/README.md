@@ -61,6 +61,7 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | **一个仓库放多个模块、各自独立依赖/版本** | [模块集合架构](./architecture/module-collections.md) · [语言无关核心](./architecture/core-and-adapters.md) | 维护者 / 评估者 |
 | 用 ngm 构建 / 类型检查 / 编译 CSS | [构建](./guides/build.md) | 使用者 |
 | 让 CI 用上 ngm、发布产物 | [CI 与发布](./guides/publishing.md) | 使用者 |
+| 给 `ngm attest` 的语句签名（ngm 不自签） | [签名配方](./guides/signing.md)（cosign/Sigstore CI 配方） | 使用者 · 评估者 |
 | 在 Node 和 Deno 之间选 | [Node vs Deno](./guides/node-vs-deno.md) | 使用者 |
 | 从 npm / pnpm 迁过来 | [迁移指南](./guides/migration.md) | 使用者 |
 | 给**你的项目**配测试（Vitest / Deno test） | [测试](./guides/test.md) | 使用者 |

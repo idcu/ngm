@@ -9,6 +9,11 @@ import (
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
+// DefaultMinimumReleaseAge 是"写了 supplyChain 段但没写 minimumReleaseAge"时的晾晒期（ADR-050）。
+// 对齐 pnpm 11+ 的 1440 分钟与 Deno 2.9 的 24h 默认；防的是"新版本投毒在数小时内被撤回"的窗口。
+// 注意：完全没有 supplyChain 段（sc == nil）时仍不门禁——ADR-009 的底线承诺，见 FromConfig。
+const DefaultMinimumReleaseAge = 24 * time.Hour
+
 // Policy 是一份**生效中的**供应链策略。
 //
 // 由 ngm.json 的 supplyChain 段构造（见 ADR-009）。零值 Policy 表示"未配置策略"，
@@ -46,6 +51,10 @@ func FromConfig(sc *config.SupplyChainConfig) (*Policy, error) {
 			return nil, fmt.Errorf("supplyChain.minimumReleaseAge: %w", err)
 		}
 		p.minAge = d
+	} else {
+		// ADR-050：写了 supplyChain 段但没写冷却 ⇒ 默认 24h。
+		// sc == nil 的情况在上面已 return（空策略不门禁，ADR-009 底线不变）。
+		p.minAge = DefaultMinimumReleaseAge
 	}
 
 	for _, s := range sc.OSVIgnoreSeverities {
@@ -73,6 +82,17 @@ func (p *Policy) MinimumReleaseAge() time.Duration {
 		return 0
 	}
 	return p.minAge
+}
+
+// WithoutMinimumAge 返回一份**跳过晾晒期**的副本（其他门禁不变）——供 `--allow-fresh` 单命令逃生口。
+// 刻意复制而非原地改：原策略可能被同一进程里别的命令再用，原地改会让"一次性逃生"泄漏出去。
+func (p *Policy) WithoutMinimumAge() *Policy {
+	if p == nil {
+		return nil
+	}
+	q := *p
+	q.minAge = 0
+	return &q
 }
 
 // VerifyOnLock 表示 install / update 后是否自动触发 verify。

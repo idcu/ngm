@@ -57,6 +57,8 @@
 | [ADR-047](./adr-047-package-main-size.md) | `cmd/ngm` 拆包的**触发条件** | 已定（2026-11-20，暂不重构）：规模本身不是触发条件；只有当同类跨文件耦合缺陷 ≥2 次、现有守卫抓不到的用户可见缺陷、或可观测的编译/测试退化出现才拆。拆时按命令实现/报告渲染/环境装配分三类，沿用 cmdContext |
 | [ADR-048](./adr-048-usage-flag-dual-source.md) | usage 常量与 flag 声明双源的**容忍度** | 已定（2026-11-20，暂不合并）：golden + `TestHintsNameFlagsTheCommandAccepts` 已兜住漂移；只有 golden 漏过真实漂移或 AST 守卫维护成本显著上升才合并。在此之前不得削弱该判据 |
 | [ADR-049](./adr-049-contract-net-freeze.md) | **契约网冻结**：停止新建，保留复核节奏 | 已定（2026-11-20）：新判据必须先指着一个已发生的产品缺陷；存量网作为回归档案保留；仅当某网连续 3 版因自身而红、且删除不影响产品不变量时才复核精简。与 roadmap 停止清单同源 |
+| [ADR-050](./adr-050-default-release-age.md) | `minimumReleaseAge` 默认 **P1D** | 已定（2026-11-21）：写了 `supplyChain` 段但没写冷却 ⇒ 默认 24h（对齐 pnpm/Deno 2026 默认，独立安全理由非"更像 npm"）；**完全不配段仍不门禁**（ADR-009 底线）；逃生口 = `--allow-fresh` 单命令副本（白名单不变、不泄漏）。不用 P0D 当开关（`ParseISODuration` 有意拒绝零值） |
+| [ADR-051](./adr-051-verify-level-defaults.md) | `verify` 默认级别：CLI structure / CI action **content** | 已定（2026-11-21）：CI 是供应链关键路径，action 默认 content（逐文件哈希）；CLI 保持 structure（本地轻量）。两者不同是有意的，双向写进 action description 与 help；action 里显式 `verify-level: structure` 可回到廉价检查 |
 
 ---
 

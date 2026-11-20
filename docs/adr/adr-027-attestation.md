@@ -184,6 +184,24 @@ cosign verify-blob-attestation --type slsaprovenance \
 
 ---
 
+## 补记（2026-11-21，A2：`--with-timestamps`）
+
+竞品全维度评估发现 pnpm 12 的 provenance 带时间戳，而 ngm 的语句一直刻意无时间字段。
+
+**决定**：加 `--with-timestamps` opt-in 写 `runDetails.metadata.startedOn` / `finishedOn`
+（SLSA v1 标准字段），**默认仍省略**。`invocationId` 保持为 lock 字节哈希（它从来就不是空串——
+早期评估快照写"invocationId 为空"是过时的，源码 v0.70 起就是哈希）。
+
+- **不翻转**本 ADR 的核心决定：ngm 仍不签名、不管密钥、不自造格式；本补记只增加"被签对象"的
+  一个标准字段。
+- **确定性是默认**：不带 flag 时同一 lock 两次导出逐字节相同（`TestV70Deterministic` 守）；
+  带 flag 时注入的时刻写进两个字段，放弃该产物的字节确定性——这由调用者显式选择，
+  适合"要在签名里体现产出时刻"的场景。
+- **判据**：`TestV70TimestampsAreOptIn`（默认无时间字段 / 开启后 RFC3339 且等于注入时刻 /
+  invocationId 不受开关影响 / flag 非空转）；变异（关掉写字段分支）红。
+
+---
+
 ## 相关文档
 
 - [ADR-014 自述文件签名](./adr-014-self-report-signatures.md)（为什么不做自造签名体系；本 ADR 与它的边界）

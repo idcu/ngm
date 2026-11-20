@@ -18,16 +18,18 @@ import (
 const updateUsage = `ngm update — re-resolve dependency refs to commits
 
 USAGE:
-  ngm update [<dep>] [--all] [--dir=<dir>] [--offline] [--digest] [--store] [--json]
+  ngm update [<dep>] [--all] [--dir=<dir>] [--offline] [--allow-fresh] [--digest] [--store] [--json]
 
 ARGS:
   <dep>       dependency slug (e.g. github:org/repo); repeatable
 
 FLAGS:
-  --all       update every dependency in ngm.json
-  --dir       project directory containing ngm.json (default: .)
-  --offline   never touch the network; require a warm local mirror (exit 4 if missing)
-  --digest    also compute and print the archiveDigest (ADR-008)
+  --all         update every dependency in ngm.json
+  --dir         project directory containing ngm.json (default: .)
+  --offline     never touch the network; require a warm local mirror (exit 4 if missing)
+  --allow-fresh skip minimumReleaseAge for this update (ADR-050; default P1D when
+                supplyChain is configured). Whitelists still apply.
+  --digest      also compute and print the archiveDigest (ADR-008)
   --store     report content-store status (implies --digest);
               the store is always populated by update regardless of this flag
   --json      write a machine-readable report to stdout (CI should use this);
@@ -67,6 +69,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	all := fs.Bool("all", false, "update every dependency")
 	dirFlag := fs.String("dir", ".", "project directory")
 	offline := fs.Bool("offline", false, "never touch the network")
+	allowFresh := fs.Bool("allow-fresh", false, "skip the minimumReleaseAge gate for this update (ADR-050)")
 	digestFlag := fs.Bool("digest", false, "also compute and print archiveDigest")
 	// v0.136：Store.Put 在下面无条件执行；这个 flag 只控制是否**报告** store 状态。
 	// 此前 help 写 "populate the content store" 会让用户误以为能跳过落盘。
@@ -77,6 +80,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	c.usage(updateUsage)
 	if !c.parse([]flagSpec{
 		{Name: "all", Bool: true}, {Name: "dir"}, {Name: "offline", Bool: true},
+		{Name: "allow-fresh", Bool: true},
 		{Name: "digest", Bool: true}, {Name: "store", Bool: true},
 		{Name: "json", Bool: true},
 	}, jsonOut) {
@@ -142,6 +146,11 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
 		return runErr(ctx, stdout, stderr, perr)
+	}
+	// ADR-050：--allow-fresh 只对本次解析跳过晾晒期；用副本改，白名单等其他门禁不变。
+	if *allowFresh {
+		pol = pol.WithoutMinimumAge()
+		fmt.Fprintln(stderr, "warning: --allow-fresh skips the minimumReleaseAge gate for this update")
 	}
 	opts.CheckRepo = pol.CheckRepo
 	g, rerr := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
