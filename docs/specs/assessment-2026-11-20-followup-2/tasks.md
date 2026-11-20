@@ -13,7 +13,9 @@
 
 ## Batch H（精确性与安全提示，低风险）
 
-- [ ] **H1 `auto` link 模式兑现"整树复制"（M1，先做 §3.1 契约决定）**
+- [x] **H1 `auto` link 模式兑现"整树复制"（M1，契约取 §3.1 (a) 整树 copy）**
+  - ✅ 已落地：`canHardlink` 整树预探测 + `linkEntriesWithHardlink` 可注入内核；中途链接失败 fail-closed。
+    证据：判据 `link_auto_whole_tree_test.go`（两处变异检验均红）+ ADR-021 补记 + vendor-layers.md 同步。
   - 位置：`internal/core/vendor/links.go:436-489`（`linkEntries`）、`LinkResult`/`LinkMode` 定义、
     `docs/architecture/vendor-layers.md:141,249`。
   - 现状：`auto` 从 hardlink 起步，首次 `os.Link` 失败即把 `current` 切到 `LinkCopy`，**后续**条目走 copy；
@@ -27,28 +29,32 @@
     变异：去掉预探测、恢复逐文件降级 → 混合树重现，判据红。
   - 注意：预探测不能引入额外 `os.Link` 调用点破坏 v0.82 "单一出口"类判据；先查现有 vendor 判据列表。
 
-- [ ] **H2 `HostFromRemoteURL` 的 scp 分支不再把 `foo:bar` 误报成 `net:foo`**
-  - 位置：`internal/core/git/remoteurl.go:81-90`，测试 `internal/core/git/remoteurl_test.go:14`。
+- [x] **H2 `HostFromRemoteURL` 的 scp 分支不再把 `foo:bar` 误报成 `net:foo`**
+  - 位置：`internal/core/git/remoteurl.go`，测试 `internal/core/git/remoteurl_test.go`。
   - 现状：`foo:bar` 无 `@` 却落入 scp 分支，`head="foo"` 通过非空且无 `/\` 检查 → host `foo` → 触发
     `net:foo`（fail-closed，故非安全漏洞，但提示误导：用户没写 host）。
-  - 改动：scp 形式要求 `head` 含 `@`（`git@host:path`）或看起来像合法 host（含 `.` / `localhost` / IP），
-    否则返回 `("", false)`，让调用方按非法/本地 URL 处理并给出贴合的提示。
-  - 判据：在 `remoteurl_test.go` 加表驱动用例 `foo:bar` → isNet=false、`git@github.com:o/r.git` → host=github.com、
-    `github.com:o/r.git`（合法无 @ scp）仍 → host=github.com（**不要伤到合法形式**）。
-    变异：去掉新增的形状约束 → `foo:bar` 又返回 foo，判据红。
-  - 文档：若提示文案变化，同步 `docs/guides/configuration.md` 的 `net:` 说明。
+  - **改动（实施时对原计划做了安全改判）**：原计划让 `HostFromRemoteURL` 对 `foo:bar` 返回 `("", false)`——
+    **这是错的**：`CheckNetAccess` 会因此放行，而 git 仍把 `foo:bar` 当 scp 远端解析 → 真实触网却绕过 net 门禁
+    （fail-open）。实际改为：`ValidateRemoteURL` 拒绝"无 @ 且 host 无点"的歧义 token 并给出
+    `user@host:path` 提示；**`HostFromRemoteURL` 保持 isNet=true**（门禁仍 fail-closed）。
+    `git@单标签host`、`host:path`（带点）、localhost 均放行。
+  - 判据：`TestValidateRemoteURLRejectsAmbiguousScp`（拒绝歧义 token + 合法形式不误伤）+
+    `TestHostFromRemoteURL` 加 `foo:bar → isNet=true` 行（守住 fail-closed）；变异（去掉形状约束）红。
+    "isNet 必须保持 true"已登记进 V99 claimsLedger（`32fb208`）。文档同步 security-model.md。
 
 ## Batch I（覆盖率与判据诚实度，需先定契约）
 
-- [ ] **I1 覆盖率读数可见化（先做 §3.2 契约决定；默认不新建门槛）**
-  - 位置：`.github/workflows/ci.yml:101-176`（verify 跨包门槛 floor=78，平台名已进 annotation）。
+- [x] **I1 覆盖率读数可见化（契约 §3.2：只加可见性、不新建门槛）**
+  - 位置：`.github/workflows/ci.yml` 的 verify 覆盖率步骤（floor=78，平台名已进 annotation）。
   - 现状：只有 `internal/core/verify` 有跨包门禁；其余产品代码覆盖率不可见，下滑无人察觉。
-  - 改动（默认契约）：仿照 verify 的 `::notice`，把**各顶层包**的跨包覆盖率读数发 annotation（只读、不设闸）；
-    门槛仍只守 verify 且保持 78；平台名写进 annotation。若 §3.2 决定加门槛，必须按实际测量平台重新校准并写进 summary。
-  - 判据：静态检查 workflow —— 读数步骤的 annotation 覆盖所有产品包；门槛步骤仍只有 verify 且 floor 与校准平台同源
-    （仿 `check-discipline` 的思路，不改产品代码）。
-    变异：删掉某包的读数 annotation → 判据红。
-  - 注意：本项动 CI，本机无法直接验证 annotation 内容；至少跑一次 workflow 静态检查 + 确认不破坏现有 verify 门槛步骤。
+  - 改动：coverpkg 扩到 `./internal/...`（**单次** go test，不多花 CI 时间）；每个顶层包一条 `::notice`
+    只报告不设闸；门槛仍只守 verify 且保持 78。
+    **关键坑（实施中发现并修复）**：读数必须交 `go tool cover -func` 合并重复块——完整 `./...` 下每个测试
+    二进制都重发一遍语句块（verify 380 块 ×25），awk 直接求和会把读数从 76.5% 塌到 3.8%（CI 实测 4.1%，
+    门槛误红）。`pkgcov` 改为过滤 profile 到包前缀后交 `go tool cover`，全量 profile 复验 76.5% 逐位一致。
+  - 判据：`TestV137CoverageVisibilityKeepsGateAndAddsNotices`（静态检查 workflow：泛化 coverpkg、verify-only 门槛、
+    floor=78、每包 notice、**必须走 go tool cover**、精确路径过滤、退化守卫串），变异（换回 awk / 删 notice）红。
+  - CI 实证：`5cefbac` 的 run 44765350554 = 24/24 全绿（含此前红的 ubuntu build/vet/test 与 go test -race）。
 
 - [x] **I2 v089 判据：确认"按引用记账"是否收紧 —— 决定不改（2026-11-20 授权拍板）**
   - 位置：`cmd/ngm/v089_artifacts_test.go:24-27` 与 `explainedNotAutomated` 登记表。
