@@ -495,3 +495,23 @@ https fetch: net/http: TLS handshake timeout
       变异检验：把顺序换回"索引先写" ⇒ 判据红，随后还原。
 - [x] **U3** 复核：`TestModulesIndexPublishesShardsBeforeTheRootIndex` 与既有的
       deterministic / shards / branch 四条判据全绿（5.0s）；build/vet 全绿。
+
+---
+
+## Batch V：validate --index 不看分片
+
+`--shards` 布局下，根索引没有 inline releases，只写 `releaseDir`；内容全在
+`releases/<module>.json`。但 `ngm modules validate --index` 完全不看这个目录——
+分片被截断、写坏、指向未知模块，命令仍报 `OK`。U 修好了写侧顺序，但读侧
+仍然看不见 U 防的那类残骸。
+
+- [x] **V1** `validateIndexAgainstModules` 增加分片校验：`releaseDir` 必须是
+      相对目录（按路径分量拒绝 `..` / 空段 / 反斜杠），目录必须存在。
+- [x] **V2** 逐个读取分片：JSON 可解析、`schemaVersion=1`、`module` 与文件名一致、
+      release 条目有版本与 commit；同时拒绝指向索引中不存在模块的孤儿分片。
+      错误里的路径是**相对索引文件**的（`releases/packages/a.json`），不是
+      相对 `releases/` 的那一截。
+- [x] **V3** 判据：分片布局的索引必须通过 validate；截断分片与孤儿分片必须
+      exit 3 并点名具体文件。变异检验：禁用分片校验 ⇒ 两条判据同时红。
+- [x] **V4** 复核：shards / broken-shard / index-consistency 三条判据全绿（5.5s）；
+      build/vet 全绿。

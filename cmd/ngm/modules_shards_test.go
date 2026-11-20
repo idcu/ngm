@@ -13,7 +13,7 @@ import (
 func TestModulesIndexWritesReleaseShards(t *testing.T) {
 	testutils.MustHaveGit(t)
 	repo := testutils.NewGitRepo(t)
-	repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0"}`)
+	repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0","runtime":"node"}`)
 	repo.Commit("collection")
 	commit := repo.Tag("packages/a/v1.0.0", false)
 
@@ -82,6 +82,61 @@ func TestModulesIndexWritesReleaseShards(t *testing.T) {
 	if code, out := runCaptureCode(t, "modules", "index", "--dir="+repo.Dir, "--shards", "--branch=ngm-index"); code != 0 {
 		t.Fatalf("explicit sharded branch should succeed, got %d:\n%s", code, out)
 	}
+
+	// 分片布局也必须能被 validate --index 读通：根索引里没有 inline releases，
+	// 内容全在 releases/<module>.json 里。
+	if code, out := runCaptureCode(t, "modules", "validate", "--dir="+repo.Dir, "--index=ngm.collection.json"); code != 0 {
+		t.Fatalf("a sharded index must validate, got %d:\n%s", code, out)
+	}
+}
+
+// TestModulesValidateIndexDetectsABrokenShard 补上分片布局的读侧判据。
+//
+// 根索引在 --shards 下**没有** inline releases，只写 releaseDir；此前
+// validate --index 完全不看这个目录，分片被截断/写坏/指向未知模块都会绿。
+func TestModulesValidateIndexDetectsABrokenShard(t *testing.T) {
+	newSharded := func(t *testing.T) string {
+		t.Helper()
+		testutils.MustHaveGit(t)
+		repo := testutils.NewGitRepo(t)
+		repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0","runtime":"node"}`)
+		repo.Commit("collection")
+		repo.Tag("packages/a/v1.0.0", false)
+		if code, out := runCaptureCode(t, "modules", "index", "--dir="+repo.Dir, "--shards"); code != 0 {
+			t.Fatalf("modules index --shards exit=%d:\n%s", code, out)
+		}
+		return repo.Dir
+	}
+
+	t.Run("truncated shard JSON", func(t *testing.T) {
+		dir := newSharded(t)
+		shard := filepath.Join(dir, "releases", "packages", "a.json")
+		if err := os.WriteFile(shard, []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, out := runCaptureCode(t, "modules", "validate", "--dir="+dir, "--index=ngm.collection.json")
+		if code != 3 {
+			t.Fatalf("a broken shard must fail validation (exit 3), got %d:\n%s", code, out)
+		}
+		if !strings.Contains(out, "releases/packages/a.json") || !strings.Contains(out, "not valid JSON") {
+			t.Errorf("the report must name the shard and the problem:\n%s", out)
+		}
+	})
+
+	t.Run("shard for an unknown module", func(t *testing.T) {
+		dir := newSharded(t)
+		ghost := filepath.Join(dir, "releases", "ghost.json")
+		if err := os.WriteFile(ghost, []byte(`{"schemaVersion":1,"module":"ghost","releases":{}}`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, out := runCaptureCode(t, "modules", "validate", "--dir="+dir, "--index=ngm.collection.json")
+		if code != 3 {
+			t.Fatalf("an orphan shard must fail validation (exit 3), got %d:\n%s", code, out)
+		}
+		if !strings.Contains(out, "ghost") || !strings.Contains(out, "unknown module") {
+			t.Errorf("the report must name the orphan shard:\n%s", out)
+		}
+	})
 }
 
 // TestModulesIndexPublishesShardsBeforeTheRootIndex 固定写入顺序。
@@ -93,7 +148,7 @@ func TestModulesIndexWritesReleaseShards(t *testing.T) {
 func TestModulesIndexPublishesShardsBeforeTheRootIndex(t *testing.T) {
 	testutils.MustHaveGit(t)
 	repo := testutils.NewGitRepo(t)
-	repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0"}`)
+	repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0","runtime":"node"}`)
 	repo.Commit("collection")
 	repo.Tag("packages/a/v1.0.0", false)
 

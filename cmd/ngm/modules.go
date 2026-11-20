@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1084,8 +1085,97 @@ func validateIndexAgainstModules(dir, indexPath string, mods []moduleInfo) ([]st
 			problems = append(problems, "index: releases reference unknown module path "+path)
 		}
 	}
+	if idx.ReleaseDir != "" {
+		problems = append(problems, validateReleaseShards(absIndex, idx.ReleaseDir, idx.Releases, indexed)...)
+	}
 	sort.Strings(problems)
 	return problems, nil
+}
+
+// validateReleaseShards 校验 `--shards` 布局下根索引引用的分片。
+//
+// 为什么必须读：根索引此时**没有** inline releases，它把内容全部委托给
+// `releases/<module>.json`。只校验模块列表会让"分片被截断/写坏/指向不存在的
+// 模块"全绿——而 `ngm modules validate --index` 正是用户用来发现这种事的命令。
+//
+// 只校验**存在**的分片；某个模块应当有分片却整份缺失，根索引里没有可判定的
+// 声明（发布记录只在分片里），因此这里不猜。
+func validateReleaseShards(absIndex, releaseDir string, inline map[string]map[string]collectionRelease, indexed map[string]collectionModule) []string {
+	var problems []string
+	if len(inline) > 0 {
+		problems = append(problems, "index: releaseDir is set but inline releases are also present")
+	}
+	rel := filepath.ToSlash(strings.TrimSpace(releaseDir))
+	bad := rel == "" || path.IsAbs(rel) || strings.Contains(rel, `\`)
+	if !bad {
+		for _, part := range strings.Split(rel, "/") {
+			if part == "" || part == "." || part == ".." {
+				bad = true
+				break
+			}
+		}
+	}
+	if bad {
+		return append(problems, "index: releaseDir "+strconv.Quote(releaseDir)+" must be a relative directory")
+	}
+	base := filepath.Join(filepath.Dir(absIndex), filepath.FromSlash(rel))
+	info, err := os.Stat(base)
+	if err != nil || !info.IsDir() {
+		return append(problems, "index: releaseDir "+rel+" is missing or not a directory")
+	}
+	walkErr := filepath.WalkDir(base, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			problems = append(problems, "index: cannot read release shard path "+p+": "+werr.Error())
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".json") {
+			return nil
+		}
+		relShard, rerr := filepath.Rel(base, p)
+		if rerr != nil {
+			problems = append(problems, "index: cannot locate release shard "+p)
+			return nil
+		}
+		module := strings.TrimSuffix(filepath.ToSlash(relShard), ".json")
+		// 报告里用**相对索引文件**的路径（releases/packages/a.json）：
+		// 用户看到的是仓库里的路径，而不是相对于 releases/ 的那一截。
+		label := path.Join(rel, module+".json")
+		if _, ok := indexed[module]; !ok {
+			problems = append(problems, "index: release shard "+label+" references unknown module "+module)
+			return nil
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			problems = append(problems, "index: cannot read release shard "+label+": "+rerr.Error())
+			return nil
+		}
+		var sh releaseShard
+		if uerr := json.Unmarshal(data, &sh); uerr != nil {
+			problems = append(problems, "index: release shard "+label+" is not valid JSON")
+			return nil
+		}
+		if sh.SchemaVersion != 1 {
+			problems = append(problems, "index: release shard "+label+
+				" has unsupported schemaVersion "+strconv.Itoa(sh.SchemaVersion))
+		}
+		if sh.Module != module {
+			problems = append(problems, fmt.Sprintf(
+				"index: release shard %s declares module %q, want %q",
+				label, sh.Module, module))
+		}
+		for version, rel := range sh.Releases {
+			if strings.TrimSpace(version) == "" || strings.TrimSpace(rel.Commit) == "" {
+				problems = append(problems, fmt.Sprintf(
+					"index: release shard %s has an incomplete release entry (version=%q commit=%q)",
+					label, version, rel.Commit))
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		problems = append(problems, "index: cannot walk releaseDir "+rel+": "+walkErr.Error())
+	}
+	return problems
 }
 
 // scanModules 找出 root 下嵌套的 ngm.json（排除 root 自身与依赖/构建目录）。

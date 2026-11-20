@@ -97,6 +97,9 @@
 
 ### Fixed
 
+- `ngm modules validate --index` 现在会读取 `--shards` 布局的
+  `releases/<module>.json`：分片截断/写坏、指向未知模块、schemaVersion 不符
+  都会报错。此前它只看根索引里的 inline releases，分片布局下等于没校验。
 - `ngm modules index --shards` 现在先写 release 分片、最后写根索引：分片写失败
   时不再留下一份“索引列出了这份 release、文件却不存在”的 collection。
 - `ngm init ""`（或全空白名字）现在直接以 exit 3 拒绝，不再写出一份 `name` 为空、
