@@ -97,6 +97,8 @@
 
 ### Fixed
 
+- 原子写目标已经是**目录**时，现在明确报 `it is a directory` 并建议传文件路径；
+  此前 rename 失败只给 `close any editor holding the file`，指错方向。
 - `ngm adopt --out` 也会自动创建缺失的父目录（相对路径仍按 `--dir` 解析），
   与 `sbom` / `attest` / `transform` 一致。
 - `ngm sbom --out` / `ngm attest --out` 的相对路径现在与 `--dir` 同根（与

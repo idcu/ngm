@@ -622,3 +622,19 @@ adopt 已经把相对 `--out` 解析到 `--dir` 下（与 sbom/attest 修正后�
 - [x] **AB2** 判据：`adopt --out=<proj>/dist/nested/proof.json` 必须 exit 0
       且 proof 存在。
 - [x] **AB3** 复核：新判据 + exit-code 契约（含 adopt 的 blocker 用例）49.4s 全绿。
+
+---
+
+## Batch AD：原子写目标是目录时的错误指向错了
+
+`atomicfile.Write` 对"目标已经是目录"没有前置判定：`os.Rename` 的失败在
+各平台不同，统一建议是 "close any editor holding the file"——用户拿到的
+是"关编辑器"，而真正的问题是 `--out` 指到了一个目录。
+
+- [x] **AD1** `WriteFrom` 在写临时文件之前 `Lstat` 目标；真实目录 ⇒
+      `cannot write <path>: it is a directory`，建议"传文件路径"。
+- [x] **AD2** 用 `Lstat` 而不是 `Stat`：指向目录的 symlink 是"链接"这一件
+      可替换的东西，按产物语义替换链接本身仍然允许。
+- [x] **AD3** 判据：`Write(<tempdir>, …)` 必须失败，消息点名目录形状，
+      hint 给出"file path instead of a directory"。
+- [x] **AD4** 复核：`internal/core/atomicfile` 全包 0.2s 绿。

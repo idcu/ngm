@@ -55,6 +55,15 @@ func Write(path string, data []byte) error {
 // 于是上游把一个文件从非可执行改成可执行，重新 install 后目标仍是旧权限。
 // 统一到这里之后：内容、权限、rename 的顺序只有一份实现。
 func WriteFrom(path string, src io.Reader, perm os.FileMode) error {
+	// 目标已是一个**目录**时，rename 会以平台相关的错误失败，而统一的
+	// "close any editor holding the file" 建议完全指错方向。用 Lstat 而不是
+	// Stat：指向目录的 symlink 是"链接"这一件可替换的东西，按产物语义替换
+	// 链接本身是允许的；只有真实目录才拒绝。
+	if info, err := os.Lstat(path); err == nil && info.IsDir() {
+		return errs.New(errs.CodeConfigInvalid,
+			"cannot write "+path+": it is a directory",
+			"pass a file path instead of a directory")
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".ngm-*.tmp")
 	if err != nil {

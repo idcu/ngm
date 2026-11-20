@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/idcu/ngm/internal/core/errs"
 )
 
 // v0.82：原子写是 ngm 写盘的唯一实现处（此前三份，见包注释）。
@@ -164,5 +166,19 @@ func TestV82WriteReplacesAtomically(t *testing.T) {
 	}
 	if string(data) != "short" {
 		t.Errorf("after replacement content = %q, want \"short\"（残留了旧字节 = 非原子）", data)
+	}
+}
+
+// TestWriteRejectsDirectoryTarget：目标已经是目录时，rename 的错误在平台间
+// 不一致，而统一的"close any editor holding the file"建议指错方向。
+func TestWriteRejectsDirectoryTarget(t *testing.T) {
+	dir := t.TempDir()
+	err := Write(dir, []byte("x"))
+	if err == nil {
+		t.Fatal("writing over a directory must fail")
+	}
+	if !strings.Contains(err.Error(), "is a directory") ||
+		!strings.Contains(errs.Hint(err), "file path instead of a directory") {
+		t.Errorf("the error must name the shape and the fix: %v (hint %q)", err, errs.Hint(err))
 	}
 }
