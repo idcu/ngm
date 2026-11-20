@@ -136,7 +136,20 @@ demo 会**自己断言**（脚本未执行、`.npmrc` 未被解释），不是�
 > 一句诚实的话：**免疫这条路径 ≠ 免疫 Git 依赖的全部风险**。
 > 上游仓库被攻破、恶意 commit 本身、你自己 `--engine` 声明的工具——
 > 那些 ngm 都挡不住（见[信任模型](./architecture/trust-model.md)的"不能证明什么"）。
-> PackageGate 证明的是：**这条具体的、被 npm 官方拒绝修的路径，ngm 的默认配置里不存在。**
+> PackageGate 证明的是：**这条具体的、在 2026-01 被 npm 官方拒绝修的路径，ngm 的默认配置里不存在。**
+
+> **状态更新（2026-11-21，[全维度差距评估](./analysis/ngm-competitive-gap-full-2026-11-21.md) §5.1）**：
+> 上表记的是 **2026-01 披露当时的处置**，不是今天的状态。npm 在 2026-07-08 随 v12 GA 把
+> `--allow-git` 默认值改为 `none`、依赖生命周期脚本改为 `allowScripts` 默认 off——
+> 官方 changelog 明确说这个改动**关闭了"Git 依赖内 `.npmrc` 覆盖 git 二进制"的代码执行路径**
+> （[GitHub changelog](https://github.blog/changelog/2026-07-08-npm-install-time-security-and-gat-bypass2fa-deprecation)、
+> [npm config v12](https://docs.npmjs.com/cli/v12/using-npm/config/)）。
+> 所以准确的说法是：**npm 从"拒绝修"变成了"用默认拒绝 Git 依赖的方式修了"**；
+> npm 与 pnpm / Yarn / Bun / Deno 如今都在安装期默认拒绝脚本（`allowScripts` / `allowBuilds` 等）。
+> 这不改变 ngm 的构造性免疫（ngm 从不解释 `.npmrc`、git 单一构造点、脚本默认 deny），
+> 但**"默认拒绝脚本"和"把 Git 依赖内容 digest 钉死并离线重放"已不再独家**——
+> ngm 的差异化应表述为"把这些控制点收束为同一可复核状态机"，而不是"只有 ngm 做了某一条"。
+> 本节其余历史叙述按决策快照保留，不改写。
 
 ---
 

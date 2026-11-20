@@ -4,7 +4,10 @@
 # 背景（docs/COMPETITIVE-ANALYSIS.md 的"PackageGate"一节）：
 # 2026-01-26 Koi Security 披露 npm / pnpm / vlt / Bun 共 6 个零日，其中 npm 那一条是
 # **"Git 依赖里的恶意 .npmrc 覆盖 git 二进制路径 → 绕过 --ignore-scripts 实现 RCE"**；
-# npm 以 "works as expected" 关闭了报告，pnpm / vlt / Bun 都已修复。
+# npm 当时（2026-01）以 "works as expected" 关闭了报告，pnpm / vlt / Bun 都已修复；
+# 2026-07 的 npm v12 又以 --allow-git=none 默认拒绝了该路径（见 COMPETITIVE-ANALYSIS.md 状态更新）。
+# 本 demo 展示的是 ngm 的**构造性免疫**（从不解释 .npmrc / git 单构造点 / 脚本默认 deny），
+# 不是"只有 ngm 默认拒绝脚本"——后者在 2026 年已是主流标配。
 #
 # 这个 demo 把**同一份**"含 .npmrc 与 postinstall 的 Git 依赖"交给两侧：
 #

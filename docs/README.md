@@ -245,12 +245,14 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 
 ### 你可能想用 ngm 的理由
 
-- **你的威胁模型被对手官方"背书"了**（2026-10-09 补）：2026-01 的
+- **你的威胁模型被对手官方"背书"了**（2026-10-09 补，2026-11-21 加状态限定）：2026-01 的
   [PackageGate](./COMPETITIVE-ANALYSIS.md) 披露 npm / pnpm / vlt / Bun 共 6 个零日，
   其中 **npm 那一条正是"Git 依赖里的恶意 `.npmrc` 覆盖 git 二进制路径 →
-  绕过 `--ignore-scripts` 实现 RCE"**——而 npm 的处置是 **"works as expected"**。
+  绕过 `--ignore-scripts` 实现 RCE"**——npm **当时（2026-01）**的处置是 **"works as expected"**；
+  **2026-07 的 v12 已改为 `--allow-git=none` 默认拒绝该路径**（详见竞品分析 §PackageGate 状态更新）。
   这条具体路径在 ngm 上**由构造不可能**：不解析 `.npmrc`（它只是一个被 vendor 的普通文件）·
   依赖脚本默认不执行 · git 只有一个构造点且受 `run:git` 门禁。
+  注意"默认拒绝脚本"如今主流都有，**ngm 的差别是把它与内容 digest 收束成可离线复核的同一状态机**。
   [`scripts/packagegate-demo.sh`](../scripts/packagegate-demo.sh) 会**自己断言**地跑给你看
   （细节与"这不等于免疫全部风险"的边界见[竞品对比](./COMPETITIVE-ANALYSIS.md)）。
 - **Git 依赖需要可证明**：私有 fork、上游 commit 追溯、跨团队可信组件协作
@@ -295,7 +297,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ ADR-045）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
-| [analysis/](./analysis/) | 全量代码评估（当前快照 [2026-11-20](./analysis/ngm-full-assessment-2026-11-20.md)）+ 按日期归档的历史评估 | 评估者 |
+| [analysis/](./analysis/) | 全量代码评估（当前快照 [2026-11-20](./analysis/ngm-full-assessment-2026-11-20.md)）+ [竞品全维度差距评估（2026-11-21）](./analysis/ngm-competitive-gap-full-2026-11-21.md) + 按日期归档的历史评估 | 评估者 |
 | [development/](./development/) | 开发总览 / v0.1 ~ v0.101 实施计划与复盘（历史归档） | 维护者 |
 | [practice/](./practice/) | **工程纪律方法论**（8 条可迁移做法 / 成熟度分级 / 接入顺序 / 失效边界）+ 四个真实样本的对照 | 评估者 · 项目维护者 |
 | [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比（**能力矩阵与竞品表的引用方**） | 评估者 |
