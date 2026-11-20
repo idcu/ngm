@@ -6,6 +6,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/idcu/ngm/internal/mappings"
+	"github.com/idcu/ngm/internal/testutils"
 )
 
 // brokenDenoDir 造一个"看起来能执行、但探针必失败"的 deno，并把放它到 PATH 最前面。
@@ -54,6 +57,26 @@ func TestV124HookFailureRollsBackNewVendor(t *testing.T) {
 		proj := v3PostInstallProject(t, map[string]string{
 			"postinstall.js": "Deno.exit(0);\n",
 		}, `{"postInstallPolicy": "allow"}`)
+
+		// 再加一个**没有钩子**的依赖：这次失败的 install 因而会写出与调用前
+		// 不同的 mappings（两条而不是一条）。只回滚 vendor、不回滚 mappings 的话，
+		// 磁盘上会留下"新 mappings + 旧 lock"，而 mappings 指向的目录已被删掉。
+		second := testutils.NewGitRepo(t)
+		second.WriteFile("index.ts", "export const s = 2\n")
+		second.Commit("feat: second fixture")
+		second.Tag("v1", false)
+		seedMirror(t, "github:v3/second", second.Dir)
+		if code, out := runCaptureCode(t, "add", "github:v3/second@v1",
+			"--ref-type=tag", "--dir="+proj); code != 0 {
+			t.Fatalf("add second dependency: %s", out)
+		}
+
+		mappingsPath := mappings.Find(proj)
+		before, err := os.ReadFile(mappingsPath)
+		if err != nil {
+			t.Fatalf("the successful fixture install must have written mappings: %v", err)
+		}
+
 		if err := os.RemoveAll(filepath.Join(proj, "ngm.vendor")); err != nil {
 			t.Fatal(err)
 		}
@@ -63,6 +86,15 @@ func TestV124HookFailureRollsBackNewVendor(t *testing.T) {
 		brokenDenoDir(t)
 		code, out := runCaptureCode(t, "install", "--dir="+proj)
 		assertRollback(t, code, out, proj, 5)
+
+		after, rerr := os.ReadFile(mappingsPath)
+		if rerr != nil {
+			t.Fatalf("mappings must still exist after rollback: %v", rerr)
+		}
+		if string(after) != string(before) {
+			t.Errorf("mappings was left at the failed run's content — it points at vendor "+
+				"directories that rollback removed:\nbefore:\n%s\nafter:\n%s", before, after)
+		}
 	})
 
 	t.Run("the hook itself fails", func(t *testing.T) {

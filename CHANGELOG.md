@@ -97,6 +97,9 @@
 
 ### Fixed
 
+- `ngm install` 在 postinstall / 沙箱探针失败回滚时，现在也会把 `ngm.mappings.json`
+  恢复到调用前的内容。此前只回滚新建的 vendor 目录，mappings 却留在失败这次写出的
+  版本、指向已被删除的目录，而 lock 仍是旧的——项目从“能构建”变成“找不到文件”。
 - `ngm install` 在 **copy** 落地模式下覆盖既有 vendor 文件时，现在会应用清单里的
   权限位（此前 `os.OpenFile` 的 perm 只在创建时生效：上游把 0644 改成 0755 后
   重新 install，内容更新了、可执行位仍是旧的）；落盘改为临时文件 + rename，

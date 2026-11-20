@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
+	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
@@ -184,13 +185,22 @@ func materializeVendor(
 	preexisting := existingVendorPaths(env, pf, items)
 	mappingsPath := mappings.Find(env.ProjectDir)
 	_, mstatErr := os.Stat(mappingsPath)
+	// mappings 也要能回滚：它在钩子之前写、lock 在钩子之后写，钩子失败时
+	// 若只回滚 vendor，磁盘上会留下"新 mappings + 旧 lock"——mappings 指向
+	// 已经被回滚掉的 vendor 目录，`ngm build` 于是从"能跑"变成"找不到文件"。
+	// 读不到就按不可回滚处理（只在原本不存在时删掉），不猜。
+	prevMappings, mreadErr := os.ReadFile(mappingsPath)
+	hadMappings := mreadErr == nil
 	rollback := func() {
-		if pf != nil && pf.Vendor != nil && strings.EqualFold(pf.Vendor.Mode, "global") {
-			// 共享 vendor：别的项目可能刚依赖我们写下的同一条目，不删。
-			return
+		// 共享 vendor：别的项目可能刚依赖我们写下的同一条目，不删目录。
+		// 但 mappings 是本项目的文件，仍要回到调用前的样子。
+		if pf == nil || pf.Vendor == nil || !strings.EqualFold(pf.Vendor.Mode, "global") {
+			removeNewVendorDirs(env, pf, items, preexisting)
 		}
-		removeNewVendorDirs(env, pf, items, preexisting)
-		if os.IsNotExist(mstatErr) {
+		switch {
+		case hadMappings:
+			_ = atomicfile.Write(mappingsPath, prevMappings)
+		case os.IsNotExist(mstatErr):
 			_ = os.Remove(mappingsPath)
 		}
 	}

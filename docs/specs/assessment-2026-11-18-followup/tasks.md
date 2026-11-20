@@ -382,3 +382,24 @@ vendor 目录时内容更新了、可执行位仍是旧的。而 `verify --conte
 - [x] **P4** 复核：`internal/core/{atomicfile,vendor}` 全包绿（0.2s / 79.8s）；
       11 条 install 相关 CLI 判据绿（33.3s）；build/vet、docs links、discipline 全绿。
       **没有新增 t.Skip**，skip 账本仍是 57 处 / 39 文件。
+
+---
+
+## Batch Q：钩子失败回滚了 vendor，却没回滚 mappings
+
+`install` 的写入顺序是：vendor 落地 → 写 `ngm.mappings.json` → 跑 postinstall 钩子
+→ 写 `ngm.lock`。钩子失败时 `rollback` 只删除本次新建的 vendor 目录；
+mappings 若**调用前就存在**，则原样留下——于是磁盘上是"新 mappings + 旧 lock"，
+mappings 指向的目录已被删掉。下一次 `ngm build` 从"能跑"变成"找不到文件"。
+
+- [x] **Q1** 回滚前先读一份 mappings 快照；失败时用 `atomicfile.Write` 恢复，
+      原本不存在则删除，读不出来则按不可回滚处理（不猜）。**global vendor** 模式
+      仍然不删共享目录，但本项目自己的 mappings 照样恢复。
+- [x] **Q2** 把 `TestV124HookFailureRollsBackNewVendor` 的夹具加一个无钩子依赖：
+      失败这次会写出与调用前不同的 mappings（两条而不是一条），只回滚 vendor 的
+      旧实现因此留下第二条记录。断言失败后 mappings 与调用前**逐字节相同**。
+- [x] **Q3** 变异检验：把恢复分支改成 `hadMappings && false` ⇒ 判据红并打印出
+      多出来的 `github:v3/second` 条目，随后还原。
+- [x] **Q4** 复核：V124（3.9s）、V02 安装模式（11.5s）、V66 JSON 两条（各 1.8s）、
+      V73（1.8s）全绿；本机 Deno 1.45 低于门槛，V124 的第二个子用例按既有边界
+      skip（账本未变）。build/vet、docs links、discipline 全绿。
