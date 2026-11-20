@@ -571,3 +571,19 @@ Windows / macOS 默认卷上是同一个——第二次 Materialize 会把第一
       误报为冲突。磁盘探测本身由既有 `ensureNoCaseCollisions` 的判据覆盖。
 - [x] **Y4** 复核：`internal/core/vendor` 全包 72.3s、`internal/config` 0.27s、
       cmd 定向判据全绿。
+
+---
+
+## Batch Z：init 对"同名目录"报 kept 并退 0
+
+`src/index.ts` 已存在时 init 只 `os.Stat` 一次：目录也 `Stat` 成功，于是打印
+`kept ... (already exists)`、退 0——而刚写下的 ngm.json 里 `main` 正指向这个目录，
+下一条 `ngm build` 才失败。且失败发生在 `ngm.json` 写完之后，会留下半初始化项目。
+
+- [x] **Z1** 入口形状预检移到写 `ngm.json` **之前**：存在但非普通文件 ⇒ exit 3，
+      提示删除或换 `--dir`。
+- [x] **Z2** 普通文件仍按原语义 `kept`；合法 init 的 `ngm.json` 与 `src/index.ts`
+      与旧二进制**逐字节相同**（diff 验证）。
+- [x] **Z3** 判据：目录入口必须 exit 3、点名 `not a regular file`，且
+      `ngm.json` 未被创建（证明预检先于写盘）。
+- [x] **Z4** 复核：init 五条判据全绿（0.2s）；build/vet 全绿。

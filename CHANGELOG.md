@@ -97,6 +97,9 @@
 
 ### Fixed
 
+- `ngm init` 在 `src/index.ts` 已存在但**不是普通文件**时现在 exit 3；此前会打印
+  `kept ... (already exists)` 并退 0，留下一个 `main` 指向目录的 `ngm.json`。
+  预检发生在写 `ngm.json` 之前。
 - `ngm install` 在大小写折叠的文件系统上拒绝“仅大小写不同”的依赖 vendor 路径
   （如 `github:Org/Repo` 与 `github:org/repo`）：此前第二个依赖会静默覆盖第一个，
   install 仍报成功。大小写敏感的文件系统上两个真实目录仍被允许。

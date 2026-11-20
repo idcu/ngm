@@ -121,6 +121,27 @@ func TestDispatch_Init_WritesAValidManifest(t *testing.T) {
 	}
 }
 
+// TestDispatch_Init_RejectsAnEntryPathThatIsADirectory：目录不能让 init 报 "kept"。
+func TestDispatch_Init_RejectsAnEntryPathThatIsADirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src", "index.ts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := &bytes.Buffer{}
+	errb := &bytes.Buffer{}
+	code := dispatch([]string{"init", "github.com:org/app", "--dir=" + dir}, out, errb)
+	if code != 3 {
+		t.Fatalf("a directory at the entry path must be a config error (exit 3), got %d:\n%s",
+			code, out.String()+errb.String())
+	}
+	if !strings.Contains(errb.String(), "not a regular file") {
+		t.Errorf("the error must name the shape problem:\n%s", errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ngm.json")); !os.IsNotExist(err) {
+		t.Errorf("the preflight must run before ngm.json is written, stat err = %v", err)
+	}
+}
+
 func TestDispatch_Init_RejectsAnEmptyName(t *testing.T) {
 	dir := t.TempDir()
 	out := &bytes.Buffer{}

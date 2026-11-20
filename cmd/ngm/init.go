@@ -113,6 +113,19 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		))
 	}
 
+	// 入口文件：**只在不存在时**写。用户已经写好的源码不该被脚手架覆盖，
+	// 这一点与 --force 无关（--force 的语义是"覆盖 ngm.json"，不是"覆盖源码"）。
+	entryPath := filepath.Join(target, filepath.FromSlash(initEntryRel))
+	// 在写 ngm.json **之前**预检入口形状：一个同名的目录会让 main 指向目录，
+	// init 却打印 "kept ... (already exists)" 并退 0——下一条 `ngm build` 才失败。
+	// 也避免"失败后仍留下一份新建的 ngm.json"。
+	if st, err := os.Stat(entryPath); err == nil && !st.Mode().IsRegular() {
+		return c.fail(errs.New(
+			errs.CodeConfigInvalid,
+			entryPath+" exists but is not a regular file",
+			"remove it or choose another --dir; init will not write an ngm.json whose `main` points at a directory"))
+	}
+
 	// 与 add / remove 走**同一个**写回入口：格式化、LF、原子写、写前校验
 	// 都只有一份实现。此前 init 自己 MarshalIndent 再 atomicfile.Write，
 	// 于是"模板是否合法"没有任何判据——`ngm init ""` 会写出一份
@@ -122,9 +135,6 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "created %s\n", cfgPath)
 
-	// 入口文件：**只在不存在时**写。用户已经写好的源码不该被脚手架覆盖，
-	// 这一点与 --force 无关（--force 的语义是"覆盖 ngm.json"，不是"覆盖源码"）。
-	entryPath := filepath.Join(target, filepath.FromSlash(initEntryRel))
 	if _, err := os.Stat(entryPath); err == nil {
 		fmt.Fprintf(stdout, "kept    %s (already exists)\n", entryPath)
 		return 0
