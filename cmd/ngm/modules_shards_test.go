@@ -83,3 +83,30 @@ func TestModulesIndexWritesReleaseShards(t *testing.T) {
 		t.Fatalf("explicit sharded branch should succeed, got %d:\n%s", code, out)
 	}
 }
+
+// TestModulesIndexPublishesShardsBeforeTheRootIndex 固定写入顺序。
+//
+// 根索引是**引用方**：它先落盘、分片后失败，就会留下"索引列出了这份
+// release、文件却不存在"——写的时候没有任何报错，读者要到下载/校验时才看到 404。
+// 用"分片路径是一个目录"让 atomicfile 的 rename 必然失败，属于平台无关的
+// 故障注入；断言根索引**根本没有被创建**。
+func TestModulesIndexPublishesShardsBeforeTheRootIndex(t *testing.T) {
+	testutils.MustHaveGit(t)
+	repo := testutils.NewGitRepo(t)
+	repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0"}`)
+	repo.Commit("collection")
+	repo.Tag("packages/a/v1.0.0", false)
+
+	shardPath := filepath.Join(repo.Dir, "releases", "packages", "a.json")
+	if err := os.MkdirAll(shardPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out := runCaptureCode(t, "modules", "index", "--dir="+repo.Dir, "--shards")
+	if code != 3 {
+		t.Fatalf("a failed shard write must be a config error (exit 3), got %d:\n%s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(repo.Dir, "ngm.collection.json")); !os.IsNotExist(err) {
+		t.Errorf("the root index must not be published when a shard failed, stat err = %v", err)
+	}
+}

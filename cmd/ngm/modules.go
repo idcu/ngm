@@ -675,10 +675,12 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 			"create index directory for "+absOut, "check directory permissions", err))
 	}
-	if err := atomicfile.Write(absOut, data); err != nil {
-		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
-			"write collection index "+absOut, "check free disk space and permissions", err))
-	}
+	// 顺序：先分片、后根索引。根索引是**引用方**，它一旦先落盘，某个分片
+	// 写失败就会留下"索引列出了这份 release、文件却不存在"的形态——读者不会
+	// 在写的时候看到失败，只会在下载/校验时看到 404。
+	// 反过来的残骸是"新分片、旧索引"：分片按 module 覆盖，多出来的字节没有
+	// 任何索引引用，不会让已发布的条目指向空气。这与 content store 的
+	// "blob 先落盘、清单后就位"是同一条不变量。
 	for _, relPath := range releasePaths {
 		abs := filepath.Join(filepath.Dir(absOut), filepath.FromSlash(relPath))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
@@ -689,6 +691,10 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 			return c.fail(errs.Wrap(errs.CodeConfigInvalid,
 				"write release shard "+abs, "check free disk space and permissions", err))
 		}
+	}
+	if err := atomicfile.Write(absOut, data); err != nil {
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid,
+			"write collection index "+absOut, "check free disk space and permissions", err))
 	}
 
 	branchFiles := map[string][]byte{"ngm.collection.json": data}

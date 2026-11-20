@@ -478,3 +478,20 @@ https fetch: net/http: TLS handshake timeout
       空名字必须 exit 3、点名 `project name is required`、且不创建 ngm.json。
 - [x] **T4** 复核：init 相关判据（含原子写 0644 那条）全绿；build/vet 全绿。
       待提交后看 CI。
+
+---
+
+## Batch U：根索引先落盘，分片后失败
+
+`ngm modules index --shards` 的写入顺序此前是"根索引 → release 分片"。根索引是
+**引用方**：它先落盘、某个分片写失败，就会留下"索引列出了这份 release、文件却
+不存在"的形态——写的时候没有任何报错，读者要到下载/校验时才看到 404。
+
+- [x] **U1** 顺序改为"分片 → 根索引"，与 content store 的"blob 先落盘、清单后就位"
+      同一条不变量。反过来的残骸是"新分片、旧索引"：分片按 module 覆盖，多出的
+      字节没有索引引用，不会让已发布条目指向空气。
+- [x] **U2** 故障注入判据：把分片目标路径建成**目录**，让 `atomicfile` 的 rename
+      必然失败（平台无关），断言命令 exit 3 且 `ngm.collection.json` **根本没被创建**。
+      变异检验：把顺序换回"索引先写" ⇒ 判据红，随后还原。
+- [x] **U3** 复核：`TestModulesIndexPublishesShardsBeforeTheRootIndex` 与既有的
+      deterministic / shards / branch 四条判据全绿（5.0s）；build/vet 全绿。

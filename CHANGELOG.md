@@ -97,6 +97,8 @@
 
 ### Fixed
 
+- `ngm modules index --shards` 现在先写 release 分片、最后写根索引：分片写失败
+  时不再留下一份“索引列出了这份 release、文件却不存在”的 collection。
 - `ngm init ""`（或全空白名字）现在直接以 exit 3 拒绝，不再写出一份 `name` 为空、
   随后所有命令都拒绝读取的 `ngm.json`。合法的 init 输出逐字节不变。
 - `ngm install` 在 postinstall / 沙箱探针失败回滚时，现在也会把 `ngm.mappings.json`
