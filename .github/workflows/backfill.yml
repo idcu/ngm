@@ -50,11 +50,15 @@ jobs:
 
       # 先把**当前分支**的构建脚本与 CHANGELOG 保存下来：旧 tag 的树里
       # 没有版本化别名、也没有本 CHANGELOG。构建用旧代码，工具用新规则。
+      # release-matrix.txt 必须跟着走：build-release.sh 从**脚本自身位置**
+      # 推导 ROOT 再读 `$ROOT/scripts/release-matrix.txt`，少这一份就是
+      # "missing … release-matrix.txt (the release target declaration)"。
       - name: save the release tooling
         run: |
           mkdir -p "$RUNNER_TEMP/release-tools/scripts"
           cp scripts/build-release.sh "$RUNNER_TEMP/release-tools/scripts/"
           cp scripts/release-notes.sh "$RUNNER_TEMP/release-tools/scripts/"
+          cp scripts/release-matrix.txt "$RUNNER_TEMP/release-tools/scripts/"
           cp CHANGELOG.md "$RUNNER_TEMP/release-tools/"
 
       - name: configure Gitee module access
@@ -91,6 +95,7 @@ jobs:
             mkdir -p "$testdir/scripts"
             cp "$RUNNER_TEMP/release-tools/scripts/build-release.sh" "$testdir/scripts/"
             cp "$RUNNER_TEMP/release-tools/scripts/release-notes.sh" "$testdir/scripts/"
+            cp "$RUNNER_TEMP/release-tools/scripts/release-matrix.txt" "$testdir/scripts/"
             cp "$RUNNER_TEMP/release-tools/CHANGELOG.md" "$testdir/"
 
             # 备份：构建脚本从调用方 cwd 编译 ./cmd/ngm，所以必须站在 tag 树里。
