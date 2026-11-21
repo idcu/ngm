@@ -68,6 +68,7 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | 跑 ngm 自己的测试与里程碑验收 | [开发总览](./development/README.md) | 贡献者 |
 | 搞懂它为什么这样设计 | [架构总览](./architecture/overview.md) | 贡献者 |
 | 查某个设计决策的理由 | [ADR 索引](./adr/README.md) | 贡献者 |
+| **梳理 ngm 现在有哪些功能** | **[功能现状梳理（2026-11-21）](./analysis/ngm-feature-inventory-2026-11-21.md)**（命令地图 · 状态模型 · 横切能力 · 边界） | **使用者 · 评估者 · 接手者** |
 | 看 ngm 与竞品的差异 | [竞品分析](./COMPETITIVE-ANALYSIS.md) | 评估者 |
 | **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
 | **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
@@ -298,7 +299,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 | [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ ADR-051）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
-| [analysis/](./analysis/) | 全量代码评估（当前快照 [2026-11-20](./analysis/ngm-full-assessment-2026-11-20.md)）+ [竞品全维度差距评估（2026-11-21）](./analysis/ngm-competitive-gap-full-2026-11-21.md) + 按日期归档的历史评估 | 评估者 |
+| [analysis/](./analysis/) | **[功能现状梳理（2026-11-21）](./analysis/ngm-feature-inventory-2026-11-21.md)** + 全量代码评估（当前快照 [2026-11-20](./analysis/ngm-full-assessment-2026-11-20.md)）+ [竞品全维度差距评估（2026-11-21）](./analysis/ngm-competitive-gap-full-2026-11-21.md) + 按日期归档的历史评估 | 评估者 |
 | [development/](./development/) | 开发总览 / v0.1 ~ v0.101 实施计划与复盘（历史归档） | 维护者 |
 | [practice/](./practice/) | **工程纪律方法论**（8 条可迁移做法 / 成熟度分级 / 接入顺序 / 失效边界）+ 四个真实样本的对照 | 评估者 · 项目维护者 |
 | [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) | 竞品逐项对比（**能力矩阵与竞品表的引用方**） | 评估者 |
