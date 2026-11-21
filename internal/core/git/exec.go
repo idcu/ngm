@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/idcu/ngm/internal/boundbuf"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -94,9 +95,11 @@ func runGit(ctx context.Context, opts Options, stdin []byte, args ...string) (*R
 		return &Result{ExitCode: -1}, cerr
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// 审计 C-05：通用 Run 此前用无界 bytes.Buffer 捕获输出。
+	// 大树 ls-tree -r -z 的输出整体驻留内存；boundbuf 保留前 1 MiB 并在末尾标明截断。
+	stdout, stderr := boundbuf.New(boundbuf.DefaultLimit), boundbuf.New(boundbuf.DefaultLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

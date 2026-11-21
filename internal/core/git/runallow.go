@@ -1,12 +1,12 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os/exec"
 	"strings"
 
+	"github.com/idcu/ngm/internal/boundbuf"
 	"github.com/idcu/ngm/internal/core/errs"
 )
 
@@ -25,9 +25,10 @@ func RunAllowFailure(ctx context.Context, opts Options, args ...string) (*Result
 		return &Result{ExitCode: -1}, cerr
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// 与 Run 同口径：探测类调用也不能让别人的输出无限增长（审计 C-05）。
+	stdout, stderr := boundbuf.New(boundbuf.DefaultLimit), boundbuf.New(boundbuf.DefaultLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 	res := &Result{

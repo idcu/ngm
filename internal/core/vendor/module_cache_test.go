@@ -86,3 +86,24 @@ func TestModuleCacheEnsure(t *testing.T) {
 		t.Fatal("unreachable commit must fail")
 	}
 }
+
+// TestModuleCacheEnsureValidatesCommitAfterFirstClone 固定审计 V-01：
+// 首 clone 成功后不能只凭 Created=true 返回，必须校验 lock 钉住的 commit 可解析。
+func TestModuleCacheEnsureValidatesCommitAfterFirstClone(t *testing.T) {
+	testutils.MustHaveGit(t)
+	remote := testutils.NewBareRemote(t)
+	src := testutils.NewGitRepo(t)
+	src.SetRemote("origin", remote)
+	src.WriteFile("packages/b/index.ts", "export const b = 1\n")
+	src.Commit("feat: b")
+	src.Push("origin", "main")
+
+	root := t.TempDir()
+	c := NewModuleCache(root, git.Options{})
+	repo := resolve.MustNormalize("127.0.0.1/acme/orphan")
+	missing := "ffffffffffffffffffffffffffffffffffffffff"
+	if _, err := c.Ensure(context.Background(), repo, vFileURL(t, remote), resolve.ProtocolHTTPS,
+		missing, "main", "branch"); err == nil {
+		t.Fatal("Ensure must not succeed when the pinned commit is absent from the first clone")
+	}
+}

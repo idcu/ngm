@@ -1,6 +1,10 @@
 package git
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 // lsRemoteSample 模拟 `git ls-remote <repo>` 的真实输出。
 //
@@ -15,8 +19,22 @@ cccccccccccccccccccccccccccccccccccccccc	refs/tags/v1.1.0^{}
 dddddddddddddddddddddddddddddddddddddddd	refs/tags/legacy
 `
 
+func TestLSRemoteRejectsHelperURL(t *testing.T) {
+	// 审计 C-02：ls-remote 与 clone 一样会把 URL 交给 git，ext:: 是远程 helper 执行面。
+	_, err := LSRemote(context.Background(), Options{}, "ext::sh -c id")
+	if err == nil {
+		t.Fatal("LSRemote must validate the remote URL before spawning git")
+	}
+	if !strings.Contains(err.Error(), "refusing git remote helper address") {
+		t.Fatalf("the rejection must come from ValidateRemoteURL, not from git failing later: %v", err)
+	}
+}
+
 func TestParseLSRemoteOutput(t *testing.T) {
-	refs := ParseLSRemoteOutput([]byte(lsRemoteSample))
+	refs, err := ParseLSRemoteOutput([]byte(lsRemoteSample))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(refs) != 7 {
 		t.Fatalf("parsed %d refs, want 7: %+v", len(refs), refs)
 	}
@@ -38,24 +56,34 @@ func TestParseLSRemoteOutput(t *testing.T) {
 	}
 }
 
-func TestParseLSRemoteOutput_SkipsMalformed(t *testing.T) {
-	in := `not-a-ref-line
-zzzz	refs/heads/bad
-1111111111111111111111111111111111111111	refs/heads/good
+func TestParseLSRemoteOutput_RejectsMalformed(t *testing.T) {
+	// 审计 C-03：畸形行不能再静默跳过——那会把"响应被改写"伪装成"ref 不存在"。
+	in := `1111111111111111111111111111111111111111	refs/heads/good
 shortsha	refs/heads/nope
 `
-	refs := ParseLSRemoteOutput([]byte(in))
-	if len(refs) != 1 {
-		t.Fatalf("parsed %d refs, want 1: %+v", len(refs), refs)
+	if _, err := ParseLSRemoteOutput([]byte(in)); err == nil {
+		t.Fatal("a malformed object id must be an error, not a skipped line")
 	}
-	if refs[0].Name != "refs/heads/good" {
-		t.Errorf("name=%q", refs[0].Name)
+}
+
+func TestParseLSRemoteOutput_AcceptsSHA256(t *testing.T) {
+	// 审计 C-03：tree.go 已支持 64 位对象 ID，解析器不能把 SHA-256 仓库的全部 ref 丢掉。
+	sha := strings.Repeat("a", 64)
+	refs, err := ParseLSRemoteOutput([]byte(sha + "\trefs/heads/main\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].SHA != sha {
+		t.Fatalf("sha256 ref lost: %+v", refs)
 	}
 }
 
 func TestParseLSRemoteOutput_CRLF(t *testing.T) {
 	in := "1111111111111111111111111111111111111111\trefs/heads/main\r\n"
-	refs := ParseLSRemoteOutput([]byte(in))
+	refs, err := ParseLSRemoteOutput([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(refs) != 1 || refs[0].Name != "refs/heads/main" {
 		t.Fatalf("CRLF handling failed: %+v", refs)
 	}
@@ -64,7 +92,11 @@ func TestParseLSRemoteOutput_CRLF(t *testing.T) {
 // TestRefIndex_AnnotatedTagPeeling 锁定 M1 的核心纪律：
 // annotated tag 必须通过 `^{}` 解引用为 commit。
 func TestRefIndex_AnnotatedTagPeeling(t *testing.T) {
-	idx := NewRefIndex(ParseLSRemoteOutput([]byte(lsRemoteSample)))
+	refs, err := ParseLSRemoteOutput([]byte(lsRemoteSample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := NewRefIndex(refs)
 
 	// annotated tag：peeled 应给出 commit（cccc...），Lookup 给出 tag object（bbbb...）
 	peeled, ok := idx.Peeled("refs/tags/v1.1.0")

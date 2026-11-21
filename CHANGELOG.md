@@ -8,6 +8,18 @@
 
 ## [Unreleased] - 2026-11-04
 
+### Fixed（2026-11-21 追加，逐行审计 Batch C）
+
+- **沙箱权限不再被逗号放大**：含逗号的 `net:` / `env:` target 现在直接拒绝，
+  不再出现"ngm 判定 a,b 为一条无效 target、Deno 却授权 a 与 b 两个主机"的偏差。
+  旧配置若依赖逗号写多条主机/变量需改为逐条授权（[ADR-012 补记](docs/adr/adr-012-sandbox.md)）。
+- **`ngm integrations add` 的 vendor 逃逸校验**：`ngm.json` 读不到时不再静默跳过，
+  与 `mappings validate` 同口径回退默认 vendor 根继续校验。
+- **`git ls-remote` 的 URL 与解析**：入口做 URL 形状校验（`ext::` helper 不再有执行面）；
+  解析接受 40/64 位对象 ID，畸形行 fail-closed 报错而不是静默丢弃。
+- **模块 cache 首次 clone**：成功后校验 lock 钉住的 commit 可解析；落地改为临时目录 +
+  原子 rename，失败清理残骸；触网门禁改判缓存记录的真实 origin。
+
 ### Fixed（2026-11-21 追加，逐行审计 Batch B）
 
 - **`install --json` / `update --json` 的中途失败**：错误信封此前被写进 stderr，

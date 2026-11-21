@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
@@ -29,6 +30,11 @@ type RemoteRef struct {
 //
 // 返回的切片保持 git 的输出顺序（未排序），调用方自行索引。
 func LSRemote(ctx context.Context, opts Options, url string, patterns ...string) ([]RemoteRef, error) {
+	// 审计 C-02：ls-remote 与 clone 一样把 URL 直接交给 git；ext:: 等远程 helper
+	// 会由 git 自身执行命令。形状校验必须在构造子进程之前，不能只靠 CheckNetAccess。
+	if err := ValidateRemoteURL(url); err != nil {
+		return nil, err
+	}
 	// 注意参数顺序：git 的语法是 `ls-remote [options] <repository> [<refs>...]`，
 	// 因此 repository 必须在 patterns **之前**。
 	args := []string{"ls-remote", url}
@@ -37,14 +43,14 @@ func LSRemote(ctx context.Context, opts Options, url string, patterns ...string)
 	if err != nil {
 		return nil, err
 	}
-	return ParseLSRemoteOutput(res.Stdout), nil
+	return ParseLSRemoteOutput(res.Stdout)
 }
 
 // ParseLSRemoteOutput 解析 ls-remote 的原始 stdout 字节。
 //
 // 格式：每行 `<40-hex-sha>\t<refname>`，行尾 LF（git 在 Windows 上也输出 LF）。
 // 无法识别的行被跳过（git 偶尔会输出 warning 到 stdout 的极端情况）。
-func ParseLSRemoteOutput(out []byte) []RemoteRef {
+func ParseLSRemoteOutput(out []byte) ([]RemoteRef, error) {
 	var refs []RemoteRef
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -53,12 +59,14 @@ func ParseLSRemoteOutput(out []byte) []RemoteRef {
 		}
 		tab := strings.IndexByte(line, '\t')
 		if tab <= 0 {
-			continue
+			return nil, fmt.Errorf("malformed ls-remote line (missing tab): %q", line)
 		}
 		sha := line[:tab]
 		name := line[tab+1:]
-		if len(sha) != 40 || !isHex(sha) {
-			continue
+		// 审计 C-03：同一仓库的 tree.go 已支持 64 位 SHA-256 对象 ID；
+		// 这里硬编码 40 位会把 SHA-256 仓库的全部 ref 静默丢掉。畸形行必须 fail-closed。
+		if (len(sha) != 40 && len(sha) != 64) || !isHex(sha) {
+			return nil, fmt.Errorf("malformed ls-remote object id %q in line %q", sha, line)
 		}
 		peeled := strings.HasSuffix(name, "^{}")
 		if peeled {
@@ -66,7 +74,7 @@ func ParseLSRemoteOutput(out []byte) []RemoteRef {
 		}
 		refs = append(refs, RemoteRef{SHA: sha, Name: name, Peeled: peeled})
 	}
-	return refs
+	return refs, nil
 }
 
 func isHex(s string) bool {

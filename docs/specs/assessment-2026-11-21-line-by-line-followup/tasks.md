@@ -129,40 +129,49 @@
 
 ## Batch C · 安全边界与校验一致性（8 项，需 C3/C4 先拍板）
 
-- [ ] **A-04 `integrations add` 逃逸校验跳过**（`cmd/ngm/integrations.go:92-99`；对照 `cmd/ngm/mappings.go:105-114`）
+> ✅ **已落地（2026-11-21）**：8 项全部改完（V-03 虽列在 Batch E，实施时与 V-01/V-02
+> 同在 module_cache.go 一起完成）。`go test ./internal/core/git ./internal/core/vendor
+> ./internal/security` 全绿，cmd/ngm integrations 定向全绿，vet 绿。
+> 新判据：`TestLSRemoteRejectsHelperURL`、`TestParseLSRemoteOutput_AcceptsSHA256`、
+> `TestParseLSRemoteOutput_RejectsMalformed`、`TestPlanSandboxRejectsCommaTargets`、
+> `TestModuleCacheEnsureValidatesCommitAfterFirstClone`、`TestV147GitRunCapturesAreBounded`。
+> ADR-012 补记 + CHANGELOG 已同步（逗号权限为破坏性变更）。
+> 变异：去掉 URL 校验 / 恢复静默跳过 / 去掉逗号拒绝 / 去掉 commit 校验 / 恢复无界 buffer → 对应判据全红。
+
+- [x] **A-04 `integrations add` 逃逸校验跳过**（`cmd/ngm/integrations.go:92-99`；对照 `cmd/ngm/mappings.go:105-114`）
       - 动作：读 manifest 失败时回退默认 vendor 根继续校验，或显式 fail-closed（二选一，与 mappings validate 同口径）。
       - 判据 V153：manifest 不可读 + 越界 `to` → exit 3；变异：改回静默跳过 → 红。
 
-- [ ] **C-01 批量模块材料漏路径校验**（`internal/core/git/tree.go:592-598`，对照 `:255-266`、`:648-663`）
+- [x] **C-01 批量模块材料漏路径校验**（`internal/core/git/tree.go:592-598`，对照 `:255-266`、`:648-663`）
       - 动作：`BuildModuleMaterials` 对每条 `e.Path` 调 `digest.ValidatePathAndMode`，或复用 `materialFromEntries`。
       - 判据 V154：子树含反斜杠/换行文件名 → install 与模块证明路径同判拒绝；变异：删校验 → 红。
 
-- [ ] **C-02 `LSRemote` URL 形状校验**（`internal/core/git/lsremote.go:31-40`；调用方 `resolve/infer.go:21-27`、
+- [x] **C-02 `LSRemote` URL 形状校验**（`internal/core/git/lsremote.go:31-40`；调用方 `resolve/infer.go:21-27`、
       `resolve/reftype.go:203-213`）
       - 动作：入口先 `ValidateRemoteURL(url)`，与 clone 同构造点口径。
       - 判据 V155：`ext::sh -c ...` 形状的 URL 在 ls-remote 路径被拒；变异：删校验 → 红。
 
-- [ ] **C-03 ls-remote 解析 40/64-hex + fail-closed**（`internal/core/git/lsremote.go:47-69`；
+- [x] **C-03 ls-remote 解析 40/64-hex + fail-closed**（`internal/core/git/lsremote.go:47-69`；
       `internal/core/git/tree.go:443-453`）
       - 动作：接受 40/64-hex；畸形行返回 error 而不是 `continue`。
       - 判据 V156：64-hex 响应解析出 ref；畸形行返回错误；变异：改回静默跳过 → 红。
       - 前置：跑全量 `cmd/ngm` 确认无 fixture 依赖旧行为。
 
-- [ ] **P-01 含逗号权限放大**（`internal/security/sandbox.go:97-108,130-131,157-158`；
+- [x] **P-01 含逗号权限放大**（`internal/security/sandbox.go:97-108,130-131,157-158`；
       `internal/security/permissions.go:75-96`）
       - 动作：net/env target 复用 ReadDirs 的逗号 fail-closed。
       - 判据 V157：`allow: ["net:a.example,b.example"]` 被拒；放行时 argv 只含单一 target。变异：删拒绝 → 红。
       - 同步：ADR-012 补记 + CHANGELOG 破坏性变更说明。
 
-- [ ] **V-01 首次 clone 不校验 commit**（`internal/core/vendor/module_cache.go:97-100`，doc `:62-65`）
+- [x] **V-01 首次 clone 不校验 commit**（`internal/core/vendor/module_cache.go:97-100`，doc `:62-65`）
       - 动作：clone 成功后同样 `HasCommit` / 必要时 `FetchPartialCommit`。
       - 判据 V158：预置不含目标 commit 的远端，空缓存下 Ensure 不得报 `Created=true`；变异：删校验 → 红。
 
-- [ ] **V-02 fetch 门禁用错 URL**（`internal/core/vendor/module_cache.go:109-112`；`internal/core/git/clone.go:141`）
+- [x] **V-02 fetch 门禁用错 URL**（`internal/core/vendor/module_cache.go:109-112`；`internal/core/git/clone.go:141`）
       - 动作：复用 Mirror 的"读真实 origin + 失败回退更严 URL"逻辑。
       - 判据 V159：缓存 origin 为受限地址、调用方传已授权 URL → 门禁仍拒绝；变异：改回用调用方 URL → 红。
 
-- [ ] **C-05 git 通用 Run 输出无界**（`internal/core/git/exec.go:97-99`；`internal/core/git/runallow.go:28`）
+- [x] **C-05 git 通用 Run 输出无界**（`internal/core/git/exec.go:97-99`；`internal/core/git/runallow.go:28`）
       - 动作：`boundbuf` 或流式读取 + 截断传播；保留 Result.Stdout 现有语义。
       - 判据 V160：超大输出触发可检测的截断而非无限增长；变异：改回无界 buffer → 红。
 
@@ -205,7 +214,7 @@
       - 动作：`Decode` 后再 `Decode` 一次要求 `io.EOF`；对象内未知字段兼容不变。
       - 判据 V166：合法 lock 后追加第二个 JSON 对象 → Parse 报错；未知字段仍忽略。变异：删第二次 Decode → 红。
 
-- [ ] **V-03 首次 clone 非原子落地**（`internal/core/vendor/module_cache.go:97-99`；对照 `mirror.go:151-169`）
+- [x] **V-03 首次 clone 非原子落地**（`internal/core/vendor/module_cache.go:97-99`；对照 `mirror.go:151-169`）
       - 动作：落地目录 + 原子 rename；clone 失败清理残骸（对齐 Mirror v0.101 修复）。
       - 判据 V167：clone 中途失败不留下最终 path 半成品；并发首次 clone 不互报 destination exists。
         变异：改回直落 path → 红。

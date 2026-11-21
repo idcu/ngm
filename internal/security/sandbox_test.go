@@ -21,6 +21,24 @@ func sandboxPolicy(t *testing.T, allow, deny []string) *Policy {
 	return pol
 }
 
+// 审计 P-01：含逗号的 net/env target 在 ngm 侧是一条永远匹配不到真实主机的 target，
+// 到 Deno 的 --allow-net=a,b 却变成两个真实授权。必须在参数生成前 fail-closed。
+func TestPlanSandboxRejectsCommaTargets(t *testing.T) {
+	pol := sandboxPolicy(t, []string{"net:a.example,b.example", "net:a.example", "env:FOO,BAR"}, nil)
+	for _, n := range []Needs{
+		{NetHosts: []string{"a.example,b.example"}},
+		{EnvVars: []string{"FOO,BAR"}},
+	} {
+		if _, err := pol.PlanSandbox(n); err == nil {
+			t.Errorf("a comma-bearing target must be refused (it would split into two Deno grants): %+v", n)
+		}
+	}
+	// 对照：单值授权仍正常通过，判据没有把整个 net/env 维度关掉。
+	if _, err := pol.PlanSandbox(Needs{NetHosts: []string{"a.example"}}); err != nil {
+		t.Errorf("single net target should still work: %v", err)
+	}
+}
+
 // 权限映射是沙箱的全部安全语义：需求与策略求交，未获授权一律拒绝。
 func TestPlanSandbox(t *testing.T) {
 	needs := Needs{

@@ -215,6 +215,17 @@ Deno 版本门槛**按能力判定，不按版本号**：需要目录级的 `--a
 
 ---
 
+## 补记（2026-11-21，逐行审计 Batch C）
+
+`PlanSandbox` 此前只对 `ReadDirs` 做了"含逗号即拒绝"的 fail-closed，
+而 `NetHosts` / `EnvVars` 没有；但 `DenoArgs` 对 `--allow-net` / `--allow-env`
+同样用逗号拼接多个值。`security.Parse` 又不禁止 target 含逗号，于是
+`allow: ["net:a.example,b.example"]` 在 ngm 侧是一条永远匹配不到真实主机的 target
+（用户视为无效），到 Deno 侧却被拆成两个真实授权——**判定主机 ≠ 实际访问主机**。
+现在 net/env target 复用 `ReadDirs` 的 fail-closed 口径：含逗号直接拒绝，
+提示用户逐条授权。这是**破坏性变更**（旧配置若依赖逗号形式会失败），
+CHANGELOG `Unreleased` 已记；它关闭的是权限放大漏洞，不是新特性。
+
 ## 相关文档
 
 - [安全模型](../architecture/security-model.md)（权限表与沙箱小节）

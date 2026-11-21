@@ -88,25 +88,30 @@ func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Write
 	//   · "`to` 目录还不存在"在"先提交 mappings、后 install"的顺序里是正常的，
 	//     把它也变成前置条件会让 CI 里"先生成配置"这一步永远失败；
 	//   · "别名指向 vendor 之外"从来没有任何正常解释。
+	// 审计 A-04：读不到 ngm.json 时不能再把整块校验跳过——mappings validate 在同场景下
+	// 留空 VendorRoot 走协议默认根继续校验。这里同口径，避免"mappings 拒绝的 alias
+	// 能被 integrations 写进构建配置"。
+	var vendorRoot string
 	if pf, perr := env.ReadManifest(); perr == nil && pf != nil {
-		findings, verr := mappings.Validate(f, mappings.ValidateEnvironment{
-			ProjectDir: env.ProjectDir,
-			VendorRoot: env.MappingsVendorRoot(pf),
-			// LockNames / SubPaths 留空：这里问的是"落点在不在 vendor 里"，
-			// 不是"条目还对不对得上 lock"——后者是 `mappings validate` 的职责。
-		})
-		if verr != nil {
-			return runErr(ctx, stdout, stderr, verr)
-		}
-		for _, fi := range findings {
-			if fi.Fatal && fi.EscapesVendor {
-				return runErr(ctx, stdout, stderr, errs.New(
-					errs.CodeConfigInvalid,
-					"refusing to write aliases: "+fi.Message,
-					"run `ngm mappings validate` for every finding, then `ngm install` to regenerate "+
-						mappings.FileName+" — an alias outside the vendored tree would make the build "+
-						"consume code ngm never verified"))
-			}
+		vendorRoot = env.MappingsVendorRoot(pf)
+	}
+	findings, verr := mappings.Validate(f, mappings.ValidateEnvironment{
+		ProjectDir: env.ProjectDir,
+		VendorRoot: vendorRoot,
+		// LockNames / SubPaths 留空：这里问的是"落点在不在 vendor 里"，
+		// 不是"条目还对不对得上 lock"——后者是 `mappings validate` 的职责。
+	})
+	if verr != nil {
+		return runErr(ctx, stdout, stderr, verr)
+	}
+	for _, fi := range findings {
+		if fi.Fatal && fi.EscapesVendor {
+			return runErr(ctx, stdout, stderr, errs.New(
+				errs.CodeConfigInvalid,
+				"refusing to write aliases: "+fi.Message,
+				"run `ngm mappings validate` for every finding, then `ngm install` to regenerate "+
+					mappings.FileName+" — an alias outside the vendored tree would make the build "+
+					"consume code ngm never verified"))
 		}
 	}
 

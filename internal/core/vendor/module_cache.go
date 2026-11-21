@@ -81,6 +81,15 @@ func (c *ModuleCache) Ensure(ctx context.Context, repo resolve.Canonical, remote
 		return EnsureResult{Path: path}, err
 	}
 
+	// 审计 V-02：fetch 实际执行 `git fetch origin`，门禁必须判缓存记录的真实 origin，
+	// 而不是调用方传入的 URL。与 Mirror.Ensure 同口径：读不到就保留更严的克隆 URL。
+	netURL := remoteURL
+	if c.Exists(repo) {
+		if u, uerr := git.MirrorRemoteURL(ctx, c.opts, path); uerr == nil && strings.TrimSpace(u) != "" {
+			netURL = u
+		}
+	}
+
 	if !c.Exists(repo) {
 		if _, err := os.Stat(path); err == nil {
 			return EnsureResult{Path: path}, errs.New(errs.CodeGitFetch,
@@ -89,15 +98,40 @@ func (c *ModuleCache) Ensure(ctx context.Context, repo resolve.Canonical, remote
 		}
 		// 首次 clone 与增量 fetch **同样触网**，必须和 fetch 分支一样过 net 门禁
 		// （v0.136 之前只有 fetch 判 net，deny net: 下首 clone 仍会真实联网）。
-		// 放在这里而不是函数开头：命中有缓存且 commit 已存在时是**离线**路径，
-		// 不该被 net 门禁挡住（verify --offline 依赖它）。
-		if err := git.CheckNetAccess(c.opts.Policy, remoteURL); err != nil {
+		if err := git.CheckNetAccess(c.opts.Policy, netURL); err != nil {
 			return EnsureResult{Path: path}, err
 		}
-		if err := git.ClonePartial(ctx, c.opts, remoteURL, path); err != nil {
+		// 审计 V-03：先落到独有的 landing 路径，成功后原子 rename；中途失败清残骸，
+		// 不留下"path 存在但不是 partial clone"的卡死状态。
+		tmp := path + CloneLandingInfix + randHex(4)
+		if err := git.ClonePartial(ctx, c.opts, remoteURL, tmp); err != nil {
+			removeLanding(tmp)
 			return EnsureResult{Path: path}, err
 		}
-		return EnsureResult{Path: path, Created: true}, nil
+		created, err := c.landPartial(tmp, path)
+		if err != nil {
+			removeLanding(tmp)
+			return EnsureResult{Path: path}, err
+		}
+		if !created {
+			removeLanding(tmp) // 对手先落地，这份是多余下载
+		}
+		// 审计 V-01：文档承诺"最终仍会校验 commit 可解析"，此前首次 clone 分支直接返回。
+		if ok, err := c.HasCommit(ctx, repo, commit); err != nil {
+			return EnsureResult{Path: path, Created: created}, err
+		} else if !ok {
+			if err := git.FetchPartialCommit(ctx, c.opts, path, commit, ref, refType); err != nil {
+				return EnsureResult{Path: path, Created: created}, err
+			}
+			if still, err := c.HasCommit(ctx, repo, commit); err != nil {
+				return EnsureResult{Path: path, Created: created}, err
+			} else if !still {
+				return EnsureResult{Path: path, Created: created}, errs.New(errs.CodeGitFetch,
+					"module cache does not contain locked commit "+commit,
+					"check that the ref still exists upstream, or re-pin the dependency")
+			}
+		}
+		return EnsureResult{Path: path, Created: created}, nil
 	}
 
 	if ok, err := c.HasCommit(ctx, repo, commit); err != nil {
@@ -106,13 +140,29 @@ func (c *ModuleCache) Ensure(ctx context.Context, repo resolve.Canonical, remote
 		return EnsureResult{Path: path}, nil
 	}
 
-	if err := git.CheckNetAccess(c.opts.Policy, remoteURL); err != nil {
+	if err := git.CheckNetAccess(c.opts.Policy, netURL); err != nil {
 		return EnsureResult{Path: path}, err
 	}
 	if err := git.FetchPartialCommit(ctx, c.opts, path, commit, ref, refType); err != nil {
 		return EnsureResult{Path: path}, err
 	}
 	return EnsureResult{Path: path}, nil
+}
+
+// landPartial 把落地中的 partial clone 原子移到最终路径。
+// rename 失败时若最终路径上已经有可用的 partial clone，则是并发对手先落地——复用它，
+// 由调用方清理我们多下载的那份；否则报真实失败。
+func (c *ModuleCache) landPartial(tmp, final string) (bool, error) {
+	if err := os.Rename(tmp, final); err == nil {
+		return true, nil
+	}
+	// 并发对手先落地时，最终路径上已经有可用的 partial clone——复用它。
+	if git.IsPartialClone(final) {
+		return false, nil
+	}
+	return false, errs.New(errs.CodeGitFetch,
+		"cannot move the module cache into place: "+final,
+		"check directory permissions and that no other process is writing there")
 }
 
 // ModuleCacheEntry 是 `ngm store usage` 里的一行（一个 partial clone 缓存仓库）。

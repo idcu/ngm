@@ -94,13 +94,27 @@ func (pol *Policy) PlanSandbox(n Needs) (Grants, error) {
 		}
 		g.Read = append(g.Read, dir)
 	}
+	// 审计 P-01：Deno 的 --allow-net / --allow-env 同样用逗号拼接多个值，
+	// 而 ngm 的权限 target 允许含逗号。一条 "net:a,b" 在 ngm 侧永远匹配不到真实主机，
+	// 到 Deno 侧却变成两个真实授权——判定主机与实际访问主机不一致。复用 ReadDirs 的
+	// fail-closed 口径：表达不出来就不授予。
 	for _, host := range n.NetHosts {
+		if strings.Contains(host, ",") {
+			return Grants{}, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("sandbox net target %q contains a comma", host),
+				"Deno expresses multiple net hosts as one comma-separated flag; grant each host separately")
+		}
 		if err := pol.CheckExplicit(Permission{Namespace: Net, Target: host}); err != nil {
 			return Grants{}, err
 		}
 		g.Net = append(g.Net, host)
 	}
 	for _, name := range n.EnvVars {
+		if strings.Contains(name, ",") {
+			return Grants{}, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("sandbox env target %q contains a comma", name),
+				"Deno expresses multiple env names as one comma-separated flag; grant each name separately")
+		}
 		if err := pol.CheckExplicit(Permission{Namespace: Env, Target: name}); err != nil {
 			return Grants{}, err
 		}

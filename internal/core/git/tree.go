@@ -592,7 +592,16 @@ func BuildModuleMaterials(ctx context.Context, opts Options, repoPath, commit st
 		metas := make([]digest.Record, 0, len(a.entries))
 		blobs := make([][]byte, 0, len(a.entries))
 		for _, e := range a.entries {
-			metas = append(metas, digest.Record{Path: e.Path, Mode: e.Mode})
+			// 审计 C-01：批量模块路径此前只走 validateTreeEntry（只查 mode），
+			// 漏掉单模块路径 materialFromEntries 在 :258 做的路径校验，
+			// 造成"装得出、验不过"的分叉。两处共用同一个口径。
+			rec := digest.Record{Path: e.Path, Mode: e.Mode}
+			if verr := digest.ValidatePathAndMode(rec); verr != nil {
+				return nil, errs.New(errs.CodeConfigInvalid,
+					fmt.Sprintf("commit %s has an unsupported module path %q: %v", ShortSHA(commit), e.Path, verr),
+					"rename the file in the upstream repository and re-pin the commit")
+			}
+			metas = append(metas, rec)
 			blobs = append(blobs, bySHA[e.SHA])
 		}
 		mat, merr := finishMaterial(commit, a.entries, metas, blobs, digest.ModuleManifestVersion)
