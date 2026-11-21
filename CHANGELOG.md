@@ -6,7 +6,13 @@
 
 只记录**用户可观察的行为**；逐版工程细节见 `docs/development/` 的计划与复盘。
 
-## [Unreleased] - 2026-11-04
+## [Unreleased]
+
+## [0.102.0-dev.3] - 2026-11-21
+
+开发版本。把 2026-11-20/21 的逐行审计修复、竞品差距 followup 与默认安全姿态变更
+（`minimumReleaseAge` 默认 P1D、GitHub action `verify-level` 默认 `content`）做成可下载的固定点。
+与 `0.102.0-dev.2` 同一版本线，不进 latest。
 
 ### Fixed（2026-11-21 追加，逐行审计 Batch D）
 
