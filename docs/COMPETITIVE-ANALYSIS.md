@@ -200,12 +200,22 @@ SLSA v1.2 定义四级：
 > 长尾更低；PyPI 17%）。"reject 任何没有 provenance 的包"这样的策略
 > 今天会让构建失败，因此生态真正的做法是**告警**而非拒绝。
 > 这意味着单靠 provenance 也不构成默认闭环——**与上面第 1 节的结论一致**。
+>
+> **补证（2026-11-21，[差距评估 §5.3](./analysis/ngm-competitive-gap-full-2026-11-21.md#53-slsa-段落需要一处小修)）**：
+> 2026-10/11 的实测把这条约束说得更紧：npm top50 的 provenance 覆盖率仅约 **12%**，
+> 另一统计口径为 **38.8%**；`npm audit signatures` 也不区分"有签名"与"有 provenance"。
+> 数字越低，`reject` 越不可能成为默认策略——生态做法仍是**告警**而非拒绝。
 
 ### 诚实结论
 
 按SLSA 这条轴，ngm **不领先**，也没有落后——**它测的是另一件事**。
-它的refType 必填、ref 漂移三态、按 commit 查 OSV 三项在主流工具里仍无对应物，
-但这三项都不属于 SLSA 的分级维度。
+> **状态更新（2026-11-21，[差距评估 §5.2](./analysis/ngm-competitive-gap-full-2026-11-21.md#52-三项无对应物断言的当前有效性)）**：
+> 上面这句是 2026-09 的快照。今天更准确的说法是：refType 声明**基本仍成立**（但 npm 用
+> 默认拒绝 Git 依赖达到类似效果）、ref 漂移三态**只部分成立**（git-tag-guardian 做 tag rewrite
+> 检测 + SHA 基线，pnpm/Deno 的 no-downgrade 做信任降级）、**规范化内容摘要不再独有**
+> （Bun 1.4 为 git/tarball 依赖记 SHA-512、Cargo 有逐文件 checksum）。差别不在"有没有哈希"，
+> 而在 ngm 是**唯一把这些控制点收束为默认、可离线重放的同一状态机**的工具。
+> 这三项也都不属于 SLSA 的分级维度。
 
 如果要往 SLSA 这条轴上走，ngm 的天然位置是 **L2 的一半**：
 `archiveDigest` 已经有"内容 ↔ commit"的绑定（比 L1 强），

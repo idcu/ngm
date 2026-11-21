@@ -7,7 +7,7 @@
 
 ## P0 · 读数纠偏（2 项，无产品代码）
 
-- [ ] **N1 三项“无对应物”措辞纠偏**（`docs/COMPETITIVE-ANALYSIS.md:204-212`）
+- [x] **N1 三项“无对应物”措辞纠偏**（`docs/COMPETITIVE-ANALYSIS.md:204-212`）
   - 现状：§“诚实结论”写“refType 必填、ref 漂移三态、按 commit 查 OSV 三项在主流工具里仍无对应物”，
     与[差距评估 §5.2](../../analysis/ngm-competitive-gap-full-2026-11-21.md#52-三项无对应物断言的当前有效性)冲突：
     内容摘要单项不再独有（Bun 1.4 记 SHA-512、Cargo 逐文件 checksum），
@@ -17,17 +17,20 @@
   - 判据 V156（新）：`TestV156CompetitiveClaimsDoNotAssertThreeUniques`——
     文档不得出现“三项在主流工具里仍无对应物”，必须出现“同一状态机”与“内容摘要不再独有”意思的句子。
   - 变异：把纠偏后的句子改回旧断言 → 红；还原 → 绿。
+  - ✅ **已落地**：旧断言改为“时间限定 + 三项分别判定 + 同一状态机”段，`TestV156` 绿，变异红。
 
-- [ ] **N2 SLSA 段补 provenance 覆盖率证据**（`docs/COMPETITIVE-ANALYSIS.md:198-207`）
+- [x] **N2 SLSA 段补 provenance 覆盖率证据**（`docs/COMPETITIVE-ANALYSIS.md:198-207`）
   - 动作：补 2026-10/11 实测读数（npm top50 约 **12%**；另一口径 **38.8%**），
     保留“provenance 采用率低 ⇒ 生态做法是告警而非拒绝”的结论，不改“ngm 是 L2 的一半”判断。
   - 判据 V157（新）：`TestV157SLSAParagraphCarriesProvenanceAdoptionReading`——
     段落必须同时含两个覆盖率数字与“告警而非拒绝”的措辞。
   - 变异：删掉任一数字 → 红；还原 → 绿。
+  - ✅ **已落地**：补 top50 **12%** / 另一口径 **38.8%** 与 `npm audit signatures` 不区分的读数；
+    `TestV157` 绿，变异红。
 
 ## P1 · 闭环可复核证据（1 项，文档 + 判据）
 
-- [ ] **N3 真实消费方端到端案例**（新文件：`docs/practice/ngm-consumer-case-study-2026-11-21.md`）
+- [x] **N3 真实消费方端到端案例**（新文件：`docs/practice/ngm-consumer-case-study-2026-11-21.md`）
   - 内容：从 `init` → `add` → `install --frozen-lockfile --offline` → `verify --content` →
     `sbom` / `attest` → 现场 cosign 签名验证；每一步写明**证明什么、不证明什么**。
   - 必含注入演示：改动 `ngm.vendor/` 内一个字节后 `verify --content` 退 **2**，
@@ -37,13 +40,16 @@
   - 判据 V158（新）：`TestV158ConsumerCaseStudyDemonstratesTheWholeLoop`——
     案例文件存在；命令链按序出现；含“篡改 → exit 2”的注入段；引用 signing.md；无自签命令。
   - 变异：删注入段 → 红；把 `verify --content` 换成默认 `verify` → 红；还原 → 绿。
+  - ✅ **已落地**：案例含主路径、证明/不证明表、cosign 配方引用与篡改 → exit 2 注入段；
+    `TestV158` 绿，三组变异全红。注入段要求独立 `NGM_HOME` + `vendor.linkMode=copy`，
+    避免 hardlink 改写共享 content store。
 
 ## P2 · 采用门槛（2 项，人工/外部条件，不自动执行）
 
 - [ ] **N4 仓库元数据**（GitHub 网页操作）
   - 任务：填写仓库 description 与 topics；许可证已是 MIT，不在本项范围。
   - 验收：网页上可见；agent 不代做，也不为它写源码判据。
-  - 状态：**需要仓库所有者**；执行前不改动任何文件。
+  - 状态：**需要仓库所有者**；执行前不改动任何文件。本轮未执行，保持 `[ ]`。
 
 - [ ] **N5 发布回填（保持暂缓）**
   - 事实：38 个缺口是 `release-pipeline.md` 明确**不回填**的区间；GitHub 维持 63；
@@ -51,7 +57,7 @@
   - 恢复条件：见 [project-state.md §3.2](../../internals/project-state.md#32-阻塞需要人) 的两条恢复信号，
     或 token 到位后退化为机械动作。
   - 本轮动作：**只记录“暂缓 + 原因”，不排期、不执行、不新建脚本**；
-    已有 `scripts/check-release-status.sh --published` 作只读门禁。
+    已有 `scripts/check-release-status.sh --published` 作只读门禁。本轮维持暂缓，保持 `[ ]`。
 
 ## P3 · 观察项（4 项，不承诺、不执行）
 
@@ -62,9 +68,13 @@
 - [ ] **N8 全局可达性 GC**：观察。ADR-018 明确拒绝自动全局删除；触发条件：出现项目注册表等新增事实源。
 - [ ] **N9 季度端到端复核**：观察。若用户明确要求自动化，再**单独**创建定时自动化；本 spec 不擅自建。
 
+> P3 四项（N6–N9）本轮只记录触发条件，**均未启动**，保持 `[ ]`。
+
 ## 全批通用收口
 
-- [ ] 每项先判据后修改，变异结果记入本文件对应条目；不能只写“文档已更新”。
-- [ ] 批次顺序：P0 → P1 → P2（人工项只记录状态）→ P3（只记录触发条件）。
-- [ ] 完成后跑 `docs-links` / `discipline 13/13` / `diff-check` / `TestV114`，同步 docs/README 入口与 spec 实施补记。
-- [ ] 不新增 ADR；若实施中出现源码事实推翻本计划，以“实施改判”小节记录，不重写 spec 正文。
+- [x] 已执行项（N1–N3）先判据后修改，变异结果记入对应条目；V156/V157/V158 均"装上绿、撤掉红"。
+  N4/N5/N6–N9 未执行，不计入完成数。
+- [x] 批次顺序：P0 → P1 → P2（人工项只记录状态）→ P3（只记录触发条件）。
+- [x] `docs-links` / `discipline 13/13` / `diff-check` / `TestV114` 全绿；
+  docs/README 与功能梳理文档已加入口，spec 顶部补实施说明。
+- [x] 未新增 ADR，未改产品代码；实施中未出现推翻本计划的源码事实。

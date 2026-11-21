@@ -82,5 +82,6 @@ CI 里的判据（`TestV141SigningRecipeIsReproducible`）守的是**配方文�
 - [ADR-027 attestation](../adr/adr-027-attestation.md)（被签对象的契约 + 补记）
 - [ADR-014 自述签名](../adr/adr-014-self-report-signatures.md)（为什么 ngm 不签名）
 - [ADR-051 verify 默认级别](../adr/adr-051-verify-level-defaults.md)
+- [真实消费方端到端案例](../practice/ngm-consumer-case-study-2026-11-21.md)（含篡改注入与签名验证步骤）
 - [CLI 参考 · ngm attest](./cli.md)
 - [竞品对比 §6 SLSA](../COMPETITIVE-ANALYSIS.md#6-生态已经换了一套语言slsa-l1l42026-10-补充)

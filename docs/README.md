@@ -75,6 +75,7 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
 | **给自己的项目上一套"结构可控、变更可核"的纪律** | [工程纪律方法论](./practice/engineering-discipline.md)（九条可迁移做法 + 接入顺序 + 失效边界） | 项目维护者 |
 | **看真实项目怎么把约定变成判据** | [四个样本的成熟度对照](./practice/engineering-discipline-appendix.md#附四个样本的成熟度对照)（枢衡 · PlotPin · 淬题 · ngm-repo） | 评估者 · 项目维护者 |
+| **看 ngm 闭环的端到端演示（含篡改注入）** | [真实消费方案例](./practice/ngm-consumer-case-study-2026-11-21.md)（`install → verify --content → sbom/attest → cosign`，篡改 → exit 2） | **使用者 · 评估者** |
 | 参与开发 | [开发总览](./development/README.md) | 维护者 |
 
 ---
