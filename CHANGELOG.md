@@ -10,6 +10,13 @@
 
 ### Fixed
 
+- **`ngm modules index` 不再改写用户的工作索引**（P0，数据丢失）：更新 `ngm-index`
+  分支需要一棵只含索引文件的临时索引树，靠 `GIT_INDEX_FILE` 指过去；而该变量在
+  git 包的「仓库重定向」过滤表里，经 `ExtraEnv` 传递时被**静默丢弃**，于是
+  `read-tree --empty` 清的是**真实索引**——暂存内容全部消失，`git status` 显示为
+  "全部分阶段删除"，极易被误提交。现在该能力由 `git.Options.IndexFile` 显式表达
+  （`ExtraEnv` 仍不接受 `GIT_INDEX_FILE`，注入通道的纪律不变）；回归
+  `TestModulesIndexLeavesWorkingIndexUntouched` 在旧实现上必红。
 - **`run:<engine>` 判定对象改为解析后的真实文件**：此前只看声明的名字，
   而 `run:git` 默认放行——于是仓库自带的 `./git`、`./git.exe` 也能通过同一道门禁。
   现在判定前先用与执行**同一个** `resolveProgram` 解析（项目相对路径 → 项目目录；

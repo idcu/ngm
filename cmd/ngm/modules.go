@@ -995,8 +995,10 @@ func writeIndexBranch(ctx context.Context, gitOpts git.Options, dir, branch stri
 	defer func() { _ = os.Remove(tmpIndexName) }()
 
 	indexOpts := gitOpts
-	indexOpts.ExtraEnv = append(append([]string{}, gitOpts.ExtraEnv...),
-		"GIT_INDEX_FILE="+tmpIndexName)
+	// 用显式字段而不是 ExtraEnv：GIT_INDEX_FILE 在 git 包的重定向过滤表里，
+	// 走 ExtraEnv 会被静默丢弃，于是下面的 read-tree --empty 清的是**用户的
+	// 真实索引**（v0.102 的缺陷，回归见 TestModulesIndexLeavesWorkingIndexUntouched）。
+	indexOpts.IndexFile = tmpIndexName
 	if _, err := git.Run(ctx, indexOpts, "read-tree", "--empty"); err != nil {
 		return "", errs.Wrap(errs.CodeGitFetch, "prepare the index tree",
 			"check repository permissions", err)

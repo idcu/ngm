@@ -94,8 +94,8 @@ func TestBuildEnvPromptAndLocale(t *testing.T) {
 	}
 }
 
-// ExtraEnv 是**显式**通道，追加在过滤之后；调用方（ngm 自己的代码）负责任的变量
-// 才能从这里进入子进程。这条钉住"它确实优先于继承值"，避免有人把过滤器反过来用。
+// ExtraEnv 是显式通道，但仍走**同一套**过滤（仓库定位与劫持变量一律丢弃）；
+// 未命中过滤表的值追加在继承之后，因此能覆盖继承值。
 func TestBuildEnvExtraEnvIsExplicitAndWins(t *testing.T) {
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
 	got := envMap(buildEnv(Options{ExtraEnv: []string{"GIT_TERMINAL_PROMPT=0", "NGM_TEST_FLAG=on"}}))
@@ -104,5 +104,31 @@ func TestBuildEnvExtraEnvIsExplicitAndWins(t *testing.T) {
 	}
 	if got["NGM_TEST_FLAG"] != "on" {
 		t.Error("explicit ExtraEnv must reach the child")
+	}
+}
+
+// IndexFile 是**显式字段**，不是 ExtraEnv 里的一条：GIT_INDEX_FILE 属于仓库
+// 重定向变量，走 ExtraEnv 会被丢弃。`ngm modules index` 曾因此在用户的真实
+// 索引上 read-tree --empty，把暂存清零（v0.102，P0）。
+// 这里钉住三点：继承值被剔除、ExtraEnv 不能走私它、显式字段一定到达子进程。
+func TestBuildEnvIndexFileIsExplicitOnly(t *testing.T) {
+	t.Setenv("GIT_INDEX_FILE", "/tmp/inherited.idx")
+	if _, ok := envMap(buildEnv(Options{}))["GIT_INDEX_FILE"]; ok {
+		t.Fatal("inherited GIT_INDEX_FILE must be stripped")
+	}
+
+	if _, ok := envMap(buildEnv(Options{ExtraEnv: []string{"GIT_INDEX_FILE=/tmp/bypass.idx"}}))["GIT_INDEX_FILE"]; ok {
+		t.Fatal("ExtraEnv must not smuggle GIT_INDEX_FILE past the filter")
+	}
+
+	got := envMap(buildEnv(Options{IndexFile: "/tmp/own.idx"}))
+	if got["GIT_INDEX_FILE"] != "/tmp/own.idx" {
+		t.Fatalf("GIT_INDEX_FILE = %q, want /tmp/own.idx", got["GIT_INDEX_FILE"])
+	}
+
+	// 继承值存在时显式字段仍必须生效（顺序确定，不依赖 map 迭代）。
+	t.Setenv("GIT_INDEX_FILE", "/tmp/inherited.idx")
+	if got := envMap(buildEnv(Options{IndexFile: "/tmp/own.idx"}))["GIT_INDEX_FILE"]; got != "/tmp/own.idx" {
+		t.Fatalf("explicit IndexFile must win over the inherited value, got %q", got)
 	}
 }

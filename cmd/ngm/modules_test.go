@@ -202,6 +202,39 @@ func TestModulesIndexUpdatesLocalBranch(t *testing.T) {
 	}
 }
 
+// 回归（v0.102 P0）：`modules index` 更新 ngm-index 分支时要建一棵只含索引
+// 文件的临时索引树，靠 GIT_INDEX_FILE 把 git 指过去。但该变量属于 git 包的
+// 「仓库重定向」过滤表，经 ExtraEnv 传递时被**静默丢弃**——于是 `read-tree
+// --empty` 清的是**用户的工作索引**，暂存内容全丢（工作树文件还在，但
+// `git status` 会显示成分阶段删除，极易被误提交）。
+// 判据：跑完之后文件清单与暂存区必须与跑之前逐字一致。
+func TestModulesIndexLeavesWorkingIndexUntouched(t *testing.T) {
+	testutils.MustHaveGit(t)
+	repo := testutils.NewGitRepo(t)
+	repo.WriteFile("packages/a/ngm.json", `{"name":"a","version":"1.0.0"}`)
+	repo.WriteFile("notes.txt", "v1\n")
+	repo.Commit("collection")
+	repo.WriteFile("notes.txt", "v2\n")
+	repo.Exec("add", "notes.txt")
+
+	beforeFiles := strings.TrimSpace(repo.Exec("ls-files"))
+	beforeStaged := strings.TrimSpace(repo.Exec("diff", "--cached", "--name-only"))
+	if beforeStaged != "notes.txt" {
+		t.Fatalf("fixture: 期望 notes.txt 已暂存，实际 %q", beforeStaged)
+	}
+
+	if code, out := runCaptureCode(t, "modules", "index", "--dir="+repo.Dir); code != 0 {
+		t.Fatalf("modules index exit=%d:\n%s", code, out)
+	}
+
+	if after := strings.TrimSpace(repo.Exec("ls-files")); after != beforeFiles {
+		t.Fatalf("modules index 改写了工作索引：\nbefore:\n%s\nafter:\n%s", beforeFiles, after)
+	}
+	if after := strings.TrimSpace(repo.Exec("diff", "--cached", "--name-only")); after != beforeStaged {
+		t.Fatalf("暂存内容丢失：before %q, after %q", beforeStaged, after)
+	}
+}
+
 func TestModulesValidateIndexConsistency(t *testing.T) {
 	root := t.TempDir()
 	writeModuleFixture(t, root, "packages/a", `{"name":"a","version":"1.0.0","runtime":"node"}`)

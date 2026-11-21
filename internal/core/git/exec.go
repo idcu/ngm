@@ -31,6 +31,15 @@ type Options struct {
 	Dir string
 	// ExtraEnv 追加到 os.Environ() 之后（后者优先，与 exec.Cmd 语义一致）。
 	ExtraEnv []string
+	// IndexFile 让本次调用改用指定的索引文件，而不是仓库的 .git/index。
+	//
+	// 为什么是一个字段而不是 ExtraEnv 里的一条 GIT_INDEX_FILE：后者在
+	// repoLocatingEnvVars 里，ExtraEnv 与 os.Environ() 走同一套过滤，
+	// 于是"换一份索引"的意图会被静默丢弃——`ngm modules index` 曾因此在
+	// 用户的真实索引上执行 `read-tree --empty`，把暂存内容清零（v0.102）。
+	// 显式字段保留了"注入通道一律不放行"的纪律，同时给内部调用方一条
+	// 可测试的、不会被过滤的能力。
+	IndexFile string
 	// AllowPrompt 为 true 时保留 git 的交互式提示（默认 false）。
 	// CI 与自动化场景必须为 false，否则会在无 tty 时挂起或失败。
 	AllowPrompt bool
@@ -238,9 +247,10 @@ func buildEnv(opts Options) []string {
 	}
 	env = append(env, "LC_ALL=C", "LANG=C")
 	// ExtraEnv 与 os.Environ() 走**同一套**过滤：它是调用方（verify 的
-	// GIT_NO_LAZY_FETCH、modules 的索引选项）追加的，但"追加"不能成为
-	// 绕过 deny / hijack 表的通道（2026-11-18）。当前所有生产调用方传的
-	// 都是内部安全开关，过滤不会改变它们的行为。
+	// GIT_NO_LAZY_FETCH 一类）追加的，但"追加"不能成为绕过 deny / hijack
+	// 表的通道（2026-11-18）。需要"换一份索引"的调用方用 Options.IndexFile，
+	// **不要**把 GIT_INDEX_FILE 写进 ExtraEnv——它会被这里丢掉（v0.102 的
+	// `ngm modules index` 正是这么踩的）。
 	for _, e := range opts.ExtraEnv {
 		name := e
 		if i := strings.IndexByte(e, '='); i >= 0 {
@@ -251,6 +261,11 @@ func buildEnv(opts Options) []string {
 			continue
 		}
 		env = append(env, e)
+	}
+	// IndexFile 由调用方在代码里显式给出，最后追加以覆盖继承值；它不受
+	// 上面两张表约束——那两张表拦的是"外部注入"，而这是内部能力。
+	if opts.IndexFile != "" {
+		env = append(env, "GIT_INDEX_FILE="+opts.IndexFile)
 	}
 	return env
 }
