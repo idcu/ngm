@@ -222,6 +222,8 @@
 
 ## 6. 相关文档
 
+- **下一步（只规划、未执行）**：[逐行审计 followup spec](../specs/assessment-2026-11-21-line-by-line-followup/spec.md) ·
+  [tasks.md（35 项，全部未开始）](../specs/assessment-2026-11-21-line-by-line-followup/tasks.md)
 - [2026-11-20 全量代码评估](./ngm-full-assessment-2026-11-20.md)（实现文件按包审查）
 - [竞品全维度差距评估](./ngm-competitive-gap-full-2026-11-21.md)（14 维度 + 竞品一手证据）
 - [全量代码评估后续任务](../specs/assessment-2026-11-20-followup/tasks.md)
