@@ -8,6 +8,15 @@
 
 ## [Unreleased] - 2026-11-04
 
+### Fixed（2026-11-21 追加，逐行审计 Batch D）
+
+- **verify 的错误分类**：被篡改的模块内容清单归完整性失败（exit 2）；文件读不出来仍归
+  操作性失败（exit 4）；上游模块 `ngm.json` 语法错误不再被当成版本漂移。
+- **SARIF / GitHub 注解级别**：随 `--strict` / `--allow-drift` 调整，与进程退出码一致。
+- **`tree` 与 `why`**：对含自环的依赖图给出一致结论，不再一个显示 cycle 节点、另一个给出零路径。
+- **`mergeProject` 的所有引用字段**：`SupplyChain` / `Engines` / `Scripts` / `Dependencies` /
+  `Publish` 现在都深拷贝，改有效视图不会回写来源。
+
 ### Fixed（2026-11-21 追加，逐行审计 Batch C）
 
 - **沙箱权限不再被逗号放大**：含逗号的 `net:` / `env:` target 现在直接拒绝，

@@ -137,7 +137,9 @@ func BuildTree(g *resolve.Graph, lf *lock.File, max int) ([]*TreeEntry, bool) {
 	// 边来自 RequiredBy（组 A 起存的是节点 Key，monorepo 下也不会指错）
 	for _, n := range g.Nodes {
 		for _, parent := range n.RequiredBy {
-			if parent == resolve.RootMarker {
+			// 审计 P-02：与 why.go 的 childrenOf 同口径丢弃自引用边，
+			// 否则同一张含自环的图两命令答案不同。
+			if parent == resolve.RootMarker || parent == n.Key {
 				continue
 			}
 			if _, ok := byKey[parent]; !ok {

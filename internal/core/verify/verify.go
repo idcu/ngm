@@ -705,8 +705,9 @@ func moduleVersionAt(ctx context.Context, mirrorPath string, d *lock.Dependency,
 	var f struct {
 		Version string `json:"version"`
 	}
+	// 审计 K-03：解析失败是操作性失败，不能被吞成空版本后升级成 critical 漂移。
 	if err := json.Unmarshal(content, &f); err != nil {
-		return "", nil
+		return "", fmt.Errorf("parse module ngm.json at %s: %w", d.SubPath, err)
 	}
 	return f.Version, nil
 }
@@ -888,7 +889,13 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 				proof.ComputedDigest = got
 			}
 			if derr != nil {
-				operational = append(operational, "cannot replay the digest from the content store: "+derr.Error())
+				var badManifest *invalidManifestError
+				if errors.As(derr, &badManifest) {
+					// 清单被篡改是已确证的完整性失败，不能被资源缺失的口径压过。
+					critical = append(critical, derr.Error())
+				} else {
+					operational = append(operational, "cannot replay the digest from the content store: "+derr.Error())
+				}
 			} else if got != d.ContentDigest() {
 				critical = append(critical, fmt.Sprintf(
 					"content store digest mismatch: the installed tree hashes to %s but ngm.lock says %s",
@@ -997,6 +1004,13 @@ func checkLanding(ctx context.Context, mirrorPath string, d *lock.Dependency, st
 //
 // 参数从"store 根目录"改成"条目集合"，理由与上面一致：层 2 换布局后（ADR-019）
 // 不再有一个可以拼路径的目录根；而这里真正需要的只是"每个 Git 条目对应的字节"。
+// invalidManifestError 标记"不可信清单已被确证篡改"，与"文件读不出来"分开。
+// 审计 K-02：两者此前都归 operational(exit 4)，把完整性失败说成可重试的资源缺失。
+type invalidManifestError struct{ err error }
+
+func (e *invalidManifestError) Error() string { return e.err.Error() }
+func (e *invalidManifestError) Unwrap() error { return e.err }
+
 func replayModuleDigestFromEntries(entries []vendor.ContentEntry) (string, error) {
 	records := make([]digest.Record, 0, len(entries))
 	for _, e := range entries {
@@ -1024,7 +1038,7 @@ func replayModuleDigestFromEntries(entries []vendor.ContentEntry) (string, error
 		// 于是"重放"可以通过，而它通过的理由是它读的不是锁定内容（v0.107）。
 		// 格式的守卫必须在这一层生效：这是**不可信输入**进入摘要计算的唯一位置。
 		if err := digest.ValidateRecord(rec); err != nil {
-			return "", fmt.Errorf("content store manifest is not a valid manifest: %w", err)
+			return "", &invalidManifestError{fmt.Errorf("content store manifest is not a valid manifest: %w", err)}
 		}
 		records = append(records, rec)
 	}

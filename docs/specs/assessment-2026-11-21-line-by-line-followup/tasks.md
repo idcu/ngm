@@ -179,25 +179,31 @@
 
 ## Batch D · 退出码与语义分类（5 项，需 C5 先拍板）
 
-- [ ] **K-01 SARIF/GitHub 级别与退出码同源**（`internal/core/verify/sarif.go:199-216`、
+> ✅ **已落地（2026-11-21）**：5 项全改；`go test ./internal/core/verify ./internal/observability
+> ./internal/config` 全绿。新判据 `TestV148RenderLevelsFollowExitSemantics`、
+> `TestV149ForgedManifestIsTypedAsIntegrityFailure`、`TestV150TreeAndWhyAgreeOnSelfLoop`、
+> `TestV151MergeProjectCopiesAllReferenceFields`。变异四项全红。
+> ADR-039 / ADR-045 补记 + CHANGELOG 已同步。
+
+- [x] **K-01 SARIF/GitHub 级别与退出码同源**（`internal/core/verify/sarif.go:199-216`、
       `internal/core/verify/github.go:49-58`）
       - 动作：把 `rep.Strict`/`rep.AllowDrift` 传入级别映射，或按最终退出码派生 level。
       - 判据 V161：`--allow-drift` 下 unexpected 的 SARIF level 不为 error；`--strict` 下 expected 不为 warning/notice。
         变异：改回只看 DriftKind → 红。
 
-- [ ] **K-02 伪造模块清单归 critical**（`internal/core/verify/verify.go:878-895,1000-1028`）
+- [x] **K-02 伪造模块清单归 critical**（`internal/core/verify/verify.go:878-895,1000-1028`）
       - 动作：`ValidateRecord` 类错误单独归 critical(2)；文件读取失败仍归 operational(4)。
       - 判据 V162：模块清单塞 NUL 路径 → exit 2；缺文件 → exit 4。变异：改回全归 operational → 红。
 
-- [ ] **K-03 版本 JSON 解析失败不再吞成空值**（`internal/core/verify/verify.go:705-711`）
+- [x] **K-03 版本 JSON 解析失败不再吞成空值**（`internal/core/verify/verify.go:705-711`）
       - 动作：解析错误向上返回 operational(4)，不再把 `""` 当版本比对成 critical。
       - 判据 V162：上游 ngm.json 语法损坏 + lock 带 version → exit 4 而非 2；变异：改回吞错误 → 红。
 
-- [ ] **P-02 tree/why 自环分歧**（`internal/observability/tree.go:139-147`；`internal/observability/why.go:283-287`）
+- [x] **P-02 tree/why 自环分歧**（`internal/observability/tree.go:139-147`；`internal/observability/why.go:283-287`）
       - 动作：`BuildTree` 复用 `childrenOf` 的自环过滤。
       - 判据 V163：构造 `RequiredBy` 含自身 Key 的 lock → tree 与 why 对同一图给出一致结论；变异：删过滤 → 红。
 
-- [ ] **P-03 `mergeProject` 浅拷贝**（`internal/config/config.go:456-478,100-108`；
+- [x] **P-03 `mergeProject` 浅拷贝**（`internal/config/config.go:456-478,100-108`；
       `internal/config/v066_merge_test.go:24-33`）
       - 动作：SupplyChain/Engines 指针与 Scripts map 逐字段深拷贝。
       - 判据 V164：改 Effective 的每个引用字段都不回写 Project；变异：恢复浅拷贝 → 红。

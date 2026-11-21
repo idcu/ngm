@@ -37,16 +37,16 @@ func RenderGitHub(rep *Report) string {
 				continue
 			}
 			emitted = true
-			writeAnnotation(&b, d, c)
+			writeAnnotation(&b, rep, d, c)
 		}
 		if d.Err != "" && !emitted {
-			writeAnnotation(&b, d, CheckResult{Check: "operational", Operational: true})
+			writeAnnotation(&b, rep, d, CheckResult{Check: "operational", Operational: true})
 		}
 	}
 	return b.String()
 }
 
-func writeAnnotation(b *strings.Builder, d *DepResult, c CheckResult) {
+func writeAnnotation(b *strings.Builder, rep *Report, d *DepResult, c CheckResult) {
 	level := "warning"
 	switch {
 	case c.Operational:
@@ -56,6 +56,8 @@ func writeAnnotation(b *strings.Builder, d *DepResult, c CheckResult) {
 	default:
 		level = "error"
 	}
+	// 审计 K-01：级别随最终阻断语义走，与 SARIF 同轴。
+	level = effectiveLevel(rep, d, level)
 	title := fmt.Sprintf("ngm: %s %s", d.Name, c.Check)
 	if d.DriftKind != DriftNone {
 		title += " (" + string(d.DriftKind) + ")"

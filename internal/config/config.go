@@ -454,6 +454,33 @@ func mergeProject(builtin *BuiltinDefaults, project *ProjectFile) *ProjectFile {
 		}
 	}
 	out := *project
+	// 审计 P-03：v0.66 只深拷贝了 Vendor，其它引用字段仍与来源共享——
+	// "改有效视图不回写来源"的承诺只兑现了一部分。这里逐字段补齐。
+	out.Dependencies = append([]Dependency(nil), project.Dependencies...)
+	if project.Publish != nil {
+		v := *project.Publish
+		out.Publish = &v
+	}
+	if project.SupplyChain != nil {
+		v := *project.SupplyChain
+		out.SupplyChain = &v
+	}
+	if project.Engines != nil {
+		v := *project.Engines
+		v.Transform = cloneAny(v.Transform)
+		v.Bundle = cloneAny(v.Bundle)
+		v.TypeCheck = cloneAny(v.TypeCheck)
+		v.TypeDecl = cloneAny(v.TypeDecl)
+		v.CSS = cloneAny(v.CSS)
+		out.Engines = &v
+	}
+	if project.Scripts != nil {
+		m := make(map[string]string, len(project.Scripts))
+		for k, v := range project.Scripts {
+			m[k] = v
+		}
+		out.Scripts = m
+	}
 	if out.Runtime == "" {
 		out.Runtime = builtin.Runtime
 	}
@@ -476,6 +503,26 @@ func mergeProject(builtin *BuiltinDefaults, project *ProjectFile) *ProjectFile {
 		out.Vendor = &v
 	}
 	return &out
+}
+
+// cloneAny 深拷贝 JSON 解码后可能出现的容器值；其它标量原样返回。
+func cloneAny(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[k] = cloneAny(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			out[i] = cloneAny(val)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func mergeGlobal(g *GlobalFile) *GlobalFile {

@@ -50,3 +50,30 @@ func TestV66MergeProjectDoesNotWriteBackFallbacks(t *testing.T) {
 		t.Error("mergeProject 不得把回退的 runtime 写回来源对象")
 	}
 }
+
+// TestV151MergeProjectCopiesAllReferenceFields 固定审计 P-03：
+// v0.66 的副本只深拷贝了 Vendor，其它引用字段仍与来源共享。
+func TestV151MergeProjectCopiesAllReferenceFields(t *testing.T) {
+	pub := true
+	project := &ProjectFile{
+		Name: "app", Version: "1.0.0", Publish: &pub,
+		Dependencies: []Dependency{{Name: "github:x/a"}},
+		SupplyChain:  &SupplyChainConfig{MinimumReleaseAge: "P1D"},
+		Engines:      &EnginesConfig{Transform: map[string]any{"primary": "esbuild"}},
+		Scripts:      map[string]string{"build": "echo a"},
+	}
+	eff := mergeProject(DefaultBuiltin(), project)
+
+	eff.Dependencies[0].Name = "github:x/b"
+	*eff.Publish = false
+	eff.SupplyChain.MinimumReleaseAge = "P7D"
+	eff.Engines.Transform.(map[string]any)["primary"] = "tsc"
+	eff.Scripts["build"] = "echo b"
+
+	if project.Dependencies[0].Name != "github:x/a" || !*project.Publish ||
+		project.SupplyChain.MinimumReleaseAge != "P1D" ||
+		project.Engines.Transform.(map[string]any)["primary"] != "esbuild" ||
+		project.Scripts["build"] != "echo a" {
+		t.Errorf("mutating Effective wrote back into Project: %+v", project)
+	}
+}

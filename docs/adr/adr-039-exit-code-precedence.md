@@ -53,6 +53,16 @@ switch d.DriftKind { ... }
 - 码 4 的"可重试"语义在多依赖场景下变窄：只有当**没有任何**已确证 critical 时，
   4 才代表"再来一次可能就好"。
 
+## 补记（2026-11-21，逐行审计 Batch D）
+
+不可信内容清单的 `digest.ValidateRecord` 失败现在是**带类型的完整性失败**，
+归 critical(2)，不再与"文件内容读不出来"一起归 operational(4)（审计 K-02）——
+后者仍可重试，前者是已确证的篡改，二者的行动建议不同。
+上游模块 `ngm.json` 的 JSON 语法错误也归 operational(4)，不能再被吞成空版本后
+升级成 "module version mismatch" 的 critical(2)（审计 K-03）。
+SARIF / GitHub 注解的级别随 `--strict` / `--allow-drift` 的最终阻断语义变化，
+与进程退出码同源（审计 K-01，ADR-045 同步补记）。
+
 ## 相关文档
 
 - [observability.md · verify 退出码](../architecture/observability.md#退出码)

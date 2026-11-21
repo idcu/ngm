@@ -55,6 +55,9 @@
    `modulesIndexReport`，dry-run 仅以 `dryRun:true` 区分；裸 `collectionIndex` 只在非 `--json` 输出。
 4. **`config validate` 的成功文本必须最后打印**（审计 A-03）：非法权限项此前先打印
    `ngm.json OK` 再 exit 3，按 stdout 文本判定的 CI 会误绿。
+5. **SARIF / GitHub 注解级别跟最终退出码同源**（审计 K-01）：`--allow-drift` 下的
+   unexpected 降到 warning，`--strict` 下的 expected 升到 error；不能只按 DriftKind 渲染。
+   JSON 报告里的 `strict` / `allowDrift` 字段由此有了对应的机器可读结论。
 
 ## 重启条件
 

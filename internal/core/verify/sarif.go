@@ -149,7 +149,7 @@ func RenderSARIF(rep *Report, toolVersion string) ([]byte, error) {
 			if c.Operational {
 				emittedOperational = true
 			}
-			ruleID, level := sarifRuleFor(d, c)
+			ruleID, level := sarifRuleFor(rep, d, c)
 			results = append(results, sarifResult{
 				RuleID:     ruleID,
 				Level:      level,
@@ -196,7 +196,9 @@ func RenderSARIF(rep *Report, toolVersion string) ([]byte, error) {
 }
 
 // sarifRuleFor 把 (漂移分类, 检查名) 映射到一条规则与一个级别。
-func sarifRuleFor(d *DepResult, c CheckResult) (ruleID, level string) {
+// 审计 K-01：级别必须跟最终阻断语义走——--allow-drift 下 unexpected 不阻断，
+// --strict 下 expected 阻断。只看 DriftKind 会让 SARIF 与进程退出码相反。
+func sarifRuleForBase(d *DepResult, c CheckResult) (ruleID, level string) {
 	if c.Operational {
 		return RuleCheckIncomplete, "warning"
 	}
@@ -227,6 +229,29 @@ func sarifRuleFor(d *DepResult, c CheckResult) (ruleID, level string) {
 		return RuleRefUnexpected, "error"
 	}
 	return RuleCheckIncomplete, "warning"
+}
+
+func sarifRuleFor(rep *Report, d *DepResult, c CheckResult) (ruleID, level string) {
+	ruleID, level = sarifRuleForBase(d, c)
+	return ruleID, effectiveLevel(rep, d, level)
+}
+
+// effectiveLevel 把模式的阻断语义叠加到基础级别上（审计 K-01）。
+func effectiveLevel(rep *Report, d *DepResult, base string) string {
+	if rep == nil || d.DriftKind == DriftNone {
+		return base
+	}
+	switch d.DriftKind {
+	case DriftUnexpected:
+		if rep.AllowDrift {
+			return "warning" // 不再阻断：exit 0
+		}
+	case DriftExpected:
+		if rep.Strict {
+			return "error" // 升级为阻断：exit 1
+		}
+	}
+	return base
 }
 
 // failureMessage 是两个渲染出口共用的**原始**文本（可能带换行）。
