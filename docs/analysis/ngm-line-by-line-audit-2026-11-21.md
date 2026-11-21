@@ -222,8 +222,9 @@
 
 ## 6. 相关文档
 
-- **下一步（只规划、未执行）**：[逐行审计 followup spec](../specs/assessment-2026-11-21-line-by-line-followup/spec.md) ·
-  [tasks.md（35 项，全部未开始）](../specs/assessment-2026-11-21-line-by-line-followup/tasks.md)
+- **下一步（2026-11-21 已授权全量执行并落地）**：[逐行审计 followup spec](../specs/assessment-2026-11-21-line-by-line-followup/spec.md) ·
+  [tasks.md（35 项全部完成，含契约决定与变异记录）](../specs/assessment-2026-11-21-line-by-line-followup/tasks.md)。
+  批次：A 判据复健 → B 错误通道 → C 安全边界 → D 退出码语义 → E 确定性/信任根；详见 tasks 各批"已落地"段。
 - [2026-11-20 全量代码评估](./ngm-full-assessment-2026-11-20.md)（实现文件按包审查）
 - [竞品全维度差距评估](./ngm-competitive-gap-full-2026-11-21.md)（14 维度 + 竞品一手证据）
 - [全量代码评估后续任务](../specs/assessment-2026-11-20-followup/tasks.md)

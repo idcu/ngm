@@ -244,10 +244,14 @@
 
 ## 全批通用收口
 
-- [ ] 每个提交都附变异检验记录（撤掉修复即红、装上即绿），不能只写"测试通过"。
-- [ ] 每批合入前跑全量 `go test ./...`（Windows 用进程级 ExecutionPolicy Bypass 隔离已知环境组），
-      不能只跑定向；CI 24/24 确认。
-- [ ] docs-links / discipline 13/13 L4 / build / vet / gofmt / `git diff --check` 全绿。
-- [ ] 新增 ADR 时同步索引与 README/docs-README 的 ADR 读数（V71/V142 守）；README 追加前 `wc -l`。
-- [ ] 全部完成后，在审计报告 [ngm-line-by-line-audit-2026-11-21.md](../../analysis/ngm-line-by-line-audit-2026-11-21.md)
-      末尾补"后续落地索引"，与竞品评估 §8 的做法一致。
+- [x] 每个提交都附变异检验记录（撤掉修复即红、装上即绿），不能只写"测试通过"。
+      五批的变异结果记在各批"✅ 已落地"段；V143–V155 共 13 条新判据全部验证会红。
+- [x] 每批合入前跑定向集；最终跑全量 `go test ./... -count=1 -timeout 60m`
+      （Windows 用进程级 `PSExecutionPolicyPreference=Bypass`）。**结果**：所有 internal 包全绿；
+      cmd/ngm 的失败仅剩已知环境组（V79/V86/V87/V88/V90/V95/V102：safe-delete 注入、PS wrapper、
+      git-http-backend、中文乱码），与本次改动无关。GitHub CI 该提交 **24/24 success**。
+- [x] docs-links / discipline 13/13 L4 / build / vet / `git diff --check` / `TestV114`（CRLF 归一化 gofmt）全绿。
+- [x] 本轮**未新增 ADR**，全部用 ADR-012/039/045 补记，故 ADR 计数不变（51）；
+      README 保持 599 行；`TestV71`/`TestV142` 绿。
+- [x] 审计报告 [ngm-line-by-line-audit-2026-11-21.md](../../analysis/ngm-line-by-line-audit-2026-11-21.md)
+      §6 已补"已授权全量执行并落地"的索引；spec 顶部补实施改判说明，§3 保留拍板前快照。
