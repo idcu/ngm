@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/runid"
 )
 
 // AdapterKind 是 adapter 的实现方式（architecture/engine-adapter.md §Adapter 类型）。
@@ -452,7 +453,7 @@ func (c *Catalog) probeIssues(e Entry, pr ProbeResult, label, reportedBy string)
 		// 退出码 0；validate 是结论通道，不允许"跳过但算通过"。
 		return []Issue{{Entry: label, Kind: IssueProbeDenied,
 			Message: fmt.Sprintf("version was not probed: `run:%s` is not permitted; grant it in `permissions.allow`",
-				runTargetFor(e))}}
+				c.runTargetFor(e))}}
 	}
 	// 版本不一致是**信息**而非失败（旧版本常常照样能跑），走 IssueVersion。
 	if pr.Version == "" || e.Version == "" || strings.HasPrefix(pr.Version, e.Version) {
@@ -464,9 +465,28 @@ func (c *Catalog) probeIssues(e Entry, pr ProbeResult, label, reportedBy string)
 
 // runTargetFor 给出 `run:<target>` 里的 target（用于报告文案）。
 //
+// 项目内的可执行文件给路径形式（`./tools/git`）：名字授权不再覆盖它们，
+// 报告若仍写 `run:git`，用户照做后会被再次拒绝。
+func (c *Catalog) runTargetFor(e Entry) string {
+	name := runTargetName(e)
+	if name == "" {
+		return e.Name
+	}
+	id := runid.Identity{Name: name, ProjectDir: c.baseDir}
+	if e.Adapter == AdapterSubprocess {
+		id.Program = strings.TrimSpace(e.Program)
+		if p, ok := resolveProgram(id.Program, c.baseDir); ok {
+			id.Path = p
+		}
+	}
+	return id.DisplayTarget()
+}
+
+// runTargetName 给出权限名（剥 Windows 可执行后缀，`.wasm` 保留）。
+//
 // 与 cmd/ngm 的 engineRunTarget 同一条规则，但不 import CLI 包：adapter
-// 只负责"说清楚该授权哪一个"。只剥 Windows 可执行后缀，`.wasm` 保留。
-func runTargetFor(e Entry) string {
+// 只负责"说清楚该授权哪一个"。
+func runTargetName(e Entry) string {
 	switch e.Adapter {
 	case AdapterSubprocess, AdapterWasm:
 	default:

@@ -14,10 +14,12 @@ package security
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/runid"
 )
 
 // Namespace 是权限命名空间。
@@ -238,6 +240,194 @@ func (pol *Policy) Check(p Permission) error {
 // 而写错命名空间会得到一个静默放行的判定。
 func (pol *Policy) CheckRun(exe string) error {
 	return pol.Check(Permission{Namespace: Run, Target: exe})
+}
+
+// CheckRunTarget 判定"执行某个程序"的**身份**，而不只是它的名字。
+//
+// 背景（2026-11-11 评估的 P0）：CheckRun 只看 `run:<basename>`，而 `run:git`
+// 默认放行——于是任何叫 git 的文件（包括仓库自带的 `./git`）都能通过门禁。
+// 判定对象必须是**将要执行的那个文件**，因此调用方要先解析出真实路径再传进来。
+// 归一化（绝对路径、软链展开、Windows 大小写）在 internal/runid，本函数只做裁决。
+//
+// 判定顺序（deny 优先，与 Check 一致）：
+//
+//  1. 名字 deny / 路径 deny：任一命中即拒绝；
+//  2. 路径 allow：精确到文件的授权，命中即放行；
+//  3. 名字 allow：**不适用于项目内文件**——否则 `run:git` 又退化成"叫 git 就行"；
+//  4. 默认档位：只对"裸名字 + 解析到项目外"生效。
+//
+// 项目内文件与路径形式声明（`./git`、`../x/tool`、绝对路径）都需要显式授权：
+// 仓库可以自带任意程序，默认信任它等于把第一道边界交给被审对象自己。
+func (pol *Policy) CheckRunTarget(id runid.Identity) error {
+	name := strings.TrimSpace(id.Name)
+	if name == "" && id.Path == "" {
+		return nil
+	}
+	targets := id.Targets()
+	local := id.IsLocal()
+
+	// 1. deny 优先：名字授权与路径授权**任一类命中**都拒绝。
+	if key, ok := matchNameGrant(pol.denySet(), name); ok {
+		return runDenied(key, pol.Source())
+	}
+	if key, ok := matchPathGrant(pol.denySet(), targets); ok {
+		return runDenied(key, pol.Source())
+	}
+
+	// 2. 路径授权精确到文件，项目内外都有效。
+	if _, ok := matchPathGrant(pol.allowSet(), targets); ok {
+		return nil
+	}
+
+	// 3. 名字授权不适用于项目内文件：`run:git` 不能让仓库自带的 ./git 通过。
+	if !local {
+		if _, ok := matchNameGrant(pol.allowSet(), name); ok {
+			return nil
+		}
+		// 4. 默认档位只给"裸名字 + 解析到项目外"。
+		if !id.PathForm() && DefaultTier(Permission{Namespace: Run, Target: name}) == TierAllowed {
+			return nil
+		}
+	}
+
+	return pol.runIdentityError(id, name, local)
+}
+
+func runDenied(key, source string) error {
+	return errs.New(errs.CodeConfigInvalid, "permission denied: "+key,
+		"it is denied by `permissions.deny` in "+source+
+			"; remove "+quote(key)+" from that list to allow it")
+}
+
+func matchNameGrant(m map[string]bool, name string) (string, bool) {
+	if len(m) == 0 {
+		return "", false
+	}
+	want := runid.Normalize(name)
+	var hits []string
+	for key := range m {
+		target, ok := strings.CutPrefix(key, string(Run)+":")
+		if !ok || isPathGrant(target) {
+			continue
+		}
+		if runid.Normalize(target) == want {
+			hits = append(hits, key)
+		}
+	}
+	return firstSorted(hits)
+}
+
+func matchPathGrant(m map[string]bool, targets []string) (string, bool) {
+	if len(m) == 0 || len(targets) == 0 {
+		return "", false
+	}
+	var hits []string
+	for key := range m {
+		target, ok := strings.CutPrefix(key, string(Run)+":")
+		if !ok || !isPathGrant(target) {
+			continue
+		}
+		norm := runid.Normalize(target)
+		for _, t := range targets {
+			if norm == t {
+				hits = append(hits, key)
+				break
+			}
+		}
+	}
+	return firstSorted(hits)
+}
+
+func firstSorted(hits []string) (string, bool) {
+	if len(hits) == 0 {
+		return "", false
+	}
+	sort.Strings(hits)
+	return hits[0], true
+}
+
+// isPathGrant 报告一条 `run:` 目标是路径形式还是裸名字。
+//
+// 这个区分是整套判定的支点：`run:git` 与 `run:./git` 必须落在不同的匹配空间，
+// 否则名字授权会从路径匹配里重新漏进项目内文件。
+func isPathGrant(target string) bool {
+	t := strings.TrimSpace(target)
+	if t == "" {
+		return false
+	}
+	if strings.HasPrefix(t, ".") {
+		return true
+	}
+	if filepath.IsAbs(t) || strings.ContainsAny(t, `/\`) {
+		return true
+	}
+	return false
+}
+
+func (pol *Policy) allowSet() map[string]bool {
+	if pol == nil {
+		return nil
+	}
+	return pol.allow
+}
+
+func (pol *Policy) denySet() map[string]bool {
+	if pol == nil {
+		return nil
+	}
+	return pol.deny
+}
+
+// runIdentityError 生成"身份被拒"的错误：说明为什么、并给出可粘贴的授权片段。
+func (pol *Policy) runIdentityError(id runid.Identity, name string, local bool) error {
+	key := "run:" + identityTarget(id)
+	snippet := `{"permissions":{"allow":[` + quote(key) + `]}}`
+
+	var reason string
+	switch {
+	case local:
+		where := id.Path
+		reason = quote(id.DisplayTarget()) + " resolves inside this project (" + where +
+			"); a repository can ship any executable, so a project-local program is never covered by its bare name" +
+			" (not even the default `run:git`) and needs an explicit path grant"
+	case id.PathForm():
+		reason = quote(strings.TrimSpace(id.Program)) +
+			" is an explicit path, not a bare program name looked up on PATH;" +
+			" path-form commands never inherit default permissions"
+	default:
+		// 裸名字 + 未配置：交给 Check 保持与其它权限一致的提示口径。
+		return pol.Check(Permission{Namespace: Run, Target: name})
+	}
+
+	hint := reason + "; grant exactly this file: add " + quote(key) +
+		" to `permissions.allow` in " + pol.Source() + "; paste " + snippet
+	if !local && id.PathForm() && name != "" {
+		hint += " (`run:" + name + "` also works for files outside the project)"
+	}
+	return errs.New(errs.CodeConfigInvalid, "permission denied: "+key, hint)
+}
+
+// identityTarget 返回提示里要写的 `run:` 目标。
+//
+// 项目内给相对路径（`./git`），项目外给绝对路径 / 原始声明形式；裸名字仍给名字。
+func identityTarget(id runid.Identity) string {
+	if rel, ok := id.LocalRel(); ok {
+		return "./" + rel
+	}
+	p := strings.TrimSpace(id.Program)
+	if id.PathForm() {
+		if filepath.IsAbs(p) {
+			return filepath.ToSlash(filepath.Clean(p))
+		}
+		if id.ProjectDir != "" {
+			return filepath.ToSlash(filepath.Join(id.ProjectDir, filepath.FromSlash(p)))
+		}
+		return filepath.ToSlash(p)
+	}
+	if id.Path != "" {
+		return filepath.ToSlash(id.Path)
+	}
+	return strings.TrimSpace(id.Name)
 }
 
 // CheckNet 判定"访问某个主机"（`net:<host>`）。

@@ -143,6 +143,14 @@ func resolveProgram(program, dir string) (string, bool) {
 	return program, false
 }
 
+// ResolveProgram 是 resolveProgram 的导出形式。
+//
+// 权限判定必须针对"将要执行的那个文件"而不是声明的名字，调用方（cmd/ngm）
+// 需要与探测/执行**同一份**解析结果，否则两边会各自推断出不同的身份。
+func ResolveProgram(program, dir string) (string, bool) {
+	return resolveProgram(program, dir)
+}
+
 // lookExecutable 在 p 以及平台可执行后缀上做存在性检查，返回绝对路径。
 func lookExecutable(p string) (string, bool) {
 	candidates := []string{p}

@@ -265,9 +265,10 @@ func issueAdvice(kind adapter.IssueKind) string {
 	case adapter.IssueProbeDenied:
 		// 不用 `<engine>` 这种尖括号占位符：JSON 默认会把 `<` 转义成 \u003c，
 		// 于是"人读的句子"在机器那侧逐字找不到（json_next_step_test）。
-		// 具体该授哪个 `run:` 名字写在上面的 issue message 里。
-		return "grant the engine's own name under `run:` in `permissions.allow` " +
-			"(for example `run:esbuild`), then re-run `ngm engines validate`"
+		// 具体该授哪个 `run:` 目标写在上面的 issue message 里：项目内的
+		// 可执行文件必须授**路径**（`run:./tools/git`），裸名字授不动它。
+		return "grant the exact `run:` target named in the issue message in `permissions.allow` " +
+			"(for a project-local executable that is its `./relative/path`), then re-run `ngm engines validate`"
 	}
 	return "fix this entry in " + adapter.FileName + ", then re-run `ngm engines validate`"
 }
@@ -309,7 +310,9 @@ func engineRows(cat *adapter.Catalog, dir, only string) []engineRow {
 			DefaultOptions:  e.DefaultOptions,
 		}
 		if pr.Denied {
-			row.RunTarget = engineRunTarget(e)
+			// 项目内的引擎给路径形式（`./git`）：名字授权不再覆盖它，
+			// 这里若仍显示 `git`，用户照着授权会再次被拒。
+			row.RunTarget = engineRunTargetKey(e, dir)
 		}
 		rows = append(rows, row)
 	}

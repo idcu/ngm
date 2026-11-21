@@ -11,6 +11,8 @@ import (
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/mappings"
+	"github.com/idcu/ngm/internal/runid"
+	"github.com/idcu/ngm/internal/security"
 )
 
 // engineContext 汇总一次引擎调用需要的外部资源。
@@ -61,20 +63,21 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	// spawn 仓库 ngm.engines.json 声明的程序（2026-11-18 S0）。
 	// Policy 的所有方法对 nil receiver 都是 fail-closed 的（Check → Allows →
 	// DefaultTier(run:*)=Configurable → 拒绝），所以这里无条件注册是安全的。
+	// CheckRunTarget 同样 nil 安全：判定顺序里 deny/allow 都退化为空集，
+	// 最终落到默认档位，与 Policy == nil 时的 fail-closed 口径一致。
 	deniedEnv := env.Policy.DeniedEnvVars()
 	runner.WithDeniedEnv(deniedEnv)
 	// **探测**与执行走同一道 `run:<engine>` 闸门。
 	//
 	// 版本探测是一次真实的 spawn，此前它绕过了闸门：
-	// `ngm engines list` / `validate` 会执行仓库声明的程序（S0-1）。
+	// `ngm engines list` / `validate` / `build --dry-run` 会执行仓库声明的程序（S0-1）。
 	// 闸门挂到 catalog 上，让 `Probe` 在 spawn 前问一次；被拒绝时不探测，
 	// `engines list` 如实显示 "not probed"。
+	//
+	// 2026-11-11 P0：判定对象从"声明的名字"改为**解析后的真实文件**（internal/runid），
+	// 否则 `run:git` 的默认放行会让仓库自带的 `./git` 通过。
 	cat.WithProbeGate(func(entry adapter.Entry) error {
-		target := engineRunTarget(entry)
-		if target == "" {
-			return nil
-		}
-		return env.Policy.CheckRun(target)
+		return checkEngineRun(env.Policy, entry, env.ProjectDir)
 	}, deniedEnv)
 	// 回退是隐式行为，必须让用户看见：primary 挂了却只看到 fallback 的
 	// 输出，会让人误判是哪个引擎在干活。
@@ -83,12 +86,11 @@ func newEngineContext(dirFlag string, stderr io.Writer) (*engineContext, error) 
 	})
 	// `run:<引擎>` 权限：判定挂在**实际要执行的那个**引擎上（含回退链上的每一个），
 	// 而不是选择阶段——选择里可能带着永远不会用到的 fallback。
+	//
+	// 判定对象是解析后的真实文件（internal/runid），不是声明的名字：
+	// `run:git` 的默认放行不能让仓库自带的 `./git` 通过。
 	runner.OnEngine(func(entry adapter.Entry) error {
-		target := engineRunTarget(entry)
-		if target == "" {
-			return nil
-		}
-		return env.Policy.CheckRun(target)
+		return checkEngineRun(env.Policy, entry, env.ProjectDir)
 	})
 
 	return &engineContext{env: env, pf: pf, resolved: resolved, catalog: cat, runner: runner}, nil
@@ -162,6 +164,47 @@ func engineRunTarget(entry adapter.Entry) string {
 // execSuffixes 是 Windows 上可执行文件的常见后缀（小写）。
 var execSuffixes = map[string]bool{
 	".exe": true, ".cmd": true, ".bat": true, ".com": true, ".ps1": true,
+}
+
+// checkEngineRun 判定一次引擎执行。
+//
+// 名字（`run:<stem>`）只用于提示与名字授权；真正参与判定的还有**解析后的路径**：
+// `run:git` 默认放行的是系统 git，不是仓库里那个也叫 git 的文件。
+// 路径解析与执行共用 adapter.ResolveProgram，避免"判定看一个、执行另一个"。
+func checkEngineRun(pol *security.Policy, entry adapter.Entry, projectDir string) error {
+	id, ok := engineRunIdentity(entry, projectDir)
+	if !ok {
+		return nil
+	}
+	return pol.CheckRunTarget(id)
+}
+
+// engineRunTargetKey 是 `engines list` 展示的权限目标：项目内给路径形式。
+func engineRunTargetKey(entry adapter.Entry, projectDir string) string {
+	id, ok := engineRunIdentity(entry, projectDir)
+	if !ok {
+		return ""
+	}
+	return id.DisplayTarget()
+}
+
+// engineRunIdentity 把清单条目归一成权限身份。
+//
+// wasm **不**解析路径：它的权限名就是模块文件名（`run:engine.wasm`），而且
+// 模块只能靠显式 allow 授权，不存在"默认放行被同名文件冒用"的通道。
+func engineRunIdentity(entry adapter.Entry, projectDir string) (runid.Identity, bool) {
+	name := engineRunTarget(entry)
+	if name == "" {
+		return runid.Identity{}, false
+	}
+	id := runid.Identity{Name: name, ProjectDir: projectDir}
+	if entry.Adapter == adapter.AdapterSubprocess {
+		id.Program = strings.TrimSpace(entry.Program)
+		if p, ok := adapter.ResolveProgram(id.Program, projectDir); ok {
+			id.Path = p
+		}
+	}
+	return id, true
 }
 
 // globalDefaultFor 从全局配置取某能力类别的默认引擎。

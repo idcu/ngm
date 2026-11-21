@@ -78,7 +78,7 @@ ngm 把这套思路映射到自己的操作：
 | `run:git` | **git 包唯一的子进程构造点** `newGitCommand`——三个出口（`Run` / `RunAllowFailure` / `CatFileBatch`）共用它 | `exit 3`，git 从未启动 |
 | `env:<NAME>` | 四个施加点：①git 子进程（`buildEnv`）；②引擎子进程（`adapter` 的 `envutil.Without`）；③Deno 沙箱（`--allow-env` / `--deny-env`）；④`ngm run` 的脚本子进程（`runscript.ChildEnv`，v0.135 补上） | 变量从子进程环境里被**剔除**，ngm 仍不读取它的值；ngm 自己的 lifecycle 契约变量（PATH、`npm_lifecycle_*`、`INIT_CWD`）不受 deny 治理——它们不是继承来的状态 |
 | `read:` / `write:` | **裁决（v0.5 C 组）：不在 ngm 自身路径上施加，仅在沙箱内**（`read:` 按依赖子树授予、`write:` 恒不授予）。两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能——没有需要拦下的场景 | — |
-| `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**），以及**所有探测路径**共用的 `Catalog.Probe`（`engines list` / `engines validate` / 版本探测） | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
+| `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**），以及**所有探测路径**共用的 `Catalog.Probe`（`engines list` / `engines validate` / 版本探测）；判定对象是**解析后的文件身份**（`internal/runid`），项目内文件与路径形式声明必须用路径授权 | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
 
 > **v0.5 C 组的更正**：上一版的 `run:git` 那行写的是"`git.Run`（**所有** git 子进程的出口）"。
 > 那句话**是错的**——包里当时有三个各自 `exec` 的地方，其中两个
@@ -114,6 +114,34 @@ ngm 把这套思路映射到自己的操作：
 
 `ngm config validate` 会检查权限列表本身：**写错的命名空间直接 `exit 3`**（一条写错会让整份列表
 都不被采用，静默跳过等于骗人），同时出现在 allow 与 deny 里的条目会给出警告。
+
+### `run:` 的身份判定（2026-11-11 P0 修复）
+
+`run:<target>` 的 target **不一定等于**声明的程序名。判定对象是**解析后的真实文件**：
+
+1. 用与执行**同一个** `resolveProgram` 解析（项目相对路径 → 项目目录；裸名字 → PATH，
+   再回退 `node_modules/.bin`），然后展开符号链接。
+2. 授权分两个匹配空间，永不互串：
+   - **名字授权**：`run:git`、`run:esbuild`——target 是裸名字；
+   - **路径授权**：`run:./tools/git`、`run:../x/tool`、`run:C:/tools/x.exe`——target 含
+     分隔符或以 `.` 开头；比较前统一分隔符、`path.Clean`、Windows 下折叠大小写。
+3. 判定顺序：**deny（名字或路径任一命中）> 路径 allow > 名字 allow > 默认档位**。
+4. **默认档位只对"裸名字 + 解析到项目外"生效**。因此 `run:git` 的默认放行只覆盖系统 git，
+   不覆盖仓库自带的 `./git`、`./git.exe`、`./git.cmd`、`../x/bin/git`，也不覆盖由
+   `PATH="."` 或 `node_modules/.bin` 解析进项目的同名文件。
+5. **项目内的可执行文件只能用路径授权放行**：名字授权（包括默认的 `run:git`）一律不覆盖；
+   被拒时提示给出精确的 `run:./relative/path` 与可粘贴的 `allow` JSON。
+6. 路径形式声明（`./`、`../`、`cmd/foo.exe`、绝对路径）不享受默认档位；项目**外**的
+   路径形式仍接受显式名字授权（兼容既有 `ngm.engines.json` 里的绝对路径写法）。
+
+> **行为变化**：`engines list` / `engines validate` 的探测与执行走同一道闸门，且不再因
+> "没有全局配置"而跳过（`Policy == nil` 时默认档位仍然生效）。未授权的引擎会显示
+> `not probed`，而不是先探测再报告版本。项目内引擎的提示从 `run:<name>` 改为
+> `run:./<relative/path>`——名字授不动它，照旧写法授权会再次被拒。
+>
+> **残留**：显式名字授权对**项目外**的路径形式仍然有效（`allow: ["run:git"]` 会放行
+> `../x/bin/git`），这是为兼容既有绝对路径引擎保留的；项目内文件不受名字授权影响。
+> 需要执行项目内的工具时，用路径授权并配合 `deny`。
 
 ### 子进程与信任根的输入校验（2026-11-07 评估后）
 

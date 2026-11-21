@@ -33,6 +33,9 @@ var skipSitePattern = regexp.MustCompile(`t\.Skipf?\(`)
 // 以及 `internal/core/git/waitdelay_test.go` 的 `sh` 依赖——那条墙钟用例已被
 // "构造点字段断言"取代，不再需要外部 shell。因此审计时的基线是 56，不是 59。2026-11-19 新增一处 Windows 权限位边界
 // （atomic_write_guard 的 0644 断言），现为 57。
+//
+// 2026-11-11 的 `run:` 身份判定修复（replay 到 v0.102.0-dev.3 后）新增 3 处**平台边界** skip
+// （symlink 不可用 ×1、Windows-only ×2），已在审计文档登记，账本回到 60 处 / 41 个文件。
 var skipLedger = map[string]int{
 	"cmd/ngm/acceptance_m3_test.go":                 2,
 	"cmd/ngm/atomic_write_guard_test.go":            1,
@@ -58,6 +61,7 @@ var skipLedger = map[string]int{
 	"cmd/ngm/v091_gitee_offline_test.go":            2,
 	"cmd/ngm/v095_https_fetch_e2e_test.go":          1,
 	"cmd/ngm/v102_diagnostic_test.go":               1,
+	"cmd/ngm/v128_engine_identity_test.go":          2,
 	"cmd/ngm/verify_signatures_test.go":             1,
 	"internal/adopt/adopt_test.go":                  1,
 	"internal/core/atomicfile/atomicfile_test.go":   1,
@@ -71,6 +75,7 @@ var skipLedger = map[string]int{
 	"internal/core/vendor/store_incomplete_test.go": 1,
 	"internal/core/vendor/store_scale_test.go":      1,
 	"internal/core/vendor/v105_test.go":             1,
+	"internal/security/run_target_test.go":          1,
 	"internal/security/sandbox_test.go":             2,
 	"internal/testutils/gitrepo_test.go":            3,
 }
