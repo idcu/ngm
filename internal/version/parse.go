@@ -41,7 +41,7 @@ func DottedParts(s string) []int {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if c >= '0' && c <= '9' {
-			cur = cur*10 + int(c-'0')
+			cur = addDigit(cur, int(c-'0'))
 			digits = true
 			continue
 		}
@@ -59,7 +59,17 @@ func DottedParts(s string) []int {
 func atoi(s string) int {
 	n := 0
 	for i := 0; i < len(s); i++ {
-		n = n*10 + int(s[i]-'0')
+		n = addDigit(n, int(s[i]-'0'))
 	}
 	return n
+}
+
+// addDigit 在累加前检查上界，避免超长数字串回绕成负数（审计 I-05）。
+// 溢出时夹到最大 int：比较语义仍可用，且不会产生"负 major"这种谎值。
+func addDigit(n, d int) int {
+	max := int(^uint(0) >> 1)
+	if n > (max-d)/10 {
+		return max
+	}
+	return n*10 + d
 }

@@ -73,6 +73,20 @@ func ValidateRecord(r Record) error {
 	return nil
 }
 
+// ValidateUniquePaths 拒绝相同 Path 的多条记录。
+// Git tree 本身不会给出重复路径；但模块 scope 的清单来自磁盘上可改写的 JSON，
+// 去重前先拒绝，避免"同一集合不同顺序 → 不同 digest"（审计 K-04）。
+func ValidateUniquePaths(records []Record) error {
+	seen := make(map[string]bool, len(records))
+	for _, r := range records {
+		if seen[r.Path] {
+			return fmt.Errorf("duplicate path %q in content manifest", r.Path)
+		}
+		seen[r.Path] = true
+	}
+	return nil
+}
+
 func isLowerHex(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]

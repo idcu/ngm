@@ -3,6 +3,8 @@ package lock
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -37,12 +39,24 @@ func Read(path string) (*File, error) {
 func Parse(data []byte, path string) (*File, error) {
 	var f File
 	dec := json.NewDecoder(bytes.NewReader(data))
+	// 审计 K-05：lock 是信任根，"同一份字节既解析又哈希"。只 Decode 第一个值会
+	// 让尾部的第二个对象/垃圾被静默忽略——审过的文件与工具理解的文件不是同一份。
+	// 对象内未知字段仍按下面的兼容契约忽略。
 	// 与 ngm.json 不同，lock 的未知字段**不报错**：按 locking.md
 	// "同 MAJOR 内只允许新增可选字段，旧版本工具应忽略未知字段继续工作"，
 	// 向前兼容是格式契约的一部分。
 	if err := dec.Decode(&f); err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalid,
 			"parse "+path+" (is it valid JSON?)",
+			"delete ngm.lock and re-run `ngm install` to regenerate it", err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("unexpected trailing JSON value after the lock object")
+		}
+		return nil, errs.Wrap(errs.CodeConfigInvalid,
+			"parse "+path+" (trailing content after the lock object)",
 			"delete ngm.lock and re-run `ngm install` to regenerate it", err)
 	}
 	if err := f.Validate(); err != nil {

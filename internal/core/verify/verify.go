@@ -1042,6 +1042,9 @@ func replayModuleDigestFromEntries(entries []vendor.ContentEntry) (string, error
 		}
 		records = append(records, rec)
 	}
+	if err := digest.ValidateUniquePaths(records); err != nil {
+		return "", &invalidManifestError{fmt.Errorf("content store manifest is not a valid manifest: %w", err)}
+	}
 	return digest.Digest(digest.BuildModuleManifest(records)), nil
 }
 

@@ -212,11 +212,17 @@
 
 ## Batch E · 确定性与信任根（5 项，需 C6 先拍板）
 
-- [ ] **K-04 模块清单排序键**（`internal/core/digest/manifest.go:98-103`；`internal/core/digest/validate.go:66-73`）
+> ✅ **已落地（2026-11-21）**：4 项（V-03 已在 Batch C 同文件完成）全改；
+> `go test ./internal/core/digest ./internal/core/lock ./internal/core/verify
+> ./internal/adopt ./internal/version` 全绿。新判据 `TestV152ModuleManifestSortIsOrderIndependent`、
+> `TestV153ParseRejectsTrailingContent`、`TestV154GitColonPrefixIsStripped`、
+> `TestV155DottedPartsDoesNotOverflowToNegative`。变异四项全红。
+
+- [x] **K-04 模块清单排序键**（`internal/core/digest/manifest.go:98-103`；`internal/core/digest/validate.go:66-73`）
       - 动作：先查 Path 唯一性（重复即拒），再按 `(Path, Mode, BlobSHA256)` 复合键排序。
       - 判据 V165：同一记录集合不同输入顺序得到相同清单字节与 digest；重复 Path 被拒。变异：改回单键 sort → 红。
 
-- [ ] **K-05 lock 尾部垃圾**（`internal/core/lock/io.go:37-51`）
+- [x] **K-05 lock 尾部垃圾**（`internal/core/lock/io.go:37-51`）
       - 动作：`Decode` 后再 `Decode` 一次要求 `io.EOF`；对象内未知字段兼容不变。
       - 判据 V166：合法 lock 后追加第二个 JSON 对象 → Parse 报错；未知字段仍忽略。变异：删第二次 Decode → 红。
 
@@ -225,12 +231,12 @@
       - 判据 V167：clone 中途失败不留下最终 path 半成品；并发首次 clone 不互报 destination exists。
         变异：改回直落 path → 红。
 
-- [ ] **I-04 adopt 的 `git:` 前缀残留**（`internal/adopt/adopt.go:583-597`）
+- [x] **I-04 adopt 的 `git:` 前缀残留**（`internal/adopt/adopt.go:583-597`）
       - 动作：按 `git+` / `git://` / `git:` 分别处理，只剥离非 `//` 的 `git:`。
       - 判据 V168：`git:ssh://host/repo#<sha>` 产出的 Provenance.URL 不含 `git:`；`git://` URL 保持原样。
         变异：改回只 TrimPrefix("git+") → 红。
 
-- [ ] **I-05 版本号整数溢出**（`internal/version/parse.go:37-64`）
+- [x] **I-05 版本号整数溢出**（`internal/version/parse.go:37-64`）
       - 动作：`DottedParts`/`atoi` 逐段检查 `n > (MaxInt-d)/10`。
       - 判据 V169：`v99999999999999999999.0.0` 不产生负 major；正常 tag 解析不变。变异：删上界检查 → 红。
 

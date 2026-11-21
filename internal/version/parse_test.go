@@ -43,3 +43,16 @@ func TestV133SharedParsersKeepTheirDistinctSemantics(t *testing.T) {
 		t.Errorf("DottedParts = %v, want [2 4 1]", got)
 	}
 }
+
+func TestV155DottedPartsDoesNotOverflowToNegative(t *testing.T) {
+	// 2^63 在 int64 上直接回绕成最小负数——比任意大数都更能暴露缺失的上界检查。
+	parts := DottedParts("9223372036854775808.0.0")
+	if len(parts) != 3 {
+		t.Fatalf("parts = %v", parts)
+	}
+	for i, p := range parts {
+		if p < 0 {
+			t.Errorf("part[%d] = %d, overflow wrapped to negative", i, p)
+		}
+	}
+}

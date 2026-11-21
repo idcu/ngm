@@ -585,7 +585,18 @@ func parseGitResolved(resolved string) (url, commit, ref string, ok bool) {
 	if !strings.HasPrefix(resolved, p) && !strings.HasPrefix(resolved, "git:") {
 		return "", "", "", false
 	}
-	rest := strings.TrimPrefix(resolved, p)
+	// 审计 I-04：入口接受 git: 形式，但只剥离 git+，导致
+	// git:ssh://host/repo#<sha> 的 Provenance.URL 残留 git: 前缀。
+	// git:// 是合法 scheme，必须原样保留；其余 git: 形式才剥离。
+	rest := resolved
+	switch {
+	case strings.HasPrefix(rest, p):
+		rest = strings.TrimPrefix(rest, p)
+	case strings.HasPrefix(rest, "git://"):
+		// 合法 scheme，保持原样
+	case strings.HasPrefix(rest, "git:"):
+		rest = strings.TrimPrefix(rest, "git:")
+	}
 	u, frag := rest, ""
 	if i := strings.LastIndex(rest, "#"); i >= 0 {
 		u, frag = rest[:i], rest[i+1:]

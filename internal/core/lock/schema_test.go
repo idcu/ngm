@@ -404,3 +404,24 @@ func TestMarshal_EmptyDependenciesIsArray(t *testing.T) {
 		t.Errorf("empty dependencies must serialize as [], got:\n%s", data)
 	}
 }
+
+// TestV153ParseRejectsTrailingContent 固定审计 K-05：lock 既是解析对象又被整体哈希，
+// 尾部多余对象不能被静默忽略。
+func TestV153ParseRejectsTrailingContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	good := `{"version":1,"lockfileVersion":"2.0.0","dependencies":[],"futureTopLevel":true}`
+	if err := os.WriteFile(path, []byte(good+"\n{\"later\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(path); err == nil {
+		t.Fatal("a trailing JSON value after the lock object must be refused")
+	}
+	// 对象内未知字段仍须被接受（向前兼容契约不变）。
+	if err := os.WriteFile(path, []byte(good), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(path); err != nil {
+		t.Fatalf("unknown fields inside the object must still be tolerated: %v", err)
+	}
+}

@@ -98,8 +98,16 @@ func BuildManifestWithVersion(version string, records []Record) []byte {
 	sorted := make([]Record, len(records))
 	copy(sorted, records)
 	sort.Slice(sorted, func(i, j int) bool {
-		// 字节序；Path 唯一（Git tree 不允许同路径重复），无需二级排序键
-		return sorted[i].Path < sorted[j].Path
+		// 审计 K-04：模块清单的输入来自可改写的 store 文件，Path 未必唯一。
+		// 单键排序在重复 Path 下依赖 sort.Slice 的不稳定性，同集合不同输入顺序会
+		// 得到不同字节。用复合键保证"同一集合 ⇒ 同一份字节"。
+		if sorted[i].Path != sorted[j].Path {
+			return sorted[i].Path < sorted[j].Path
+		}
+		if sorted[i].Mode != sorted[j].Mode {
+			return sorted[i].Mode < sorted[j].Mode
+		}
+		return sorted[i].BlobSHA256 < sorted[j].BlobSHA256
 	})
 
 	var buf bytes.Buffer

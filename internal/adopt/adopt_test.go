@@ -432,3 +432,19 @@ packages:
 		}
 	})
 }
+
+func TestV154GitColonPrefixIsStripped(t *testing.T) {
+	sha := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	url, commit, _, ok := parseGitResolved("git:ssh://host/repo.git#" + sha)
+	if !ok || commit != sha {
+		t.Fatalf("git: form not parsed: ok=%v commit=%q", ok, commit)
+	}
+	if url != "ssh://host/repo.git" {
+		t.Errorf("Provenance.URL = %q, want the git: prefix stripped", url)
+	}
+	// 合法 scheme 必须原样保留。
+	url2, _, _, ok2 := parseGitResolved("git://host/repo.git#" + sha)
+	if !ok2 || url2 != "git://host/repo.git" {
+		t.Errorf("git:// URL was mangled: ok=%v url=%q", ok2, url2)
+	}
+}

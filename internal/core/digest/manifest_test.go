@@ -254,3 +254,15 @@ func TestModeConstants(t *testing.T) {
 		t.Errorf("algorithm changed: %q", Algorithm)
 	}
 }
+
+// TestV152ModuleManifestSortIsOrderIndependent 固定审计 K-04：
+// 模块清单输入可改写、Path 未必唯一；单键 sort.Slice 会让同集合不同顺序得到不同字节。
+func TestV152ModuleManifestSortIsOrderIndependent(t *testing.T) {
+	r1 := Record{Path: "a", Mode: ModeRegular, BlobSHA256: strings.Repeat("1", 64)}
+	r2 := Record{Path: "a", Mode: ModeRegular, BlobSHA256: strings.Repeat("2", 64)}
+	a := BuildManifestWithVersion(ModuleManifestVersion, []Record{r1, r2})
+	b := BuildManifestWithVersion(ModuleManifestVersion, []Record{r2, r1})
+	if !bytes.Equal(a, b) {
+		t.Errorf("same records in different input order produced different manifest bytes:/n%q/n%q", a, b)
+	}
+}
