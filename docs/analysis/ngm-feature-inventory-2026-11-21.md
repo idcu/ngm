@@ -6,6 +6,9 @@
 >
 > 基线：`5d383bb`，`git describe --tags` = `v0.102.0-dev.2-165-g5d383bb`；本地无 ldflags 构建显示 `0.0.0-dev`。
 > 已纳入 2026-11-21 逐行审计五批修复后的行为（见[落地记录](../specs/assessment-2026-11-21-line-by-line-followup/tasks.md)）。
+>
+> **下一步**：基于本梳理与差距评估的[阶段计划与任务](../specs/assessment-2026-11-21-next-step/spec.md)
+> （仅规划、未授权执行）。
 
 ## 0. 一句话定位
 

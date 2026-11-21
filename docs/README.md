@@ -69,6 +69,7 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | 搞懂它为什么这样设计 | [架构总览](./architecture/overview.md) | 贡献者 |
 | 查某个设计决策的理由 | [ADR 索引](./adr/README.md) | 贡献者 |
 | **梳理 ngm 现在有哪些功能** | **[功能现状梳理（2026-11-21）](./analysis/ngm-feature-inventory-2026-11-21.md)**（命令地图 · 状态模型 · 横切能力 · 边界） | **使用者 · 评估者 · 接手者** |
+| **基于梳理的下一步计划** | [下一阶段 spec + tasks](./specs/assessment-2026-11-21-next-step/spec.md)（读数纠偏 → 闭环证据 → 采用门槛） | **评估者 · 接手者** |
 | 看 ngm 与竞品的差异 | [竞品分析](./COMPETITIVE-ANALYSIS.md) | 评估者 |
 | **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
 | **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
