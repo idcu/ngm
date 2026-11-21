@@ -1,9 +1,11 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -25,6 +27,8 @@ func TestV108EveryOSVQueryCarriesTheGate(t *testing.T) {
 	var sites int
 	var missing []string
 
+	// 审计 T-08：旧版在字面量后 24 行窗口里找 `CheckNet:` 子串，注释里写同名字样即可蒙混。
+	// 改为 AST：只认 OSVConfig 复合字面量里**真实存在**的 CheckNet 键值对。
 	walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -39,37 +43,39 @@ func TestV108EveryOSVQueryCarriesTheGate(t *testing.T) {
 		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 			return nil
 		}
-		rel, rerr := filepath.Rel(root, p)
-		if rerr != nil {
-			return rerr
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, p, nil, 0)
+		if perr != nil {
+			return perr
 		}
-		rel = filepath.ToSlash(rel)
-		body, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
-		lines := strings.Split(string(body), "\n")
-		for i, line := range lines {
-			if strings.HasPrefix(strings.TrimSpace(line), "//") {
-				continue
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
 			}
-			if !strings.Contains(line, "OSVConfig{") {
-				continue
+			name := ""
+			switch typ := lit.Type.(type) {
+			case *ast.Ident:
+				name = typ.Name
+			case *ast.SelectorExpr:
+				name = typ.Sel.Name // 生产路径写作 supplychain.OSVConfig{...}
+			}
+			if name != "OSVConfig" {
+				return true
 			}
 			sites++
-			// 从字面量这一行往下看一段。窗口必须容得下**注释**：字段之间的说明
-			// 每多一行，字面量就长一行。P2-5 给 `Warn` 补注释时，12 行的窗口
-			// 正好把随后两行的 `CheckNet:` 切在外面，于是这条判据对**合规**的
-			// 字面量报了红。24 行仍是一个"短字面量"的上界（超出它说明写法变了，
-			// 应当重构而不是继续加宽）。
-			window := lines[i:]
-			if len(window) > 24 {
-				window = window[:24]
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "CheckNet" {
+					return true
+				}
 			}
-			if !strings.Contains(strings.Join(window, "\n"), "CheckNet:") {
-				missing = append(missing, rel+":"+strconv.Itoa(i+1))
-			}
-		}
+			missing = append(missing, fset.Position(lit.Pos()).String())
+			return true
+		})
 		return nil
 	})
 	if walkErr != nil {

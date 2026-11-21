@@ -68,11 +68,13 @@ func TestV40ArgumentSpellingHoldsItsContracts(t *testing.T) {
 	}
 
 	orderPairs, dupGoodLast, dupBadLast, dashDash, dupSkipped := 0, 0, 0, 0, 0
+	eligible := 0
 
 	for _, spec := range commands {
 		if globalCommands[spec.Name] {
 			continue // 全局命令不接受 --dir，这三族对它无从谈起
 		}
+		eligible++ // 从命令表派生，不写死数字（审计 T-02）
 		t.Run(spec.Name, func(t *testing.T) {
 			base := matrixArgs[spec.Name]
 
@@ -170,14 +172,17 @@ func TestV40ArgumentSpellingHoldsItsContracts(t *testing.T) {
 	// 判据：**每个命令要么通过那一族、要么被公开跳过**（不许有命令悄悄溜走）。
 	// 跳过是允许的——但必须有理由（好/坏目录对它给出同一份结果，那一族就没有牙齿），
 	// 而且数目要报出来。
-	if orderPairs < 19 || dashDash < 19 {
-		t.Fatalf("coverage shrank: order=%d dashdash=%d (each should be at least 19 = 21 commands − 2 global)",
-			orderPairs, dashDash)
+	if orderPairs != eligible || dashDash != eligible {
+		t.Fatalf("coverage shrank: order=%d dashdash=%d, eligible=%d (from the command table)",
+			orderPairs, dashDash, eligible)
 	}
-	if dupGoodLast+dupSkipped < 19 || dupBadLast+dupSkipped < 19 {
-		t.Fatalf("some command neither passed the repeated-flag check nor was openly skipped: "+
-			"passed=%d/%d skipped=%d (each column should total at least 19)",
-			dupGoodLast, dupBadLast, dupSkipped)
+	// 恒真守卫（审计 T-02）：每列必然是 passed+skipped==eligible，所以只查和等于 eligible
+	// 守不住任何行为。现在要求**至少 3/4 的命令真的通过了重复 --dir 判据**，
+	// 且公开跳过的不超过 1/4——所有命令的 good/bad 结果趋同时会红。
+	if dupGoodLast < eligible*3/4 || dupBadLast < eligible*3/4 || dupSkipped > eligible/4 {
+		t.Fatalf("repeated --dir net lost its teeth: passed=%d/%d skipped=%d of %d eligible "+
+			"(need >=3/4 passed in each direction and <=1/4 skipped)",
+			dupGoodLast, dupBadLast, dupSkipped, eligible)
 	}
 	t.Logf("argument spelling: %d commands × {两种顺序 · 两个方向的重复 · `--`} all held",
 		orderPairs)

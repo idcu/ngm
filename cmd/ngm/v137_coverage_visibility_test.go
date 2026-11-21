@@ -42,8 +42,24 @@ func TestV137CoverageVisibilityKeepsGateAndAddsNotices(t *testing.T) {
 	}
 
 	// 不能出现"每包一个 floor"——那正是停止清单禁止的新契约网。
-	if strings.Contains(ci, "::error::") && strings.Count(ci, "::error::internal/core/verify") == 0 {
-		t.Errorf("the only coverage gate must be verify; per-package notices must not set floors")
+	// 审计 T-06：旧写的 `Contains("::error::") && Count(verify)==0` 在 mustContain 已强制
+	// verify gate 的前提下恒假，新增逐包 floor 照样绿。现在枚举所有 error 行的路径。
+	floors := map[string]bool{}
+	for _, line := range strings.Split(ci, "\n") {
+		at := strings.Index(line, "::error::")
+		if at < 0 {
+			continue
+		}
+		rest := line[at+len("::error::"):]
+		if end := strings.Index(rest, " coverage"); end >= 0 && strings.Contains(rest[:end], "/") {
+			// 只认 `::error::<path> coverage ... is below` 这种 floor 行；
+			// "::error::no coverage profile" 不是路径门槛（审计 T-06 实测）。
+			floors[strings.TrimSpace(rest[:end])] = true
+		}
+	}
+	if len(floors) != 1 || !floors["internal/core/verify"] {
+		t.Errorf("the only coverage gate must be internal/core/verify, got %v — "+
+			"per-package notices must not set floors", floors)
 	}
 	// 退化守卫要匹配 broaden 后的值，否则它永远红/永远绿都看不见。
 	if !strings.Contains(ci, `of statements in \./internal/\.\.\.`) {

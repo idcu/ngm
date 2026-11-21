@@ -186,10 +186,8 @@ func TestGitInit_SurvivesHostileGlobalConfig(t *testing.T) {
 
 	// 行尾纪律：写入 LF 的文件必须原样入库（autocrlf=true 不得生效）
 	GitWriteFile(t, dir, "lf.txt", "a\nb\n")
-	blob := GitOutput(t, dir, "hash-object", "lf.txt")
-	if strings.Contains(blob, "CRLF") {
-		t.Errorf("unexpected CRLF conversion reported: %s", blob)
-	}
+	// 审计 I-03：旧版对 `git hash-object` 的 40 位 hex 输出查字符串 "CRLF"，
+	// 恒假判据。真正有效的是下面对入库 blob 内容的检查。
 	commit := GitCommit(t, dir, "chore: lf")
 	content := GitOutput(t, dir, "show", commit+":lf.txt")
 	if strings.Contains(content, "\r\n") {

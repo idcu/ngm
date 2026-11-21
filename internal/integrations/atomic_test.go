@@ -35,7 +35,7 @@ func TestV12ApplyIsAllOrNothingOnWriteFailure(t *testing.T) {
 	}
 
 	// 临时文件同样不能留下：否则下次运行会看到"ngm 留下的、没人认领的东西"。
-	leftover, _ := filepath.Glob(filepath.Join(dir, "*", "*.ngm-tmp"))
+	leftover, _ := filepath.Glob(filepath.Join(dir, "*", "*.ngm-tmp-*"))
 	if len(leftover) > 0 {
 		t.Errorf("temp files must be cleaned up on failure, found: %v", leftover)
 	}
@@ -66,7 +66,7 @@ func TestV12ApplyStillWritesWhenNothingFails(t *testing.T) {
 			t.Errorf("%s content=%q want %q", a.Path, body, a.Content)
 		}
 	}
-	if leftover, _ := filepath.Glob(filepath.Join(dir, "*", "*.ngm-tmp")); len(leftover) > 0 {
+	if leftover, _ := filepath.Glob(filepath.Join(dir, "*", "*.ngm-tmp-*")); len(leftover) > 0 {
 		t.Errorf("no temp file may survive a successful run, found: %v", leftover)
 	}
 }

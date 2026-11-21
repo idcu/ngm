@@ -1,77 +1,91 @@
 # Tasks：2026-11-21 全量逐行代码审计之后
 
 来源：[spec.md](./spec.md) · 依据 [全量逐文件代码审计](../../analysis/ngm-line-by-line-audit-2026-11-21.md)。
-基线：`b6cfad8`。状态：**全部 35 项未开始**（仅规划，未授权执行）。
+基线：`b6cfad8`。状态：**用户已授权全量推进（2026-11-21）**；6 项契约决定已拍板，35 项发现执行中。
 每项完成标准 = 源码/测试改动 + 会红的判据 + 变异检验结果；只写"测试通过"不算完成。
 
-## 实施前必须拍板（契约决定，见 spec §3）
+## 契约决定（用户授权后拍板，2026-11-21；spec §3 正文保留为当时的建议快照）
 
-- [ ] **C1 §3.1 `--json` 中途失败的 stdout 内容**：建议 (b) 失败时只写错误信封、不写 `writeReport`；
-      需核对 `TestV51`/`TestV136` 是否有用例依赖旧形状。
-- [ ] **C2 §3.2 JSON-aware 统一规则**：建议 (b) 写成 ADR-045 补记 + 行为级枚举判据，覆盖所有接受 `--json` 的命令。
-- [ ] **C3 §3.3 URL 形状校验点**：建议 `LSRemote` 入口校验；C-03 同时改 40/64-hex + 畸形行 fail-closed。
-- [ ] **C4 §3.4 含逗号权限 target**：建议对 net/env 逗号 fail-closed（ADR-012 补记 + CHANGELOG 破坏性说明）。
-- [ ] **C5 §3.5 完整性/操作性边界**：建议 `ValidateRecord` 失败=critical(2)，读取/JSON 失败=operational(4)，
-      SARIF level 由最终退出码派生。
-- [ ] **C6 §3.6 lock 尾部与模块排序**：lock 追加一次 Decode 要求 `io.EOF`；模块清单先查 Path 唯一性再复合键排序。
+- [x] **C1 §3.1**：取 (b)——`--json` 失败时 stdout 恰好一份错误信封，**不写 `writeReport`**；
+      成功路径继续写报告。实施时核对 `TestV51`/`TestV136` 是否依赖旧形状，有则按新契约改写并记理由。
+- [x] **C2 §3.2**：取 (b)——"接受 `--json` 的命令，任何参数级失败都给信封"写成 ADR-045 补记 +
+      行为级枚举判据（按命令表覆盖，不做源码扫描网）。
+- [x] **C3 §3.3**：取 (a)——`LSRemote` 入口做 `ValidateRemoteURL`；C-03 同时接受 40/64-hex、
+      畸形行 fail-closed 返回 error。
+- [x] **C4 §3.4**：取 (a)——net/env 含逗号 target 一律拒绝，ADR-012 补记 + CHANGELOG 破坏性变更说明。
+- [x] **C5 §3.5**：取 (a)——`ValidateRecord` 失败=critical(2)，文件读取/JSON 语法失败=operational(4)，
+      SARIF/GitHub 级别由**最终退出码**派生（含 strict/allow-drift 调整）。ADR-039/045 补记。
+- [x] **C6 §3.6**：lock `Parse` 追加一次 `Decode` 要求 `io.EOF`；模块清单先查 Path 唯一性，
+      再按 `(Path,Mode,BlobSHA256)` 复合键排序。
 
-> 契约决定未拍板前不得动对应批次代码；实施时若源码事实推翻 spec 初稿，以"实施改判"小节记录，不重写 spec 正文。
+> 实施时若源码事实推翻上述决定，以各批次的"实施改判"记录为准，不重写本节决定快照。
 
 ---
 
 ## Batch A · 判据复健（12 项，无产品代码变更）
 
-- [ ] **T-01 `supplyChain` 字段表双向守护**（`cmd/ngm/doc_field_tables_test.go:58-62`、
+> ✅ **已落地（2026-11-21）**：12 项全部改完，定向集（V25/V27/V40/hint/V03×2/V137/V108 +
+> V82/V12/V105/testutils）全绿；gofmt / diff-check 绿。
+> **两处实施改判**（spec 初稿按审计报告描述，实际源码细节不同）：
+> ① T-02 实际命令数是 26（其中 6 个公开跳过），不是注释里的 19；改为从命令表派生 eligible，
+> 并要求"每方向至少 3/4 通过、跳过不超过 1/4"。
+> ② T-05 的沙箱段落**插在逐条结论与总结之间**，不是整体追加在末尾；改为归一化短 SHA 后
+> 摘除固定段落块再逐字比对（只做 HasPrefix 会假红）。
+> 变异验证：T-01 把 supplyChain 映射到错误类型 → V25 红；T-06 在 ci.yml 注入逐包 floor → 红；
+> C-04 把包装函数体改成分叉实现 → 红；其余纯文案/阈值型项目以"注入对应错误形态"为判据形状，
+> 单独标注为结构性修复（不新增网）。
+
+- [x] **T-01 `supplyChain` 字段表双向守护**（`cmd/ngm/doc_field_tables_test.go:58-62`、
       `cmd/ngm/doc_prose_fields_test.go:144-150`）
       - 动作：正向映射到具名类型 `SupplyChainConfig`，反向 `configReverseSections` 补登该类型。
       - 判据 V143（占位）：文档漏写一个 supplyChain 字段 → 红；写错一个字段名 → 红；还原 → 绿。
       - 注：只强化现有 V25/V27 网，不新建源码扫描网（ADR-049）。
 
-- [ ] **T-02 重复 `--dir` 判据去恒真**（`cmd/ngm/argument_spelling_test.go:177-181`）
+- [x] **T-02 重复 `--dir` 判据去恒真**（`cmd/ngm/argument_spelling_test.go:177-181`）
       - 动作：给 `dupSkipped` 设上限、给 `dupGoodLast`/`dupBadLast` 设下限。
       - 判据 V144：把"所有命令的 good/bad 结果趋同"注入夹具 → 红；还原 → 绿。
 
-- [ ] **T-03 flag hint 判据补齐声明种类**（`cmd/ngm/flag_hint_guard_test.go:86-94`）
+- [x] **T-03 flag hint 判据补齐声明种类**（`cmd/ngm/flag_hint_guard_test.go:86-94`）
       - 动作：`declared` 捕获 `Int64`/`Uint`/`Uint64`，或复用 `flagsetBlocksOf` 派生。
       - 判据 V144（与上项共用或独立）：构造 `fs.Int64` 声明的 hint → 不再误报；去掉捕获 → 红。
 
-- [ ] **T-04 WASM 退出码测试名与断言统一**（`cmd/ngm/wasm_engine_acceptance_test.go:94-105`）
+- [x] **T-04 WASM 退出码测试名与断言统一**（`cmd/ngm/wasm_engine_acceptance_test.go:94-105`）
       - 动作：改名为"failing engine is exit 1"并改注释，或真正断言模块码透传（二选一，与行为契约一致）。
       - 判据 V145：名称/注释/断言三者一致性检查；把断言改成相反值 → 红。
 
-- [ ] **T-05 沙箱输出比较去 40 字节子串**（`cmd/ngm/sandbox_acceptance_test.go:88-90`）
+- [x] **T-05 沙箱输出比较去 40 字节子串**（`cmd/ngm/sandbox_acceptance_test.go:88-90`）
       - 动作：改 `strings.HasPrefix(sandboxOut, plainOut)`，另校验追加段存在。
       - 判据 V145：把 `plainOut` 中部一个结论改成通过 → 红；还原 → 绿。
 
-- [ ] **T-06 覆盖率判据去恒假**（`cmd/ngm/v137_coverage_visibility_test.go:45-47`）
+- [x] **T-06 覆盖率判据去恒假**（`cmd/ngm/v137_coverage_visibility_test.go:45-47`）
       - 动作：统计 `::error::<path> coverage` 的唯一路径集合，断言仅 `internal/core/verify`。
       - 判据 V146：在 ci.yml 注入一个逐包 floor → 红；还原 → 绿。
 
-- [ ] **T-07 HTTPS e2e 头部承诺纠偏**（`cmd/ngm/v095_https_fetch_e2e_test.go:39-42` vs `:74-87`）
+- [x] **T-07 HTTPS e2e 头部承诺纠偏**（`cmd/ngm/v095_https_fetch_e2e_test.go:39-42` vs `:74-87`）
       - 动作：改写头部"不关校验证"表述，与内联的 schannel 边界和 `GIT_SSL_NO_VERIFY=true` 一致。
       - 判据：docs/prose 型检查（不新增网）；复核注释与代码设置同向即可。
       - 风险：低；纯文档一致性，避免下一个人高估覆盖范围。
 
-- [ ] **T-08 OSV CheckNet 扫描改 AST**（`cmd/ngm/v108_osv_gate_test.go:65-70`）
+- [x] **T-08 OSV CheckNet 扫描改 AST**（`cmd/ngm/v108_osv_gate_test.go:65-70`）
       - 动作：替换 24 行子串窗口为复合字面量字段名解析。
       - 判据 V146：把 `CheckNet:` 字段注释掉（保留注释中的同名字样）→ 红；还原 → 绿。
       - 注：是**替换**过宽判据，不是新增网（ADR-049）。
 
-- [ ] **C-04 子路径判据去同义反复**（`internal/core/resolve/subpath_test.go:63-69`、
+- [x] **C-04 子路径判据去同义反复**（`internal/core/resolve/subpath_test.go:63-69`、
       `internal/core/resolve/addspec.go:132-134`）
       - 动作：不再比较函数与其别名；断言规范化结果一致，并纳入 config 侧入口。
       - 判据 V144：让 config 判定与 resolve 分叉 → 红；还原 → 绿。
 
-- [ ] **I-01 临时文件 glob 修正**（`internal/integrations/atomic_test.go:38,69`；
+- [x] **I-01 临时文件 glob 修正**（`internal/integrations/atomic_test.go:38,69`；
       `internal/integrations/scaffold.go:264-266`）
       - 动作：`*.ngm-tmp` → `*.ngm-tmp-*`。
       - 判据 V148：保留一个 `.ngm-tmp-<随机>` 残骸 → 红；清理 → 绿。
 
-- [ ] **I-02 adopt symlink 断言指向 fixture**（`internal/adopt/adopt_test.go:138-143`）
+- [x] **I-02 adopt symlink 断言指向 fixture**（`internal/adopt/adopt_test.go:138-143`）
       - 动作：Lstat 改为 fixture 中真实创建的 `linked-workspace`。
       - 判据 V148：让 symlink 被静默忽略且 skipped 不增 → 红；还原 → 绿。
 
-- [ ] **I-03 行尾断言去掉恒假检查**（`internal/testutils/testutils_test.go:189-192`）
+- [x] **I-03 行尾断言去掉恒假检查**（`internal/testutils/testutils_test.go:189-192`）
       - 动作：删除 hash 输出查 `CRLF` 的断言，或改校验 `git cat-file -p` 的 blob 字节。
       - 判据 V148：把 `git show` 检查失效 → 红；还原 → 绿。
 

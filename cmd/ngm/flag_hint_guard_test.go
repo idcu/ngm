@@ -84,7 +84,9 @@ func TestHintsNameFlagsTheCommandAccepts(t *testing.T) {
 			if ok {
 				if sel, sok := call.Fun.(*ast.SelectorExpr); sok && len(call.Args) > 0 {
 					switch sel.Sel.Name {
-					case "String", "Bool", "Int", "Duration", "Float64":
+					// v0.143：与 help_subcommand_test.go 的 flagRegistrationRe 同口径，
+					// 补 Int64/Uint/Uint64——漏掉它们会把合法 hint 误报成"未声明的 flag"（审计 T-03）。
+					case "String", "Bool", "Int", "Int64", "Uint", "Uint64", "Duration", "Float64":
 						if lit, lok := call.Args[0].(*ast.BasicLit); lok && lit.Kind == token.STRING {
 							if s, uerr := strconv.Unquote(lit.Value); uerr == nil {
 								declared[s] = true

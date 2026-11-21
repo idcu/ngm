@@ -55,10 +55,15 @@ var jsonShapeSourceFiles = map[string][]string{
 // （`SupplyChainConfig` 的 json tag），而 `internal/supplychain` 是**策略的解析与判定**
 // （方法形态：`pol.VerifyOnLock()`），里面没有这些 tag。
 // 第一版指错了地方，6 个键全成了假缺陷——**映射是这类网唯一会骗人的地方**。
-var configSectionFiles = map[string][]string{
-	"ngm.json":     {"../../internal/config/*.go"},
-	"dependencies": {"../../internal/config/*.go"},
-	"supplyChain":  {"../../internal/config/*.go"},
+// v0.143：三张字段表都指向**具名类型**，不再用整目录的 json tag 集合。
+// 整目录口径会让"把 supplyChain 字段写成另一个结构体的合法字段名"也通过（审计 T-01）。
+var configSectionFiles = map[string]struct {
+	file string
+	typ  string
+}{
+	"ngm.json":     {"../../internal/config/config.go", "ProjectFile"},
+	"dependencies": {"../../internal/config/config.go", "Dependency"},
+	"supplyChain":  {"../../internal/config/config.go", "SupplyChainConfig"},
 }
 
 // notAShapeKey 列出形状表里被反引号引着、但**不是字段名**的词。
@@ -155,22 +160,23 @@ func TestV25ConfigFieldTablesMatchTheSchema(t *testing.T) {
 
 	checked := 0
 	for _, tbl := range tables {
-		globs, ok := configSectionFiles[tbl.section]
+		spec, ok := configSectionFiles[tbl.section]
 		if !ok {
 			t.Errorf("configuration.md has a field table under `## %s`, but the net has no implementation "+
 				"mapping for that section — add one", tbl.section)
 			continue
 		}
-		tags := jsonTagsOf(t, globs)
+		tags := structJSONTags(t, spec.file, spec.typ)
 		if len(tags) == 0 {
-			t.Errorf("no json tags found for section %q via %v — the mapping is wrong", tbl.section, globs)
+			t.Errorf("no json tags found for section %q via %s.%s — the mapping is wrong",
+				tbl.section, spec.file, spec.typ)
 			continue
 		}
 		for _, key := range tbl.keys {
 			checked++
 			if !tags[key] {
-				t.Errorf("configuration.md documents the %s field %q, but no such json tag exists in %v",
-					tbl.section, key, globs)
+				t.Errorf("configuration.md documents the %s field %q, but no such json tag exists on %s.%s",
+					tbl.section, key, spec.file, spec.typ)
 			}
 		}
 	}

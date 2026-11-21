@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -85,9 +86,21 @@ func TestV03SandboxAcceptance(t *testing.T) {
 			t.Fatalf("the verdict changed: verify=%d verify --sandbox=%d\n%s\n%s",
 				plain, withSandbox, plainOut, sandboxOut)
 		}
-		// 常规那部分输出必须完全一致；沙箱只会多出一段
-		if !strings.Contains(sandboxOut, plainOut[:min(len(plainOut), 40)]) {
+		// 常规那部分输出必须**逐字**是前缀；沙箱只会多出一段（审计 T-05：
+		// 旧版只 Contains 前 40 字节，40 字节之后的结论被改也不会红）。
+		// 两次调用各自新建上游仓库，commit 短 SHA 必然不同，先归一化再比。
+		normSHA := regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+		plainN := normSHA.ReplaceAllString(plainOut, "<sha>")
+		sandboxN := normSHA.ReplaceAllString(sandboxOut, "<sha>")
+		// 沙箱段落插在逐条结论与总结之间，不是整体追加在末尾；把它整块摘掉后
+		// 剩余内容必须与常规报告逐字相同。
+		const block = "— dependency self-checks (--sandbox) —\n" +
+			"sandbox: no dependency provides verify.js — nothing to execute\n\n"
+		if stripped := strings.Replace(sandboxN, block, "", 1); stripped != plainN {
 			t.Errorf("the ordinary part of the report changed:\nplain:\n%s\nsandbox:\n%s", plainOut, sandboxOut)
+		}
+		if !strings.Contains(sandboxOut, "— dependency self-checks (--sandbox) —") {
+			t.Errorf("the appended sandbox section is missing:\n%s", sandboxOut)
 		}
 	})
 }

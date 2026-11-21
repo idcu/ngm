@@ -138,7 +138,7 @@ func TestV27ProseJSONFieldNamesExist(t *testing.T) {
 
 // configReverseSections 把 configuration.md 的章节映射到**结构体名**，用于反向判据。
 //
-// 只列两张**字段表**干净、且覆盖完整的章节：`ngm.json` 与 `dependencies`。
+// 只列**字段表**干净、且覆盖完整的章节：`ngm.json`、`dependencies`、`supplyChain`（v0.143 补）。
 // `vendor` 与全局配置用的是**散文 + 小标题**（`### linkMode（落地方式）`），
 // 没有字段表——机械判据在那里只会误报，因此**明确不做**（而不是做一半）。
 var configReverseSections = map[string]struct {
@@ -147,6 +147,7 @@ var configReverseSections = map[string]struct {
 }{
 	"ngm.json":     {"../../internal/config/config.go", "ProjectFile"},
 	"dependencies": {"../../internal/config/config.go", "Dependency"},
+	"supplyChain":  {"../../internal/config/config.go", "SupplyChainConfig"},
 }
 
 // TestV27EveryConfigFieldIsDocumented 是 v0.25 那张配置表的**反向**：

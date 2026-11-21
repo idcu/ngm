@@ -94,7 +94,8 @@ func TestV105AdoptIsDeterministicAndContentAddressed(t *testing.T) {
 }
 
 func TestV105AdoptClassifiesProvenanceHonestly(t *testing.T) {
-	p, err := Run(Options{Dir: fixture(t), ToolVersion: "test"})
+	root := fixture(t)
+	p, err := Run(Options{Dir: root, ToolVersion: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,8 @@ func TestV105AdoptClassifiesProvenanceHonestly(t *testing.T) {
 	}
 	if p.Coverage.Skipped == 0 {
 		// 只有真的建出链接时才要求计数，否则这条断言在无权限的平台上恒假。
-		if _, err := os.Lstat(filepath.Join(t.TempDir(), "probe-symlink")); err == nil {
+		// 审计 I-02：必须检查 fixture 里**真实创建**的链接，不能查一个新建空目录里的假路径。
+		if _, err := os.Lstat(filepath.Join(root, "node_modules", "linked-workspace")); err == nil {
 			t.Error("nothing was reported as skipped even though a symlink exists")
 		}
 	}

@@ -91,8 +91,9 @@ func TestV03WasmEngineAcceptance(t *testing.T) {
 		}
 	})
 
-	// 模块自己的退出码必须是引擎失败码——CI 据此判断引擎为什么失败。
-	t.Run("a failing module fails the build with its own exit code", func(t *testing.T) {
+	// 引擎模块失败时 ngm 固定退 1，不透传模块自己的码（审计 T-04：名字/注释原先与断言相反）。
+	// CI 只能据退出码区分"失败"与"资源缺失(4)/工具缺失(5)"，不能区分模块内部码。
+	t.Run("a failing engine fails the build with exit 1", func(t *testing.T) {
 		proj := v3WasmProject(t, marker)
 		if err := os.WriteFile(filepath.Join(proj, "tools", "engine.wasm"),
 			testutils.WASIModuleExit(7), 0o644); err != nil {

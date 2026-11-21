@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -61,11 +62,46 @@ func TestV82SubPathBoundary(t *testing.T) {
 // 牙齿：在任一处重写一份判定，两份迟早在某个边界上分叉——
 // v0.82 现成的证据就是 `\`：config 认两种分隔符，addspec 只认 `/`。
 func TestV82SubPathRuleIsOneDefinition(t *testing.T) {
-	// 同一条输入，三处入口必须同处置。
+	// 审计 C-04：旧版只比较 ValidateSubPath 与它的别名 validateDepSubPath，
+	// 恒等比较永远不会红。规则"只有一份"的正确形状是检查三处入口都**转调**唯一定义，
+	// 而不是拿函数与自身别名比行为。
 	for _, p := range []string{`..\..\x`, "../../x", "a/../b", "/abs"} {
 		if (ValidateSubPath(p) == nil) != (validateDepSubPath(p) == nil) {
 			t.Errorf("%q: ValidateSubPath 与 validateDepSubPath 处置不一致", p)
 		}
+	}
+	assertDelegates(t, "addspec.go", "func validateDepSubPath(p string) error {", "return ValidateSubPath(p)")
+	assertDelegates(t, "../../config/validate.go", "func validateDepPath(p string) error {", "return resolve.ValidateSubPath(p)")
+}
+
+// assertDelegates 确认一个薄包装函数的函数体只有转调语句（去掉注释后逐字比对）。
+// 这是源码扫描判据，证据是审计报告 C-04 已发生的同义反复，不是假想防御。
+func assertDelegates(t *testing.T, path, header, wantBody string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", path, err)
+	}
+	src := string(raw)
+	at := strings.Index(src, header)
+	if at < 0 {
+		t.Fatalf("%s: wrapper %q not found — the rule may have been copied elsewhere", path, header)
+	}
+	body := src[at+len(header):]
+	if end := strings.Index(body, "\n}"); end >= 0 {
+		body = body[:end]
+	}
+	var lines []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if got := strings.Join(lines, "\n"); got != wantBody {
+		t.Errorf("%s: wrapper body = %q, want the single delegation %q — a second rule has crept in",
+			path, got, wantBody)
 	}
 }
 
