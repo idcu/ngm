@@ -78,6 +78,8 @@
 - [x] `docs-links` / `discipline 13/13` / `diff-check` / `TestV114` / `TestDocsAnchorsResolve` 全绿；
   docs/README 与功能梳理文档已加入口，spec 顶部补实施说明。
   **CI 首轮实测**：`TestDocsAnchorsResolve` 抓到 9 个锚点/相对路径错误（根 README 需 `../../README.md`、
-  `--json` 标题锚点要小写去符号、project-state §3.2 锚点随标题实际文本），已全部修正——
-  这类缺陷本地 `check-docs-links.sh` 不查锚点，只有 Go 判据会红。
+  `--json` 标题锚点要小写去符号、project-state §3.2 锚点随标题实际文本），
+  已在 `1010ee6` 全部修正——这类缺陷本地 `check-docs-links.sh` 不查锚点，只有 Go 判据会红。
+  `fedac97` 的最终 CI 为 20 success / 4 failure（四个失败都是同一锚点根因）；
+  修复提交 `1010ee6` 的最终 CI 为 **24/24 success、0 failure**。
 - [x] 未新增 ADR，未改产品代码；实施中未出现推翻本计划的源码事实。
