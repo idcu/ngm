@@ -106,8 +106,6 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 	if verr := validateVendorLocation(layout, r.Project); verr != nil {
 		return runErr(ctx, stdout, stderr, verr)
 	}
-	fmt.Fprintln(stdout, "ngm.json OK")
-
 	// 权限列表也要校验。`config.Load` 不会看它的内容（字段类型是 []string），
 	// 而**一条**写错的命名空间会让整份列表都不被采用——那正是用户检查配置时
 	// 最先跑这个命令的原因。
@@ -119,6 +117,9 @@ func runConfigValidate(ctx context.Context, stdout, stderr io.Writer, dir string
 		fmt.Fprintf(stderr, "warning: in both `allow` and `deny`: %s\n", strings.Join(conflicts, ", "))
 		fmt.Fprintln(stderr, "         deny wins, so these are currently refused; remove them from one list")
 	}
+	// 审计 A-03：OK 必须最后打印。此前它在权限校验之前，非法权限项会得到
+	// "ngm.json OK" + exit 3 的假通过，CI 若按 stdout 文本判定会误绿。
+	fmt.Fprintln(stdout, "ngm.json OK")
 	return 0
 }
 

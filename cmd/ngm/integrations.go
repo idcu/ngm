@@ -53,8 +53,7 @@ func runIntegrations(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 	ctx = c.ctx
 	if fs.NArg() != 2 || fs.Arg(0) != "add" {
-		fmt.Fprint(stderr, integrationsUsage)
-		return 3
+		return c.rejectExtraArgs(integrationsUsage, "integrations needs exactly: add <tool>")
 	}
 
 	tool, err := integrations.ParseTool(fs.Arg(1))

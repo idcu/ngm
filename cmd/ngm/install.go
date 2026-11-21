@@ -140,21 +140,22 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		humanOut = stderr
 	}
 	rep := &writeReport{Version: writeReportVersion, Command: "install", Offline: *offline}
+	envelope := &jsonErrorSink{w: stdout}
 
 	// 决策：lock 是否仍与 ngm.json 一致？
 	if lf != nil {
 		missing := lockManifestMismatch(lf, roots)
 		if len(missing) == 0 {
-			code := installFromLock(ctx, env, pf, lf, *digestFlag, *offline, rep, humanOut, stderr)
-			return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
+			code := installFromLock(ctx, env, pf, lf, *digestFlag, *offline, rep, humanOut, stderr, envelope)
+			return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut, envelope)
 		}
 		fmt.Fprintf(humanOut,
 			"ngm.lock does not match ngm.json (%s); re-resolving\n",
 			strings.Join(missing, ", "))
 	}
 
-	code := installFresh(ctx, env, pf, roots, lf, *digestFlag, *offline, *allowFresh, rep, humanOut, stderr)
-	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
+	code := installFresh(ctx, env, pf, roots, lf, *digestFlag, *offline, *allowFresh, rep, humanOut, stderr, envelope)
+	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut, envelope)
 }
 
 // materializeVendor 落地 vendor 树、写出 ngm.mappings.json，然后按策略处理安装后钩子。
@@ -353,11 +354,12 @@ func requiredByRoot(d *lock.Dependency) bool {
 }
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
-func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline, allowFresh bool, rep *writeReport, stdout, stderr io.Writer) int {
+// errOut 是 --json 错误信封的唯一出口（真正的 stdout）；stdout 形参只收进度文本。
+func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline, allowFresh bool, rep *writeReport, stdout, stderr, errOut io.Writer) int {
 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
-		return runErr(ctx, stdout, stderr, perr)
+		return runErr(ctx, errOut, stderr, perr)
 	}
 	// ADR-050：--allow-fresh 只对本次解析跳过晾晒期，白名单等其他门禁仍生效；
 	// 用副本改，避免"一次性逃生"泄漏给同进程后续命令。
@@ -374,11 +376,11 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 
 	g, err := resolve.ResolveGraph(ctx, roots, opts)
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return runErr(ctx, errOut, stderr, err)
 	}
 	// 晾晒期只能在解析**之后**判定：时间源是 commit 的 committer date
 	if err := checkReleaseAges(ctx, env, g, pol); err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return runErr(ctx, errOut, stderr, err)
 	}
 
 	// 上游把 Git 依赖写在 package.json 等情况：提示但不阻断
@@ -392,7 +394,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	materials := newMaterialCache()
 	proofs, pferr := buildModuleProofs(ctx, env, g.Nodes)
 	if pferr != nil {
-		return runErr(ctx, stdout, stderr, pferr)
+		return runErr(ctx, errOut, stderr, pferr)
 	}
 
 	for _, n := range g.Nodes {
@@ -405,7 +407,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			// v0.101：同一 commit 的多个根依赖共享 material。
 			material, derr := materials.get(ctx, env.GitOpts, n.MirrorPath, n.Commit)
 			if derr != nil {
-				return runErr(ctx, stdout, stderr, derr)
+				return runErr(ctx, errOut, stderr, derr)
 			}
 			archiveDigest = material.Digest
 			if _, perr := env.Store.Put(ctx, env.GitOpts, n.MirrorPath, vendor.Meta{
@@ -414,12 +416,12 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 				Digest:   archiveDigest,
 				Material: material,
 			}); perr != nil {
-				return runErr(ctx, stdout, stderr, perr)
+				return runErr(ctx, errOut, stderr, perr)
 			}
 		} else {
 			// 模块 scope：只写模块 content store；不再为它写整仓条目。
 			if proof.Material == nil {
-				return runErr(ctx, stdout, stderr, errs.New(
+				return runErr(ctx, errOut, stderr, errs.New(
 					errs.CodeConfigInvalid,
 					n.Key+": module proof material is missing",
 					"this is an internal inconsistency; re-run `ngm install`"))
@@ -432,7 +434,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 				ManifestVersion: digest.ModuleManifestVersion,
 				Material:        proof.Material,
 			}); perr != nil {
-				return runErr(ctx, stdout, stderr, perr)
+				return runErr(ctx, errOut, stderr, perr)
 			}
 		}
 
@@ -479,27 +481,27 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 
 	// vendor 落地 + mappings（从同一份 content 派生，保证指向一致）
 	if err := materializeVendor(ctx, env, pf, items, previous, stdout, stderr); err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return runErr(ctx, errOut, stderr, err)
 	}
 
 	lf.Sort()
 	if err := writeLockChecked(env, lf); err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return runErr(ctx, errOut, stderr, err)
 	}
 
 	fmt.Fprintf(stdout, "\ninstalled %d dependencies; wrote %s and %s\n",
 		len(lf.Dependencies), env.LockPath(), mappings.FileName)
-	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr)
+	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr, errOut)
 }
 
 // installFromLock 尊重既有 lock：不重新解析 ref，只确保内容就绪。
 //
 // 这是 v0.1 的可复现性核心——同一 lock 在不同机器上必须安装出相同内容。
-func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest, offline bool, rep *writeReport, stdout, stderr io.Writer) int {
+func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile, lf *lock.File, showDigest, offline bool, rep *writeReport, stdout, stderr, errOut io.Writer) int {
 	// verifyOnLock 需要策略：在这里读一次，避免走到底再解析一遍配置
 	pol, perr := projectPolicy(pf)
 	if perr != nil {
-		return runErr(ctx, stdout, stderr, perr)
+		return runErr(ctx, errOut, stderr, perr)
 	}
 	items := make([]digestNode, 0, len(lf.Dependencies))
 	fromStore := 0
@@ -516,7 +518,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 
 		repo, perr := resolve.ParseSlug(d.Name)
 		if perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+			return runErr(ctx, errOut, stderr, perr)
 		}
 
 		// content store 命中即直接落地 vendor：**不需要 mirror，也就不需要网络**。
@@ -554,7 +556,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		source := "fetched"
 		if d.SubPath != "" {
 			if ok, cerr := env.ModuleCache.HasCommit(ctx, repo, d.Commit); cerr != nil {
-				return runErr(ctx, stdout, stderr, cerr)
+				return runErr(ctx, errOut, stderr, cerr)
 			} else if ok {
 				sourcePath = env.ModuleCache.PathFor(repo)
 				source = "module-cache"
@@ -585,7 +587,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 				var merr error
 				mirrorPath, merr = ensure(ctx, repo)
 				if merr != nil {
-					return runErr(ctx, stdout, stderr, merr)
+					return runErr(ctx, errOut, stderr, merr)
 				}
 			}
 			sourcePath = mirrorPath
@@ -594,10 +596,10 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		// lock 的 commit 必须在取数来源里可解析
 		ok, cerr := git.CommitExists(ctx, env.GitOpts, sourcePath, d.Commit)
 		if cerr != nil {
-			return runErr(ctx, stdout, stderr, cerr)
+			return runErr(ctx, errOut, stderr, cerr)
 		}
 		if !ok {
-			return runErr(ctx, stdout, stderr, errs.New(
+			return runErr(ctx, errOut, stderr, errs.New(
 				errs.CodeGitFetch,
 				d.Name+": commit "+git.ShortSHA(d.Commit)+" from ngm.lock is not present in the local mirror or module cache",
 				"the mirror/cache is incomplete or the lock points at a removed commit; "+
@@ -617,7 +619,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 				SubPath:         d.SubPath,
 				ManifestVersion: digest.ModuleManifestVersion,
 			}); perr != nil {
-				return runErr(ctx, stdout, stderr, perr)
+				return runErr(ctx, errOut, stderr, perr)
 			}
 		} else if _, perr := env.Store.Put(ctx, env.GitOpts, sourcePath, vendor.Meta{
 			Repo:    d.Name,
@@ -625,7 +627,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 			Digest:  d.ArchiveDigest,
 			SubPath: d.SubPath,
 		}); perr != nil {
-			return runErr(ctx, stdout, stderr, perr)
+			return runErr(ctx, errOut, stderr, perr)
 		}
 
 		items = append(items, digestNodeFromLock(d, repo))
@@ -647,7 +649,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 	// previous 传本次读到的 lock：清理陈旧 vendor 目录的基线必须与"这次要落地的
 	// 条目"同源，否则从 lock 安装时旧路径不会被识别为陈旧（P1-6）。
 	if err := materializeVendor(ctx, env, pf, items, lf, stdout, stderr); err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return runErr(ctx, errOut, stderr, err)
 	}
 
 	// 报告命中来源：用户需要一眼看出这次安装是不是完全离线的
@@ -661,7 +663,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 	}
 	fmt.Fprintf(stdout, "\ninstalled %d dependencies from %s (lock respected; %s); wrote %s\n",
 		len(lf.Dependencies), env.LockPath(), source, mappings.FileName)
-	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr)
+	return autoVerifyAfterLock(ctx, env, pf, pol, offline, rep, stdout, stderr, errOut)
 }
 
 // moduleCacheRemoteURL 返回 module cache 克隆/ fetch 应使用的远端地址。
@@ -794,12 +796,26 @@ func (r *writeReport) Marshal() ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// jsonErrorSink 记录"错误信封已经写过 stdout"。
+// 审计 A-01：--json 中途失败时若继续写 writeReport，stdout 会出现两份 JSON；
+// 用写入标记而不是退出码判断（verifyOnLock 的漂移 exit 1 仍要写报告）。
+type jsonErrorSink struct {
+	w     io.Writer
+	wrote bool
+}
+
+func (s *jsonErrorSink) Write(p []byte) (int, error) {
+	s.wrote = true
+	return s.w.Write(p)
+}
+
 // emitWriteReport 在 --json 时把报告写到 stdout 并保留原有退出码。
 //
 // 退出码不变（v0.16 第②条规矩）：报告是**附加**的通道，不参与判定。
 // 人读文本此时已全部导向 stderr（见 runInstall / runUpdate）。
-func emitWriteReport(ctx context.Context, stdout, stderr io.Writer, rep *writeReport, code int, jsonOut bool) int {
-	if !jsonOut {
+// 若 envelope 已经写过错误信封，则不再写报告，保证 stdout 恰好一份 JSON。
+func emitWriteReport(ctx context.Context, stdout, stderr io.Writer, rep *writeReport, code int, jsonOut bool, envelope *jsonErrorSink) int {
+	if !jsonOut || (envelope != nil && envelope.wrote) {
 		return code
 	}
 	rep.Count = len(rep.Dependencies)

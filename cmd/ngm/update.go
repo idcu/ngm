@@ -121,6 +121,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		humanOut = stderr
 	}
 	rep := &writeReport{Version: writeReportVersion, Command: "update", Offline: *offline}
+	envelope := &jsonErrorSink{w: stdout}
 
 	// 2) 选定目标（用于**输出过滤**；解析总是覆盖完整图）
 	selected, err := selectTargets(pf, fs.Args(), *all)
@@ -176,7 +177,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			return runErr(ctx, stdout, stderr, werr)
 		}
 		fmt.Fprintf(humanOut, "no dependencies to update; wrote empty %s\n", env.LockPath())
-		return emitWriteReport(ctx, stdout, stderr, rep, 0, *jsonOut)
+		return emitWriteReport(ctx, stdout, stderr, rep, 0, *jsonOut, envelope)
 	}
 
 	// 4) 计算 digest、落地 content store、重建 lock
@@ -307,8 +308,8 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// 注：本命令曾有一个 `--concurrency` flag，其值被 `_ = maxConc` 原样丢弃
 	// （实际并发恒为 resolve.DefaultConcurrency）。v0.5 移除了它——一个接受参数却
 	// 不影响任何行为的 flag 比没有更糟：用户会以为自己调过。需要时按真实需求重新引入。
-	code := autoVerifyAfterLock(ctx, env, pf, pol, *offline, rep, humanOut, stderr)
-	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut)
+	code := autoVerifyAfterLock(ctx, env, pf, pol, *offline, rep, humanOut, stderr, stdout)
+	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut, envelope)
 }
 
 // offlineEnsureMirror 返回一个"只在 mirror 已存在时才可用"的 EnsureMirror 实现。

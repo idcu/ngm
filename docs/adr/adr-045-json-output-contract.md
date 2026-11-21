@@ -39,6 +39,23 @@
 - 报告的类型仍可以有自己的 `Marshal()`（`writeReport` 走它）——那是"谁能决定字节"
   的分层：**产物**自己决定，**报告**用默认编码。
 
+## 补记（2026-11-21，逐行审计 Batch B）
+
+1. **失败路径 stdout 恰好一份错误信封，不写成功报告**（审计 A-01）。此前 `install --json` 把
+   重定向后的 `humanOut`（stderr）当作 `runErr` 的 stdout 形参，错误信封进了人读通道，
+   而 `emitWriteReport` 仍往真正的 stdout 写一份成功形状的 `writeReport`。
+   现在 `installFresh` / `installFromLock` / `autoVerifyAfterLock` 各有独立的 `errOut`，
+   `jsonErrorSink` 记录"信封已写"并在收尾时抑制报告。**这不是按退出码抑制**：
+   `verifyOnLock` 的漂移 exit 1 是结论不是错误，报告仍写。
+2. **"接受 `--json` 的命令，任何参数级失败都给信封"成为统一规则**（审计 A-02/A-05）。
+   `modules`（7 处）与 `integrations`（1 处）的早期失败改走 `c.rejectExtraArgs`；
+   `modules` 顶层无/未知子命令用 `failEarly`。行为级枚举判据覆盖所有 JSON-aware 命令，
+   不再逐命令补漏（P1-4 只迁移 5 个命令的教训）。
+3. **`modules index --dry-run --json` 与正常路径同 schema**（审计 A-06）：都写
+   `modulesIndexReport`，dry-run 仅以 `dryRun:true` 区分；裸 `collectionIndex` 只在非 `--json` 输出。
+4. **`config validate` 的成功文本必须最后打印**（审计 A-03）：非法权限项此前先打印
+   `ngm.json OK` 再 exit 3，按 stdout 文本判定的 CI 会误绿。
+
 ## 重启条件
 
 1. 出现**按字节**比对报告 JSON 的消费者（CI 缓存键、签名、diff 工具）；

@@ -27,14 +27,14 @@ import (
 // 人读那侧每条 `→ …` 行动行在 JSON 里必须有落处——`--json` 存在之前，
 // "verifyOnLock 撞漂移"这条路径的脚本只能看到退出码 1。
 func autoVerifyAfterLock(ctx context.Context, env *projectEnv, pf *config.ProjectFile,
-	pol *supplychain.Policy, offline bool, writeRep *writeReport, stdout, stderr io.Writer) int {
+	pol *supplychain.Policy, offline bool, writeRep *writeReport, stdout, stderr, errOut io.Writer) int {
 	if pol == nil || !pol.VerifyOnLock() {
 		return 0
 	}
 
 	lf, err := lock.Read(env.LockPath())
 	if err != nil {
-		return runErr(ctx, stdout, stderr, err)
+		return runErr(ctx, errOut, stderr, err)
 	}
 	if lf == nil {
 		return 0
@@ -60,7 +60,7 @@ func autoVerifyAfterLock(ctx context.Context, env *projectEnv, pf *config.Projec
 
 	vrep, verr := verify.Run(ctx, lf, opts)
 	if verr != nil {
-		return runErr(ctx, stdout, stderr, verr)
+		return runErr(ctx, errOut, stderr, verr)
 	}
 
 	if writeRep != nil {

@@ -8,6 +8,18 @@
 
 ## [Unreleased] - 2026-11-04
 
+### Fixed（2026-11-21 追加，逐行审计 Batch B）
+
+- **`install --json` / `update --json` 的中途失败**：错误信封此前被写进 stderr，
+  stdout 仍有一份成功形状的报告；现在 stdout 恰好一份错误信封（报告在信封已写时抑制）。
+  `verifyOnLock` 的漂移退出码 1 仍按结论写报告（[ADR-045 补记](docs/adr/adr-045-json-output-contract.md)）。
+- **`modules` / `integrations` 的参数级失败**：所有接受 `--json` 的命令现在统一给机器可读信封，
+  不再出现"同类失败两个答案"（`install --json extra` 有信封、`modules list --json extra` 没有）。
+- **`modules index --dry-run --json`**：输出与普通成功路径同为 `modulesIndexReport`（`dryRun:true`），
+  不再是裸索引对象——按 `version`/`index` 解析的消费者不会在 dry-run 上失败。
+- **`ngm config validate` 假通过**：全局配置里写错的权限命名空间此前会先打印 `ngm.json OK`
+  再退出 3；现在成功文本只在全部校验通过后打印。
+
 ### Added（2026-11-21 追加，竞品差距 followup）
 
 - `ngm sbom` 导出 **CycloneDX 1.7**（此前 1.7 是 pnpm 12 的默认，ngm 停在 1.5）；

@@ -93,7 +93,14 @@
 
 ## Batch B · 错误通道与 JSON 契约（5 项，需 C1/C2 先拍板）
 
-- [ ] **A-01 `install --json` 错误信封 writer**（`cmd/ngm/install.go:138-141,148,156,356-381`；
+> ✅ **已落地（2026-11-21）**：5 项全部改完；新判据 `TestV143`~`TestV146`（cmd/ngm/
+> v143_json_contracts_test.go）+ `TestV136` + `TestV51` + `TestV66` 全绿。
+> **实施改判**：C1 的"失败不写报告"不能按退出码抑制——`verifyOnLock` 的漂移 exit 1 是结论；
+> 改用 `jsonErrorSink` 记录"信封已写"来抑制。ADR-045 补记 + CHANGELOG 已同步。
+> 变异：抑制条件改回 `!jsonOut` → V143 红；modules 一处改回直接 return → V144 红；
+> dry-run 的 `--json` 分支改 `if false` → V145 红；config OK 提前打印 → V146 红。
+
+- [x] **A-01 `install --json` 错误信封 writer**（`cmd/ngm/install.go:138-141,148,156,356-381`；
       `cmd/ngm/main.go:83-95`；`cmd/ngm/install.go:801-815`）
       - 动作：给 `installFresh`/`installFromLock` 独立 `errOut`（真正 stdout）；进度文本仍走 `humanOut`；
         按 C1 决定失败时不写 `writeReport`。同型检查 `update.go:310`。
@@ -101,20 +108,20 @@
         非 `--json` 路径行为不变。变异：把 errOut 改回 humanOut → 红。
       - 同步：ADR-045 补记 + CHANGELOG；README 追加前查 `wc -l`。
 
-- [ ] **A-02 `modules` 7 处位置参数失败给信封**（`cmd/ngm/modules.go:208-211,223-226,262-265,315-318,442-445,487-490,588-591`）
+- [x] **A-02 `modules` 7 处位置参数失败给信封**（`cmd/ngm/modules.go:208-211,223-226,262-265,315-318,442-445,487-490,588-591`）
       - 动作：全部改走 `c.rejectExtraArgs`，顶层两处同样处理。
       - 判据 V150（行为级枚举，按命令表覆盖所有 JSON-aware 命令的 extra-arg 失败）：删掉一处调用 → 红。
       - 同步：`TestV136` case 表补 `modules`。
 
-- [ ] **A-05 `integrations` 位置参数失败给信封**（`cmd/ngm/integrations.go:55-58`）
+- [x] **A-05 `integrations` 位置参数失败给信封**（`cmd/ngm/integrations.go:55-58`）
       - 动作：同 A-02 走 `c.rejectExtraArgs`。
       - 判据 V150：覆盖到 `integrations --json`；改回直接 return 3 → 红。
 
-- [ ] **A-06 `modules index --dry-run --json` 报告形状统一**（`cmd/ngm/modules.go:662-667,676-685,735-739`）
+- [x] **A-06 `modules index --dry-run --json` 报告形状统一**（`cmd/ngm/modules.go:662-667,676-685,735-739`）
       - 动作：dry-run 也写 `modulesIndexReport{Version:1,...,DryRun:true,Index:idx}`；裸索引只在非 `--json` dry-run 输出。
       - 判据 V151：dry-run 与普通 `--json` 报告有相同顶层字段形状，`dryRun=true`；变异：写裸 idx → 红。
 
-- [ ] **A-03 `config validate` 假通过**（`cmd/ngm/config.go:109-117`）
+- [x] **A-03 `config validate` 假通过**（`cmd/ngm/config.go:109-117`）
       - 动作：把 `ngm.json OK` 打印移到权限策略与 Conflicts 检查之后。
       - 判据 V152：全局配置写 `permissions.allow=["bogus:foo"]` → stdout 无 OK、exit 3；还原 → 绿。
 

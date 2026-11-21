@@ -206,6 +206,7 @@ func semverLike(s string) bool {
 func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	args = reorderModulesArgs(args)
 	if len(args) == 0 {
+		failEarly(args, stdout, "modules needs a subcommand", "run `ngm modules --help` for the accepted subcommands")
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
 	}
@@ -221,6 +222,8 @@ func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	case "plan":
 		return runModulesPlan(ctx, args[1:], stdout, stderr)
 	default:
+		failEarly(args, stdout, "unknown modules subcommand: "+args[0],
+			"run `ngm modules --help` for the accepted subcommands")
 		fmt.Fprint(stderr, modulesUsage)
 		return 3
 	}
@@ -260,8 +263,7 @@ func runModulesList(ctx context.Context, args []string, stdout, stderr io.Writer
 		return 3
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprint(stderr, modulesUsage)
-		return 3
+		return c.rejectExtraArgs(modulesUsage, "modules takes no positional arguments")
 	}
 	if *limit <= 0 {
 		return c.fail(errs.New(
@@ -313,8 +315,7 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 		return 3
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprint(stderr, modulesUsage)
-		return 3
+		return c.rejectExtraArgs(modulesUsage, "modules takes no positional arguments")
 	}
 
 	mods, err := scanModules(*dir)
@@ -440,8 +441,7 @@ func runModulesChanged(ctx context.Context, args []string, stdout, stderr io.Wri
 		return 3
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprint(stderr, modulesUsage)
-		return 3
+		return c.rejectExtraArgs(modulesUsage, "modules takes no positional arguments")
 	}
 	gitOpts, oerr := modulesGitOpts(*dir)
 	if oerr != nil {
@@ -485,8 +485,7 @@ func runModulesPlan(ctx context.Context, args []string, stdout, stderr io.Writer
 		return 3
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprint(stderr, modulesUsage)
-		return 3
+		return c.rejectExtraArgs(modulesUsage, "modules takes no positional arguments")
 	}
 	switch *bump {
 	case "patch", "minor", "major":
@@ -586,8 +585,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 		}
 	})
 	if fs.NArg() != 0 {
-		fmt.Fprint(stderr, modulesUsage)
-		return 3
+		return c.rejectExtraArgs(modulesUsage, "modules takes no positional arguments")
 	}
 
 	// 一次构建、全程复用：本命令会起十余次 git（diff / tag / rev-parse /
@@ -674,6 +672,14 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	releasePaths := sortedByteMapKeys(releaseFiles)
 
 	if *dryRun {
+		// 审计 A-06：--json 的 dry-run 必须与普通成功路径同 schema。
+		// 此前这里直接写裸 collectionIndex，消费者按 version/index 解析会失败。
+		if *jsonOut {
+			return writeJSONDocument(stdout, stderr, modulesIndexReport{
+				Version: 1, Out: relOut, DryRun: true,
+				ReleaseFiles: releasePaths, Index: idx,
+			}, 0)
+		}
 		if _, werr := stdout.Write(data); werr != nil {
 			fmt.Fprintf(stderr, "cannot write index: %v\n", werr)
 			return 6
