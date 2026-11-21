@@ -16,7 +16,7 @@ ngm 是**以 Git 为唯一依赖源、以 lock + 内容摘要为事实源、以�
 差异化不在单项能力，而在**闭环**：显式 `refType` → commit 锁定 → 内容 digest → 漂移三态 → 离线重放 → SBOM/attest。
 能力归属 SSOT 见[能力矩阵](../internals/capability-matrix.md)。
 
-**不做**（[README §60](../README.md#边界它不做什么) / [能力矩阵 §47](../internals/capability-matrix.md#明确不做的能力)）：
+**不做**（[README §60](../../README.md#边界它不做什么) / [能力矩阵 §47](../internals/capability-matrix.md#明确不做的能力)）：
 registry 包管理、semver/peer deps 解析、workspace 依赖、接管 `node_modules`、自造签名体系、
 自研 bundler/type checker/transformer/test runner/dev server、自动 git add/commit。
 npm/pnpm/Yarn 只是迁移来源与共存对象，不是兼容目标（ADR-044）。
@@ -37,13 +37,13 @@ npm/pnpm/Yarn 只是迁移来源与共存对象，不是兼容目标（ADR-044�
 
 `--json` 在 **14 个命令**可用（`run` 仅 `--list` 形态）：`verify` · `audit` · `tree` · `why` ·
 `outdated` · `engines` · `integrations` · `install` · `update` · `doctor` · `modules`（五个子命令各自）·
-`adopt` · `gc` · `run --list`。形状表见 [cli.md §190](../guides/cli.md#`--json`-的形状机器接口)。
+`adopt` · `gc` · `run --list`。形状表见 [cli.md §190](../guides/cli.md#json-的形状机器接口)。
 
 ## 2. 数据与状态模型
 
 | 对象 | 作用 | 关键契约 |
 |---|---|---|
-| `ngm.json` | 声明：依赖三元组、引擎选择、供应链策略、vendor 模式 | 写 `schemaVersion:1`，读 1..2；超出区间 exit 3（[README §96](../README.md#ngmjson-的-schemaversion)） |
+| `ngm.json` | 声明：依赖三元组、引擎选择、供应链策略、vendor 模式 | 写 `schemaVersion:1`，读 1..2；超出区间 exit 3（[README §96](../../README.md#ngmjson-的-schemaversion)） |
 | `ngm.lock` | 唯一事实源，必须提交 | lock v2：`commit` + `archiveDigest`/`moduleDigest` + `subtreeOid` + `resolvedAt` + `requiredBy` 图；确定性字节；尾部多余 JSON 现被拒绝 |
 | `ngm.mappings.json` | 外部构建工具的裸导入映射 | install 生成；`mappings validate` 与 lock/vendor 对账 |
 | `ngm.engines.json` | 自定义引擎清单（覆盖内置） | 项目根或 `~/.ngm/` |
@@ -51,7 +51,7 @@ npm/pnpm/Yarn 只是迁移来源与共存对象，不是兼容目标（ADR-044�
 
 **摘要**：根依赖记 `archiveDigest`（整仓），带 `path` 的模块记 `moduleDigest` + `subtreeOid`；
 都是规范化清单（`<path>\0<mode>\0<blob-sha256>\0`，UTF-8 字节序排序）的 SHA-256，
-不是 tarball 字节流；gitlink 与 LFS 指针被拒绝（[README §85](../README.md#archiveDigest-与-moduleDigest)）。
+不是 tarball 字节流；gitlink 与 LFS 指针被拒绝（[README §85](../../README.md#archivedigest-与-moduledigest)）。
 
 **漂移三态**（`verify`）：`expected`（分支前进，默认 0，`--strict` 为 1）、
 `unexpected`（tag 移动/改写，默认 1，`--allow-drift` 为 0）、
@@ -62,7 +62,7 @@ npm/pnpm/Yarn 只是迁移来源与共存对象，不是兼容目标（ADR-044�
 `verify --content`（别名 `--level=content`，`--deep` 为旧名）逐文件重放字节。
 默认 structure 只比结构与大小，**等长字节篡改检不出来**；GitHub Action 默认已是 content（CLI 仍默认 structure，ADR-051）。
 
-**四层磁盘**（[README §149](../README.md#四层磁盘布局) / [vendor-layers.md](../architecture/vendor-layers.md)）：
+**四层磁盘**（[README §149](../../README.md#四层磁盘布局) / [vendor-layers.md](../architecture/vendor-layers.md)）：
 
 ```
 ~/.ngm/mirror/        层 1    Git 裸仓库，全历史 + 全 refs
@@ -107,7 +107,7 @@ npm/pnpm/Yarn 只是迁移来源与共存对象，不是兼容目标（ADR-044�
 
 ## 5. 当前已知限制（不是待修清单）
 
-1. 预编译 release 覆盖远少于 tag → 要用当前行为请从源码构建（[README §544](../README.md#已知问题与限制)）。
+1. 预编译 release 覆盖远少于 tag → 要用当前行为请从源码构建（[README §544](../../README.md#已知问题与限制)）。
 2. `adopt` 只解析 npm `package-lock.json`（v2/v3）；pnpm/yarn lock 里的 Git 来源条目窄解析，registry 来源标 `unknown` 并写进 `notes`。
 3. `verify` 默认 structure；字节级保证必须显式 `--content`。
 4. `gc` 可达性只看当前项目 lock；层 1/2 是全机共享，另一个 checkout 可能需要被回收的对象（可重新拉取，但离线 CI 会失败）。

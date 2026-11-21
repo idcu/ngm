@@ -73,7 +73,7 @@
    验收以网页可见为准，agent 不代做。
 5. **N5 发布回填**：**保持暂缓**。当前可做的只有 Gitee 侧 3+1 个发行版（需 `GITEE_TOKEN`）；
    38 个缺口是 release-pipeline.md 明确**不回填**的区间，GitHub 维持 63。
-   恢复信号见 [project-state.md §3.2](../../internals/project-state.md#32-阻塞需要人)。本轮不排期、不执行。
+   恢复信号见 [project-state.md §3.2](../../internals/project-state.md#32-需要人工动作已决定暂缓2026-10-04)。本轮不排期、不执行。
 
 ### P3 · 观察项（不承诺）
 

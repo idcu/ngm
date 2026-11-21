@@ -13,7 +13,7 @@
 - 一个真实消费方仓库（本文记作 `<consumer>`），依赖来自自建 Git host 或 GitHub/Gitee。
 - 在本机预热过 mirror 与 content store；CI 里 `--offline` 要求两者都已就绪。
 - **注入演示必须在一次性副本上做**，并设 `vendor.linkMode=copy`：
-  `ngm.vendor/` 默认是 hardlink 到 content store，就地改字节会同时改写 blob 池（[README §149](../README.md#四层磁盘布局)）。
+  `ngm.vendor/` 默认是 hardlink 到 content store，就地改字节会同时改写 blob 池（[README §149](../../README.md#四层磁盘布局)）。
   单独给这个副本一个临时 `NGM_HOME`，避免污染共享 store。
 
 ## 1. 主路径：从声明到可签名证据

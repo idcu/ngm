@@ -54,7 +54,7 @@
 - [ ] **N5 发布回填（保持暂缓）**
   - 事实：38 个缺口是 `release-pipeline.md` 明确**不回填**的区间；GitHub 维持 63；
     当前可做的只有 Gitee 侧 3+1 个（需 `GITEE_TOKEN`）。
-  - 恢复条件：见 [project-state.md §3.2](../../internals/project-state.md#32-阻塞需要人) 的两条恢复信号，
+  - 恢复条件：见 [project-state.md §3.2](../../internals/project-state.md#32-需要人工动作已决定暂缓2026-10-04) 的两条恢复信号，
     或 token 到位后退化为机械动作。
   - 本轮动作：**只记录“暂缓 + 原因”，不排期、不执行、不新建脚本**；
     已有 `scripts/check-release-status.sh --published` 作只读门禁。本轮维持暂缓，保持 `[ ]`。
@@ -75,6 +75,9 @@
 - [x] 已执行项（N1–N3）先判据后修改，变异结果记入对应条目；V156/V157/V158 均"装上绿、撤掉红"。
   N4/N5/N6–N9 未执行，不计入完成数。
 - [x] 批次顺序：P0 → P1 → P2（人工项只记录状态）→ P3（只记录触发条件）。
-- [x] `docs-links` / `discipline 13/13` / `diff-check` / `TestV114` 全绿；
+- [x] `docs-links` / `discipline 13/13` / `diff-check` / `TestV114` / `TestDocsAnchorsResolve` 全绿；
   docs/README 与功能梳理文档已加入口，spec 顶部补实施说明。
+  **CI 首轮实测**：`TestDocsAnchorsResolve` 抓到 9 个锚点/相对路径错误（根 README 需 `../../README.md`、
+  `--json` 标题锚点要小写去符号、project-state §3.2 锚点随标题实际文本），已全部修正——
+  这类缺陷本地 `check-docs-links.sh` 不查锚点，只有 Go 判据会红。
 - [x] 未新增 ADR，未改产品代码；实施中未出现推翻本计划的源码事实。
