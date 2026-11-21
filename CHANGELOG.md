@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+## [0.102.0-dev.4] - 2026-11-21
+
+开发版本。把 `run:` 授权判定对象与 `modules index` 工作区索引两项修复做成可下载的固定点。
+与 `0.102.0-dev.3` 同一版本线，不进 latest。其中 `modules index` 一条是**数据丢失级**
+修复：旧实现会把用户的暂存内容清空。
+
 ### Fixed
 
 - **`ngm modules index` 不再改写用户的工作索引**（P0，数据丢失）：更新 `ngm-index`
