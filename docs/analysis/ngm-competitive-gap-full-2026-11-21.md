@@ -201,6 +201,11 @@ why tree outdated integrations cache`。其中构建类 5 个走 adapter，审�
 | 17 | SBOM | CDX **1.5** / SPDX 2.3，确定性字节 | pnpm CDX **1.7** / SPDX 2.3，校验官方 schema | 🔴 真实落后（版本） | **可低成本补齐**：升 CDX 1.7 生成器 + 加 schema 校验判据；不触碰信任链 |
 | 18 | 回收 / 磁盘 | 四层 vendor（v0.8 后放大比 20×→0.6×）；`gc --apply` 按当前 lock；层2 无可达性回收 | pnpm `store prune` 完整 | 🟡 部分 | "去重斜率"已解决；"终点无人回收"仍在；可达性删除需项目注册表，ADR-023 部分解决，不强行补 |
 
+> **#13 当前状态（同日后续）**：表中"暂不动"是评估基线 `9474d6c` 当时的判断快照，未改写。
+> 同日 [ADR-050](../adr/adr-050-default-release-age.md) 已按**独立的供应链安全理由**（晾晒期防新版本投毒）
+> 把"写了 `supplyChain` 段但未写冷却"的项目默认改为 P1D，并提供不配段 / `--allow-fresh` 两层逃生口；
+> 完全未配 `supplyChain` 段仍不门禁。因此 #13 的 🔴 判定是历史读数，不再代表当前差距。
+
 ### 4.4 审计产物与标准位置
 
 | # | 维度 | ngm | 竞品/标准 | 判定 | 差距量化 / 补齐成本 |
@@ -295,6 +300,12 @@ why tree outdated integrations cache`。其中构建类 5 个走 adapter，审�
 
 ## 6. 建议（按 ADR-044 准入规则筛选）
 
+> **时间限定（2026-11-21 同日后续）**：以下 §6.1–6.3 是评估基线 `9474d6c` 时的建议快照，保留原文不作历史重写。
+> 同日获授权后 A–D 十项已全量推进（见开头与 [tasks.md](../specs/assessment-2026-11-21-competitive-followup/tasks.md)）：
+> §6.1 的 P1/P2 中除"发布回填（凭据阻塞）"外均已落地；
+> **§6.2 / §6.3 关于"默认强制版本冷却不做/观望"的判断已被 [ADR-050](../adr/adr-050-default-release-age.md) 取代**——
+> 新决定基于独立安全理由而非"更像 npm"，仍满足 ADR-044 准入规则。读 §6 各条时请连同本注一起看。
+
 ### 6.1 值得做（理由不依赖"更像 npm"）
 
 | 优先 | 项 | 理由（非迁移类） | 成本 |
@@ -307,13 +318,19 @@ why tree outdated integrations cache`。其中构建类 5 个走 adapter，审�
 ### 6.2 明确不做（唯一理由是"更像 npm"）
 
 registry 协议 / semver 求解 / peer deps / `node_modules` 布局 / lifecycle 全族 / publish /
-自研 bundler / HMR / test runner / LSP / dev server / **默认强制版本冷却**（#13，改造 CI 语义但无独立理由）。
+自研 bundler / HMR / test runner / LSP / dev server / ~~**默认强制版本冷却**（#13，改造 CI 语义但无独立理由）~~。
+
+> **上述删除线项已失效（同日后续）**：[ADR-050](../adr/adr-050-default-release-age.md) 找到独立安全理由
+> （晾晒期防投毒），把"写了 `supplyChain` 段但没写冷却"默认设为 P1D，并保留 `--allow-fresh` 逃生口；
+> 其余各项仍按 ADR-044 明确不做。原文保留仅为决策前快照。
 
 ### 6.3 观察，不承诺
 
 - **外部安全审计 / 渗透测试**：能把"免疫 PackageGate"从自证变成第三方背书，但需预算与排期；
   当前以 `scripts/packagegate-demo.sh` 的自证断言作为过渡证据。
-- **默认强制 `minimumReleaseAge`**：等出现"因新版本太快进入而被攻击"的真实案例再重开（ADR 式触发条件）。
+- ~~**默认强制 `minimumReleaseAge`**：等出现"因新版本太快进入而被攻击"的真实案例再重开（ADR 式触发条件）。~~
+  **已失效（同日后续）**：[ADR-050](../adr/adr-050-default-release-age.md) 直接按独立安全理由落地默认 P1D
+  （而非等真实攻击案例），范围限于"写了 `supplyChain` 段"的项目；未配段仍不门禁。原文保留仅为快照。
 
 ---
 
