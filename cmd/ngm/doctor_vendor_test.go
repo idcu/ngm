@@ -43,7 +43,7 @@ func TestV117DoctorReportsVendorGitVisibility(t *testing.T) {
 			isolateUserEnv(t)
 			dir := t.TempDir()
 			writeFile(t, filepath.Join(dir, "ngm.json"),
-				`{"schemaVersion":1,"name":"github.com:acme/app","version":"0.1.0","runtime":"node"}`)
+				`{"schemaVersion":3,"name":"github.com:acme/app","version":"0.1.0","runtime":"node"}`)
 			if tc.ignore != "" {
 				writeFile(t, filepath.Join(dir, ".gitignore"), tc.ignore)
 			}
@@ -93,7 +93,7 @@ func TestV117DoctorVendorReadoutIsReadOnly(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "ngm.json"),
-		`{"schemaVersion":1,"name":"github.com:acme/app","version":"0.1.0","runtime":"node"}`)
+		`{"schemaVersion":3,"name":"github.com:acme/app","version":"0.1.0","runtime":"node"}`)
 	gitInit(t, dir)
 
 	before := gitStatus(t, dir)

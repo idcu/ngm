@@ -11,6 +11,8 @@
 
 ---
 
+> **补记（2026-11-22，[ADR-052](./adr-052-local-sources.md)）**：refType 枚举由 commit/tag/branch 扩为含 `local-git` / `local-dir`；锁定层对 local-dir 用 dirDigest 替代 commit。schemaVersion 升 3、lockfileVersion 升 3.0.0，旧格式拒绝。
+
 ## 背景
 
 依赖锁定存在三选一的张力：

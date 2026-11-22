@@ -158,14 +158,14 @@ var surfaceCases = []surfaceCase{
 	{"manifest-field-has-the-wrong-type", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 1,\n  \"name\": 123,\n  \"runtime\": \"node\"\n}\n")
+			"{\n  \"schemaVersion\": 3,\n  \"name\": 123,\n  \"runtime\": \"node\"\n}\n")
 		return p
 	}, []string{"verify"}, ""},
 
 	{"manifest-dependencies-is-not-a-list", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\",\n"+
+			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\",\n"+
 				"  \"dependencies\": \"nope\"\n}\n")
 		return p
 	}, []string{"install"}, ""},
@@ -173,7 +173,7 @@ var surfaceCases = []surfaceCase{
 	{"manifest-schema-version-is-too-new", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+			"{\n  \"schemaVersion\": 4,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
 				"  \"runtime\": \"node\"\n}\n")
 		return p
 	}, []string{"verify"}, ""},
@@ -187,7 +187,7 @@ var surfaceCases = []surfaceCase{
 	{"manifest-version-is-absent", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
+			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"runtime\": \"node\"\n}\n")
 		return p
 	}, []string{"tree"}, ""},
 
@@ -210,7 +210,7 @@ var surfaceCases = []surfaceCase{
 	{"manifest-dependency-ref-type-is-invalid", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
 				"  \"runtime\": \"node\",\n  \"dependencies\": [\n"+
 				"    {\"name\": \"github:x/dep\", \"ref\": \"v1\", \"refType\": \"banana\"}\n  ]\n}\n")
 		return p
@@ -219,7 +219,7 @@ var surfaceCases = []surfaceCase{
 	{"manifest-vendor-mode-is-invalid", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
 				"  \"runtime\": \"node\",\n  \"vendor\": {\"mode\": \"nope\"}\n}\n")
 		return p
 	}, []string{"install"}, ""},
@@ -227,7 +227,7 @@ var surfaceCases = []surfaceCase{
 	{"manifest-minimum-release-age-is-not-a-duration", func(t *testing.T) string {
 		p := newProject(t)
 		writeSurfaceFile(t, p, "ngm.json",
-			"{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
+			"{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:x/a\",\n  \"version\": \"0.1.0\",\n"+
 				"  \"runtime\": \"node\",\n  \"supplyChain\": {\"minimumReleaseAge\": \"two weeks\"}\n}\n")
 		return p
 	}, []string{"install"}, ""},

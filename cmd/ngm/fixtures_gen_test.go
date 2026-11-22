@@ -180,7 +180,7 @@ func buildMonorepo(t *testing.T, dir string) *fixtureRepo {
 	modA := []fileSpec{
 		{Path: "packages/a/package.json", Mode: "100644", Content: `{"name":"a","version":"1.0.0"}`},
 		{Path: "packages/a/ngm.json", Mode: "100644",
-			Content: `{"schemaVersion":1,"name":"gitee.com:idcu/a","version":"1.0.0","runtime":"node","dependencies":[]}`},
+			Content: `{"schemaVersion":3,"name":"gitee.com:idcu/a","version":"1.0.0","runtime":"node","dependencies":[]}`},
 		{Path: "packages/a/index.js", Mode: "100644", Content: "export const a = 1;\n"},
 	}
 	c1 := fixtureCommitTree(t, dir, fixtureWriteTree(t, dir, modA), "", "c1: packages/a")
@@ -189,7 +189,7 @@ func buildMonorepo(t *testing.T, dir string) *fixtureRepo {
 	both = append(both,
 		fileSpec{Path: "packages/b/package.json", Mode: "100644", Content: `{"name":"b","version":"1.0.0"}`},
 		fileSpec{Path: "packages/b/ngm.json", Mode: "100644",
-			Content: `{"schemaVersion":1,"name":"gitee.com:idcu/b","version":"1.0.0","runtime":"node","dependencies":[]}`},
+			Content: `{"schemaVersion":3,"name":"gitee.com:idcu/b","version":"1.0.0","runtime":"node","dependencies":[]}`},
 		fileSpec{Path: "packages/b/index.js", Mode: "100644", Content: "export const b = 1;\n"},
 	)
 	c2 := fixtureCommitTree(t, dir, fixtureWriteTree(t, dir, both), c1, "c2: packages/b")

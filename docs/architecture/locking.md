@@ -2,7 +2,7 @@
 
 ## 核心原则
 
-**声明层用 refType（commit/tag/branch），锁定层统一记录实际解析到的 commit + 内容 digest + resolvedAt。根条目用 `archiveDigest`；模块条目用 `moduleDigest + subtreeOid`（ADR-032）。**
+**声明层用 refType（commit/tag/branch/local-git/local-dir），锁定层记录锚点：git 来源用 commit + 内容 digest + resolvedAt；local-dir 来源用 `dirDigest`（内容摘要）。根条目用 `archiveDigest`；模块条目用 `moduleDigest + subtreeOid`（ADR-032）。**
 
 ---
 
@@ -11,7 +11,7 @@
 ```json
 {
   "version": 1,
-  "lockfileVersion": "2.0.0",
+  "lockfileVersion": "3.0.0",
   "dependencies": [
     {
       "name": "github:org/utils",
@@ -49,7 +49,9 @@
 | `name` | 依赖标识 | ngm.json |
 | `ref` | 人类声明 | ngm.json |
 | `refType` | 声明意图 | ngm.json |
-| `commit` | 解析结果（不可变锚点） | `git ls-remote` |
+| `commit` | 解析结果（git / local-git 来源的不可变锚点） | `git ls-remote` |
+| `dirDigest` | **local-dir 来源**的目录内容锚点（`ngm-local-digest/v1`，ADR-052） | 本地生成 |
+| `sourcePath` / `localRepo` | 本地来源的相对目录 / 本地 git 仓根（ADR-052） | ngm.json |
 | `archiveDigest` | **根条目**的规范化内容清单哈希（`sha256:<hex>`，ADR-008） | 本地生成 |
 | `moduleDigest` | **模块条目**的模块作用域内容清单哈希（`ngm-module-digest/v1`，ADR-032） | 本地生成 |
 | `subtreeOid` | **模块条目**的 Git tree 绑定锚（`sha1:`/`sha256:`） | `git rev-parse commit:subPath` |
@@ -63,8 +65,9 @@
 > **条目身份是 `name` + `subPath`，不是 `name`**：同一仓库的两个 monorepo 子路径是**两个独立条目**，
 > 排序与查找都以二者为键（内部形式 `name#subPath`）。少了 `subPath`，同仓多子路径的依赖会互相覆盖。
 >
-> **没有 v1 迁移**：项目尚无用户，v2 直接废止“模块条目同时写 archiveDigest”的过渡态；
-> 旧 lock 读到 v2 会明确报 `lockfileVersion` 不兼容，重新 `ngm install` 即可。
+> **没有 v1/v2 迁移**：项目尚无用户，v2 废止“模块条目同时写 archiveDigest”的过渡态，
+> v3（ADR-052）新增本地来源并改变 lock 必填字段形状。旧 lock 读到不兼容的 MAJOR 会明确报
+> `lockfileVersion` 不兼容，删除后重新 `ngm install` 即可；不提供迁移命令。
 
 ---
 

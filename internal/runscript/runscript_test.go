@@ -22,7 +22,7 @@ func writeFile(t *testing.T, dir, name, body string) string {
 }
 
 func ngmManifest(scripts string) string {
-	return `{"schemaVersion":1,"name":"demo","version":"1.0.0","runtime":"node","dependencies":[]` + scripts + `}`
+	return `{"schemaVersion":3,"name":"demo","version":"1.0.0","runtime":"node","dependencies":[]` + scripts + `}`
 }
 
 func TestLoadSourcesAndFallback(t *testing.T) {

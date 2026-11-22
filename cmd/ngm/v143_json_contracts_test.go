@@ -113,7 +113,7 @@ func TestV146ConfigValidateDoesNotPrintOKBeforePolicyCheck(t *testing.T) {
 	if err := os.MkdirAll(ngmHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	bad := `{"schemaVersion":2,"permissions":{"allow":["bogus:foo"]}}`
+	bad := `{"schemaVersion":3,"permissions":{"allow":["bogus:foo"]}}`
 	if err := os.WriteFile(filepath.Join(ngmHome, "config.json"), []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}

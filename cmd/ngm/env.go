@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/localfs"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/core/vendor"
@@ -202,14 +204,52 @@ func (e *projectEnv) RemoteRefResolver() func(context.Context, resolve.Canonical
 	}
 }
 
+// ResolveLocalDirPath 把相对 sourcePath 解析为项目根内的绝对路径（不算 digest）。
+func (e *projectEnv) ResolveLocalDirPath(rel string) (string, error) {
+	return localfs.ResolveSourcePath(e.ProjectDir, rel)
+}
+
+// ResolveLocalDir 绑定本项目根，把相对 sourcePath 解析为绝对路径后算 dirDigest。
+// 拒绝逃出项目根（spec §10 决策 1：不做跨仓本地依赖）。
+func (e *projectEnv) ResolveLocalDir(relOrAbs string) (string, error) {
+	if filepath.IsAbs(relOrAbs) {
+		abs, err := filepath.Abs(relOrAbs)
+		if err != nil {
+			return "", err
+		}
+		root, err := filepath.Abs(e.ProjectDir)
+		if err != nil {
+			return "", err
+		}
+		if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+			return "", fmt.Errorf("local source %q escapes project root %q", relOrAbs, e.ProjectDir)
+		}
+		return localfs.BuildDirDigest(abs)
+	}
+	abs, err := localfs.ResolveSourcePath(e.ProjectDir, relOrAbs)
+	if err != nil {
+		return "", err
+	}
+	return localfs.BuildDirDigest(abs)
+}
+
+// ResolveLocalRepo 为 local-git 来源解析本地 git 仓根（相对项目根）。
+func (e *projectEnv) ResolveLocalRepo(projectRoot, repo string) (string, error) {
+	return localfs.ResolveSourcePath(projectRoot, repo)
+}
+
 // GraphOptions 返回依赖图解析选项。
 func (e *projectEnv) GraphOptions() resolve.GraphOptions {
 	return resolve.GraphOptions{
-		EnsureMirror: e.EnsureMirror,
-		Protocol:     e.Protocol,
-		Secrets:      e.Secrets,
-		Policy:       e.Policy,
-		Concurrency:  resolve.DefaultConcurrency,
+		EnsureMirror:     e.EnsureMirror,
+		Protocol:         e.Protocol,
+		Secrets:          e.Secrets,
+		Policy:           e.Policy,
+		Concurrency:      resolve.DefaultConcurrency,
+		ResolveLocalDir:  e.ResolveLocalDir,
+		ResolveLocalPath: localfs.ResolveSourcePath,
+		ResolveLocalRepo: e.ResolveLocalRepo,
+		ProjectRoot:      e.ProjectDir,
 	}
 }
 
@@ -352,10 +392,12 @@ func toDepSpecs(deps []config.Dependency) []resolve.DepSpec {
 	out := make([]resolve.DepSpec, 0, len(deps))
 	for _, d := range deps {
 		out = append(out, resolve.DepSpec{
-			Name:    d.Name,
-			Ref:     d.Ref,
-			RefType: d.RefType,
-			SubPath: d.Path,
+			Name:       d.Name,
+			Ref:        d.Ref,
+			RefType:    d.RefType,
+			SubPath:    d.Path,
+			SourcePath: d.SourcePath,
+			LocalRepo:  d.LocalRepo,
 		})
 	}
 	return out

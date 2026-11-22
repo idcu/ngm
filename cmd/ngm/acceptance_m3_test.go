@@ -510,7 +510,7 @@ func TestM3LockGoldenShape(t *testing.T) {
 	raw := readLockFile(t, proj)
 	for _, field := range []string{
 		`"version": 1`,
-		`"lockfileVersion": "2.0.0"`,
+		`"lockfileVersion": "3.0.0"`,
 		`"dependencies"`,
 		`"name"`, `"ref"`, `"refType"`, `"commit"`,
 		`"archiveDigest"`, `"resolvedAt"`, `"vendorPath"`,

@@ -77,10 +77,12 @@ var wiredFields = map[string]string{
 	"ProjectFile.Scripts": "TestV120ProjectFileScriptsAreRead",
 
 	// ---- ngm.json：Dependency ----
-	"Dependency.Name":    "TestAdd_NormalizesEquivalentNames",
-	"Dependency.Ref":     "TestUpdate_OfflineResolvesFromMirror",
-	"Dependency.RefType": "TestAdd_RequiresRefType",
-	"Dependency.Path":    "TestV03MappingsMonorepoAcceptance",
+	"Dependency.Name":       "TestAdd_NormalizesEquivalentNames",
+	"Dependency.Ref":        "TestUpdate_OfflineResolvesFromMirror",
+	"Dependency.RefType":    "TestAdd_RequiresRefType",
+	"Dependency.Path":       "TestV03MappingsMonorepoAcceptance",
+	"Dependency.SourcePath": "TestLocalSourceFieldsAreWired",
+	"Dependency.LocalRepo":  "TestLocalSourceFieldsAreWired",
 
 	// ---- ngm.json：EnginesConfig ----
 	//

@@ -24,7 +24,7 @@ func writeModuleFixture(t *testing.T, root, rel, body string) {
 func TestModulesListAndValidate(t *testing.T) {
 	root := t.TempDir()
 	// 根 ngm.json 是项目本身，不应出现在 modules list 里。
-	if err := os.WriteFile(filepath.Join(root, "ngm.json"), []byte(`{"schemaVersion":1,"name":"app","version":"0.1.0","runtime":"node"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "ngm.json"), []byte(`{"schemaVersion":3,"name":"app","version":"0.1.0","runtime":"node"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeModuleFixture(t, root, "packages/a", `{"name":"a","version":"1.0.0","runtime":"node"}`)

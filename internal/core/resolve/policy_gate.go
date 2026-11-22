@@ -19,6 +19,11 @@ import (
 // 层内并发不会改变报错结果（与 ResolveGraph 的确定性约定一致）。
 func checkFrontierPolicy(items []frontierItem, seen map[string]*Node, check func(host, repoPath string) error) error {
 	for i, it := range items {
+		// 本地来源不走 git 仓库策略白名单（ADR-052）：它没有远端 host/path，
+		// 信任边界是项目根 + dirDigest，由 ValidateSourcePath 守住。
+		if it.spec.RefType.IsLocal() {
+			continue
+		}
 		repo, err := ParseSlug(it.spec.Name)
 		if err != nil {
 			// name 非法属于配置错误，与策略无关：原样返回（exit 3）

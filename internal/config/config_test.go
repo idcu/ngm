@@ -9,7 +9,7 @@ import (
 )
 
 const validProjectJSON = `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com/my-org/my-app",
   "version": "0.1.0",
   "runtime": "node",

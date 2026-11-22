@@ -11,6 +11,8 @@
 
 ---
 
+> **补记（2026-11-22，[ADR-052](./adr-052-local-sources.md)）**：身份 `repo + subPath` 对 git 来源继续有效；本地来源另立命名空间 `local:<name>[#subPath]`，local-git 用本地 git 仓 + subPath、local-dir 用 dirDigest 锚点。「不做 workspace」不变量保持——本地来源不共享 lock、不 hoisting。
+
 ## 背景
 
 ngm 的 Git 层从一开始就是“仓库 = 依赖”。`subPath` 在 v0.94 已能端到端消费一个 monorepo 子包：过滤子目录、写 `subPath`、按子包自己的 `exports` 推入口。但传递依赖展开仍固定读仓库根 `ngm.json`，所以“每个模块有自己的依赖”并不成立。

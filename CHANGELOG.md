@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### Changed（破坏性）
+
+- **定位升级为独立生态的通用包管理器**：来源从单一 Git 扩展为 git + 本地目录两类，
+  主轴仍是"可证明同一性"（声明 → 锚点 → 内容 digest → 可离线重放 → 可导出审计产物）。
+  不做 registry 协议、semver 求解、不接管 `node_modules`（[ADR-052](docs/adr/adr-052-local-sources.md)）。
+- **`schemaVersion` 升 3、`lockfileVersion` 升 3.0.0**：v1/v2 的 `ngm.json` 与 2.x 的 lock
+  被明确拒绝（exit 3），需手工升级声明并重新 `ngm install`；不提供迁移命令。
+
+### Added
+
+- **本地来源 `local-git` / `local-dir`**：`local-git` 用本地 git 仓复用 commit 证明链、
+  完全离线；`local-dir` 用目录内容摘要 `dirDigest`（清单头 `ngm-local-digest/v1`）作锚点。
+  `ref: auto` 让 install 计算并钉住目录摘要。源码目录不得逃逸项目根；不做 workspace 编排。
+
 ## [0.102.0-dev.4] - 2026-11-21
 
 开发版本。把 `run:` 授权判定对象与 `modules index` 工作区索引两项修复做成可下载的固定点。

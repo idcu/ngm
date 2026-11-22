@@ -102,7 +102,7 @@ func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 		files map[string]string
 	}{
 		{"ngm.json 第 1 层", map[string]string{
-			"ngm.json":       `{"schemaVersion":1,"name":"a","version":"1.0.0","runtime":"node","main":"./lib/entry.js","types":"./lib/entry.d.ts"}`,
+			"ngm.json":       `{"schemaVersion":3,"name":"a","version":"1.0.0","runtime":"node","main":"./lib/entry.js","types":"./lib/entry.d.ts"}`,
 			"package.json":   `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./other.js"}`,
 			"lib/entry.js":   "export const a = 1;\n",
 			"lib/entry.d.ts": "export declare const a: number;\n",
@@ -154,7 +154,7 @@ func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 			"index.d.ts":   "export declare const a: number;\n",
 		}},
 		{"ngm.json 只声明 types（**没有 main**）", map[string]string{
-			"ngm.json":     `{"schemaVersion":1,"name":"a","version":"1.0.0","runtime":"node","types":"./t.d.ts"}`,
+			"ngm.json":     `{"schemaVersion":3,"name":"a","version":"1.0.0","runtime":"node","types":"./t.d.ts"}`,
 			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./m.js"}`,
 			"t.d.ts":       "export declare const a: number;\n",
 			"m.js":         "export const a = 1;\n",
@@ -165,7 +165,7 @@ func TestV87EntryInferenceAgreesBetweenProductAndChecker(t *testing.T) {
 			"foo.d.ts":     "export declare const a: number;\n",
 		}},
 		{"ngm.json 声明了不存在的入口（两侧同口径：都照用声明）", map[string]string{
-			"ngm.json":     `{"schemaVersion":1,"name":"a","version":"1.0.0","runtime":"node","main":"./gone.js"}`,
+			"ngm.json":     `{"schemaVersion":3,"name":"a","version":"1.0.0","runtime":"node","main":"./gone.js"}`,
 			"package.json": `{"name":"a","version":"1.0.0","type":"module","license":"MIT","main":"./m.js"}`,
 			"m.js":         "export const a = 1;\n",
 		}},

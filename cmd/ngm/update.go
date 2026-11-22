@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/localfs"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/core/vendor"
@@ -192,6 +196,30 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	for _, n := range g.Nodes {
+		// local-dir 来源：重算 dirDigest、直接复制目录到 vendor/local/<name>（ADR-052）。
+		if n.RefType == resolve.RefTypeLocalDir {
+			name, nerr := localfs.RelName(n.Name)
+			if nerr != nil {
+				return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "", nil))
+			}
+			rel := filepath.Join("local", name)
+			dst := filepath.Join(env.VendorRoot(pf), rel)
+			if err := os.RemoveAll(dst); err != nil {
+				return runErr(ctx, stdout, stderr, err)
+			}
+			if err := localfs.CopyTree(n.LocalRoot, dst); err != nil {
+				return runErr(ctx, stdout, stderr, err)
+			}
+			lf.Dependencies = append(lf.Dependencies, lock.Dependency{
+				Name: n.Name, Ref: n.Ref, RefType: string(n.RefType),
+				DirDigest: n.Commit, SourcePath: n.SourcePath,
+				ResolvedAt: lock.FormatResolvedAt(now), VendorPath: filepath.ToSlash(rel),
+				RequiredBy: n.RequiredBy,
+			})
+			fmt.Fprintf(stdout, "%s@%s (local-dir) → %s\n", n.Name, n.Ref, n.Commit)
+			continue
+		}
+
 		proof := proofs[n.Key]
 		var archiveDigest string
 		var putRes vendor.PutResult
@@ -235,6 +263,13 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			}
 		}
 
+		vendorPath := n.Repo.MirrorRelPath()
+		var sourcePath, localRepo string
+		if n.RefType == resolve.RefTypeLocalGit {
+			vendorPath = "local/" + strings.TrimPrefix(n.Name, "local:")
+			sourcePath = n.SourcePath
+			localRepo = n.LocalRepo
+		}
 		items = append(items, digestNodeFromResolved(n, archiveDigest, proof.Digest))
 		lf.Dependencies = append(lf.Dependencies, lock.Dependency{
 			Name:          n.Name,
@@ -246,7 +281,9 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			SubtreeOid:    proof.SubtreeOid,
 			Version:       proof.Version,
 			ResolvedAt:    lock.FormatResolvedAt(now),
-			VendorPath:    n.Repo.MirrorRelPath(),
+			VendorPath:    vendorPath,
+			SourcePath:    sourcePath,
+			LocalRepo:     localRepo,
 			SubPath:       n.SubPath,
 			// v0.73（ADR-028）：同 installFresh——直接边写进 lock（序列化时归一）。
 			RequiredBy: n.RequiredBy,

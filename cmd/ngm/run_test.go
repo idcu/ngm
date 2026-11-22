@@ -244,7 +244,7 @@ func TestRunRejectsDuplicateScriptSources(t *testing.T) {
 	grantRunScript(t, home)
 	proj := newRunProject(t, `{"build":"echo pkg"}`)
 	runWriteFile(t, proj, "ngm.json",
-		`{"schemaVersion":1,"name":"demo","version":"1.0.0","runtime":"node","dependencies":[],"scripts":{"build":"echo ngm"}}`,
+		`{"schemaVersion":3,"name":"demo","version":"1.0.0","runtime":"node","dependencies":[],"scripts":{"build":"echo ngm"}}`,
 		0o644)
 
 	code, out := runCaptureCode(t, "run", "build", "--dir="+proj)

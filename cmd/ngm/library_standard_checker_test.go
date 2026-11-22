@@ -232,7 +232,7 @@ func writeConformingFixture(t *testing.T, dir string) {
 }
 `)
 	write("ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "lib",
   "version": "1.0.0",
   "runtime": "node",

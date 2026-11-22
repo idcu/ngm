@@ -30,7 +30,7 @@ func writeLockFixture(t *testing.T, dir string) {
 	dep := "cccccccccccccccccccccccccccccccccccccccc"
 	body := `{
   "version": 1,
-  "lockfileVersion": "2.0.0",
+  "lockfileVersion": "3.0.0",
   "dependencies": [
     {
       "name": "github:acme/lib",
@@ -154,9 +154,10 @@ func TestV102ShellVariablesBeforeNonASCIIUseBraces(t *testing.T) {
 	}
 }
 
-// TestV102SchemaVersionTwoIsReadEverywhere 钉住决策 1：
-// 读取器接受 v1/v2；modules validate 与 config validate 使用同一判据。
-func TestV102SchemaVersionTwoIsReadEverywhere(t *testing.T) {
+// TestV102SchemaVersionContractV3 钉住版本契约：v3 是唯一受支持的版本；
+// 旧 v1/v2 与未来版本一律 exit 3，且 config validate / install / modules validate
+// 使用同一判据。旧测试期待"v2 可读、v3 被拒"，ADR-052 冻结契约后期望整体反转。
+func TestV102SchemaVersionContractV3(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "ngm.json"), `{
   "schemaVersion": 2,
@@ -166,17 +167,14 @@ func TestV102SchemaVersionTwoIsReadEverywhere(t *testing.T) {
   "dependencies": []
 }`)
 
-	if code, out := runCaptureCode(t, "config", "validate", "--dir="+dir); code != 0 {
-		t.Fatalf("config validate must accept schemaVersion 2: exit=%d\n%s", code, out)
+	if code, out := runCaptureCode(t, "config", "validate", "--dir="+dir); code != 3 || !strings.Contains(out, "supports v3") {
+		t.Fatalf("config validate must reject schemaVersion 2 with the supported version: exit=%d\n%s", code, out)
 	}
-	if code, out := runCaptureCode(t, "install", "--dir="+dir); code != 0 {
-		t.Fatalf("install must accept schemaVersion 2: exit=%d\n%s", code, out)
-	}
-	if !strings.Contains(readLockFile(t, dir), `"lockfileVersion": "2.0.0"`) {
-		t.Fatalf("install should have written a v2 lock")
+	if code, out := runCaptureCode(t, "install", "--dir="+dir); code != 3 {
+		t.Fatalf("install must reject schemaVersion 2: exit=%d\n%s", code, out)
 	}
 
-	// 集合里的模块清单同样接受 v2，并且 modules validate 复用 ProjectFile.Validate。
+	// 集合里的模块清单同样拒绝 v2（modules validate 复用 ProjectFile.Validate）。
 	module := filepath.Join(dir, "packages", "mod")
 	writeFile(t, filepath.Join(module, "ngm.json"), `{
   "schemaVersion": 2,
@@ -185,11 +183,11 @@ func TestV102SchemaVersionTwoIsReadEverywhere(t *testing.T) {
   "runtime": "node",
   "dependencies": []
 }`)
-	if code, out := runCaptureCode(t, "modules", "validate", "--dir="+dir, "--strict"); code != 0 {
-		t.Fatalf("modules validate must accept a v2 module manifest: exit=%d\n%s", code, out)
+	if code, out := runCaptureCode(t, "modules", "validate", "--dir="+dir, "--strict"); code != 3 {
+		t.Fatalf("modules validate must reject a v2 module manifest: exit=%d\n%s", code, out)
 	}
 
-	// 超出 [1,2] 的版本必须被拒绝，并说出支持区间。
+	// v3 正常项目：三个入口都接受，install 写出 v3 lock。
 	writeFile(t, filepath.Join(dir, "ngm.json"), `{
   "schemaVersion": 3,
   "name": "github.com:demo/v3app",
@@ -197,9 +195,27 @@ func TestV102SchemaVersionTwoIsReadEverywhere(t *testing.T) {
   "runtime": "node",
   "dependencies": []
 }`)
+	if code, out := runCaptureCode(t, "config", "validate", "--dir="+dir); code != 0 {
+		t.Fatalf("config validate must accept schemaVersion 3: exit=%d\n%s", code, out)
+	}
+	if code, out := runCaptureCode(t, "install", "--dir="+dir); code != 0 {
+		t.Fatalf("install must accept schemaVersion 3: exit=%d\n%s", code, out)
+	}
+	if !strings.Contains(readLockFile(t, dir), `"lockfileVersion": "3.0.0"`) {
+		t.Fatal("install should have written a v3 lock")
+	}
+
+	// 超出本构建能力的版本（v4）必须被拒绝，并说出支持 v3。
+	writeFile(t, filepath.Join(dir, "ngm.json"), `{
+  "schemaVersion": 4,
+  "name": "github.com:demo/v4app",
+  "version": "1.0.0",
+  "runtime": "node",
+  "dependencies": []
+}`)
 	code, out := runCaptureCode(t, "config", "validate", "--dir="+dir)
-	if code != 3 || !strings.Contains(out, "supports v1..v2") {
-		t.Fatalf("schemaVersion 3 must be rejected with the supported range; exit=%d\n%s", code, out)
+	if code != 3 || !strings.Contains(out, "supports v3") {
+		t.Fatalf("schemaVersion 4 must be rejected with the supported version; exit=%d\n%s", code, out)
 	}
 }
 
@@ -335,7 +351,7 @@ func TestV102CriticalStillWinsWhenBytesDiffer(t *testing.T) {
 func TestV102DuplicateRootDeclarationsAreRejected(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "ngm.json"), `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com:demo/duplicate",
   "version": "1.0.0",
   "runtime": "node",
@@ -366,8 +382,8 @@ func TestV102DuplicateRootDeclarationsAreRejected(t *testing.T) {
 func TestV102ModulesIndexRefusesToMoveTheCurrentBranch(t *testing.T) {
 	testutils.MustHaveGit(t)
 	repo := testutils.NewGitRepo(t)
-	repo.WriteFile("ngm.json", `{"schemaVersion":1,"name":"demo","version":"0.1.0","runtime":"node"}`)
-	repo.WriteFile("packages/a/ngm.json", `{"schemaVersion":2,"name":"a","version":"1.0.0","runtime":"node"}`)
+	repo.WriteFile("ngm.json", `{"schemaVersion":3,"name":"demo","version":"0.1.0","runtime":"node"}`)
+	repo.WriteFile("packages/a/ngm.json", `{"schemaVersion":3,"name":"a","version":"1.0.0","runtime":"node"}`)
 	repo.Commit("init")
 	repo.Exec("checkout", "-b", "ngm-index")
 

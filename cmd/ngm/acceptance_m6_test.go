@@ -19,7 +19,7 @@ func m6Project(t *testing.T, enginesJSON string) string {
 	t.Helper()
 	proj := t.TempDir()
 	testutils.WriteFile(t, proj, "ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com/m6-test/app",
   "version": "0.1.0",
   "runtime": "node",

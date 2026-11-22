@@ -127,6 +127,18 @@ type Options struct {
 	// --offline 时必须是"只返回已存在的 mirror，缺失即报 CodeGitFetch"。
 	// 这一处注入即区分了两种模式，本包不再自行判断是否触网。
 	EnsureMirror func(ctx context.Context, repo resolve.Canonical) (string, error)
+
+	// ProjectRoot 是项目根绝对路径，local-dir 来源的 sourcePath 相对它解析。
+	ProjectRoot string
+	// ResolveLocalDir 为 local-dir 来源重算目录内容锚点（dirDigest）。
+	// 由调用方注入（localfs.BuildDirDigest）；nil 时 local-dir 依赖无法验证（operational fail）。
+	ResolveLocalDir func(root string) (string, error)
+	// ResolveLocalRepo 为 local-git 来源把 lock 的 localRepo 解析为本地 git 仓绝对路径。
+	// 返回路径直接作为 objectPath（不经过 mirror 拉取、不需要 net 权限）。
+	ResolveLocalRepo func(projectRoot, localRepo string) (string, error)
+	// LocalGitObjectPath 是 verifyOne 解析出的 local-git 本地仓路径，
+	// 供 resolveTargetRef 在不触网的前提下解析 ref（ADR-052）。
+	LocalGitObjectPath string
 }
 
 // Run 对 lock 中的依赖逐个执行三级检查。
@@ -209,6 +221,64 @@ func Run(ctx context.Context, lf *lock.File, opts Options) (Report, error) {
 //
 // error 只用于"连检查都无法进行"的致命情况；网络/资源类失败写进 DepResult.Err，
 // 让其余依赖仍能得到结论（部分报告比中止更有用）。
+// verifyLocalDir 验证 local-dir 来源（ADR-052）。
+//
+// 证明链只有一项实质检查：重算源目录 dirDigest 并与 lock 的锚点比对。
+// 目录内容被改 → 摘要不同 → DriftCritical（exit 2）。
+// 它天然离线：不查 ref、不重放 git tree，因此 --offline 也有完整结论。
+func verifyLocalDir(d *lock.Dependency, opts Options, res DepResult) (DepResult, error) {
+	snap := CheckResult{Check: CheckLocalSnapshot}
+	if opts.ResolveLocalDir == nil {
+		snap.Status = StatusFail
+		snap.Operational = true
+		snap.Detail = "not attempted: local directory resolver is not wired"
+		res.Checks = append(res.Checks, snap)
+		res.Err = snap.Detail
+		return res, nil
+	}
+	if opts.ProjectRoot == "" || d.SourcePath == "" {
+		snap.Status = StatusFail
+		snap.Operational = true
+		snap.Detail = "not attempted: projectRoot or sourcePath is empty"
+		res.Checks = append(res.Checks, snap)
+		res.Err = snap.Detail
+		return res, nil
+	}
+	abs := filepath.Join(opts.ProjectRoot, filepath.FromSlash(strings.ReplaceAll(d.SourcePath, "/", string(filepath.Separator))))
+	actual, err := opts.ResolveLocalDir(abs)
+	if err != nil {
+		snap.Status = StatusFail
+		snap.Operational = true
+		snap.Detail = "cannot read source directory: " + err.Error()
+		res.Checks = append(res.Checks, snap)
+		res.Err = snap.Detail
+		return res, nil
+	}
+	if actual != d.DirDigest {
+		snap.Status = StatusFail
+		snap.Drift = DriftCritical
+		snap.Detail = fmt.Sprintf("source directory changed: locked dirDigest %s, current %s",
+			shortDigest(d.DirDigest), shortDigest(actual))
+		res.Checks = append(res.Checks, snap)
+		res.DriftKind = aggregateDrift(res.Checks)
+		res.Err = snap.Detail
+		return res, nil
+	}
+	snap.Status = StatusOK
+	snap.Detail = "dirDigest matches locked snapshot"
+	res.Checks = append(res.Checks, snap)
+	res.DriftKind = aggregateDrift(res.Checks)
+	return res, nil
+}
+
+// shortDigest 把 sha256:<64hex> 截成可读短形，仅用于诊断文案。
+func shortDigest(s string) string {
+	if len(s) > 22 {
+		return s[:22] + "…"
+	}
+	return s
+}
+
 func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentStore, opts Options, cache *digestCache) (DepResult, error) {
 	res := DepResult{
 		Name:          d.Name,
@@ -225,7 +295,22 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 		Checks:        []CheckResult{},
 	}
 
-	repo, err := resolve.ParseSlug(d.Name)
+	// local-dir 来源走独立证明链：不解析 git slug、不重放 git tree，
+	// 直接重算目录内容锚点（ADR-052 §2.2）。它是天然离线的。
+	if resolve.RefType(d.RefType) == resolve.RefTypeLocalDir {
+		return verifyLocalDir(d, opts, res)
+	}
+
+	// local-git 来源复用 git 证明链，但 name 是 local: 命名空间——
+	// 构造与 resolveLocalOne 一致的伪 Canonical，避免 ParseSlug 拒绝（ADR-052）。
+	localGit := resolve.RefType(d.RefType) == resolve.RefTypeLocalGit
+	var repo resolve.Canonical
+	var err error
+	if localGit {
+		repo = resolve.Canonical{Host: "local", Path: strings.TrimPrefix(d.Name, "local:")}
+	} else {
+		repo, err = resolve.ParseSlug(d.Name)
+	}
 	if err != nil {
 		// lock.Read 已校验过 name，这里是纵深防御：非法 slug 属于配置问题（exit 3）
 		return res, err
@@ -240,11 +325,31 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 	// 检查一、二依赖层 1，检查三不依赖。因此层 1 不可用时只跳过前两项，
 	// 落地完整性照样能查——少报一条结论比整条依赖弃查更有用。
 	mirrorPath := mirrorPathFor(opts, repo)
+
+	// local-git：mirror 就是 lock 里的本地 git 仓，完全离线（ADR-052）。
+	// 不调 EnsureMirror（它会尝试网络并需要 net:<host> 权限），直接用本地路径。
+	if localGit {
+		if opts.ResolveLocalRepo == nil || d.LocalRepo == "" {
+			return finishSkippingRefAndDigest(res,
+				fmt.Errorf("local-git dependency %s is missing localRepo or resolver", d.Name),
+				mirrorPath, d, store, opts)
+		}
+		localPath, lerr := opts.ResolveLocalRepo(opts.ProjectRoot, d.LocalRepo)
+		if lerr != nil || !isLocalGitRepo(localPath) {
+			return finishSkippingRefAndDigest(res,
+				fmt.Errorf("local-git dependency %s: local repository %q is unavailable (%v)", d.Name, localPath, lerr),
+				mirrorPath, d, store, opts)
+		}
+		mirrorPath = localPath
+		opts.Offline = true // 本地仓解析绝不触网；ref 以本地为准
+		opts.LocalGitObjectPath = localPath
+	}
 	moduleCachePath, hasModuleCache := moduleCachePathFor(ctx, opts, repo, d)
-	mirrorReady := git.IsBareMirror(mirrorPath)
+	mirrorReady := git.IsBareMirror(mirrorPath) || (localGit && isLocalGitRepo(mirrorPath))
 	// 模块条目在 mirror 缺失时，若 partial clone 缓存已含该 commit，就不必
 	// 为了验一个模块去补整仓 mirror（ADR-034）。根条目仍必须走 mirror。
-	if !mirrorReady && !(hasModuleCache && d.IsModule()) {
+	// local-git 的 mirror 已在上面解析为本地仓，跳过拉取。
+	if !mirrorReady && !localGit && !(hasModuleCache && d.IsModule()) {
 		if _, merr := opts.EnsureMirror(ctx, repo); merr != nil {
 			return finishSkippingRefAndDigest(res, merr, mirrorPath, d, store, opts)
 		}
@@ -371,6 +476,16 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 	res.DriftKind = aggregateDrift(res.Checks)
 	res.Remediation = remediationFor(&res)
 	return res, nil
+}
+
+// isLocalGitRepo 报告 path 是否是可用作 local-git 锚点的本地仓库：
+// 裸仓库（HEAD/objects/refs）或带 .git 的工作树（ADR-052）。
+func isLocalGitRepo(path string) bool {
+	if git.IsBareMirror(path) {
+		return true
+	}
+	st, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil && st.IsDir()
 }
 
 // mirrorPathFor 返回某仓库在 mirror 中的路径（纯字符串推导，**不触网**）。
@@ -507,6 +622,16 @@ func checkRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency, o
 // 离线模式仍是本地 mirror 快照，并由调用方标记 stale。
 func resolveTargetRef(ctx context.Context, repo resolve.Canonical, d *lock.Dependency,
 	rt resolve.RefType, opts Options) (string, error) {
+	// local-git 的 ref 必须在本地仓解析：绝不走注入的远端 resolver
+	// （后者需要 net:<host> 权限，而本地来源没有远端，ADR-052）。
+	if resolve.RefType(d.RefType).IsLocal() {
+		return resolve.ResolveRef(ctx, repo, d.Ref, rt, resolve.ResolveOptions{
+			GitURL:  opts.LocalGitObjectPath,
+			Offline: true,
+			Secrets: opts.GitOpts.Secrets,
+			Policy:  opts.GitOpts.Policy,
+		})
+	}
 	if opts.ResolveRemoteRef != nil {
 		return opts.ResolveRemoteRef(ctx, repo, d.Ref, rt)
 	}

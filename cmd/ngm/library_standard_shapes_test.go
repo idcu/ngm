@@ -165,7 +165,7 @@ func writeCJSFixture(t *testing.T, dir string) {
 }
 `)
 	writeFileAt(t, dir, "ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "legacy-cjs",
   "version": "0.3.1",
   "runtime": "node",
@@ -208,7 +208,7 @@ func writeMonorepoFixture(t *testing.T, dir string) {
 }
 `)
 	writeFileAt(t, dir, "packages/a/ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "mono-a",
   "version": "1.0.0",
   "runtime": "node",

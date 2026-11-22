@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
+	"github.com/idcu/ngm/internal/core/localfs"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/core/vendor"
@@ -355,6 +357,14 @@ func requiredByRoot(d *lock.Dependency) bool {
 
 // installFresh 从 ngm.json 完整解析并生成 lock。
 // errOut 是 --json 错误信封的唯一出口（真正的 stdout）；stdout 形参只收进度文本。
+// shortLocalDigest 把 sha256:<64hex> 截成可读短形，仅用于诊断文案。
+func shortLocalDigest(s string) string {
+	if len(s) > 22 {
+		return s[:22] + "…"
+	}
+	return s
+}
+
 func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, roots []resolve.DepSpec, previous *lock.File, showDigest, offline, allowFresh bool, rep *writeReport, stdout, stderr, errOut io.Writer) int {
 	// 供应链策略：白名单在解析阶段生效（ADR-009），命中即 exit 3 并附来源链
 	pol, perr := projectPolicy(pf)
@@ -398,6 +408,41 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 	}
 
 	for _, n := range g.Nodes {
+		// local-dir 来源：不经 git content store，直接把源目录复制到 vendor/local/<name>。
+		// 内容锚点是 dirDigest（n.Commit 已由 resolveLocalOne 算出），verify 重算目录摘要比对。
+		if n.RefType == resolve.RefTypeLocalDir {
+			name, nerr := localfs.RelName(n.Name)
+			if nerr != nil {
+				return runErr(ctx, errOut, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "", nil))
+			}
+			rel := filepath.Join("local", name)
+			dst := filepath.Join(env.VendorRoot(pf), rel)
+			if err := os.RemoveAll(dst); err != nil {
+				return runErr(ctx, errOut, stderr, err)
+			}
+			if err := localfs.CopyTree(n.LocalRoot, dst); err != nil {
+				return runErr(ctx, errOut, stderr, err)
+			}
+			lf.Dependencies = append(lf.Dependencies, lock.Dependency{
+				Name:       n.Name,
+				Ref:        n.Ref,
+				RefType:    string(n.RefType),
+				DirDigest:  n.Commit, // resolveLocalOne 已把 dirDigest 放进 n.Commit
+				SourcePath: n.SourcePath,
+				ResolvedAt: lock.FormatResolvedAt(now),
+				VendorPath: filepath.ToSlash(rel),
+				RequiredBy: n.RequiredBy,
+			})
+			if rep != nil {
+				rep.Dependencies = append(rep.Dependencies, writeReportDep{
+					Name: n.Name, Ref: n.Ref, RefType: string(n.RefType),
+					ArchiveDigest: n.Commit, VendorPath: filepath.ToSlash(rel), Source: "local-dir",
+				})
+			}
+			fmt.Fprintf(stdout, "%s@%s (local-dir) → %s\n", n.Name, n.Ref, n.Commit)
+			continue
+		}
+
 		proof := proofs[n.Key]
 		var archiveDigest string
 
@@ -442,6 +487,15 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 		if n.SubPath != "" {
 			contentDigest = proof.Digest
 		}
+		// local-git 的来源字段与 vendor 命名空间（ADR-052）：
+		// 证明链与 git 来源共用，但身份与落地走 local/ 命名空间。
+		vendorPath := n.Repo.MirrorRelPath()
+		var sourcePath, localRepo string
+		if n.RefType == resolve.RefTypeLocalGit {
+			vendorPath = "local/" + strings.TrimPrefix(n.Name, "local:")
+			sourcePath = n.SourcePath
+			localRepo = n.LocalRepo
+		}
 		lf.Dependencies = append(lf.Dependencies, lock.Dependency{
 			Name:          n.Name,
 			Ref:           n.Ref,
@@ -452,7 +506,9 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			SubtreeOid:    proof.SubtreeOid,
 			Version:       proof.Version,
 			ResolvedAt:    lock.FormatResolvedAt(now),
-			VendorPath:    n.Repo.MirrorRelPath(),
+			VendorPath:    vendorPath,
+			SourcePath:    sourcePath,
+			LocalRepo:     localRepo,
 			SubPath:       n.SubPath,
 			// v0.73（ADR-028）：直接边写进 lock。n.RequiredBy 是解析出的
 			// **直接引用者**节点 Key（根声明处为 "(root)"），序列化时由
@@ -515,6 +571,39 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 
 	for i := range lf.Dependencies {
 		d := &lf.Dependencies[i]
+
+		// local-dir 来源：从 lock 记录的 sourcePath 复制目录到 vendor。
+		// 内容由 dirDigest 证明（自动校验源是否与 lock 一致）。
+		if resolve.RefType(d.RefType) == resolve.RefTypeLocalDir {
+			name, nerr := localfs.RelName(d.Name)
+			if nerr != nil {
+				return runErr(ctx, errOut, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "", nil))
+			}
+			abs, perr := env.ResolveLocalDirPath(d.SourcePath)
+			if perr != nil {
+				return runErr(ctx, errOut, stderr, perr)
+			}
+			actual, derr := localfs.BuildDirDigest(abs)
+			if derr != nil {
+				return runErr(ctx, errOut, stderr, derr)
+			}
+			if actual != d.DirDigest {
+				return runErr(ctx, errOut, stderr, errs.New(errs.CodeDigestMismatch,
+					fmt.Sprintf("%s: source directory changed since lock (locked %s, current %s)",
+						d.Name, shortLocalDigest(d.DirDigest), shortLocalDigest(actual)),
+					"re-run `ngm install` to re-pin the directory content"))
+			}
+			rel := filepath.Join("local", name)
+			dst := filepath.Join(env.VendorRoot(pf), rel)
+			if err := os.RemoveAll(dst); err != nil {
+				return runErr(ctx, errOut, stderr, err)
+			}
+			if err := localfs.CopyTree(abs, dst); err != nil {
+				return runErr(ctx, errOut, stderr, err)
+			}
+			fmt.Fprintf(stdout, "%s@%s (local-dir) → %s\n", d.Name, d.Ref, d.DirDigest)
+			continue
+		}
 
 		repo, perr := resolve.ParseSlug(d.Name)
 		if perr != nil {

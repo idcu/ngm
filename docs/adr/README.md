@@ -59,6 +59,7 @@
 | [ADR-049](./adr-049-contract-net-freeze.md) | **契约网冻结**：停止新建，保留复核节奏 | 已定（2026-11-20）：新判据必须先指着一个已发生的产品缺陷；存量网作为回归档案保留；仅当某网连续 3 版因自身而红、且删除不影响产品不变量时才复核精简。与 roadmap 停止清单同源 |
 | [ADR-050](./adr-050-default-release-age.md) | `minimumReleaseAge` 默认 **P1D** | 已定（2026-11-21）：写了 `supplyChain` 段但没写冷却 ⇒ 默认 24h（对齐 pnpm/Deno 2026 默认，独立安全理由非"更像 npm"）；**完全不配段仍不门禁**（ADR-009 底线）；逃生口 = `--allow-fresh` 单命令副本（白名单不变、不泄漏）。不用 P0D 当开关（`ParseISODuration` 有意拒绝零值） |
 | [ADR-051](./adr-051-verify-level-defaults.md) | `verify` 默认级别：CLI structure / CI action **content** | 已定（2026-11-21）：CI 是供应链关键路径，action 默认 content（逐文件哈希）；CLI 保持 structure（本地轻量）。两者不同是有意的，双向写进 action description 与 help；action 里显式 `verify-level: structure` 可回到廉价检查 |
+| [ADR-052](./adr-052-local-sources.md) | 通用包管理器定位与**本地来源**（local-git / local-dir） | 已定（2026-11-22）：来源通用但身份可证明；local-git 复用 commit 证明、local-dir 用 dirDigest（清单摘要）；schemaVersion 3 / lockfileVersion 3.0.0、旧格式拒绝；不做 registry / semver / node_modules（ADR-044 重启条件③触发） |
 
 ---
 

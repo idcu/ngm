@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -44,6 +46,14 @@ type DepSpec struct {
 	RefType RefType
 	// SubPath 是 monorepo 子路径（可空）。
 	SubPath string
+	// SourcePath / LocalRepo 是本地来源声明（local-git / local-dir，见 ADR-052）。
+	SourcePath string
+	LocalRepo  string
+	// LocalRoot 是 ProjectRoot + SourcePath 的绝对路径，由调用方解析后注入。
+	// resolve 包不做文件 I/O 路径解析（保持依赖方向），只消费它。
+	LocalRoot string
+	// ProjectRoot 是项目根绝对路径，供 local 来源做纵深防御校验。
+	ProjectRoot string
 }
 
 // Key 返回声明在图中的唯一键。
@@ -72,9 +82,19 @@ type Node struct {
 	// SubPath 是 monorepo 子路径。
 	SubPath string
 	// Commit 是解析结果（不可变锚点）。
+	// git / local-git 来源：40-hex commit；local-dir 来源：dirDigest（sha256:<hex>）。
 	Commit string
 	// MirrorPath 是该仓库的本地裸仓库路径（供 digest 生成与 content store 落地）。
+	// local-dir 来源为空——它没有 git 仓库。
 	MirrorPath string
+	// SourcePath 是本地来源的目录（local-git / local-dir），相对项目根。
+	// 由 CLI 层从 config.Dependency.SourcePath 解析后填入。
+	SourcePath string
+	// LocalRepo 是 local-git 来源的本地 git 仓根路径（相对项目根）。
+	LocalRepo string
+	// LocalRoot 是本地来源解析后的绝对路径（由 CLI 层注入的 ResolveLocal 产生）。
+	// 只在 resolveOne 之后有效；git 来源为空。
+	LocalRoot string
 	// RootDeclared 表示该节点由根 ngm.json 显式声明。
 	RootDeclared bool
 	// Depth 是距根的距离（根节点为 0）。
@@ -140,6 +160,19 @@ type GraphOptions struct {
 	// host 为裸主机名、repoPath 为 `org/repo`。nil 表示未配置策略（不门禁）。
 	// 判定在**每层开头、任何远端访问之前**执行；命中即返回 exit 3 并附完整来源链。
 	CheckRepo func(host, repoPath string) error
+	// ResolveLocalDir 为 local-dir 来源计算目录内容锚点（dirDigest）。
+	//
+	// 由调用方注入（通常是 internal/core/localfs.BuildDirDigest 的闭包），
+	// 保持 resolve 层不直接读取本地文件。签名：(绝对目录路径) → (sha256:<hex>, error)。
+	ResolveLocalDir func(root string) (string, error)
+	// ResolveLocalPath 把项目根 + 相对 sourcePath 解析为绝对路径并做逃逸校验。
+	// 签名：(projectRoot, sourcePath) → (absolutePath, error)。
+	ResolveLocalPath func(projectRoot, sourcePath string) (string, error)
+	// ProjectRoot 是项目根绝对路径，供 local 来源解析相对声明。
+	ProjectRoot string
+	// ResolveLocalRepo 为 local-git 来源把项目根 + 相对声明解析为本地 git 仓绝对路径。
+	// 签名：(projectRoot, relativeRepoPath) → (absolutePath, error)。
+	ResolveLocalRepo func(projectRoot, repo string) (string, error)
 }
 
 // resolveCache 让同一张图里的重复工作只发生一次：
@@ -398,6 +431,9 @@ func mergeFrontier(items []frontierItem, rootSet map[string]DepSpec) ([]*Node, e
 				Ref:          it.spec.Ref,
 				RefType:      it.spec.RefType,
 				SubPath:      it.spec.SubPath,
+				SourcePath:   it.spec.SourcePath,
+				LocalRepo:    it.spec.LocalRepo,
+				LocalRoot:    it.spec.LocalRoot,
 				Depth:        it.depth,
 				RootDeclared: it.depth == 0,
 			}
@@ -478,7 +514,17 @@ func resolveBatch(ctx context.Context, batch []*Node, opts GraphOptions, conc in
 }
 
 // resolveOne 解析单个节点。
+//
+// 三路分流（ADR-052）：
+//   - git / local-git：走 ParseSlug + git ref 解析，锚点是 commit；
+//   - local-dir：不解析仓库，直接对本地目录算 dirDigest，锚点是摘要。
+//
+// local-git 与 git 来源共用同一套 commit → tree → digest 证明链，
+// 区别只在 mirror 来自本地声明（LocalRepo）而非 EnsureMirror 拉取。
 func resolveOne(ctx context.Context, n *Node, opts GraphOptions, cache *resolveCache) error {
+	if n.RefType.IsLocal() {
+		return resolveLocalOne(ctx, n, opts, cache)
+	}
 	repo, err := ParseSlug(n.Name)
 	if err != nil {
 		return err
@@ -502,6 +548,76 @@ func resolveOne(ctx context.Context, n *Node, opts GraphOptions, cache *resolveC
 		// "ngm 里不应存在绕过门禁的 git 调用路径"。这类缺陷的形状是
 		// "配置里 deny 了 run:git，子进程照样起来"，只有逐行读才发现。
 		Policy: opts.Policy,
+	})
+	if err != nil {
+		return err
+	}
+	n.Commit = commit
+	return nil
+}
+
+// resolveLocalOne 处理本地来源（local-git / local-dir）。
+func resolveLocalOne(ctx context.Context, n *Node, opts GraphOptions, cache *resolveCache) error {
+	if n.SourcePath == "" {
+		return errs.New(errs.CodeConfigInvalid,
+			fmt.Sprintf("%s: sourcePath is required for %s", n.Name, n.RefType),
+			"set `sourcePath` to a project-relative directory")
+	}
+	if n.RefType == RefTypeLocalDir {
+		if opts.ResolveLocalDir == nil || opts.ResolveLocalPath == nil {
+			return errs.New(errs.CodeInternal,
+				"local-dir callbacks are not wired",
+				"this is an ngm internal error: the CLI must inject localfs resolvers")
+		}
+		abs, err := opts.ResolveLocalPath(opts.ProjectRoot, n.SourcePath)
+		if err != nil {
+			return errs.Wrap(errs.CodeConfigInvalid,
+				fmt.Sprintf("%s: invalid sourcePath %q", n.Name, n.SourcePath), "", err)
+		}
+		n.LocalRoot = abs
+		digest, err := opts.ResolveLocalDir(abs)
+		if err != nil {
+			return errs.Wrap(errs.CodeConfigInvalid,
+				fmt.Sprintf("%s: dirDigest failed for %s", n.Name, n.LocalRoot), "", err)
+		}
+		// `auto` 表示让 install 计算锚点；显式 digest 必须与当前目录一致。
+		if strings.TrimSpace(n.Ref) != "" && n.Ref != "auto" && n.Ref != digest {
+			return errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("%s: declared ref %q does not match current dirDigest %q", n.Name, n.Ref, digest),
+				"run `ngm update --refresh-digest` to pin the current directory content, or use `auto`")
+		}
+		n.Commit = digest
+		return nil
+	}
+
+	// local-git：用本地 git 仓路径替代 EnsureMirror 的拉取结果。
+	if opts.ResolveLocalRepo == nil {
+		return errs.New(errs.CodeInternal,
+			"ResolveLocalRepo callback is not wired",
+			"this is an ngm internal error: the CLI must inject a local repo resolver")
+	}
+	if n.LocalRepo == "" {
+		return errs.New(errs.CodeConfigInvalid,
+			fmt.Sprintf("%s: localRepo is required for local-git", n.Name),
+			"set `localRepo` to the project-relative local git repository root")
+	}
+	mirror, err := opts.ResolveLocalRepo(opts.ProjectRoot, n.LocalRepo)
+	if err != nil {
+		return errs.Wrap(errs.CodeConfigInvalid,
+			fmt.Sprintf("%s: cannot resolve localRepo %q", n.Name, n.LocalRepo), "", err)
+	}
+	n.MirrorPath = mirror
+	// local-git 的 name 是 local:<name>，没有 Canonical（host:org/repo）。
+	// 用 Host="local"、Path=<name> 构造伪 Canonical，使 MirrorRelPath() = local/<name>，
+	// 与 vendor 命名空间及 lock 的 vendorPath 完全一致（避免 local/local/ 双前缀）。
+	repo := Canonical{Host: "local", Path: strings.TrimPrefix(n.Name, "local:")}
+	n.Repo = repo
+	commit, err := cache.resolveRef(ctx, repo, n.Ref, n.RefType, ResolveOptions{
+		GitURL:   mirror,
+		Protocol: opts.Protocol,
+		Secrets:  opts.Secrets,
+		Offline:  true, // 本地仓解析绝不触网
+		Policy:   opts.Policy,
 	})
 	if err != nil {
 		return err
@@ -570,16 +686,40 @@ func readUpstreamDeps(ctx context.Context, node *Node, opts GraphOptions, cache 
 	gitOpts := git.Options{Secrets: opts.Secrets, Policy: opts.Policy}
 
 	manifestPath := upstreamManifestPath(node.SubPath)
-	content, exists, err := cache.readFile(ctx, gitOpts, node.MirrorPath, node.Commit, manifestPath)
-	if err != nil {
-		return nil, nil, err
+	var content []byte
+	var exists bool
+	var err error
+	if node.RefType == RefTypeLocalDir {
+		// local-dir：上游清单来自本地目录（不是 git commit），
+		// 且它已被 dirDigest 覆盖——读到的内容就是被证明的内容。
+		if node.LocalRoot == "" {
+			return nil, nil, errs.New(errs.CodeInternal,
+				"local-dir node is missing LocalRoot", "this is an ngm internal error")
+		}
+		p := filepath.Join(node.LocalRoot, filepath.FromSlash(manifestPath))
+		if b, rerr := os.ReadFile(p); rerr == nil {
+			content, exists = b, true
+		}
+	} else {
+		content, exists, err = cache.readFile(ctx, gitOpts, node.MirrorPath, node.Commit, manifestPath)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	var warns []string
 	if !exists && node.SubPath != "" {
-		content, exists, err = cache.readFile(ctx, gitOpts, node.MirrorPath, node.Commit, UpstreamFile)
-		if err != nil {
-			return nil, nil, err
+		if node.RefType == RefTypeLocalDir {
+			// local-dir 的 root 回退
+			p := filepath.Join(node.LocalRoot, UpstreamFile)
+			if b, rerr := os.ReadFile(p); rerr == nil {
+				content, exists = b, true
+			}
+		} else {
+			content, exists, err = cache.readFile(ctx, gitOpts, node.MirrorPath, node.Commit, UpstreamFile)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		if exists {
 			warns = append(warns, fmt.Sprintf(
@@ -685,7 +825,19 @@ func upstreamManifestDir(subPath string) string {
 // dir 是仓库相对目录：根节点为 ""，子路径模块为它自己的目录。
 func checkUpstreamPackageJSON(ctx context.Context, node *Node, gitOpts git.Options, dir string, cache *resolveCache) ([]string, error) {
 	pkgPath := path.Join(dir, UpstreamPackageJSON)
-	content, exists, err := cache.readFile(ctx, gitOpts, node.MirrorPath, node.Commit, pkgPath)
+	var content []byte
+	var exists bool
+	var err error
+	if node.RefType == RefTypeLocalDir {
+		if node.LocalRoot == "" {
+			return nil, nil
+		}
+		if b, rerr := os.ReadFile(filepath.Join(node.LocalRoot, filepath.FromSlash(pkgPath))); rerr == nil {
+			content, exists = b, true
+		}
+	} else {
+		content, exists, err = cache.readFile(ctx, gitOpts, node.MirrorPath, node.Commit, pkgPath)
+	}
 	if err != nil || !exists {
 		return nil, err
 	}

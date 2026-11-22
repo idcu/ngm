@@ -41,14 +41,17 @@ func autoVerifyAfterLock(ctx context.Context, env *projectEnv, pf *config.Projec
 	}
 
 	opts := verify.Options{
-		Offline:         offline,
-		MirrorRoot:      env.Layout.MirrorRoot(),
-		ModuleCacheRoot: env.Layout.ModuleCacheRoot(),
-		ContentRoot:     env.Layout.ContentRoot(),
-		VendorRoot:      env.VendorRoot(pf),
-		GitOpts:         env.GitOpts,
-		Protocol:        env.Protocol,
-		EnsureMirror:    env.EnsureMirror,
+		Offline:          offline,
+		MirrorRoot:       env.Layout.MirrorRoot(),
+		ModuleCacheRoot:  env.Layout.ModuleCacheRoot(),
+		ContentRoot:      env.Layout.ContentRoot(),
+		VendorRoot:       env.VendorRoot(pf),
+		GitOpts:          env.GitOpts,
+		Protocol:         env.Protocol,
+		EnsureMirror:     env.EnsureMirror,
+		ProjectRoot:      env.ProjectDir,
+		ResolveLocalDir:  env.ResolveLocalDir,
+		ResolveLocalRepo: env.ResolveLocalRepo,
 	}
 	if offline {
 		// 与 install/verify 共用同一实现：三条命令对"不联网"只有一种含义

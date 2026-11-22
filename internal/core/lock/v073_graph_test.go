@@ -149,8 +149,8 @@ func TestV73HasGraph(t *testing.T) {
 		t.Error("有条目缺来源 ⇒ 图不完整，必须退回（不做「部分图」）")
 	}
 
-	// 没有 requiredBy 字段的 lock 解码后同样是"图未知"（v2 里仍允许）。
-	old := `{"version":1,"lockfileVersion":"2.0.0","dependencies":[{"name":"github:a/app","ref":"v1","refType":"tag","commit":"` +
+	// 没有 requiredBy 字段的 lock 解码后同样是"图未知"（v3 里仍允许）。
+	old := `{"version":1,"lockfileVersion":"3.0.0","dependencies":[{"name":"github:a/app","ref":"v1","refType":"tag","commit":"` +
 		strings.Repeat("a", 40) + `","archiveDigest":"sha256:` + strings.Repeat("aa", 32) +
 		`","resolvedAt":"2026-09-29T10:00:00Z","vendorPath":"github.com/a/app"}]}`
 	f, err := decodeForTest(old)
@@ -162,11 +162,11 @@ func TestV73HasGraph(t *testing.T) {
 	}
 }
 
-// TestV73OldLocksStillRead 格式契约的一条底线：同一 MAJOR 内新增可选字段不得让 lock 读不进来。
+// TestV73OldLocksStillRead 格式契约的一条底线：同一 MAJOR 内省略新增可选字段不得让 lock 读不进来。
 func TestV73OldLocksStillRead(t *testing.T) {
-	f, err := decodeForTest(`{"version":1,"lockfileVersion":"2.0.0","dependencies":[]}`)
+	f, err := decodeForTest(`{"version":1,"lockfileVersion":"3.0.0","dependencies":[]}`)
 	if err != nil {
-		t.Fatalf("同 MAJOR 的 lock 读不进来了: %v", err)
+		t.Fatalf("同 MAJOR 的 v3 lock 读不进来了: %v", err)
 	}
 	if len(f.Dependencies) != 0 {
 		t.Errorf("dependencies = %d", len(f.Dependencies))

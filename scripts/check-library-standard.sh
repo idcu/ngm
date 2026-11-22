@@ -570,7 +570,7 @@ if [ -f "$DIR/ngm.json" ]; then
 		let o;
 		try { o = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("PARSE_ERROR"); process.exit(0); }
 		const errs = [];
-		if (o.schemaVersion !== undefined && o.schemaVersion !== 1) errs.push("schemaVersion 只支持 1");
+		if (o.schemaVersion !== undefined && o.schemaVersion !== 3) errs.push("schemaVersion 只支持 3");
 		if (typeof o.name !== "string" || o.name.trim() === "") errs.push("缺 name");
 		if (typeof o.version !== "string" || o.version.trim() === "") errs.push("缺 version");
 		if (o.runtime !== "node" && o.runtime !== "deno") errs.push("runtime 必须是 node 或 deno（当前：" + JSON.stringify(o.runtime) + "）");

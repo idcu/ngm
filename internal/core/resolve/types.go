@@ -17,11 +17,24 @@ const (
 	RefTypeTag RefType = "tag"
 	// RefTypeBranch：`ref` 是分支名。
 	RefTypeBranch RefType = "branch"
+	// RefTypeLocalGit：`ref` 是本地 Git 仓库里的 tag/branch/commit（必须显式给出）。
+	// sourcePath 指向本地 git 仓根；证明链与 git 来源完全一致（commit + tree digest）。
+	RefTypeLocalGit RefType = "local-git"
+	// RefTypeLocalDir：`ref` 是 dirDigest（sha256:<hex>），sourcePath 指向任意本地目录。
+	// 锚点是目录内容摘要，不走 git（见 internal/core/localfs，ADR-052）。
+	RefTypeLocalDir RefType = "local-dir"
 )
+
+// IsLocal 报告 r 是否为本地来源（local-git / local-dir）。
+//
+// 消费方（graph/vendor/verify）用这一处判定做路径分流，避免各处散写字符串比较。
+func (r RefType) IsLocal() bool {
+	return r == RefTypeLocalGit || r == RefTypeLocalDir
+}
 
 // ValidRefTypes 返回全部合法 refType，顺序稳定（便于错误提示与测试）。
 func ValidRefTypes() []RefType {
-	return []RefType{RefTypeCommit, RefTypeTag, RefTypeBranch}
+	return []RefType{RefTypeCommit, RefTypeTag, RefTypeBranch, RefTypeLocalGit, RefTypeLocalDir}
 }
 
 // IsValid 报告 r 是否为受支持的 refType。

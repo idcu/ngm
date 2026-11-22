@@ -1,5 +1,7 @@
 # ADR-040：从"包管理器"退回"证明层"——`ngm adopt`
 
+> **补记（2026-11-22，[ADR-052](./adr-052-local-sources.md)）**：定位由「退回证明层」调整为「独立生态的通用包管理器」，但 `ngm adopt` 的定位**不变**——仍是坡道，只读、不安装、不写 node_modules。本地来源由 `ngm install` 直接管理，不经 adopt。
+
 ## 结论
 
 ngm **不再要求**用户换掉安装器。新增 `ngm adopt`：读已有的 `node_modules`，

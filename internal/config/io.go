@@ -137,12 +137,28 @@ func (p *ProjectFile) UpsertDependency(dep Dependency) (bool, error) {
 	if err := dep.Validate(); err != nil {
 		return false, errs.Wrap(errs.CodeConfigInvalid, "invalid dependency", "", err)
 	}
-	newCanon, err := resolve.ParseSlug(dep.Name)
-	if err != nil {
-		return false, err
+	// 本地来源（local:*）不是 git slug，身份就是 name 字符串本身（ADR-052）。
+	// 用字符串精确匹配；git 来源仍走 ParseSlug 的 canonical 等价判断（等价写法归一后相同）。
+	local := dep.RefType.IsLocal()
+	var newCanon resolve.Canonical
+	if !local {
+		var err error
+		newCanon, err = resolve.ParseSlug(dep.Name)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	for i := range p.Dependencies {
+		if local {
+			if p.Dependencies[i].Name == dep.Name &&
+				normalizeSubPath(p.Dependencies[i].Path) == normalizeSubPath(dep.Path) {
+				p.Dependencies[i] = dep
+				p.sortDependencies()
+				return false, nil
+			}
+			continue
+		}
 		existing, perr := resolve.ParseSlug(p.Dependencies[i].Name)
 		if perr != nil {
 			// 既有条目非法：不参与匹配（用户可自行修）

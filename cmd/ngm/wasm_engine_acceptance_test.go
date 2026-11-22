@@ -26,7 +26,7 @@ func v3WasmProject(t *testing.T, marker string) string {
 	proj := t.TempDir()
 
 	testutils.WriteFile(t, proj, "ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com/v3/wasm-app",
   "version": "0.1.0",
   "runtime": "node",

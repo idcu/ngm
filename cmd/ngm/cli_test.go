@@ -181,7 +181,7 @@ func TestDispatch_ConfigValidate_OK(t *testing.T) {
 	testutils.IsolateUserEnv(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ngm.json"), []byte(`{
-		"schemaVersion": 1,
+		"schemaVersion": 3,
 		"name": "github.com:a/b",
 		"version": "0.1.0",
 		"runtime": "node",

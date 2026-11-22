@@ -149,7 +149,7 @@ func writeVendoredGood(t *testing.T, dir, rel string) {
 }
 `)
 	writeFileAt(t, dir, rel+"/ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "good",
   "version": "1.0.0",
   "runtime": "node",

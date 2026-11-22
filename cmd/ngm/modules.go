@@ -1307,8 +1307,9 @@ func skipModuleWalkDir(name string) bool {
 //   - 在生产者端通过（`modules validate` 说 OK）；
 //   - 在消费方失败（`ngm config validate` / `install` 读同一份文件时报 exit 3）。
 //
-// 实测过的实例：ngm-repo 的模块清单写 schemaVersion 2，而 ngm 只接受 v1。
-// 修法不是把生产方降回 v1，而是读取器接受 v1..v2，并让 validate 使用同一判据。
+// 实测过的实例：ngm-repo 的模块清单写 schemaVersion 2，而当时的 ngm 只接受 v1。
+// 当时的修法不是把生产方降回 v1，而是让读取器与 validate 使用同一判据；
+// ADR-052 冻结契约后该判据变成"只接受 v3"，这里仍复用同一个 ProjectFile.Validate。
 func validateModuleManifests(root string, mods []moduleInfo) []string {
 	var out []string
 	for i := range mods {

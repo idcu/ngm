@@ -260,7 +260,10 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		GitOpts:         env.GitOpts,
 		Protocol:        env.Protocol,
 		// --offline 的"绝不触网"承诺在这里落地：换成一个只认既有 mirror 的实现。
-		EnsureMirror: env.EnsureMirror,
+		EnsureMirror:     env.EnsureMirror,
+		ProjectRoot:      env.ProjectDir,
+		ResolveLocalDir:  env.ResolveLocalDir,
+		ResolveLocalRepo: env.ResolveLocalRepo,
 	}
 	if *offline {
 		opts.EnsureMirror = offlineEnsureMirror(env)

@@ -6,7 +6,7 @@
 //
 //	{
 //	  "version": 1,
-//	  "lockfileVersion": "2.0.0",
+//	  "lockfileVersion": "3.0.0",
 //	  "dependencies": [
 //	    {
 //	      "name": "github:org/utils",
@@ -45,9 +45,10 @@ const (
 
 	// FileVersion 是 lockfileVersion，控制兼容策略。
 	//
-	// v2.0（ADR-032）：模块条目只写 moduleDigest/subtreeOid/version；
-	// 根条目只写 archiveDigest。项目尚无用户，因此不提供 v1 迁移。
-	FileVersion = "2.0.0"
+	// v3.0（ADR-052 本地来源）：v2 依赖条目新增来源语义（sourcePath / dirDigest /
+	// localRepo），MAJOR 升位表示旧格式不兼容。项目尚无用户，因此 v2 及更早的
+	// lock 一律拒绝（exit 3），不提供迁移工具——删掉 ngm.lock 重新 install。
+	FileVersion = "3.0.0"
 
 	// FileName 是 lock 文件名（项目根目录，必须提交到 Git）。
 	FileName = "ngm.lock"
@@ -113,6 +114,15 @@ type Dependency struct {
 	//     空数组与 nil 解码后同义，消费端一律按"图未知"处理；
 	//  3. 序列化时排序 + 去重（见 Marshal），同一份解析结果 ⇒ 同一份字节。
 	RequiredBy []string `json:"requiredBy"`
+
+	// ---- 本地来源（ADR-052，lockfileVersion 3.0）----
+	// SourcePath 是 ngm.json 声明的本地目录（相对项目根）。
+	SourcePath string `json:"sourcePath,omitempty"`
+	// LocalRepo 是 local-git 来源的本地 git 仓根路径（相对项目根）。
+	LocalRepo string `json:"localRepo,omitempty"`
+	// DirDigest 是 local-dir 来源的内容锚点（sha256:<hex>）。
+	// local-git / git 来源为空；它与 Commit 二选一。
+	DirDigest string `json:"dirDigest,omitempty"`
 }
 
 // RootRequirer 是 RequiredBy 里代表"项目本身直接声明"的标记。
@@ -160,7 +170,7 @@ func (f *File) Validate() error {
 			"incompatible lockfileVersion "+f.LockfileVersion+
 				" (this build writes "+FileVersion+")",
 			"delete ngm.lock and re-run `ngm install` to regenerate it — "+
-				"no MAJOR bump has happened yet, so no migration tool exists")
+				"this is a MAJOR format change, so no migration tool exists")
 	}
 	for i, d := range f.Dependencies {
 		if err := d.validate(); err != nil {
@@ -259,8 +269,14 @@ func (d *Dependency) validate() error {
 	if d.Name == "" {
 		return errs.New(errs.CodeConfigInvalid, "missing `name`", "")
 	}
-	if _, err := resolve.ParseSlug(d.Name); err != nil {
-		return err
+	// local 来源用 local:<name> 命名空间，不走 ParseSlug 的 host:path 规则（ADR-052）。
+	if !resolve.RefType(d.RefType).IsLocal() {
+		if _, err := resolve.ParseSlug(d.Name); err != nil {
+			return err
+		}
+	} else if len(d.Name) <= len("local:") || d.Name[:len("local:")] != "local:" {
+		return errs.New(errs.CodeConfigInvalid,
+			"local dependency name must be `local:<name>` (got "+d.Name+")", "")
 	}
 	if d.Ref == "" {
 		return errs.New(errs.CodeConfigInvalid, "missing `ref` for "+d.Name, "")
@@ -269,6 +285,36 @@ func (d *Dependency) validate() error {
 		return errs.New(errs.CodeConfigInvalid,
 			"invalid `refType` "+d.RefType+" for "+d.Name, "")
 	}
+	// local-dir 走独立的内容锚点（dirDigest），不走 git 的 commit/tree 证明链（ADR-052）。
+	// 分支放在 git 专属校验之前——否则 40-hex commit 与 archiveDigest 的必填检查
+	// 会把合法 local-dir 条目误判为损坏。
+	if resolve.RefType(d.RefType) == resolve.RefTypeLocalDir {
+		if !strings.HasPrefix(d.DirDigest, digest.Algorithm+":") || len(d.DirDigest) != len(digest.Algorithm+":")+64 {
+			return errs.New(errs.CodeConfigInvalid,
+				"`dirDigest` for "+d.Name+" must be "+digest.Algorithm+":<64 hex> (got "+d.DirDigest+")",
+				"re-run `ngm install` to regenerate the directory digest")
+		}
+		if d.SourcePath == "" {
+			return errs.New(errs.CodeConfigInvalid,
+				"missing `sourcePath` for local-dir "+d.Name, "")
+		}
+		if d.Commit != "" || d.ArchiveDigest != "" || d.ModuleDigest != "" || d.SubtreeOid != "" {
+			return errs.New(errs.CodeConfigInvalid,
+				"local-dir entry "+d.Name+" must not carry git proof fields",
+				"remove `commit`/`archiveDigest`/`moduleDigest`/`subtreeOid`; use only `dirDigest`")
+		}
+		if d.VendorPath == "" {
+			return errs.New(errs.CodeConfigInvalid, "missing `vendorPath` for "+d.Name, "")
+		}
+		// vendorPath 是信任根的一部分：仍须走与 git 来源相同的安全检查。
+		if !IsSafeVendorPath(d.VendorPath) {
+			return errs.New(errs.CodeConfigInvalid,
+				"`vendorPath` for "+d.Name+" must be a relative slash path inside vendor (got "+d.VendorPath+")",
+				"re-run `ngm install`; ngm never writes paths that escape vendor")
+		}
+		return nil
+	}
+
 	if !isFullCommit(d.Commit) {
 		return errs.New(errs.CodeConfigInvalid,
 			"`commit` for "+d.Name+" must be a full 40-char hex hash (got "+d.Commit+")",
@@ -522,9 +568,16 @@ func (d *Dependency) Key() string { return lockKey(d.Name, d.SubPath) }
 // IsModule 报告该条目是否使用模块 scope。
 func (d *Dependency) IsModule() bool { return d.SubPath != "" }
 
-// ContentDigest 返回该条目的内容证明：模块条目用 moduleDigest，
-// 根条目用 archiveDigest。调用方不应自己按 SubPath 分支。
+// ContentDigest 返回该条目的内容证明：
+//   - local-dir：dirDigest（目录内容锚点，ADR-052）；
+//   - 模块条目：moduleDigest；
+//   - 根条目：archiveDigest。
+//
+// 调用方不应自己按 SubPath / RefType 分支。
 func (d *Dependency) ContentDigest() string {
+	if resolve.RefType(d.RefType) == resolve.RefTypeLocalDir {
+		return d.DirDigest
+	}
 	if d.IsModule() {
 		return d.ModuleDigest
 	}

@@ -44,6 +44,9 @@ const (
 	CheckBinding = "binding"
 	// CheckLanding 检查三：落地完整性。
 	CheckLanding = "landing"
+	// CheckLocalSnapshot 是 local-dir 来源的专用检查：重算目录 dirDigest
+	// 并与 lock 的锚点比对（ADR-052）。它替代 ref + digest 两项 git 专属检查。
+	CheckLocalSnapshot = "local-snapshot"
 )
 
 // 检查状态。

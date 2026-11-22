@@ -15,6 +15,8 @@
 
 ---
 
+> **补记（2026-11-22，[ADR-052](./adr-052-local-sources.md)）**：local-dir 来源新增第三类证明 `dirDigest`（清单摘要，`ngm-local-digest/v1`），与 archiveDigest/moduleDigest 域分离；lock 升 3.0.0，旧 2.x 拒绝、不提供迁移命令。git 来源的 moduleDigest/subtreeOid 语义不变。
+
 ## 背景
 
 现有 `archiveDigest` 是整棵 commit tree 的哈希。它有两个结构性限制：

@@ -55,7 +55,7 @@ console.log(hello("ngm"));
 // 行为：
 //  1. 解析 --runtime / --dir / --force
 //  2. 若目标已有 ngm.json 且无 --force → exit 3
-//  3. 生成模板 ngm.json（schemaVersion=1，最小依赖列表，main 指向入口文件）
+//  3. 生成模板 ngm.json（schemaVersion=3，最小依赖列表，main 指向入口文件）
 //  4. 生成 src/index.ts（**仅当不存在**，任何情况下都不覆盖用户代码）
 //  5. 在 stdout 报告已生成 / 已保留的文件
 func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {

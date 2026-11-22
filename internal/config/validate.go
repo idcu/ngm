@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/localfs"
 	"github.com/idcu/ngm/internal/core/resolve"
 )
 
@@ -15,7 +16,7 @@ import (
 // 调用方应使用 errs.Wrap(CodeConfigInvalid, ...) 包装。
 //
 // 校验规则（与 guides/configuration.md 对齐）：
-//   - schemaVersion == SchemaVersion（缺失按 SchemaVersion 补全）
+//   - schemaVersion == SchemaVersion（缺失按 SchemaVersion 补全；只接受 v3，旧 v1/v2 拒绝）
 //   - name / version 非空
 //   - runtime ∈ {node, deno}
 //   - dependencies[].refType ∈ {commit, tag, branch}
@@ -44,10 +45,9 @@ func (p *ProjectFile) Validate() error {
 	}
 	if !SupportedSchemaVersion(p.SchemaVersion) {
 		return fieldErr(
-			fmt.Sprintf("schemaVersion %d not supported; this build supports v%d..v%d",
-				p.SchemaVersion, SchemaVersion, MaxSchemaVersion),
-			fmt.Sprintf("set `schemaVersion` to %d..%d in ngm.json, or upgrade ngm",
-				SchemaVersion, MaxSchemaVersion),
+			fmt.Sprintf("schemaVersion %d not supported; this build supports v%d",
+				p.SchemaVersion, SchemaVersion),
+			fmt.Sprintf("set `schemaVersion` to %d in ngm.json, or upgrade ngm", SchemaVersion),
 		)
 	}
 	if strings.TrimSpace(p.Name) == "" {
@@ -130,9 +130,24 @@ func validateUniqueRootDependencies(deps []Dependency) error {
 func (d *Dependency) Validate() error {
 	if strings.TrimSpace(d.Name) == "" {
 		return fieldErr("name is required",
-			"give this dependency a `name` like `github:org/repo`")
+			"give this dependency a `name` like `github:org/repo` (or `local:<name>` for a local source)")
 	}
-	if _, err := resolve.ParseSlug(d.Name); err != nil {
+	if d.RefType.IsLocal() {
+		// 本地来源：name 用 local: 命名空间，不走 ParseSlug 的 host:path 规则。
+		if !strings.HasPrefix(d.Name, "local:") || len(d.Name) <= len("local:") {
+			return fieldErr(
+				fmt.Sprintf("local dependency name %q must be `local:<name>`", d.Name),
+				"local sources use their own namespace to avoid colliding with git dependencies")
+		}
+		if err := localfs.ValidateSourcePath(d.SourcePath); err != nil {
+			return fieldErr(err.Error(), "set `sourcePath` to a project-relative directory")
+		}
+		if d.RefType == RefTypeLocalGit {
+			if err := localfs.ValidateSourcePath(d.LocalRepo); err != nil {
+				return fieldErr(err.Error(), "set `localRepo` to the project-relative git repository root")
+			}
+		}
+	} else if _, err := resolve.ParseSlug(d.Name); err != nil {
 		return err // ParseSlug 自己带建议（唯一事实源）
 	}
 	if strings.TrimSpace(d.Ref) == "" {
@@ -151,6 +166,15 @@ func (d *Dependency) Validate() error {
 				d.RefType, ValidRefType()),
 			fmt.Sprintf("set `refType` to one of %v — ngm only defaults to commit for a full 40-char hash", ValidRefType()),
 		)
+	}
+	if d.RefType == RefTypeLocalDir {
+		// 手写声明允许 `auto`：install 时计算目录摘要并写入 lock，
+		// ngm.json 保持可读（adopt 式的坡道，避免自举悖论）。
+		if d.Ref != "auto" && !(strings.HasPrefix(d.Ref, "sha256:") && len(d.Ref) == len("sha256:")+64) {
+			return fieldErr(
+				fmt.Sprintf("local-dir ref %q must be `auto` or sha256:<64 hex>", d.Ref),
+				"use `auto` to let `ngm install` compute the dirDigest, or pin an explicit digest")
+		}
 	}
 	if d.Path != "" {
 		if err := validateDepPath(d.Path); err != nil {
@@ -355,10 +379,9 @@ func (g *GlobalFile) Validate() error {
 	}
 	if !SupportedSchemaVersion(g.SchemaVersion) {
 		return fieldErr(
-			fmt.Sprintf("global schemaVersion %d not supported; this build supports v%d..v%d",
-				g.SchemaVersion, SchemaVersion, MaxSchemaVersion),
-			fmt.Sprintf("set `schemaVersion` to %d..%d in ~/.ngm/config.json, or upgrade ngm",
-				SchemaVersion, MaxSchemaVersion),
+			fmt.Sprintf("global schemaVersion %d not supported; this build supports v%d",
+				g.SchemaVersion, SchemaVersion),
+			fmt.Sprintf("set `schemaVersion` to %d in ~/.ngm/config.json, or upgrade ngm", SchemaVersion),
 		)
 	}
 	if g.Git != nil && g.Git.DefaultProtocol != "" {

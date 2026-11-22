@@ -257,7 +257,7 @@ func TestRead_IgnoresUnknownFields(t *testing.T) {
 	path := filepath.Join(dir, FileName)
 	content := `{
   "version": 1,
-  "lockfileVersion": "2.0.0",
+  "lockfileVersion": "3.0.0",
   "dependencies": [
     {
       "name": "github:org/utils",
@@ -328,7 +328,7 @@ func TestValidate(t *testing.T) {
 		{"ok", func(f *File) {}, ""},
 		{"bad version", func(f *File) { f.Version = 99 }, "unsupported lock `version`"},
 		{"missing lockfileVersion", func(f *File) { f.LockfileVersion = "" }, "lockfileVersion"},
-		{"major mismatch", func(f *File) { f.LockfileVersion = "3.0.0" }, "incompatible lockfileVersion"},
+		{"major mismatch", func(f *File) { f.LockfileVersion = "2.0.0" }, "incompatible lockfileVersion"},
 		{"missing name", func(f *File) { f.Dependencies[0].Name = "" }, "name"},
 		{"invalid slug", func(f *File) { f.Dependencies[0].Name = "nope" }, "invalid git address"},
 		{"missing ref", func(f *File) { f.Dependencies[0].Ref = "" }, "ref"},
@@ -410,7 +410,7 @@ func TestMarshal_EmptyDependenciesIsArray(t *testing.T) {
 func TestV153ParseRejectsTrailingContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, FileName)
-	good := `{"version":1,"lockfileVersion":"2.0.0","dependencies":[],"futureTopLevel":true}`
+	good := `{"version":1,"lockfileVersion":"3.0.0","dependencies":[],"futureTopLevel":true}`
 	if err := os.WriteFile(path, []byte(good+"\n{\"later\":true}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

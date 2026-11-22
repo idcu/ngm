@@ -20,7 +20,7 @@ const v105FullCommit = "0123456789abcdef0123456789abcdef01234567"
 // 判据刻意走 `decodeProject`（生产入口）而不是直接调 `d.Validate()`：
 // 后者一直是绿的，正因为它测的是那个副本。
 func TestV105NarrowRefTypeDefaultSurvivesDecode(t *testing.T) {
-	src := `{"schemaVersion":1,"name":"github.com:acme/app","version":"0.1.0","runtime":"node",` +
+	src := `{"schemaVersion":3,"name":"github.com:acme/app","version":"0.1.0","runtime":"node",` +
 		`"dependencies":[{"name":"github:acme/lib","ref":"` + v105FullCommit + `"}]}`
 
 	p, err := decodeProject(strings.NewReader(src), "ngm.json")
@@ -38,7 +38,7 @@ func TestV105NarrowRefTypeDefaultSurvivesDecode(t *testing.T) {
 
 // 同一个洞的另一半：短 hash 仍然必须被拒（窄默认不得被顺手放宽）。
 func TestV105NarrowRefTypeStaysNarrow(t *testing.T) {
-	src := `{"schemaVersion":1,"name":"github.com:acme/app","version":"0.1.0","runtime":"node",` +
+	src := `{"schemaVersion":3,"name":"github.com:acme/app","version":"0.1.0","runtime":"node",` +
 		`"dependencies":[{"name":"github:acme/lib","ref":"0123456"}]}`
 	if _, err := decodeProject(strings.NewReader(src), "ngm.json"); err == nil {
 		t.Fatal("a 7-char ref without refType must still be rejected (short hash is ambiguous with a tag)")
@@ -52,7 +52,7 @@ func TestV105NarrowRefTypeStaysNarrow(t *testing.T) {
 // `invalid character '\ufeff'`——文件肉眼完全正确，工具说不合法。
 // ngm 的第一顺位用户恰好在 Windows 上。
 func TestV105Utf8BomIsTolerated(t *testing.T) {
-	const body = `{"schemaVersion":1,"name":"github.com:acme/app","version":"0.1.0","runtime":"node"}`
+	const body = `{"schemaVersion":3,"name":"github.com:acme/app","version":"0.1.0","runtime":"node"}`
 
 	p, err := decodeProject(strings.NewReader("\ufeff"+body), "ngm.json")
 	if err != nil {

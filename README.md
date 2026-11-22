@@ -1,10 +1,10 @@
 # ngm
 
-> **Git 依赖的证明层**：把 `github:org/repo@v1.2.3` 这样的声明，变成「声明 + commit + 内容 digest + 可离线重放 + 可导出审计产物」的可核验对象。
+> **独立生态的通用包管理器**：来源通用（git / 本地目录），身份可证明——把 `github:org/repo@v1.2.3` 或 `local:kernel` 这样的声明，变成「声明 + 锚点（commit / dirDigest）+ 内容 digest + 可离线重放 + 可导出审计产物」的可核验对象。
 
-ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `ngm.lock` 锁定 commit 与内容摘要、用 `ngm verify` 重放证明，并可从 lock 直接导出 SBOM 与 in-toto / SLSA 语句。
+ngm 是一个 Go 编写的单二进制 CLI，用 `ngm.json` 声明依赖、用 `ngm.lock` 锁定锚点（git 来源 commit / 本地来源 dirDigest）与内容摘要、用 `ngm verify` 重放证明，并可从 lock 直接导出 SBOM 与 in-toto / SLSA 语句。
 
-它**不是** npm / pnpm / Yarn / Bun 的替代品，也不是它们的兼容层——[**不是同类东西**](docs/adr/adr-044-independent-ecosystem.md)：它管理的是直接来自 Git 仓库的依赖，不解析 registry 包，不接管 `node_modules`，也不替你决定运行时或签名体系。npm 世界在这里只以两种身份出现：`ngm adopt` 读它（输入），或者你正在从它搬过来（坡道）。
+它**不是** npm / pnpm / Yarn / Bun 的替代品，也不是它们的兼容层——[**不是同类东西**](docs/adr/adr-044-independent-ecosystem.md)：它管理来自 Git 仓库**或本地目录**的依赖，不解析 registry 包，不接管 `node_modules`，也不替你决定运行时或签名体系。npm 世界在这里只以两种身份出现：`ngm adopt` 读它（输入），或者你正在从它搬过来（坡道）。
 
 ---
 
@@ -60,7 +60,7 @@ Gitee 仅 `v0.2.0`–`v0.4.0`（3 个）；正式 tag 的 release 缺口是 **38
 ## 边界：它不做什么
 
 - **不解析 npm 配置**：依赖里的 `.npmrc` 只是普通文件，会进入 digest、会被 vendor，但**永远不会被解释**。
-- **不安装 registry 包**：只接受 Git 地址；没有 registry 版本解析、没有 tarball 完整性体系。
+- **不安装 registry 包**：只接受 Git 地址或本地目录；没有 registry 版本解析、没有 tarball 完整性体系。
 - **不做 workspace 依赖解析**：monorepo 只支持「同一仓库 + 子路径」(`path`)，不是 pnpm workspace。
 - **不接管 `node_modules`**：`ngm adopt` 只读扫描并出具内容证明，不安装、不修改。
 - **不自造签名体系**：`ngm attest` 产出未签名语句，请用 `cosign attest-blob` 等标准工具签名。
@@ -79,6 +79,10 @@ Gitee 仅 `v0.2.0`–`v0.4.0`（3 个）；正式 tag 的 release 缺口是 **38
 | `commit` | 固定 commit | 完整 40 位 hash 可省略 `refType`；7–39 位短 hash 必须显式声明 |
 | `tag` | 标签 | 解析为 tag 当前指向的 commit |
 | `branch` | 分支 | 解析为分支当前 tip |
+| `local-git` | 本地 Git 仓库（`localRepo` + `sourcePath`） | 复用 commit 证明链，完全离线 |
+| `local-dir` | 任意本地目录（`sourcePath`；`ref` 为 `auto` 或 dirDigest） | 用目录内容摘要 `dirDigest` 作锚点（清单头 `ngm-local-digest/v1`） |
+
+本地来源见 [ADR-052](docs/adr/adr-052-local-sources.md)；用 `ngm add local:<name> --ref-type local-dir --source-path=<dir>` 声明，`ref: auto` 由 `ngm install` 计算并钉住目录摘要。
 
 `@main` 无法区分「叫 main 的 tag」与「叫 main 的分支」，因此 `refType` 通常必填。`ngm add --infer-ref-type` 会用一次 `ls-remote` 消歧；两者都存在时直接报错，不会猜。
 
@@ -95,24 +99,21 @@ Gitee 仅 `v0.2.0`–`v0.4.0`（3 个）；正式 tag 的 release 缺口是 **38
 
 ### ngm.json 的 schemaVersion
 
-`ngm init` / `ngm add` 写出的 `schemaVersion` 是 **1**；读取器（`config validate`、`install`、
-`modules validate` 等全链路）接受 **1..2**。v2 目前只增加可选语义，不改变已有字段形状，
-因此旧项目无需迁移，ngm-repo 这类生产方也可以继续使用 v2 清单。超出范围的版本（如 3）
-会以 exit 3 拒绝并写出支持区间。
+`ngm init` / `ngm add` 写出的 `schemaVersion` 是 **3**；读取器全链路只接受 **3**。v1/v2（refType 三值、单 Git 来源）已随通用包管理器升级废止，旧清单需手工升级 `schemaVersion` 并重新 `ngm install`；不提供迁移命令（[ADR-052](docs/adr/adr-052-local-sources.md)）。超出范围的版本以 exit 3 拒绝并写出支持区间。
 
-### ngm.lock（lock v2）
+### ngm.lock（lock v3）
 
 `ngm.lock` 是唯一事实源，必须提交。顶层结构：
 
 ```json
 {
   "version": 1,
-  "lockfileVersion": "2.0.0",
+  "lockfileVersion": "3.0.0",
   "dependencies": []
 }
 ```
 
-每个依赖条目包含 `name` / `ref` / `refType` / `commit` / `archiveDigest` 或 `moduleDigest` + `subtreeOid` / `resolvedAt` / `vendorPath`，以及（自 v0.73 起）`requiredBy` 直接引用者列表。`requiredBy` 让 `ngm why` 无需重新解析即可回答来源，并让 SBOM 有依赖关系。
+每个依赖条目包含 `name` / `ref` / `refType` / 锚点（git 来源 `commit` + `archiveDigest`/`moduleDigest`+`subtreeOid`；local-dir 来源 `dirDigest`+`sourcePath`）/ `resolvedAt` / `vendorPath` / `requiredBy`（直接引用者，让 `ngm why` 离线可答、SBOM 有依赖图）。
 
 **确定性纪律**：除 `resolvedAt` 外，同一 `ngm.json` + 同一上游状态应产生字节级一致的 lock。字段顺序、2 空格缩进、LF、末尾换行都是格式契约的一部分。
 
@@ -589,7 +590,7 @@ go test -race ./...    # 可选；CI 在 ubuntu 上单独跑，同样放宽到 4
 - [快速上手](docs/guides/quickstart.md)、[安装指南](docs/guides/installation.md)
 - [术语表](docs/guides/glossary.md)
 - [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
-- [ADR 索引](docs/adr/README.md) — 51 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、默认晾晒期、verify 默认级别等）
+- [ADR 索引](docs/adr/README.md) — 52 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、verify 默认级别、本地来源等）
 - [全维度代码评估（2026-11-20）](docs/analysis/ngm-full-assessment-2026-11-20.md) — 全量审查结论、缺陷清单与优先级（最新）
 - [竞品全维度差距评估（2026-11-21）](docs/analysis/ngm-competitive-gap-full-2026-11-21.md) — 与 npm/pnpm/Deno 等的最新差距、过期事实纠偏与建议
 - [历史评估归档](docs/internals/assessment-2026-11-07-full.md) — 此前的独立评估、缺陷清单与优先级

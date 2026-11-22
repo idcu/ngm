@@ -66,7 +66,7 @@ func (w *fixtureWorld) opts() resolve.GraphOptions {
 func repoWithDeps(t *testing.T, depLines ...string) *testutils.GitRepo {
 	t.Helper()
 	r := testutils.NewGitRepo(t)
-	body := "{\n  \"schemaVersion\": 1,\n  \"name\": \"github.com:fixture/repo\",\n" +
+	body := "{\n  \"schemaVersion\": 3,\n  \"name\": \"github.com:fixture/repo\",\n" +
 		"  \"version\": \"0.1.0\",\n  \"runtime\": \"node\",\n  \"dependencies\": [\n"
 	for i, l := range depLines {
 		body += "    " + l
@@ -502,7 +502,7 @@ func TestResolveGraph_ModuleManifestWinsAndRootFallbackWarns(t *testing.T) {
 
 	mono := testutils.NewGitRepo(t)
 	mono.WriteFile("ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com:w/mono",
   "version": "0.1.0",
   "runtime": "node",

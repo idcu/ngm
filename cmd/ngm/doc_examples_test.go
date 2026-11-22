@@ -147,7 +147,7 @@ var docExampleExceptions = []struct {
 	why  string
 }{
 	{"docs/guides/test.md", "ngm test", "散文明确写着 ngm 没有 test 命令——这一行是负例"},
-	{"docs/guides/configuration.md", "ngm lock migrate", `写明"迁移命令尚不存在"（至今未发生 MAJOR 变更）`},
+	{"docs/guides/configuration.md", "ngm lock migrate", `写明"迁移命令仍不存在"（v3 起旧格式直接废止、重新生成，见 ADR-052）`},
 	{"docs/guides/cli.md", "ngm verify --json --bogus",
 		"这一行是**实测记录**：散文说的是「解析阶段的失败也该有机器可读的形态」——" +
 			"那条调用会被拒绝，正是它的要点"},

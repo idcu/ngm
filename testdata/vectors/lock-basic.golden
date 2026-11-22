@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lockfileVersion": "2.0.0",
+  "lockfileVersion": "3.0.0",
   "dependencies": [
     {
       "name": "github:org/logger",

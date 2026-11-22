@@ -144,10 +144,12 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `name` | string | 是 | 依赖标识，格式 `git-host:org/repo` |
-| `ref` | string | 是 | tag / branch / commit 名字 |
-| `refType` | `"commit" \| "tag" \| "branch"` | 条件必填 | 完整 40 位 commit hash 可省略（按 commit）；其余**必填** |
+| `name` | string | 是 | 依赖标识：git 来源 `git-host:org/repo`；本地来源 `local:<name>` |
+| `ref` | string | 是 | tag / branch / commit 名字；local-dir 为 `auto` 或 `sha256:<hex>` |
+| `refType` | `"commit" \| "tag" \| "branch" \| "local-git" \| "local-dir"` | 条件必填 | 完整 40 位 commit hash 可省略（按 commit）；其余**必填** |
 | `path` | string | 否 | monorepo 子路径 |
+| `sourcePath` | string | local-* 必填 | 相对项目根的本地目录，不得含 `..` 逃逸 |
+| `localRepo` | string | local-git 必填 | 相对项目根的本地 git 仓根路径 |
 
 ### refType 为什么通常必填
 
@@ -156,6 +158,17 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 **唯一的窄默认**（ADR-035）：`ref` 是完整 40 位十六进制 hash 时，可以省略 `refType`，按 `commit` 处理并写回。tag、branch、7–39 位短 hash 仍然必须显式。
 
 `ngm add` 的提示仍会给出“看起来像 tag/branch”的建议，但不会把 tag/branch 静默写成 commit。需要消歧时显式加 `--infer-ref-type`：ngm 做一次 `ls-remote`，只有 tag/branch 之一存在才写入，两者都有则报错。
+
+### 本地来源（local-git / local-dir）
+
+本地来源用 `local:<name>` 命名空间，与 git 依赖隔离（ADR-052）：
+
+```jsonc
+{ "name": "local:kernel", "ref": "auto", "refType": "local-dir", "sourcePath": "./packages/kernel" }
+{ "name": "local:payroll", "ref": "v1.0.0", "refType": "local-git", "sourcePath": "./packages/packs/payroll", "localRepo": "./" }
+```
+
+`local-dir` 的 `ref: auto` 让 `ngm install` 计算目录内容摘要（dirDigest）并写进 lock；显式 `sha256:<hex>` 则钉住内容。`local-git` 复用 commit 证明链、完全离线。`sourcePath` 不得逃逸项目根；不做 workspace 编排（ADR-031 不变量保持）。
 
 ---
 
@@ -374,11 +387,11 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 所有配置与协议文件（`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json`）都带版本标识，遵循同一演进规则（与 [lockfileVersion](../architecture/locking.md) 一致）：
 
 - 同一大版本内只新增可选字段，旧工具应忽略未知字段继续工作
-- 破坏性变更递增大版本，并**同时**提供迁移命令（`ngm lock migrate` 等）；
-  v1 → v2（模块级证明）因项目尚无用户而直接废止 v1，**迁移命令仍不存在**——重新生成即可
-- **读取器的当前范围（v0.102）**：`ngm.json` / `ngm.engines.json` / `~/.ngm/config.json`
-  接受 `schemaVersion` 1..2；v2 目前只增加可选语义，不改变已有字段形状。
-  `ngm init` / `ngm add` 写出的仍是 v1——"可读 v2"不等于"默认写 v2"。
+- 破坏性变更递增大版本；`ngm lock migrate` 迁移命令仍不存在（至今未发生需要迁移的兼容请求）——
+  v1 → v2（模块级证明）、v2 → v3（本地来源）均直接废止旧版，**重新生成即可**（ADR-052）
+- **读取器的当前范围（v0.103）**：`ngm.json` / `ngm.engines.json` / `~/.ngm/config.json`
+  只接受 `schemaVersion` 3；v1/v2 被 exit 3 拒绝。`ngm init` / `ngm add` 写出 v3。
+  refType 新增 `local-git` / `local-dir`（[ADR-052](../adr/adr-052-local-sources.md)）。
 - `archiveDigest`/`moduleDigest` 的清单规范版本与 lockfileVersion 绑定
   （见 [ADR-008](../adr/adr-008-archive-digest.md) / [ADR-032](../adr/adr-032-scoped-content-proof.md)）
 

@@ -72,6 +72,19 @@ func ResolveRef(ctx context.Context, repo Canonical, ref string, refType RefType
 			return "", err
 		}
 		return expandShortCommit(ctx, repo, full, opts)
+	// local-git 的 ref 语义与 git 来源一致（tag/branch/commit 三选一），
+	// 但 refType 本身不再区分是哪一种——从 ref 字符串形态判断：
+	// 完整/短 hex → commit；否则按 tag 解析（可显式用完整 hash 避免歧义）。
+	// 注意 ADR-052 要求 local-git 的 ref 必填，这里 ref 已在上游校验非空。
+	case RefTypeLocalGit:
+		if IsFullCommit(ref) || isAbbrevCommit(ref) {
+			full, err := normalizeCommitRef(ref)
+			if err != nil {
+				return "", err
+			}
+			return expandShortCommit(ctx, repo, full, opts)
+		}
+		return resolveNamedRef(ctx, repo, ref, RefTypeTag, opts)
 	case RefTypeTag, RefTypeBranch:
 		return resolveNamedRef(ctx, repo, ref, refType, opts)
 	default:
@@ -152,6 +165,21 @@ func expandShortCommit(ctx context.Context, repo Canonical, full string, opts Re
 func IsFullCommit(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) != 40 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// isAbbrevCommit 报告 s 是否是 7–39 位十六进制短 hash（local-git 的 ref 判别用）。
+func isAbbrevCommit(s string) bool {
+	if len(s) < 7 || len(s) > 39 {
 		return false
 	}
 	for i := 0; i < len(s); i++ {

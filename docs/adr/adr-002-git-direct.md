@@ -6,6 +6,8 @@
 
 ---
 
+> **补记（2026-11-22，[ADR-052](./adr-052-local-sources.md)）**：直接拉 Git 仍是 git 来源的策略；新增**本地来源**（local-git：本地 git 仓；local-dir：任意目录 + dirDigest）作为并列来源。仍不引入 registry、不做 semver 求解。
+
 ## 背景
 
 主流包管理器（npm / pnpm / Yarn）从 registry 拉 tarball，Git 依赖是二等公民（Git URL 只记录 commit，不强制 refType，archive 级策略需自行拼接）。

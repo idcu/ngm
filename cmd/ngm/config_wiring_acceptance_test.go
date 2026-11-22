@@ -115,7 +115,7 @@ func TestDeclaredSupportedInputIsListed(t *testing.T) {
 	isolateUserEnv(t)
 	proj := t.TempDir()
 	testutils.WriteFile(t, proj, "ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com/v4/input-app",
   "version": "0.1.0",
   "runtime": "node",
@@ -159,7 +159,7 @@ func TestDeclaredEngineVersionIsComparedWithTheLocalOne(t *testing.T) {
 
 	proj := t.TempDir()
 	testutils.WriteFile(t, proj, "ngm.json", `{
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "name": "github.com/v5/version-app",
   "version": "0.1.0",
   "runtime": "node",
@@ -251,7 +251,7 @@ func TestRuntimeIsValidatedAcceptedAndEchoed(t *testing.T) {
 		t.Errorf("config show must echo the declared runtime:\n%s", out)
 	}
 
-	writeProjectManifest(t, proj, `{"schemaVersion":1,"name":"github.com:wiring/rt","version":"0.1.0","runtime":"bun","dependencies":[]}`)
+	writeProjectManifest(t, proj, `{"schemaVersion":3,"name":"github.com:wiring/rt","version":"0.1.0","runtime":"bun","dependencies":[]}`)
 	badCode, badOut := runCaptureCode(t, "config", "validate")
 	if badCode != 3 {
 		t.Fatalf("an unknown runtime must exit 3, got %d:\n%s", badCode, badOut)
@@ -263,7 +263,7 @@ func TestRuntimeIsValidatedAcceptedAndEchoed(t *testing.T) {
 	// 缺失即被拒：文档把 runtime 列为**必填**，校验也确实在 decode 阶段就拦下了
 	// （因此 BuiltinDefaults.Runtime 那条"缺省补 node"的分支对显式 ngm.json
 	// 是不可达的——那是另一处"声明了但到不了"的代码，本轮只登记不改）。
-	writeProjectManifest(t, proj, `{"schemaVersion":1,"name":"github.com:wiring/rt","version":"0.1.0","dependencies":[]}`)
+	writeProjectManifest(t, proj, `{"schemaVersion":3,"name":"github.com:wiring/rt","version":"0.1.0","dependencies":[]}`)
 	missCode, missOut := runCaptureCode(t, "config", "validate")
 	if missCode != 3 {
 		t.Fatalf("runtime is required; an omitted one must exit 3, got %d:\n%s", missCode, missOut)
@@ -277,7 +277,7 @@ func TestProjectVersionIsRequired(t *testing.T) {
 	chdir(t, proj)
 
 	writeProjectManifest(t, proj,
-		`{"schemaVersion":1,"name":"github.com:wiring/ver","runtime":"node","dependencies":[]}`)
+		`{"schemaVersion":3,"name":"github.com:wiring/ver","runtime":"node","dependencies":[]}`)
 	code, out := runCaptureCode(t, "config", "validate")
 	if code != 3 {
 		t.Fatalf("a missing version must exit 3, got %d:\n%s", code, out)
@@ -287,7 +287,7 @@ func TestProjectVersionIsRequired(t *testing.T) {
 	}
 
 	writeProjectManifest(t, proj,
-		`{"schemaVersion":1,"name":"github.com:wiring/ver","version":"1.2.3","runtime":"node","dependencies":[]}`)
+		`{"schemaVersion":3,"name":"github.com:wiring/ver","version":"1.2.3","runtime":"node","dependencies":[]}`)
 	if code, out := runCaptureCode(t, "config", "validate"); code != 0 {
 		t.Fatalf("a declared version must validate, exit=%d:\n%s", code, out)
 	}
@@ -305,9 +305,9 @@ func TestUnsupportedSchemaVersionIsRejected(t *testing.T) {
 	proj := t.TempDir()
 	chdir(t, proj)
 
-	const valid = `{"schemaVersion":1,"name":"github.com:wiring/sv","version":"0.1.0","runtime":"node","dependencies":[]}`
+	const valid = `{"schemaVersion":3,"name":"github.com:wiring/sv","version":"0.1.0","runtime":"node","dependencies":[]}`
 
-	writeProjectManifest(t, proj, strings.Replace(valid, `"schemaVersion":1`, `"schemaVersion":3`, 1))
+	writeProjectManifest(t, proj, strings.Replace(valid, `"schemaVersion":3`, `"schemaVersion":4`, 1))
 	pCode, pOut := runCaptureCode(t, "config", "validate")
 	if pCode != 3 {
 		t.Fatalf("an unsupported project schemaVersion must exit 3, got %d:\n%s", pCode, pOut)
@@ -317,7 +317,7 @@ func TestUnsupportedSchemaVersionIsRejected(t *testing.T) {
 	}
 
 	writeProjectManifest(t, proj, valid)
-	writeGlobalConfig(t, home, `{"schemaVersion":3}`)
+	writeGlobalConfig(t, home, `{"schemaVersion":4}`)
 	gCode, gOut := runCaptureCode(t, "config", "validate")
 	if gCode != 3 {
 		t.Fatalf("an unsupported global schemaVersion must exit 3, got %d:\n%s", gCode, gOut)

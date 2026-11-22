@@ -29,24 +29,28 @@ import (
 // SchemaVersion 是 ngm.json / ngm.lock / ngm.mappings.json 等所有协议文件的
 // 当前 schema 大版本。版本演进规则见 guides/configuration.md 的"schema 版本策略"。
 //
-// 注意：本常量同时也是配置文件中的 "schemaVersion" 字段。**写入**仍使用 v1；
-// **读取**同时接受 v1 与 v2（v0.102 起）——v2 目前只增加可选语义，不改变
-// 已有字段的形状，因此旧文件无需迁移，新文件也不会被旧读取器误判为损坏。
+// 注意：本常量同时也是配置文件中的 "schemaVersion" 字段。v3（ADR-052 本地来源）
+// 是**唯一写入且唯一接受**的版本：写入用 v3；读取只接受 v3，旧 v1/v2 一律拒绝
+// （exit 3），且不提供迁移命令——用户必须升级声明，不能靠"旧文件还能读"糊弄过去。
 //
-// 为什么默认写入仍是 v1：v2 尚未定义任何 v1 无法表达的必填字段；让 init/add
-// 写 v2 会把"读取向后兼容"变成又一次无收益的格式变更。
-const SchemaVersion = 1
+// 为什么不再向后兼容：v3 为本地来源引入了 refType 新值与必填字段语义，旧版本
+// 清单在 v3 读取器下无法表达同样的约束；同时保留兼容会让"哪些版本真的受支持"
+// 变成一道算术题，而不是一个可以钉死在测试里的确定集合。
+const SchemaVersion = 3
 
 // MaxSchemaVersion 是当前读取器能接受的最高项目清单 schema 版本。
 //
-// 接受区间是 [1, MaxSchemaVersion]；0（字段缺失）按 SchemaVersion 处理。
-const MaxSchemaVersion = 2
+// 与 SchemaVersion 相等：v3 是唯一受支持的版本。接受区间是
+// [SchemaVersion, MaxSchemaVersion]（退化为只接受 3）；0（字段缺失）按
+// SchemaVersion 处理。旧 v1/v2 与新于本构建的版本都不被接受。
+const MaxSchemaVersion = 3
 
 // SupportedSchemaVersion 报告某个 schemaVersion 是否可被本构建读取。
 //
 // 0 表示文件没写这个字段：按 SchemaVersion 处理，因此也算支持。
+// 只有 v3 受支持；v1/v2 与更高版本都返回 false。
 func SupportedSchemaVersion(v int) bool {
-	return v == 0 || (v >= 1 && v <= MaxSchemaVersion)
+	return v == 0 || (v >= SchemaVersion && v <= MaxSchemaVersion)
 }
 
 // FileName 是项目清单的文件名（用户可编辑，必须提交进 Git）。
@@ -72,9 +76,11 @@ const (
 type RefType = resolve.RefType
 
 const (
-	RefTypeCommit = resolve.RefTypeCommit
-	RefTypeTag    = resolve.RefTypeTag
-	RefTypeBranch = resolve.RefTypeBranch
+	RefTypeCommit   = resolve.RefTypeCommit
+	RefTypeTag      = resolve.RefTypeTag
+	RefTypeBranch   = resolve.RefTypeBranch
+	RefTypeLocalGit = resolve.RefTypeLocalGit
+	RefTypeLocalDir = resolve.RefTypeLocalDir
 )
 
 // ValidRefType 列出所有合法 refType，便于校验与错误提示。
@@ -115,6 +121,12 @@ type Dependency struct {
 	RefType RefType `json:"refType"`
 	// Path 可选，monorepo 子路径（M1 完整实现；M0 仅记录与校验格式）。
 	Path string `json:"path,omitempty"`
+	// SourcePath 是本地来源的目录声明（local-git / local-dir 必填）。
+	// 相对项目根；不得逃逸（ADR-052，spec §10 决策 1）。
+	SourcePath string `json:"sourcePath,omitempty"`
+	// LocalRepo 是 local-git 来源的本地 git 仓根路径（相对项目根）。
+	// local-dir 不使用此字段。
+	LocalRepo string `json:"localRepo,omitempty"`
 }
 
 // EnginesConfig 引擎选择；支持简写与完整写法。

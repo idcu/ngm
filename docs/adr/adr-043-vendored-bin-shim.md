@@ -6,6 +6,8 @@
   `ngm.vendor/.bin/` shim"，目标是让纯 Git 依赖项目在没有 npm 的情况下也能把
   依赖里的 CLI 当命令用。
 
+> **补记（2026-11-22，[ADR-052](./adr-052-local-sources.md)）**：ADR-044 重启条件③触发时本 ADR 一并重启；结论**暂缓不变**——通用包管理器的「通用」只指来源（git + 本地），仍不含 CLI 安装器语义，不为 vendored 依赖生成 `.bin` shim。
+
 ## 决策
 
 **本轮不实现**。保留现状：ngm 只把既有的 `node_modules/.bin`（项目及祖先目录）
