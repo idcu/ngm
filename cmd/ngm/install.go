@@ -420,7 +420,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			if err := os.RemoveAll(dst); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
-			if err := localfs.CopyTree(n.LocalRoot, dst); err != nil {
+			if err := localfs.Materialize(n.LocalRoot, dst, pf.Vendor.LinkMode); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
 			lf.Dependencies = append(lf.Dependencies, lock.Dependency{
@@ -598,7 +598,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 			if err := os.RemoveAll(dst); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
-			if err := localfs.CopyTree(abs, dst); err != nil {
+			if err := localfs.Materialize(abs, dst, pf.Vendor.LinkMode); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
 			fmt.Fprintf(stdout, "%s@%s (local-dir) → %s\n", d.Name, d.Ref, d.DirDigest)

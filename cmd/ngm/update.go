@@ -207,7 +207,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			if err := os.RemoveAll(dst); err != nil {
 				return runErr(ctx, stdout, stderr, err)
 			}
-			if err := localfs.CopyTree(n.LocalRoot, dst); err != nil {
+			if err := localfs.Materialize(n.LocalRoot, dst, pf.Vendor.LinkMode); err != nil {
 				return runErr(ctx, stdout, stderr, err)
 			}
 			lf.Dependencies = append(lf.Dependencies, lock.Dependency{

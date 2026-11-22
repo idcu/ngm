@@ -72,6 +72,41 @@ func CopyTree(src, dst string) error {
 	})
 }
 
+// LinkTree 把 src 目录以**符号链接**方式挂到 dst（dst 本身是链接，指向 src 绝对路径）。
+//
+// 用途：local 模块用 linkMode=symlink 时，改源码立即生效、无需重新 install；
+// 内容身份仍由 dirDigest 对源目录计算，verify 重算的也是源目录——链接只是"同一份字节的另一种视角"。
+// 与 CopyTree 的区别：CopyTree 做快照（改源码要 reinstall），LinkTree 做实时视图。
+func LinkTree(src, dst string) error {
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("stat source: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("source %q is not a directory", abs)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("create parent: %w", err)
+	}
+	_ = os.RemoveAll(dst) // 幂等：先把旧的 copy 或链接删掉
+	if err := os.Symlink(abs, dst); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w", dst, abs, err)
+	}
+	return nil
+}
+
+// Materialize 按 linkMode 把 src 落地到 dst："symlink" 用链接，其余（含 copy/auto）用复制。
+func Materialize(src, dst, linkMode string) error {
+	if linkMode == "symlink" {
+		return LinkTree(src, dst)
+	}
+	return CopyTree(src, dst)
+}
+
 // RelName 从 local:<name> 提取 name，并归一为安全的相对目录名。
 // 拒绝空名与分隔符逃逸——vendor 路径在落地前最后一道检查。
 func RelName(name string) (string, error) {
