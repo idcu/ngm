@@ -1,7 +1,7 @@
 # Spec：本地来源（local-git / local-dir）与通用包管理器定位
 
 - **基线**：`2165127`（ngm 仓，2026-11-21；工作树仅有预存未跟踪目录 `2026-11-11/`）
-- **依据**：[ADR-052](../adr/adr-052-local-sources.md)（双证明模型、版本策略、边界）
+- **依据**：[ADR-052](../../adr/adr-052-local-sources.md)（双证明模型、版本策略、边界）
 - **范围**：ADR-052 的配套改造规格；**A→E 五批已授权实施**（2026-11-22）
 - **规模**：8 类、约 50+ 文件（其中 Go 源码 ~28、测试 ~15、文档 ~10）
 
@@ -28,7 +28,7 @@
    两者不混用。
 4. **确定性不变量**：lock / 清单 / SBOM / attest 同输入同字节；dirDigest 的排除集是契约（ADR-052 §3 边界 4）。
 5. **权限闸门不变量**：本地路径读取不申请 `net:*`，但必须过路径逃逸校验（`run:script` 等不变）。
-6. **文档同源**：README 现 599 行（上限 600），以改写为主；ADR 计数 52，三处同步由 V71/V142 守。
+6. **文档同源**：README 现 599 行（上限 600；本轮为恢复 discipline 第 11 问合并一行，ADR 计数仍在 :593），以改写为主；ADR 计数 52，三处同步由 V71/V142 守。
 
 ---
 
@@ -65,7 +65,7 @@
 | 文件 | 位置 | 改造点 |
 |---|---|---|
 | `internal/core/resolve/normalize.go` | `:92-97,213-249` | 新增 local 名称形态：`local:<name>`（独立命名空间，不进 `ParseSlug` 的 `<host>:<path>` 校验） |
-| `internal/core/resolve/addspec.go` | `:42-66,73-125` | `ParseAddSpec` 支持本地路径形式（`./dir`、`../dir`、绝对路径仅 local-git 允许）；`@ref` 语义按 refType 分流 |
+| `internal/core/resolve/addspec.go` | `:42-66,73-125` | `ParseAddSpec` 支持本地路径形式（`./dir` 等）；`../` 与绝对路径一律拒绝（§10 决策 1，2026-11-23 纠正本行早期表述），local-git 同样受 `ValidateSourcePath` 约束；`@ref` 语义按 refType 分流 |
 | `internal/core/resolve/graph.go` | `:481-511 resolveOne` | 三路分流：git / local-git（跳过 `EnsureMirror`，用 `localRepo` 路径做 mirror）/ local-dir（`ResolveRef` 返回 dirDigest 锚，跳过 git）。`:569-659 readUpstreamDeps` 对 local 从 `sourcePath/ngm.json` 读 |
 | `internal/core/resolve/reftype.go` | `:54-81` | `ResolveRef` 加 local-git（本地 `ls-remote`/`rev-parse`）与 local-dir（`localfs.BuildDirDigest`）分支 |
 | `cmd/ngm/env.go` | `:350-362 toDepSpecs`, `:160-214 RemoteRefResolver`, `:578-613 MaterializeVendorAndMappings` | `DepSpec` 加源类型；local 不注入远端 resolver；materialize 按 digest 来源分支 |
@@ -94,7 +94,7 @@
 |---|---|
 | `cmd/ngm/add.go` | 新 usage + `--ref-type local-git\|local-dir` + 本地路径参数；跳过 `InferRefTypeFromRemote` |
 | `cmd/ngm/install.go` | `installFresh` / `installFromLock` 两路径加 local 分支；`VendorPath` 生成适配 `local/` 命名空间 |
-| `cmd/ngm/update.go` | 写 lock 时 local 字段；local-dir 的 ref 随目录内容更新需显式 `--refresh-digest` |
+| `cmd/ngm/update.go` | 写 lock 时 local 字段；local-dir 的 ref 随目录内容更新**自动重算**（实施改判 2026-11-22：不引入 `--refresh-digest` flag） |
 | `tree.go` / `why.go` / `sbom.go` / `attest.go` / `doctor.go` | 消费 `refType`/`commit` 处降级处理；SBOM purl 用 `local:<name>` 方案 |
 | `internal/attest/attest.go` | `:54,122` 的 ref 注解支持 local 值；签名/颗statement 形状不变（ADR-027 不变量） |
 
@@ -113,7 +113,7 @@
 | T9 | `TestLocalNotWorkspace` | 两个 local 依赖不共享 lock、不 hoisting | C |
 | T10 | `TestLocalVendorPathNamespace` | `local/` 与 `host/org/repo` 不冲突、无逃逸 | C |
 | T11 | `TestOldGitProjectReinstall` | 存量 git 项目升 3 后重装，依赖字节不变 | E |
-| T12 | `TestAdrIndexAndCounts` | 52 个 ADR、索引连续、三处计数同步 | A |
+| T12 | `TestAdrIndexAndCounts`（计划名；实际落为 `TestV71AdrIndexCoversEveryAdrFile` / `TestV142AdrCountsAgreeWithFiles`） | 52 个 ADR、索引连续、三处计数同步 | A |
 
 **变异验证**：每条判据实现后做一次反向变异（改回旧行为）确认判据变红，否则判据无效（ADR-049 纪律）。
 
@@ -121,7 +121,7 @@
 
 | 文件 | 改造点 |
 |---|---|
-| `README.md` | `:3` 定位句 → 通用包管理器；`:5` "锁定 commit" → "锁定 commit 或 dirDigest"；`:7` "管理 Git 仓库依赖" → "git + 本地来源"；`:63` "只接受 Git 地址" → "Git 地址或本地目录"；`:592` ADR 计数已改 52；**净增行 = 0** |
+| `README.md` | `:3` 定位句 → 通用包管理器；`:5` "锁定 commit" → "锁定 commit 或 dirDigest"；`:7` "管理 Git 仓库依赖" → "git + 本地来源"；`:63` "只接受 Git 地址" → "Git 地址或本地目录"；`:593` ADR 计数已改 52；README 共 599 行（上限） |
 | `docs/guides/configuration.md` | schemaVersion 1..2 → 3；refType 三值 → 五值；写明迁移命令仍不存在（守 `doc_examples_test.go:150`） |
 | `docs/architecture/dependency-resolution.md` | 新增"来源分流"一节；local-git / local-dir 解析时序 |
 | `docs/architecture/locking.md` | lockfileVersion 3.0.0；dirDigest 字段契约；排除集是契约 |

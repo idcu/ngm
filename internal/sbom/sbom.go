@@ -26,6 +26,7 @@ import (
 
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/resolve"
 )
 
 // Format 是导出格式。
@@ -107,7 +108,31 @@ func (e Entry) Key() string {
 	return e.Slug
 }
 
-// Puri 返回该依赖的 purl（purl-spec 的包类型，按 host 分流）。
+// IsLocal 报告该条目来自 ADR-052 的本地来源（local-git / local-dir）。
+// local 没有可解析的仓库 URL，产物里不能伪造 `https://local/...`。
+func (e Entry) IsLocal() bool {
+	return strings.HasPrefix(strings.TrimSpace(e.Slug), resolve.LocalNamespace)
+}
+
+// ExportVersion 返回产物里的版本字段。
+// Git 来源用 commit；local 来源的 commit 位放的是内容 digest，
+// 写成 `sha256:...` 不是合法版本形态，改用裸 hex。
+func (e Entry) ExportVersion() string {
+	if e.IsLocal() {
+		return e.HexDigest()
+	}
+	return e.Commit
+}
+
+// HashKind 说明哈希字段是哪一种证明（产物里必须写清楚，不能混称 archiveDigest）。
+func (e Entry) HashKind() string {
+	if e.RefType == string(resolve.RefTypeLocalDir) {
+		return "dirDigest (ngm-local-digest/v1, ADR-052)"
+	}
+	return "archiveDigest (canonical file listing, ADR-008)"
+}
+
+// Purl 返回该依赖的 purl（purl-spec 的包类型，按 host 分流）。
 //
 // v0.102 起不再一律使用 `pkg:git`：主流 SBOM 工具认识的是
 // `pkg:github/<owner>/<repo>`、`pkg:gitlab/...`、`pkg:gitee/...`；
@@ -116,6 +141,15 @@ func (e Entry) Key() string {
 //
 // `bom-ref` **不跟着变**：见 BomRef。
 func (e Entry) Purl() string {
+	if e.IsLocal() {
+		// 本地来源不是可解析的 registry/git 包：用 generic 类型显式标注
+		// `local/<name>` 命名空间，版本用内容 digest，且不伪造 vcs_url。
+		p := "pkg:generic/local/" + e.CanonicalPath() + "@" + e.HexDigest()
+		if e.SubPath != "" {
+			p += subPathFragment(e.SubPath)
+		}
+		return p
+	}
 	host, path := e.hostAndPath()
 	var p string
 	switch host {
@@ -142,11 +176,21 @@ func (e Entry) Purl() string {
 // 所有已归档的 SBOM 会失去可比的组件 ID。这里保留 v0.82 起的旧形态
 // `pkg:git/<canonical>@<commit>[#sub]`——它是文档内的标识，不负责对外解析。
 func (e Entry) BomRef() string {
-	p := "pkg:git/" + e.Canonical + "@" + e.Commit
+	version := e.Commit
+	if e.IsLocal() {
+		version = e.HexDigest()
+	}
+	p := "pkg:git/" + e.Canonical + "@" + version
 	if e.SubPath != "" {
 		p += subPathFragment(e.SubPath)
 	}
 	return p
+}
+
+// CanonicalPath 返回 canonical 的 path 段；local 伪 Canonical 即 `local:<name>` 的后缀。
+func (e Entry) CanonicalPath() string {
+	_, path := e.hostAndPath()
+	return path
 }
 
 func (e Entry) hostAndPath() (host, path string) {
@@ -192,7 +236,19 @@ func percentEncode(s string) string {
 // VCSURL 返回该依赖的仓库地址（由 canonical 推导，永远 https——
 // 它只是"去哪儿能找到"，不参与任何判定）。
 func (e Entry) VCSURL() string {
+	if e.IsLocal() {
+		// 没有可访问的仓库地址；产物侧据此省略 vcs 引用，而不是造一个假 URL。
+		return ""
+	}
 	return "https://" + e.Canonical
+}
+
+// downloadLocation 返回 SPDX 的下载位置；本地来源没有可下载位置，按 SPDX 惯例写 NOASSERTION。
+func downloadLocation(e Entry) string {
+	if vcs := e.VCSURL(); vcs != "" {
+		return vcs
+	}
+	return "NOASSERTION"
 }
 
 // HexDigest 返回 digest 的裸 hex（SBOM 的 hash 字段不带 `sha256:` 前缀）。

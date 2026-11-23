@@ -200,6 +200,7 @@ func readCatFileBatchEach(r io.Reader, n int, visit func(index int, content []by
 func GetBlob(ctx context.Context, opts Options, repoPath, sha string) ([]byte, error) {
 	o := opts
 	o.Dir = repoPath
+	o.OutputLimit = DataOutputLimit
 	res, err := Run(ctx, o, "cat-file", "blob", sha)
 	if err != nil {
 		return nil, err

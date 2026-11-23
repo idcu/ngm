@@ -24,7 +24,7 @@
 2026-11-19 新增一处平台边界（Windows 上 POSIX 权限位不存在，0644 断言无法成立），
 现为 **57 处 / 39 个文件**；它守的是 `init` 的产物是否按共享权限写出，不是掩盖缺口。
 2026-11-11 的 `run:` 身份判定修复（replay 到 v0.102.0-dev.3 后）新增 3 处平台边界 skip，
-现为 **60 处 / 41 个文件**。
+现为 **63 处 / 44 个文件**（2026-11-23 local sources 的 symlink 平台边界 ×2，Windows-only 盘符判据 ×1）。
 
 ## 2. 分类规则
 
@@ -38,7 +38,7 @@
 | 已登记排除 | 扫描器里显式列出的例外项（**先断言失败，再跳过附加契约**） | 是（例外本身被断言覆盖） |
 | 漂移遮蔽 | 函数体只有 skip；或"预期失败"的样例成功后被跳过 | **否**——改成断言 |
 
-## 3. 清单（60 处）
+## 3. 清单（63 处）
 
 | 文件 | 处数 | 类别 | 说明 |
 |------|-----|------|------|
@@ -67,12 +67,14 @@
 | `cmd/ngm/v095_https_fetch_e2e_test.go` | 1 | 环境 | 443 已被占用 |
 | `cmd/ngm/v102_diagnostic_test.go` | 1 | 工具 | python3 |
 | `cmd/ngm/v128_engine_identity_test.go` | 2 | 平台 | symlink 不可用；`.cmd` 变体仅 Windows |
+| `cmd/ngm/v203_local_escape_and_branch_test.go` | 1 | 平台 | symlink 不可用（2026-11-23 local 逃逸判据） |
 | `cmd/ngm/verify_signatures_test.go` | 1 | 工具 | ssh-keygen / git |
 | `internal/adopt/adopt_test.go` | 1 | 平台 | symlink |
 | `internal/core/atomicfile/atomicfile_test.go` | 1 | 平台 | Windows chmod |
 | `internal/core/git/ancestry_test.go` | 1 | fixture | amend 后同一 commit id 不可得 |
 | `internal/core/git/auth_test.go` | 2 | 环境 | 端口不可达；git 缺失 |
 | `internal/core/git/signature_test.go` | 2 | 工具 | ssh-keygen / git |
+| `internal/core/localfs/manifest_test.go` | 1 | 平台 | symlink 不可用（2026-11-23 审计登记，HEAD 既有） |
 | `internal/core/lock/v066_write_test.go` | 1 | 平台 | Windows 权限位 |
 | `internal/core/vendor/content_legacy_test.go` | 2 | 平台 | symlink |
 | `internal/core/vendor/integrity_test.go` | 2 | 平台 | symlink |
@@ -81,6 +83,7 @@
 | `internal/core/vendor/store_scale_test.go` | 1 | opt-in | `NGM_STORE_SCALE_BLOBS` |
 | `internal/core/vendor/v105_test.go` | 1 | 平台 | 大小写不敏感卷 |
 | `internal/security/run_target_test.go` | 1 | 平台 | Windows-only 大小写折叠 |
+| `internal/security/v209_defense_in_depth_test.go` | 1 | 平台 | Windows-only 盘符相对路径 |
 | `internal/security/sandbox_test.go` | 2 | 工具 | deno 缺失 / 旧版本缺 flag |
 | `internal/testutils/gitrepo_test.go` | 3 | 工具 / 平台 | symlink、exec bit、annotated tag |
 

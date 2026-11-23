@@ -355,13 +355,9 @@ func isPathGrant(target string) bool {
 	if t == "" {
 		return false
 	}
-	if strings.HasPrefix(t, ".") {
-		return true
-	}
-	if filepath.IsAbs(t) || strings.ContainsAny(t, `/\`) {
-		return true
-	}
-	return false
+	// 与 runid.Identity.PathForm 共用唯一口径：此前 Windows 的盘符相对写法
+	// `C:foo` 在 PathForm 里是路径、在这里却是裸名字，授权静默失效（P3）。
+	return (runid.Identity{Program: t}).PathForm()
 }
 
 func (pol *Policy) allowSet() map[string]bool {

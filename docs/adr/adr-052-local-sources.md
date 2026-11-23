@@ -130,7 +130,7 @@ local-dir 返回 `dirDigest`，其余沿用 `IsModule()` 分支。`validateUniqu
 5. `TestOldGitProjectReinstall`：存量 git 项目升 3 后重新 install，依赖字节与升级前一致。
 6. `TestLocalNotWorkspace`：两个 local 依赖不产生共享 lock、不 hoisting。
 7. `TestLocalVendorPathNamespace`：`local/...` 与 `host/org/repo` 不冲突、无路径逃逸。
-8. `TestAdrIndexAndCounts`：新增 ADR-052 后索引连续、三处计数同步（V71/V142 守）。
+8. `TestAdrIndexAndCounts`（计划名；实际为 `TestV71AdrIndexCoversEveryAdrFile` / `TestV142AdrCountsAgreeWithFiles`）：新增 ADR-052 后索引连续、三处计数同步。
 
 ## 5. 相关文档
 

@@ -57,7 +57,7 @@ func writeAnnotation(b *strings.Builder, rep *Report, d *DepResult, c CheckResul
 		level = "error"
 	}
 	// 审计 K-01：级别随最终阻断语义走，与 SARIF 同轴。
-	level = effectiveLevel(rep, d, level)
+	level = effectiveLevel(rep, d, c, level)
 	title := fmt.Sprintf("ngm: %s %s", d.Name, c.Check)
 	if d.DriftKind != DriftNone {
 		title += " (" + string(d.DriftKind) + ")"

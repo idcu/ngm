@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/idcu/ngm/internal/core/localfs"
 )
 
 // TestUpdateRefreshesLocalDirDigest 验证 local-dir 的 update 路径：
@@ -41,9 +44,30 @@ func TestUpdateRefreshesLocalDirDigest(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("update: exit=%d\n%s", code, out)
 	}
-	after, _ := os.ReadFile(filepath.Join(dir, "ngm.lock"))
-	if string(before) == string(after) {
-		t.Fatal("update must refresh dirDigest after source change")
+	after, err := os.ReadFile(filepath.Join(dir, "ngm.lock"))
+	if err != nil {
+		t.Fatalf("read updated lock: %v", err)
+	}
+	// 字节不等可能只是 resolvedAt 时间戳变了：必须钉住 dirDigest 本身。
+	var lf struct {
+		Dependencies []struct {
+			Name      string `json:"name"`
+			DirDigest string `json:"dirDigest"`
+		} `json:"dependencies"`
+	}
+	if err := json.Unmarshal(after, &lf); err != nil {
+		t.Fatalf("invalid lock: %v\n%s", err, after)
+	}
+	if len(lf.Dependencies) != 1 || lf.Dependencies[0].DirDigest == "" {
+		t.Fatalf("lock has no local dirDigest: %s", after)
+	}
+	want, err := localfs.BuildDirDigest(src)
+	if err != nil {
+		t.Fatalf("recompute dirDigest: %v", err)
+	}
+	if lf.Dependencies[0].DirDigest != want {
+		t.Fatalf("dirDigest=%s, want recomputed %s (byte-level lock change is not enough)",
+			lf.Dependencies[0].DirDigest, want)
 	}
 	code, out = runCaptureCode(t, "verify", "--dir="+dir)
 	if code != 0 {

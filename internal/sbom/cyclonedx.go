@@ -10,10 +10,12 @@ import "time"
 
 // cdxDocument 是 CycloneDX 文档的顶层。
 type cdxDocument struct {
-	BomFormat   string      `json:"bomFormat"`
-	SpecVersion string      `json:"specVersion"`
-	Version     int         `json:"version"`
-	Metadata    cdxMetadata `json:"metadata"`
+	BomFormat   string `json:"bomFormat"`
+	SpecVersion string `json:"specVersion"`
+	// Schema 是 1.7 结构的可机器读取指针；常量，不参与非确定性。
+	Schema   string      `json:"$schema,omitempty"`
+	Version  int         `json:"version"`
+	Metadata cdxMetadata `json:"metadata"`
 	// Dependencies 是依赖图形（v0.73，ADR-028）——扁平清单不等于依赖树，
 	// 合规读者要的正是这一段。lock 里没有图时**整段省略**（omitempty），
 	// 而不是编一个"一切依赖一切"的假图。
@@ -30,14 +32,21 @@ type cdxDependency struct {
 type cdxMetadata struct {
 	// Timestamp 是**唯一**的非确定字段（与 lock 的 resolvedAt 同一处理方式）。
 	Timestamp string    `json:"timestamp"`
-	Tools     []cdxTool `json:"tools"`
+	Tools     cdxTools  `json:"tools"`
 	Component cdxTarget `json:"component"`
 }
 
-type cdxTool struct {
-	Vendor  string `json:"vendor"`
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
+// cdxTools 用 1.5+ 的 components 形态。legacy 数组在官方 1.7 schema 里
+// 仍通过校验（标 deprecated），但已明确会在未来版本移除（2026-11-23 核对官方 schema）。
+type cdxTools struct {
+	Components []cdxToolComponent `json:"components"`
+}
+
+type cdxToolComponent struct {
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Version   string `json:"version,omitempty"`
+	Publisher string `json:"publisher,omitempty"`
 }
 
 // cdxTarget 描述"这份 SBOM 讲的是谁"（metadata.component）。
@@ -93,14 +102,16 @@ func buildCycloneDX(project Project, entries []Entry, opts Options) cdxDocument 
 	doc := cdxDocument{
 		BomFormat:   "CycloneDX",
 		SpecVersion: "1.7",
+		Schema:      "http://cyclonedx.org/schema/bom-1.7.schema.json",
 		Version:     1,
 		Metadata: cdxMetadata{
 			Timestamp: opts.Now.UTC().Truncate(time.Second).Format(time.RFC3339),
-			Tools: []cdxTool{{
-				Vendor:  "ngm",
-				Name:    "ngm",
-				Version: opts.ToolVersion,
-			}},
+			Tools: cdxTools{Components: []cdxToolComponent{{
+				Type:      "application",
+				Name:      "ngm",
+				Version:   opts.ToolVersion,
+				Publisher: "ngm",
+			}}},
 			Component: cdxTarget{
 				Type:    "application",
 				BomRef:  RootBomRef,
@@ -120,21 +131,20 @@ func buildCycloneDX(project Project, entries []Entry, opts Options) cdxDocument 
 			Type:    "library",
 			BomRef:  e.BomRef(),
 			Name:    e.Slug,
-			Version: e.Commit,
+			Version: e.ExportVersion(),
 			Purl:    e.Purl(),
 			Hashes: []cdxHash{{
 				Alg:     "SHA-256",
 				Content: e.HexDigest(),
 			}},
-			ExternalReferences: []cdxReference{{
-				Type: "vcs",
-				URL:  e.VCSURL(),
-			}},
 			Properties: []cdxProperty{
 				{Name: "ngm:ref", Value: e.Ref},
 				{Name: "ngm:refType", Value: e.RefType},
-				{Name: "ngm:hashKind", Value: "archiveDigest (canonical file listing, ADR-008)"},
+				{Name: "ngm:hashKind", Value: e.HashKind()},
 			},
+		}
+		if vcs := e.VCSURL(); vcs != "" {
+			c.ExternalReferences = []cdxReference{{Type: "vcs", URL: vcs}}
 		}
 		if e.SubPath != "" {
 			c.Properties = append(c.Properties, cdxProperty{Name: "ngm:subPath", Value: e.SubPath})

@@ -137,6 +137,22 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		},
 	},
 
+	// ---- sources：local sources 的内部失败（码 6，ae310a8 引入，2026-11-23 登记）----
+	"internal/core/resolve/graph.go :: resolveLocalOne": {
+		{
+			role: roleSource, category: catInternal,
+			why: "本地 git 来源的 sourcePath / localRepo 解析失败 → CodeInternal（码 6 的内部失败类）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "本地目录来源读不到 sourcePath → CodeInternal（同上，函数内第二处站点）",
+		},
+	},
+	"internal/core/resolve/graph.go :: readUpstreamDeps": {{
+		role: roleSource, category: catInternal,
+		why: "从本地来源读上游 ngm.json 的内部失败 → CodeInternal（码 6）",
+	}},
+
 	// ---- sources：策略类（文档本来就该写的那几类）----
 	"internal/core/verify/report.go :: ExitCode": {
 		{

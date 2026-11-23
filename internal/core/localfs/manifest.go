@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/idcu/ngm/internal/core/digest"
+	"github.com/idcu/ngm/internal/core/pathutil"
 )
 
 // 默认排除集（ADR-052 §2.3 / spec §10 已拍板）：
@@ -119,6 +120,11 @@ func CollectRecords(root string) ([]digest.Record, error) {
 			target, err := os.Readlink(path)
 			if err != nil {
 				return fmt.Errorf("readlink %s: %w", rel, err)
+			}
+			// digest 边界也拒绝逃逸链接：不能靠"install 拦住"作为唯一防线，
+			// 否则旧 lock / 手工改过的源目录仍能把逃逸链接带进 verify。
+			if pathutil.EscapesPackageTree(rel, target) {
+				return fmt.Errorf("symlink %q escapes the local source tree (target %q)", rel, target)
 			}
 			content = []byte(target)
 		} else {

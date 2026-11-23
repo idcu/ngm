@@ -475,6 +475,11 @@ func mergeProject(builtin *BuiltinDefaults, project *ProjectFile) *ProjectFile {
 	}
 	if project.SupplyChain != nil {
 		v := *project.SupplyChain
+		// v0.66 的"改 Effective 不回写来源"对结构体成立、对切片不成立：
+		// 三个白名单切片仍共享底层数组。审计 P2（2026-11-23）。
+		v.AllowedGitHosts = append([]string(nil), project.SupplyChain.AllowedGitHosts...)
+		v.AllowlistRepos = append([]string(nil), project.SupplyChain.AllowlistRepos...)
+		v.OSVIgnoreSeverities = append([]string(nil), project.SupplyChain.OSVIgnoreSeverities...)
 		out.SupplyChain = &v
 	}
 	if project.Engines != nil {

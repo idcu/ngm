@@ -86,8 +86,8 @@ func buildSPDX(project Project, entries []Entry, opts Options) spdxDocument {
 		pkg := spdxPackage{
 			SPDXID:           id,
 			Name:             e.Slug,
-			VersionInfo:      e.Commit,
-			DownloadLocation: e.VCSURL(),
+			VersionInfo:      e.ExportVersion(),
+			DownloadLocation: downloadLocation(e),
 			FilesAnalyzed:    false,
 			// 许可证与版权一律 NOASSERTION：ngm **不知道**上游的许可证，
 			// 而 SBOM 的价值恰恰在于"不知道就写不知道"——
@@ -105,14 +105,16 @@ func buildSPDX(project Project, entries []Entry, opts Options) spdxDocument {
 					ReferenceType:     "purl",
 					ReferenceLocator:  e.Purl(),
 				},
-				{
-					ReferenceCategory: "OTHER",
-					ReferenceType:     "vcs",
-					ReferenceLocator:  e.VCSURL(),
-				},
 			},
-			Comment: fmt.Sprintf("ngm: ref=%s refType=%s; checksum is the archiveDigest (canonical file listing, ADR-008), not a tarball hash",
-				e.Ref, e.RefType),
+			Comment: fmt.Sprintf("ngm: ref=%s refType=%s; checksum is the %s, not a tarball hash",
+				e.Ref, e.RefType, e.HashKind()),
+		}
+		if vcs := e.VCSURL(); vcs != "" {
+			pkg.ExternalRefs = append(pkg.ExternalRefs, spdxExtRef{
+				ReferenceCategory: "OTHER",
+				ReferenceType:     "vcs",
+				ReferenceLocator:  vcs,
+			})
 		}
 		doc.Packages = append(doc.Packages, pkg)
 		doc.Relationships = append(doc.Relationships, spdxRelation{

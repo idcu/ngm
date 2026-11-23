@@ -83,8 +83,8 @@ func TestCoreBoundaryForbidsLanguageSpecificImports(t *testing.T) {
 			t.Fatalf("%s was not scanned — the physical extraction regressed", pkg)
 		}
 	}
-	if len(scanned) != 9 {
-		t.Fatalf("core packages scanned = %d, want 9 — the boundary scope changed: %v",
+	if len(scanned) != 10 {
+		t.Fatalf("core packages scanned = %d, want 10 — the boundary scope changed: %v",
 			len(scanned), scanned)
 	}
 	if filesChecked < 20 {

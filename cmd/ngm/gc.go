@@ -357,13 +357,17 @@ func gcReachability(lf *lock.File) (gcReach, error) {
 		if dg := d.ContentDigest(); dg != "" {
 			out.digests[dg] = true
 		}
-		repo, err := resolve.ParseSlug(d.Name)
+		repo, err := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 		if err != nil {
 			return out, errs.Wrap(errs.CodeConfigInvalid,
-				"lock dependency "+d.Name+" is not a valid slug",
-				"regenerate the lock with `ngm install` (a slug looks like `github:org/repo`)", err)
+				"lock dependency "+d.Name+" is not a valid identity",
+				"regenerate the lock with `ngm install` (a slug looks like `github:org/repo`, or `local:<name>`)", err)
 		}
-		out.mirrors[repo.MirrorRelPath()+".git"] = true
+		// 本地来源没有 mirror 层：local-dir 完全没有，local-git 用 localRepo 取数。
+		// 把伪 Canonical 的 MirrorRelPath 当成真 mirror 会让 gc 把不存在的路径当可达。
+		if !resolve.RefType(d.RefType).IsLocal() {
+			out.mirrors[repo.MirrorRelPath()+".git"] = true
+		}
 		vp := strings.Trim(filepath.ToSlash(vendor.VendorPathFor(d.VendorPath, d.SubPath)), "/")
 		if vp != "" && !seenVendor[vp] {
 			seenVendor[vp] = true

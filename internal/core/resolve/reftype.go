@@ -84,7 +84,18 @@ func ResolveRef(ctx context.Context, repo Canonical, ref string, refType RefType
 			}
 			return expandShortCommit(ctx, repo, full, opts)
 		}
-		return resolveNamedRef(ctx, repo, ref, RefTypeTag, opts)
+		// refType 本身不区分 tag/branch（ADR-052 的 local-git 契约），
+		// 但不能因此只查 tag：CLI 明确承诺 tag / branch / commit 三选一。
+		// 先按 tag 查，未命中再按 branch 查；两者都失败时报 tag 的错，
+		// 因为它是最常见的意图且错误信息带可用的 ref 列表。
+		commit, tagErr := resolveNamedRef(ctx, repo, ref, RefTypeTag, opts)
+		if tagErr == nil {
+			return commit, nil
+		}
+		if commit, branchErr := resolveNamedRef(ctx, repo, ref, RefTypeBranch, opts); branchErr == nil {
+			return commit, nil
+		}
+		return "", tagErr
 	case RefTypeTag, RefTypeBranch:
 		return resolveNamedRef(ctx, repo, ref, refType, opts)
 	default:

@@ -293,21 +293,21 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			return errs.CodeInternal.ExitCode()
 		}
 		return finishVerify(ctx, env, pf, lf,
-			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, machine, stdout, stderr)
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, machine, stdout, stderr, nil)
 	case reportFormatGitHub:
 		if _, werr := io.WriteString(stdout, verify.RenderGitHub(&rep)); werr != nil {
 			fmt.Fprintf(stderr, "write report: %v\n", werr)
 			return errs.CodeInternal.ExitCode()
 		}
 		return finishVerify(ctx, env, pf, lf,
-			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, machine, stdout, stderr)
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, machine, stdout, stderr, nil)
 	}
 
 	if *jsonOut {
 		// 先跑附加层再序列化：`summary.exitCode` 必须与进程的返回码同源。
 		// 附加层在 jsonMode 下只写 stderr（extraOut），因此 stdout 仍是单文档。
 		code := finishVerify(ctx, env, pf, lf,
-			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
+			rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr, &rep.Gates)
 		rep.Summary.ExitCode = code
 		return c.writeReport(&rep, code)
 	}
@@ -319,7 +319,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintf(stdout, "note: %s\n", note)
 	}
 	code := finishVerify(ctx, env, pf, lf,
-		rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr)
+		rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr, &rep.Gates)
 	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline, code))
 	return code
 }
@@ -340,6 +340,7 @@ func finishVerify(
 	baseCode int,
 	sandbox, signatures, requireSigned, jsonMode bool,
 	stdout, stderr io.Writer,
+	gates *[]verify.GateResult,
 ) int {
 	extraOut := io.Writer(stdout)
 	if jsonMode {
@@ -348,9 +349,31 @@ func finishVerify(
 
 	code := baseCode
 	if signatures || requireSigned {
+		before := code
 		code = verifyWithSignatures(ctx, env, lf, code, requireSigned, jsonMode, extraOut, stderr)
+		if gates != nil {
+			*gates = append(*gates, verify.GateResult{
+				Name: "signatures", Enabled: true, ExitCode: code, Status: gateStatus(code, before),
+			})
+		}
 	}
-	return verifyWithSandbox(ctx, env, pf, lf, code, sandbox, extraOut, stderr)
+	before := code
+	code = verifyWithSandbox(ctx, env, pf, lf, code, sandbox, extraOut, stderr)
+	if gates != nil && sandbox {
+		*gates = append(*gates, verify.GateResult{
+			Name: "sandbox", Enabled: true, ExitCode: code, Status: gateStatus(code, before),
+		})
+	}
+	return code
+}
+
+// gateStatus 用这一层是否抬高了退出码判断 pass/fail，
+// 而不是拿绝对码比 0——基础层可能已经是 2，附加层没有新增失败仍应记为 pass。
+func gateStatus(code, before int) string {
+	if code > before {
+		return "fail"
+	}
+	return "pass"
 }
 
 // verifyWithSandbox 在常规判定之后追加"依赖自检"这一层（`--sandbox`）。
@@ -543,7 +566,7 @@ func filterLock(lf *lock.File, names []string) (*lock.File, int, error) {
 		var matches []lock.Dependency
 		for i := range lf.Dependencies {
 			d := lf.Dependencies[i]
-			got, perr := resolve.ParseSlug(d.Name)
+			got, perr := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 			if perr != nil {
 				continue
 			}

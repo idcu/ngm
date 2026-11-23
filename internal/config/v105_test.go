@@ -72,11 +72,17 @@ func TestV105Utf8BomIsTolerated(t *testing.T) {
 	}
 }
 
-// BOM 只在**开头**有意义：出现在字段中间的 U+FEFF 仍然是非法 JSON，
-// 不许因为"容忍 BOM"就把整份解码器放宽。
+// BOM 只在**开头**有意义：字段值里的 U+FEFF 是合法字符，必须原样保留。
+// 旧判据用一份连 name/version/runtime 都缺的清单"证明"解码器不剥 BOM，
+// 无论实现怎么改它都会因其它字段失败，是恒真空转（2026-11-23 判据复健）。
 func TestV105BomToleranceDoesNotWeakenParsing(t *testing.T) {
-	if _, err := decodeProject(strings.NewReader(`{"name":"\ufeffx"}`), "ngm.json"); err == nil {
-		t.Fatal("U+FEFF inside a string is legal but this manifest is invalid for other reasons; " +
-			"more importantly the decoder must not silently strip it everywhere")
+	const name = "app\ufeffx"
+	doc := `{"schemaVersion":3,"name":"` + name + `","version":"1.0.0","runtime":"node"}`
+	p, err := decodeProject(strings.NewReader(doc), "ngm.json")
+	if err != nil {
+		t.Fatalf("a U+FEFF inside a string value is legal JSON: %v", err)
+	}
+	if p.Name != name {
+		t.Fatalf("decoder stripped U+FEFF from a field value: %q", p.Name)
 	}
 }

@@ -421,6 +421,18 @@ func (e *projectEnv) VendorRoot(pf *config.ProjectFile) string {
 	return filepath.Join(e.ProjectDir, vendor.VendorDirName)
 }
 
+// linkModeOf 从原始清单取 linkMode；vendor 段省略时回退到 auto。
+//
+// 不能直接用 pf.Vendor.LinkMode：ReadProjectFile 只解码单文件、不做三级合并，
+// 清单里没有 vendor 段时该指针是 nil（v0.103 的 P0 崩溃根因）。默认值只存在于
+// config.Load 的 Resolved.Effective，而写入型命令必须保留原始声明。
+func linkModeOf(pf *config.ProjectFile) string {
+	if pf != nil && pf.Vendor != nil {
+		return string(vendor.ParseLinkMode(pf.Vendor.LinkMode))
+	}
+	return string(vendor.LinkAuto)
+}
+
 // LinkTree 构造 link tree 管理器。
 func (e *projectEnv) LinkTree(pf *config.ProjectFile) *vendor.LinkTree {
 	mode := vendor.LinkAuto

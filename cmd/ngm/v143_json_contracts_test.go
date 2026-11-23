@@ -71,7 +71,9 @@ func TestV144JSONAwareCommandsFailWithEnvelope(t *testing.T) {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			env, code, _ := runForEnvelope(t, args...)
 			checked++
-			if code == 0 || env.Error.ExitCode != code {
+			// runForEnvelope 已保证 code != 0；这里只比对真正生效的那一维，
+			// 不留恒假的 code==0 分支（2026-11-23 判据复健）。
+			if env.Error.ExitCode != code {
 				t.Errorf("process=%d envelope=%d", code, env.Error.ExitCode)
 			}
 		})

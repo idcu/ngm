@@ -80,5 +80,27 @@ func ResolveSourcePath(projectRoot, sourcePath string) (string, error) {
 	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
 		return "", fmt.Errorf("sourcePath %q resolves outside project root %q", sourcePath, projectRoot)
 	}
+	// 词法包含只是第一层。spec §10 要求"解析后仍在项目根内"：
+	// 项目内一条指向根外的软链必须被拒绝，不能靠 WalkDir 对软链根的特殊语义
+	// 退化成空目录后"双方一致通过"（2026-11-23 审计 P2）。
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve project root %q: %w", root, err)
+	}
+	candidate := abs
+	for {
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err == nil {
+			if resolved != realRoot && !strings.HasPrefix(resolved, realRoot+string(filepath.Separator)) {
+				return "", fmt.Errorf("sourcePath %q resolves outside project root %q via symlink", sourcePath, projectRoot)
+			}
+			break
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			break // 全部祖先都不存在：只有词法路径可判，交给后续 stat 报错
+		}
+		candidate = parent
+	}
 	return abs, nil
 }

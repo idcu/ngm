@@ -22,6 +22,17 @@
   完全离线；`local-dir` 用目录内容摘要 `dirDigest`（清单头 `ngm-local-digest/v1`）作锚点。
   `ref: auto` 让 install 计算并钉住目录摘要。源码目录不得逃逸项目根；不做 workspace 编排。
 
+### Fixed（2026-11-23 全量复扫）
+
+- 修复最小 `ngm.json`（省略 `vendor` 段）搭配 `local-dir` 时 install/update 空指针崩溃；
+  linkMode 缺省回退 `auto`。
+- `local:` 依赖现在能被二次 `install` / `--frozen-lockfile` / `gc` / `sbom` / `attest` /
+  按名 `verify` / `why` / `remove` / `tree` / `outdated` 正确消费，不再报 `unknown host local`。
+- `local-git` 的 ref 支持 tag / branch / commit 三种形态；本地来源的逃逸软链被拒绝；
+  `verify --json` 的签名/沙箱附加层结论进入机器可读的 `gates` 段。
+- `install/update --json` 的 local 报告 `count` 与依赖数一致，stdout 始终是单一 JSON 文档。
+- CycloneDX 输出改为 1.7 推荐的 `metadata.tools.components` 形态并带 `$schema`。
+
 ## [0.102.0-dev.4] - 2026-11-21
 
 开发版本。把 `run:` 授权判定对象与 `modules index` 工作区索引两项修复做成可下载的固定点。

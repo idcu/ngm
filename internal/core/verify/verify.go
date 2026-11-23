@@ -261,7 +261,10 @@ func verifyLocalDir(d *lock.Dependency, opts Options, res DepResult) (DepResult,
 			shortDigest(d.DirDigest), shortDigest(actual))
 		res.Checks = append(res.Checks, snap)
 		res.DriftKind = aggregateDrift(res.Checks)
-		res.Err = snap.Detail
+		// 这是**已确证的篡改结论**，不是"检查没完成"。写进 Err 会让
+		// Summarize 同时计 operational、SARIF 追加 check-incomplete，
+		// 且 remediationFor 优先走 Err 给出"没查成"的建议（2026-11-23 P2）。
+		res.Remediation = remediationFor(&res)
 		return res, nil
 	}
 	snap.Status = StatusOK
@@ -302,15 +305,9 @@ func verifyOne(ctx context.Context, d *lock.Dependency, store *vendor.ContentSto
 	}
 
 	// local-git 来源复用 git 证明链，但 name 是 local: 命名空间——
-	// 构造与 resolveLocalOne 一致的伪 Canonical，避免 ParseSlug 拒绝（ADR-052）。
+	// 统一走 resolve.DepIdentity 构造伪 Canonical，与全部 lock 消费者同口径（ADR-052）。
 	localGit := resolve.RefType(d.RefType) == resolve.RefTypeLocalGit
-	var repo resolve.Canonical
-	var err error
-	if localGit {
-		repo = resolve.Canonical{Host: "local", Path: strings.TrimPrefix(d.Name, "local:")}
-	} else {
-		repo, err = resolve.ParseSlug(d.Name)
-	}
+	repo, err := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 	if err != nil {
 		// lock.Read 已校验过 name，这里是纵深防御：非法 slug 属于配置问题（exit 3）
 		return res, err

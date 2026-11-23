@@ -200,14 +200,14 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		if n.RefType == resolve.RefTypeLocalDir {
 			name, nerr := localfs.RelName(n.Name)
 			if nerr != nil {
-				return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "", nil))
+				return runErr(ctx, stdout, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "use local:<name> where <name> is a single safe path segment", nil))
 			}
 			rel := filepath.Join("local", name)
 			dst := filepath.Join(env.VendorRoot(pf), rel)
 			if err := os.RemoveAll(dst); err != nil {
 				return runErr(ctx, stdout, stderr, err)
 			}
-			if err := localfs.Materialize(n.LocalRoot, dst, pf.Vendor.LinkMode); err != nil {
+			if err := localfs.Materialize(n.LocalRoot, dst, linkModeOf(pf)); err != nil {
 				return runErr(ctx, stdout, stderr, err)
 			}
 			lf.Dependencies = append(lf.Dependencies, lock.Dependency{
@@ -216,7 +216,13 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 				ResolvedAt: lock.FormatResolvedAt(now), VendorPath: filepath.ToSlash(rel),
 				RequiredBy: n.RequiredBy,
 			})
-			fmt.Fprintf(stdout, "%s@%s (local-dir) → %s\n", n.Name, n.Ref, n.Commit)
+			if rep != nil {
+				rep.Dependencies = append(rep.Dependencies, writeReportDep{
+					Name: n.Name, Ref: n.Ref, RefType: string(n.RefType),
+					ArchiveDigest: n.Commit, VendorPath: filepath.ToSlash(rel), Source: "local-dir",
+				})
+			}
+			fmt.Fprintf(humanOut, "%s@%s (local-dir) → %s\n", n.Name, n.Ref, n.Commit)
 			continue
 		}
 
@@ -345,7 +351,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	// 注：本命令曾有一个 `--concurrency` flag，其值被 `_ = maxConc` 原样丢弃
 	// （实际并发恒为 resolve.DefaultConcurrency）。v0.5 移除了它——一个接受参数却
 	// 不影响任何行为的 flag 比没有更糟：用户会以为自己调过。需要时按真实需求重新引入。
-	code := autoVerifyAfterLock(ctx, env, pf, pol, *offline, rep, humanOut, stderr, stdout)
+	code := autoVerifyAfterLock(ctx, env, pf, pol, *offline, rep, humanOut, stderr, envelope)
 	return emitWriteReport(ctx, stdout, stderr, rep, code, *jsonOut, envelope)
 }
 

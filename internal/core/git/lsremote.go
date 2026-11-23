@@ -37,6 +37,15 @@ func LSRemote(ctx context.Context, opts Options, url string, patterns ...string)
 	}
 	// 注意参数顺序：git 的语法是 `ls-remote [options] <repository> [<refs>...]`，
 	// 因此 repository 必须在 patterns **之前**。
+	// patterns 直接进 argv；以 `-` 开头的 token 会被 git 当 flag 解析。
+	// 当前调用方都传 ref 名，但边界本身应当封住。
+	for _, p := range patterns {
+		if strings.HasPrefix(p, "-") {
+			return nil, errs.New(errs.CodeConfigInvalid,
+				fmt.Sprintf("ls-remote pattern %q must not start with '-'", p),
+				"pass a refs/... name, not a git option")
+		}
+	}
 	args := []string{"ls-remote", url}
 	args = append(args, patterns...)
 	res, err := Run(ctx, opts, args...)
@@ -59,6 +68,12 @@ func ParseLSRemoteOutput(out []byte) ([]RemoteRef, error) {
 		}
 		tab := strings.IndexByte(line, '\t')
 		if tab <= 0 {
+			// 审计 C-03 的可用性回归：git 偶尔把 warning 打到 stdout；
+			// 只放行这一族明确的诊断行，其它畸形行继续 fail-closed。
+			lower := strings.ToLower(line)
+			if strings.HasPrefix(lower, "warning:") || strings.HasPrefix(lower, "hint:") {
+				continue
+			}
 			return nil, fmt.Errorf("malformed ls-remote line (missing tab): %q", line)
 		}
 		sha := line[:tab]

@@ -49,7 +49,15 @@ func ParseTarget(arg string) (Target, error) {
 		}
 	}
 
-	repo, err := ParseSlug(raw)
+	// local:<name> 是 ADR-052 的名字空间，不是 Git host——
+	// 按名筛选（verify / update / why / remove）必须能选中本地依赖。
+	var repo Canonical
+	var err error
+	if IsLocalName(raw) {
+		repo, err = LocalCanonical(raw)
+	} else {
+		repo, err = ParseSlug(raw)
+	}
 	if err != nil {
 		return Target{}, err
 	}

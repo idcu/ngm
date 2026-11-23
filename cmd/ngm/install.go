@@ -413,14 +413,14 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 		if n.RefType == resolve.RefTypeLocalDir {
 			name, nerr := localfs.RelName(n.Name)
 			if nerr != nil {
-				return runErr(ctx, errOut, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "", nil))
+				return runErr(ctx, errOut, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "use local:<name> where <name> is a single safe path segment", nil))
 			}
 			rel := filepath.Join("local", name)
 			dst := filepath.Join(env.VendorRoot(pf), rel)
 			if err := os.RemoveAll(dst); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
-			if err := localfs.Materialize(n.LocalRoot, dst, pf.Vendor.LinkMode); err != nil {
+			if err := localfs.Materialize(n.LocalRoot, dst, linkModeOf(pf)); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
 			lf.Dependencies = append(lf.Dependencies, lock.Dependency{
@@ -577,7 +577,7 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 		if resolve.RefType(d.RefType) == resolve.RefTypeLocalDir {
 			name, nerr := localfs.RelName(d.Name)
 			if nerr != nil {
-				return runErr(ctx, errOut, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "", nil))
+				return runErr(ctx, errOut, stderr, errs.Wrap(errs.CodeConfigInvalid, nerr.Error(), "use local:<name> where <name> is a single safe path segment", nil))
 			}
 			abs, perr := env.ResolveLocalDirPath(d.SourcePath)
 			if perr != nil {
@@ -598,14 +598,22 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 			if err := os.RemoveAll(dst); err != nil {
 				return runErr(ctx, errOut, stderr, err)
 			}
-			if err := localfs.Materialize(abs, dst, pf.Vendor.LinkMode); err != nil {
+			if err := localfs.Materialize(abs, dst, linkModeOf(pf)); err != nil {
 				return runErr(ctx, errOut, stderr, err)
+			}
+			if rep != nil {
+				rep.Dependencies = append(rep.Dependencies, writeReportDep{
+					Name: d.Name, Ref: d.Ref, RefType: string(d.RefType),
+					ArchiveDigest: d.DirDigest, VendorPath: filepath.ToSlash(rel), Source: "local-dir",
+				})
 			}
 			fmt.Fprintf(stdout, "%s@%s (local-dir) → %s\n", d.Name, d.Ref, d.DirDigest)
 			continue
 		}
 
-		repo, perr := resolve.ParseSlug(d.Name)
+		// local 来源走统一身份入口：ParseSlug 会拒绝 `local:` 命名空间（unknown host），
+		// 让第一次 install 成功写进 lock 的条目在第二次 install 时自己读不回来。
+		repo, perr := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 		if perr != nil {
 			return runErr(ctx, errOut, stderr, perr)
 		}
@@ -662,6 +670,17 @@ func installFromLock(ctx context.Context, env *projectEnv, pf *config.ProjectFil
 					source = "module-cache"
 				}
 			}
+		}
+
+		// local-git 的取数来源是清单声明的本地仓，不是 mirror：
+		// 即使 content store 未命中也不能触发网络 fetch（ADR-052 离线契约）。
+		if resolve.RefType(d.RefType) == resolve.RefTypeLocalGit && sourcePath == "" {
+			lp, lerr := env.ResolveLocalDirPath(d.LocalRepo)
+			if lerr != nil {
+				return runErr(ctx, errOut, stderr, lerr)
+			}
+			sourcePath = lp
+			source = "local-git"
 		}
 
 		if sourcePath == "" {

@@ -233,12 +233,13 @@ func sarifRuleForBase(d *DepResult, c CheckResult) (ruleID, level string) {
 
 func sarifRuleFor(rep *Report, d *DepResult, c CheckResult) (ruleID, level string) {
 	ruleID, level = sarifRuleForBase(d, c)
-	return ruleID, effectiveLevel(rep, d, level)
+	return ruleID, effectiveLevel(rep, d, c, level)
 }
 
 // effectiveLevel 把模式的阻断语义叠加到基础级别上（审计 K-01）。
-func effectiveLevel(rep *Report, d *DepResult, base string) string {
-	if rep == nil || d.DriftKind == DriftNone {
+func effectiveLevel(rep *Report, d *DepResult, c CheckResult, base string) string {
+	// 操作性失败（"没查成"）不是结论，不能被 strict/allow-drift 升成阻断或降级放行。
+	if rep == nil || d.DriftKind == DriftNone || c.Operational {
 		return base
 	}
 	switch d.DriftKind {

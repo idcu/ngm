@@ -104,7 +104,7 @@ func validateUniqueRootDependencies(deps []Dependency) error {
 	seen := make(map[string]int, len(deps))
 	for i := range deps {
 		d := &deps[i]
-		canon, err := resolve.ParseSlug(d.Name)
+		canon, err := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 		if err != nil {
 			continue // 非法 name 已由 Dependency.Validate 报过
 		}

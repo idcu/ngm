@@ -133,15 +133,27 @@ func (pol *Policy) PlanSandbox(n Needs) (Grants, error) {
 // **未授予的类别一律显式拒绝**，即使 Deno 本来就是默认拒绝：
 // `--deny-net` 出现在 argv 里，读日志的人能直接看到边界；
 // 而"它默认应该是拒绝的"是一句需要相信的话（ADR-012 决策 3）。
+// denoTargetsOK 是 DenoArgs 自己的纵深防御：Deno 用逗号拼接 target，
+// 一条含逗号的 target 会被拆成多条授权。PlanSandbox 已在入口拒绝它们，
+// 但导出的 DenoArgs 不能把安全性寄托在"调用方一定先过门禁"上（P3）。
+func denoTargetsOK(targets []string) bool {
+	for _, t := range targets {
+		if t == "" || strings.ContainsAny(t, ",\r\n") {
+			return false
+		}
+	}
+	return true
+}
+
 func (g Grants) DenoArgs() []string {
 	args := make([]string, 0, 8)
 
-	if len(g.Read) > 0 {
+	if len(g.Read) > 0 && denoTargetsOK(g.Read) {
 		args = append(args, "--allow-read="+strings.Join(g.Read, ","))
 	} else {
 		args = append(args, "--deny-read")
 	}
-	if len(g.Net) > 0 {
+	if len(g.Net) > 0 && denoTargetsOK(g.Net) {
 		args = append(args, "--allow-net="+strings.Join(g.Net, ","))
 	} else {
 		args = append(args, "--deny-net")
@@ -168,7 +180,7 @@ func (g Grants) DenoArgs() []string {
 	// read/write/net/run/env 拒绝共同约束：`node:` 内置模块的每次访问仍要过
 	// 同一套权限检查，而 npm 解析已在模块加载层关掉。
 	args = append(args, "--deny-sys", "--deny-ffi", "--deny-hrtime")
-	if len(g.Env) > 0 {
+	if len(g.Env) > 0 && denoTargetsOK(g.Env) {
 		args = append(args, "--allow-env="+strings.Join(g.Env, ","))
 	} else {
 		args = append(args, "--deny-env")

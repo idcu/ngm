@@ -23,6 +23,8 @@ var bareArtifactWrites = map[string]string{
 	// 全新的 MkdirTemp 目录，文件只是 git hash-object 的输入，不会被当成产物交付。
 	"cmd/ngm/modules.go": "staging files for one git hash-object call; the directory is removed on return",
 	// 幂等的布局标记，写失败按设计不阻断；它不承载内容。
+	// local-dir 的复制产物由 RemoveAll(dst) 全量重建，写坏不会留下半份可交付产物。
+	"internal/core/localfs/copy.go":      "local-dir vendor copy is rebuilt from scratch; no partially committed artifact",
 	"internal/core/vendor/content_v2.go": "idempotent layout marker; failure is deliberately ignored",
 	// 沙箱探针脚本必须是 0600；atomicfile.Write 强制 0644，不能走它。
 	"internal/security/sandbox.go": "0600 probe script — atomicfile.Perm is 0644",

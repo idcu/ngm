@@ -2,6 +2,7 @@ package sbom
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/idcu/ngm/internal/core/lock"
@@ -30,9 +31,19 @@ func TestV138CycloneDX17SchemaShape(t *testing.T) {
 	}
 
 	var doc struct {
-		BomFormat    string `json:"bomFormat"`
-		SpecVersion  string `json:"specVersion"`
-		Version      int    `json:"version"`
+		BomFormat   string `json:"bomFormat"`
+		SpecVersion string `json:"specVersion"`
+		Schema      string `json:"$schema"`
+		Version     int    `json:"version"`
+		Metadata    struct {
+			Tools struct {
+				Components []struct {
+					Type      string `json:"type"`
+					Name      string `json:"name"`
+					Publisher string `json:"publisher"`
+				} `json:"components"`
+			} `json:"tools"`
+		} `json:"metadata"`
 		Dependencies []struct {
 			Ref       string   `json:"ref"`
 			DependsOn []string `json:"dependsOn"`
@@ -57,6 +68,14 @@ func TestV138CycloneDX17SchemaShape(t *testing.T) {
 	if doc.BomFormat != "CycloneDX" || doc.SpecVersion != "1.7" || doc.Version != 1 {
 		t.Fatalf("文档头不是 CycloneDX 1.7: bomFormat=%q specVersion=%q version=%d",
 			doc.BomFormat, doc.SpecVersion, doc.Version)
+	}
+	if !strings.HasSuffix(doc.Schema, "bom-1.7.schema.json") {
+		t.Errorf("$schema 必须指向 1.7 结构，got %q", doc.Schema)
+	}
+	// 1.7 schema 仍接受 legacy tools 数组（标 deprecated），但不该再产它。
+	tools := doc.Metadata.Tools.Components
+	if len(tools) != 1 || tools[0].Type != "application" || tools[0].Name != "ngm" {
+		t.Errorf("metadata.tools 必须是 1.5+ 的 components 形态: %+v", doc.Metadata.Tools)
 	}
 	if len(doc.Components) == 0 {
 		t.Fatal("components 为空——SBOM 没有内容")

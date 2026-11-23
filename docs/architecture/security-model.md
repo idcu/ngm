@@ -133,6 +133,10 @@ ngm 把这套思路映射到自己的操作：
    被拒时提示给出精确的 `run:./relative/path` 与可粘贴的 `allow` JSON。
 6. 路径形式声明（`./`、`../`、`cmd/foo.exe`、绝对路径）不享受默认档位；项目**外**的
    路径形式仍接受显式名字授权（兼容既有 `ngm.engines.json` 里的绝对路径写法）。
+7. **wasm 例外（2026-11-23 登记）**：`AdapterWasm` 的身份名是模块文件名
+   （`run:engine.wasm`），不解析 `Path`——WASM 运行时自带能力边界，且没有与
+   subprocess 共用的可执行文件实体。这是有意的不对称，不是身份判定漏洞；
+   项目内的 wasm 模块仍只能靠显式 allow 授权，不存在默认放行。
 
 > **行为变化**：`engines list` / `engines validate` 的探测与执行走同一道闸门，且不再因
 > "没有全局配置"而跳过（`Policy == nil` 时默认档位仍然生效）。未授权的引擎会显示

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/idcu/ngm/internal/core/pathutil"
 )
 
 // CopyTree 把 src 目录复制到 dst，排除集与 BuildDirDigest 完全一致（关键不变量：
@@ -53,6 +55,11 @@ func CopyTree(src, dst string) error {
 			link, err := os.Readlink(path)
 			if err != nil {
 				return err
+			}
+			// 与 git 来源共用同一条逃逸判据：local-dir 不能成为
+			// vendor 树里逃逸链接的旁路（2026-11-23 审计 P2）。
+			if pathutil.EscapesPackageTree(filepath.ToSlash(rel), link) {
+				return fmt.Errorf("symlink %q escapes the local source tree (target %q)", rel, link)
 			}
 			_ = os.Remove(target)
 			return os.Symlink(link, target)

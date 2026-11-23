@@ -60,8 +60,17 @@ func TestLocalDirVerifyDetectsDrift(t *testing.T) {
 	if len(got.Checks) != 1 || got.Checks[0].Status != StatusFail || got.Checks[0].Drift != DriftCritical {
 		t.Fatalf("changed local dir must be DriftCritical: %#v", got.Checks)
 	}
-	if got.Err == "" || !strings.Contains(got.Err, "changed") {
-		t.Fatalf("drift must carry a diagnostic: %q", got.Err)
+	// 已确证的篡改是**结论**，不是操作性失败：诊断放在 check.Detail，
+	// Err 必须留空，否则 Summarize 会把它同时计入 operational、SARIF 追加
+	// "check incomplete"，remediationFor 还会给出错误的"没查成"建议。
+	if got.Err != "" {
+		t.Fatalf("a proven drift must not be classified as an operational error: %q", got.Err)
+	}
+	if !strings.Contains(got.Checks[0].Detail, "changed") {
+		t.Fatalf("drift must carry a diagnostic in the check detail: %q", got.Checks[0].Detail)
+	}
+	if !strings.Contains(got.Remediation, "do NOT build") {
+		t.Fatalf("proven drift must carry the integrity remediation, got %q", got.Remediation)
 	}
 }
 

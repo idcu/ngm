@@ -144,9 +144,12 @@ func TestV69CycloneDXCarriesHashesAndPurls(t *testing.T) {
 		Version     int    `json:"version"`
 		Metadata    struct {
 			Timestamp string `json:"timestamp"`
-			Tools     []struct {
-				Vendor string `json:"vendor"`
-				Name   string `json:"name"`
+			Tools     struct {
+				Components []struct {
+					Type      string `json:"type"`
+					Name      string `json:"name"`
+					Publisher string `json:"publisher"`
+				} `json:"components"`
 			} `json:"tools"`
 			Component struct {
 				Type string `json:"type"`
@@ -179,8 +182,9 @@ func TestV69CycloneDXCarriesHashesAndPurls(t *testing.T) {
 	if doc.Metadata.Timestamp != "2026-10-09T12:00:00Z" {
 		t.Errorf("timestamp = %q", doc.Metadata.Timestamp)
 	}
-	if len(doc.Metadata.Tools) != 1 || doc.Metadata.Tools[0].Vendor != "ngm" {
-		t.Errorf("tools 段不对: %+v", doc.Metadata.Tools)
+	tools := doc.Metadata.Tools.Components
+	if len(tools) != 1 || tools[0].Type != "application" || tools[0].Name != "ngm" || tools[0].Publisher != "ngm" {
+		t.Errorf("tools 段不是 CDX 1.5+ 的 components 形态: %+v", doc.Metadata.Tools)
 	}
 	if doc.Metadata.Component.Name != "app" {
 		t.Errorf("metadata.component.name = %q", doc.Metadata.Component.Name)

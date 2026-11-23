@@ -113,7 +113,12 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		unresolved := 0
 		firstErr := ""
 		for _, n := range g.Nodes {
-			repo, perr := resolve.ParseSlug(n.Name)
+			// 本地来源没有远端 ref 可漂移：local-dir 的摘要由 verify 重算，
+			// local-git 用本地仓锚定。把它们当 Git 节点只会得到 "unknown host local"。
+			if resolve.RefType(n.RefType).IsLocal() {
+				continue
+			}
+			repo, perr := resolve.DepIdentity(n.Name, resolve.RefType(n.RefType))
 			if perr != nil {
 				unresolved++
 				if firstErr == "" {

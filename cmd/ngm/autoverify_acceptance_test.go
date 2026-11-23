@@ -73,7 +73,9 @@ func TestV02VerifyOnLockAcceptance(t *testing.T) {
 		removeMirror(t, "github:vol/drift")
 		seedMirror(t, "github:vol/drift", r.Dir)
 
-		code, out := runCaptureCode(t, "install", "--frozen-lockfile", "--dir="+proj)
+		// 上游 fixture 用当前时间提交：显式跳过 ADR-050 的 P1D，
+		// 让这条判据只验证漂移结论，不被新提交的晾晒期抢先挡下。
+		code, out := runCaptureCode(t, "install", "--frozen-lockfile", "--allow-fresh", "--dir="+proj)
 		if code == 0 {
 			t.Fatalf("the automatic check must not report success for a drifted ref:\n%s", out)
 		}

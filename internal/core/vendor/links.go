@@ -11,6 +11,7 @@ import (
 	"github.com/idcu/ngm/internal/core/atomicfile"
 	"github.com/idcu/ngm/internal/core/digest"
 	"github.com/idcu/ngm/internal/core/errs"
+	"github.com/idcu/ngm/internal/core/pathutil"
 )
 
 // VendorDirName 是 link tree（层 3）在项目中的固定目录名。
@@ -316,7 +317,7 @@ func validateEntryPaths(entries []ContentEntry) error {
 		// 同 EscapesPackageTree：`\` 在 POSIX 上是普通字符，ToSlash 不归一它，
 		// 于是含反斜杠的条目路径会在 Linux/macOS 上绕过逃逸判定。
 		p := path.Clean(strings.ReplaceAll(e.Path, `\`, "/"))
-		if p == "." || p == ".." || strings.HasPrefix(p, "../") || looksLikeAbsPath(p) {
+		if p == "." || p == ".." || strings.HasPrefix(p, "../") || pathutil.LooksLikeAbsPath(p) {
 			return errs.New(errs.CodeConfigInvalid,
 				"refusing to materialize an entry whose path escapes the vendor tree: "+e.Path,
 				"the manifest contains an unsafe path; re-run `ngm install` to rebuild the content store")
@@ -411,53 +412,10 @@ func isCaseInsensitiveDir(dir string) bool {
 // 为什么由 vendor 包导出：落地侧的预检（validateEntryPaths）与判定侧的
 // landing 检查（internal/verify）必须用**同一个**判据——两处各写一份，
 // 迟早在某个边界上分叉，而那种分叉的表现是"安装拒绝、verify 放行"。
+// EscapesPackageTree 是 pathutil 判据的兼容入口。
+// 唯一实现在 internal/core/pathutil，本地来源与 git 来源共用（2026-11-23 P2）。
 func EscapesPackageTree(entryPath, target string) bool {
-	if target == "" {
-		return false
-	}
-	// v0.81：目标字符串也必须先归到 `/` 口径。
-	//
-	// v0.66 只归一了 entryPath，于是 `..\..\..\Users\x\.ssh\id_rsa` 这类
-	// **反斜杠相对目标**绕过了整个判定：`path.Clean`/`path.Join` 只把 `/`
-	// 当分隔符，它既不以 `../` 开头、也不像绝对路径，判据返回 false。
-	// 而 Windows 的 CreateSymbolicLinkW 把 `\` 当分隔符解析——
-	// 落地后就是一个指向包外的链接。**这个洞只在 POSIX 口径下被封住了。**
-	//
-	// 代价说明（保守拒绝）：POSIX 上 `\` 是合法的文件名字符，因此
-	// `..\..\x` 在那里是一个（极罕见的）合法文件名而非逃逸。这里统一按
-	// 分隔符处理 = 宁可拒掉一个罕见合法名，也不放过一个真实逃逸。
-	//
-	// 必须用 ReplaceAll 而不是 filepath.ToSlash：后者在 POSIX 上是**恒等函数**，
-	// 于是同一条判据在 Linux/macOS 上会放行 `..\..\x`——2026-11-03 的 ubuntu CI
-	// 正是这样抓到的（本地 Windows 全绿）。判据的输入空间是清单口径，
-	// 不该随编译它的平台改变。
-	target = strings.ReplaceAll(target, `\`, "/")
-	if looksLikeAbsPath(target) {
-		return true
-	}
-	dir := path.Dir(path.Clean(strings.ReplaceAll(entryPath, `\`, "/")))
-	joined := path.Clean(path.Join(dir, target))
-	return joined == ".." || strings.HasPrefix(joined, "../")
-}
-
-// looksLikeAbsPath 跨平台判定"形态像绝对路径"。
-//
-// 不能只用 filepath.IsAbs：清单里的路径来自 Git（POSIX 风格），
-// 一个 `/etc/passwd` 目标在 Windows 上不是 IsAbs，却同样是逃逸。
-func looksLikeAbsPath(p string) bool {
-	if p == "" {
-		return false
-	}
-	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
-		return true
-	}
-	if len(p) >= 2 && p[1] == ':' {
-		c := p[0]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-			return true
-		}
-	}
-	return false
+	return pathutil.EscapesPackageTree(entryPath, target)
 }
 
 // linkEntries 按条目把内容落地到 dst，返回实际使用的 mode 与文件数。

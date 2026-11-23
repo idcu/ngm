@@ -10,6 +10,7 @@ import (
 
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
+	"github.com/idcu/ngm/internal/core/resolve"
 	"github.com/idcu/ngm/internal/version"
 )
 
@@ -81,6 +82,10 @@ func CheckOutdated(ctx context.Context, lf *lock.File, opts OutdatedOptions) (*O
 		switch d.RefType {
 		case "commit":
 			e.Note = "pinned to a commit; no update to look for"
+		case string(resolve.RefTypeLocalDir), string(resolve.RefTypeLocalGit):
+			// 本地来源没有可查询的远端： digest / 本地 ref 的漂移归 verify。
+			// 不标 stale（那意味着"没查成"），也不标 update（那是查过的结论）。
+			e.Note = "local source; no remote update check — use ngm verify"
 		default:
 			mirrorPath, err := opts.EnsureMirror(ctx, d.Name)
 			if err != nil {

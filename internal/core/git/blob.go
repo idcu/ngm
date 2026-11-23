@@ -24,6 +24,7 @@ import (
 func ReadFileAtCommit(ctx context.Context, opts Options, repoPath, commit, path string) ([]byte, bool, error) {
 	o := opts
 	o.Dir = repoPath
+	o.OutputLimit = DataOutputLimit
 
 	// `:(literal)` 是 Git 的 pathspec magic：不做 glob 展开。
 	// 不加它时，一个含 `*` / `?` / `[` 的子路径会被当成模式，可能匹配到

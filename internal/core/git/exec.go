@@ -46,6 +46,11 @@ type Options struct {
 	// Secrets 是需要在错误输出中被替换为 "***" 的字面量集合。
 	// 由调用方传入（通常来自 tokenEnvVars 的实际值）；本包不主动读取环境变量。
 	Secrets []string
+	// OutputLimit 是 stdout 的保留上限；0 表示 boundbuf.DefaultLimit。
+	//
+	// 诊断输出用默认 1 MiB；`ls-tree` / `cat-file` 这类**数据输出**必须显式
+	// 调高，否则大树被截断成 malformed record、大 blob 被混入截断标记（2026-11-23 P2）。
+	OutputLimit int
 	// Policy 是权限判定器（可为 nil，表示不施加权限）。
 	//
 	// 它在这里做两件事，覆盖**全部** git 子进程：
@@ -72,6 +77,10 @@ type Result struct {
 	// ExitCode 为进程退出码；启动失败时为 -1。
 	ExitCode int
 }
+
+// DataOutputLimit 是数据型 git 输出的保留上限（与 cat-file 的单对象上限同口径）。
+// 大于它的输出仍然被有界截断并显式标记，不会退回无界 Buffer。
+const DataOutputLimit = 256 << 20
 
 // Run 执行 `git <args...>` 并返回结果。
 //
@@ -105,8 +114,12 @@ func runGit(ctx context.Context, opts Options, stdin []byte, args ...string) (*R
 	}
 
 	// 审计 C-05：通用 Run 此前用无界 bytes.Buffer 捕获输出。
-	// 大树 ls-tree -r -z 的输出整体驻留内存；boundbuf 保留前 1 MiB 并在末尾标明截断。
-	stdout, stderr := boundbuf.New(boundbuf.DefaultLimit), boundbuf.New(boundbuf.DefaultLimit)
+	// 默认保留前 1 MiB 并在末尾标明截断；数据输出用 OutputLimit 显式调高。
+	outLimit := opts.OutputLimit
+	if outLimit <= 0 {
+		outLimit = boundbuf.DefaultLimit
+	}
+	stdout, stderr := boundbuf.New(outLimit), boundbuf.New(boundbuf.DefaultLimit)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if stdin != nil {

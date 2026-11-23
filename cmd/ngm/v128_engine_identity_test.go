@@ -276,9 +276,17 @@ func TestV128WindowsCmdVariant(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("invalid json: %v\n%s", err, out.String())
 	}
+	// found 守卫：若产品干脆不再输出 ./git.cmd 行，空循环会让这条判据恒绿。
+	found := false
 	for _, row := range rows {
-		if row.RunTarget == "./git.cmd" && !row.ProbeDenied {
-			t.Fatalf("git.cmd must be denied, got %+v", row)
+		if row.RunTarget == "./git.cmd" {
+			found = true
+			if !row.ProbeDenied {
+				t.Fatalf("git.cmd must be denied, got %+v", row)
+			}
 		}
+	}
+	if !found {
+		t.Fatalf("engines list did not report ./git.cmd at all; the assertion would be vacuous: %s", out.String())
 	}
 }

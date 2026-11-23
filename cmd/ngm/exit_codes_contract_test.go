@@ -485,6 +485,12 @@ func TestV22DeclaredCodesAreMeasuredOrKnownGaps(t *testing.T) {
 			if !trig.noDir {
 				args = append(args, "--dir="+buildFixture(t, home, trig.setup))
 			}
+			// 漂移用例里的 fixture 用当前时间提交，而 ADR-050 的默认 P1D
+			// 会在"写了 supplyChain 段 + 刚 commit"时抢先 exit 3，掩盖真正
+			// 被测的漂移码。这里显式跳过晾晒期，让判据只测它声明的对象。
+			if trig.setup == setupDrifted && (spec.Name == "install" || spec.Name == "update") {
+				args = append(args, "--allow-fresh")
+			}
 			for k, v := range trig.env {
 				t.Setenv(k, v)
 			}

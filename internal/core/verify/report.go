@@ -204,6 +204,19 @@ type Report struct {
 	// 被丢掉几条边必须说出来——否则 `--json` 的消费者会把一份裁剪过的图
 	// 当成完整图。人读那侧打印同样的句子。
 	Notes []string `json:"notes,omitempty"`
+	// Gates 记录附加判定层（签名 / 沙箱）的结论。
+	//
+	// 这些层能把 summary.exitCode 抬到 2，却不属于 dependencies 的漂移结论；
+	// 没有这张表，--json 的消费者只会看到"依赖全绿却 exit 2"（2026-11-23 P2）。
+	Gates []GateResult `json:"gates,omitempty"`
+}
+
+// GateResult 是一条附加判定层的机器可读结论。
+type GateResult struct {
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	ExitCode int    `json:"exitCode"`
+	Status   string `json:"status"` // pass | fail
 }
 
 // ExitCode 依据 observability.md 的退出码契约计算最终退出码。

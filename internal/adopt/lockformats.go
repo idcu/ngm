@@ -23,7 +23,11 @@ func lockEntryFromGit(spec, commit, ref, version string) (lockEntry, bool) {
 	// commit 才算 Git 来源——否则可能把 registry 的 tarball URL 误判成 Git。
 	explicit := strings.HasPrefix(spec, "git+") || strings.HasPrefix(spec, "git:")
 	url := strings.TrimPrefix(spec, "git+")
-	url = strings.TrimPrefix(url, "git:")
+	// `git://` 是完整 scheme，第二个 TrimPrefix 会把它剥成 `//host/repo.git`。
+	// 与 adopt.go 的 parseGitResolved（I-04 修复）保持同一口径。
+	if !strings.HasPrefix(url, "git://") {
+		url = strings.TrimPrefix(url, "git:")
+	}
 	if url == "" || (!explicit && commit == "" && ref == "") {
 		return lockEntry{}, false
 	}

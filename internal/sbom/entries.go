@@ -23,7 +23,9 @@ func FromLock(lf *lock.File) ([]Entry, error) {
 	out := make([]Entry, 0, len(lf.Dependencies))
 	for i := range lf.Dependencies {
 		d := &lf.Dependencies[i]
-		repo, err := resolve.ParseSlug(d.Name)
+		// local 来源没有 Git host，ParseSlug 会直接拒绝 `local:`；
+		// 统一身份入口为它构造伪 Canonical，导出层才能覆盖全部 lock 条目。
+		repo, err := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 		if err != nil {
 			return nil, err
 		}

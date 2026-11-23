@@ -38,6 +38,7 @@ type TreeEntry struct {
 func ListTree(ctx context.Context, opts Options, repoPath, commit string) ([]TreeEntry, error) {
 	o := opts
 	o.Dir = repoPath
+	o.OutputLimit = DataOutputLimit
 	res, err := Run(ctx, o, "ls-tree", "-r", "-z", commit)
 	if err != nil {
 		return nil, err

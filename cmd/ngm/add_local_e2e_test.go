@@ -26,7 +26,10 @@ func TestAddLocalSourceE2E(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"name": "local:kernel"`) {
 		t.Fatalf("add local-dir dry-run failed: exit=%d\n%s", code, out)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "ngm.json"))
+	data, rerr := os.ReadFile(filepath.Join(dir, "ngm.json"))
+	if rerr != nil {
+		t.Fatalf("read manifest after dry-run: %v", rerr)
+	}
 	if strings.Contains(string(data), "local:kernel") {
 		t.Fatal("dry-run must not write ngm.json")
 	}

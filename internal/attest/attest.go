@@ -115,13 +115,21 @@ func Build(entries []sbom.Entry, opts Options) ([]byte, error) {
 			Digest:      sha256Digest{SHA256: e.HexDigest()},
 			Annotations: annotations,
 		})
-		materials = append(materials, material{
-			URI:    "git+" + e.VCSURL() + "@" + e.Commit,
-			Digest: gitCommitDigest{GitCommit: e.Commit},
+		m := material{
 			Annotations: map[string]string{
 				annotationDeclaredRef: e.RefType + ":" + e.Ref,
 			},
-		})
+		}
+		if e.IsLocal() {
+			// 本地来源没有 commit，也没有可解析的 git URL：
+			// 用 local: 命名空间和 sha256 digest 描述材料，不能造 git+@<digest>。
+			m.URI = "local:" + e.CanonicalPath() + "@" + e.HexDigest()
+			m.Digest = sha256Digest{SHA256: e.HexDigest()}
+		} else {
+			m.URI = "git+" + e.VCSURL() + "@" + e.Commit
+			m.Digest = gitCommitDigest{GitCommit: e.Commit}
+		}
+		materials = append(materials, m)
 	}
 
 	// SLSA v1 的 runDetails.metadata 可有 startedOn / finishedOn；默认省略以保持确定性。
@@ -253,8 +261,10 @@ type fileRef struct {
 }
 
 type material struct {
-	URI         string            `json:"uri"`
-	Digest      gitCommitDigest   `json:"digest"`
+	URI string `json:"uri"`
+	// Digest 是 in-toto 的 digest 映射：Git 来源用 gitCommit，
+	// 本地来源用 sha256（内容摘要），两者不能混用（ADR-052）。
+	Digest      any               `json:"digest"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 

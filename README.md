@@ -588,8 +588,7 @@ go test -race ./...    # 可选；CI 在 ubuntu 上单独跑，同样放宽到 4
 - [CLI 参考](docs/guides/cli.md) — 每个命令的完整用法、`--json` 形状与退出码矩阵
 - [配置详解](docs/guides/configuration.md) — 字段语义、vendor 模式、supplyChain
 - [快速上手](docs/guides/quickstart.md)、[安装指南](docs/guides/installation.md)
-- [术语表](docs/guides/glossary.md)
-- [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
+- [术语表](docs/guides/glossary.md) · [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
 - [ADR 索引](docs/adr/README.md) — 52 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、verify 默认级别、本地来源等）
 - [全维度代码评估（2026-11-20）](docs/analysis/ngm-full-assessment-2026-11-20.md) — 全量审查结论、缺陷清单与优先级（最新）
 - [竞品全维度差距评估（2026-11-21）](docs/analysis/ngm-competitive-gap-full-2026-11-21.md) — 与 npm/pnpm/Deno 等的最新差距、过期事实纠偏与建议

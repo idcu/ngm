@@ -49,11 +49,20 @@ func verifyWithSignatures(
 	mirror := vendor.NewMirror(env.Layout.MirrorRoot(), env.GitOpts)
 	var notSigned []string
 	checked := 0
+	notApplicable := 0
 
 	for i := range lf.Dependencies {
 		d := &lf.Dependencies[i]
 
-		repo, perr := resolve.ParseSlug(d.Name)
+		// 本地来源没有 commit 签名模型：它的身份是内容 digest / 本地 ref。
+		// 把它塞进 notSigned 会让 --require-signed 对一个按设计无关的对象报警。
+		if resolve.RefType(d.RefType).IsLocal() {
+			fmt.Fprintf(out, "  - %s — signature: N/A (local source)\n", d.Name)
+			notApplicable++
+			continue
+		}
+
+		repo, perr := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 		if perr != nil {
 			fmt.Fprintf(out, "  ? %s — cannot read its address: %v\n", d.Name, perr)
 			notSigned = append(notSigned, d.Name)
@@ -92,7 +101,7 @@ func verifyWithSignatures(
 		return baseCode
 	}
 
-	if require && checked == 0 {
+	if require && checked == 0 && notApplicable == 0 {
 		// 空转守卫：有依赖、却一个都没查成时**不能算通过**。否则一个坏掉的
 		// mirror 会让 `--require-signed` 变成一句空话（"全都通过了"，因为
 		// 什么都没查）。
@@ -104,7 +113,8 @@ func verifyWithSignatures(
 	}
 
 	if !require {
-		fmt.Fprintf(out, "  (%d checked; this is a report, not a gate — see --require-signed)\n", checked)
+		fmt.Fprintf(out, "  (%d checked, %d N/A local; this is a report, not a gate — see --require-signed)\n",
+			checked, notApplicable)
 		return baseCode
 	}
 

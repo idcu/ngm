@@ -178,14 +178,14 @@ func (p *ProjectFile) UpsertDependency(dep Dependency) (bool, error) {
 
 // RemoveDependency 按 name（归一化后）移除依赖；返回是否存在并删除。
 func (p *ProjectFile) RemoveDependency(name string) (bool, error) {
-	target, err := resolve.ParseSlug(name)
+	target, err := resolve.ParseIdentityArg(name)
 	if err != nil {
 		return false, err
 	}
 	out := p.Dependencies[:0]
 	removed := false
 	for _, d := range p.Dependencies {
-		c, cerr := resolve.ParseSlug(d.Name)
+		c, cerr := resolve.DepIdentity(d.Name, resolve.RefType(d.RefType))
 		if cerr == nil && c.Equal(target) {
 			removed = true
 			continue
@@ -204,14 +204,14 @@ func (p *ProjectFile) RemoveDependency(name string) (bool, error) {
 // hasPath=false 表示只给了仓库名：此时若同一仓库有多个子路径条目，返回歧义错误，
 // 而不是把整仓的模块全部删掉。这与 update/verify 的目标选择同一纪律。
 func (p *ProjectFile) RemoveDependencyAt(name, subPath string, hasPath bool) (bool, error) {
-	target, err := resolve.ParseSlug(name)
+	target, err := resolve.ParseIdentityArg(name)
 	if err != nil {
 		return false, err
 	}
 
 	var matches []int
 	for i := range p.Dependencies {
-		c, cerr := resolve.ParseSlug(p.Dependencies[i].Name)
+		c, cerr := resolve.DepIdentity(p.Dependencies[i].Name, resolve.RefType(p.Dependencies[i].RefType))
 		if cerr != nil || !c.Equal(target) {
 			continue
 		}
