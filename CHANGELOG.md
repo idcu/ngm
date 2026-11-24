@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-11-24
+
+本版把 `0.102.x` / `0.103.0-dev.x` 开发线转正，汇总 `v0.101.0` 之后全部用户可观察变更；
+预发布阶段的逐项说明见下方 `## [0.103.0-dev.3]` 与 `## [0.102.0-dev.4]` 段落。
+
+### 升级必读（破坏性）
+
+- `schemaVersion` 升 3、`lockfileVersion` 升 3.0.0：v1/v2 的 `ngm.json` 与 2.x lock 被明确拒绝（exit 3）；需要升级声明并重新 `ngm install`，能证明的字段可用 `ngm migrate` 迁移，其余逐条 skipped。
+- 依赖来源从单一 Git 扩展为 `local-git` / `local-dir` 两类，定位为独立生态；不做 registry 协议、semver 求解，不接管 `node_modules`。详见 `## [0.103.0-dev.3]` 段落。
+
 ### Added（2026-11-24 生态路线 E1–E14）
 
 - 新增三个示例脚手架（`examples/esbuild-ts`、`local-dir-offline`、`deno-engine`）与第三方引擎样例 `examples/third-party-engine`；新增 `docs/guides/positioning.md` 说明 ngm 与包管理器/构建器/任务运行器的边界。
