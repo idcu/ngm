@@ -1,9 +1,12 @@
 package adapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -68,6 +71,24 @@ type Entry struct {
 	Command string `json:"command"`
 	// Version 是清单声明的版本（**声明**，未必等于本机实际版本）。
 	Version string `json:"version,omitempty"`
+
+	// ExpectedVersion 是显式版本绑定：不符 → exit 5（引擎不可用）。
+	//
+	// 与 Version 的区别：Version 只是声明，与实装不一致是信息（exit 0）；
+	// ExpectedVersion 是用户主动要求的钉住，不符是结论。`expectedVersion` 为空时
+	// 完全维持旧行为（ADR-058）。
+	ExpectedVersion string `json:"expectedVersion,omitempty"`
+	// ExpectedDigest 是工具**字节**摘要绑定：不符 → exit 2（完整性失败）。
+	//
+	// 摘要用 Go 标准库读工具文件字节计算，不 spawn sha256sum（Windows 无此工具），
+	// 也不把路径写进绑定。2 压过 5 与 3（ADR-039 / ADR-058）。
+	ExpectedDigest string `json:"expectedDigest,omitempty"`
+	// SupportsMinify 声明该 CSS 条目支持 `--minify`。
+	//
+	// 未声明（默认 false）而命令给了 `--minify` → exit 3，不再静默忽略；
+	// 显式声明后才允许压缩参数下发（ADR-058 / guides/build.md）。
+	SupportsMinify bool `json:"supportsMinify,omitempty"`
+
 	// SupportedInput 是支持的输入扩展名（含点）。
 	SupportedInput []string `json:"supportedInput,omitempty"`
 	// DefaultOptions 是默认选项，可被 ngm.json 的 engines.<kind>.options 覆盖。
@@ -463,6 +484,97 @@ func (c *Catalog) probeIssues(e Entry, pr ProbeResult, label, reportedBy string)
 		Message: fmt.Sprintf("catalog declares version %s, %s %q", e.Version, reportedBy, pr.Version)}}
 }
 
+// bindingIssues 核对一条清单上的显式绑定字段（ADR-058）。
+//
+// 两字段都不填时返回空 —— "维持当前探测行为"不是靠调用方记得跳过，而是靠
+// 这里根本没有可报的结论。版本取探测读数，探测没给出时退到清单声明值；
+// 摘要则只读工具文件字节，不需要 spawn、也不需要 `run:` 授权。
+func (c *Catalog) bindingIssues(e Entry, pr ProbeResult) []Issue {
+	var issues []Issue
+	label := e.Key()
+
+	if exp := strings.TrimSpace(e.ExpectedVersion); exp != "" {
+		actual, source := strings.TrimSpace(pr.Version), "the installed engine reports"
+		if actual == "" {
+			actual, source = strings.TrimSpace(e.Version), "the catalog declares"
+		}
+		if actual != "" && !versionBindingMatches(actual, exp) {
+			issues = append(issues, Issue{Entry: label, Kind: IssueVersionBinding,
+				Message: fmt.Sprintf("expectedVersion %q does not match what %s (%q)", exp, source, actual)})
+		}
+	}
+
+	if exp := strings.TrimSpace(e.ExpectedDigest); exp != "" {
+		got, err := bindingToolDigest(c, e)
+		if err == nil && !digestBindingMatches(exp, got) {
+			// 只说结论与实测值，不把工具路径写进报告（路径换机器就变）。
+			issues = append(issues, Issue{Entry: label, Kind: IssueDigestBinding,
+				Message: fmt.Sprintf("expectedDigest %q does not match the engine tool bytes (%s)", exp, got)})
+		}
+		// 读不到工具时不构造"摘要不符"：那是可用性问题（5），不是已确证的篡改（2）。
+	}
+	return issues
+}
+
+// versionBindingMatches 判定探测/声明版本是否满足显式钉住的版本。
+//
+// 沿用既有声明版本比较的前缀口径（"0.24" 接受 "0.24.0"），但加一个边界：
+// "1.0" 不该被 "1.08" 蒙混过去。前导 v 两边都剥掉，`v1.2.3` 与 `1.2.3` 等价。
+func versionBindingMatches(actual, expected string) bool {
+	norm := func(s string) string {
+		return strings.TrimPrefix(strings.TrimSpace(s), "v")
+	}
+	a, e := norm(actual), norm(expected)
+	if a == e {
+		return true
+	}
+	return strings.HasPrefix(a, e+".") || strings.HasPrefix(a, e+"-")
+}
+
+// digestBindingMatches 比较 "sha256:<hex>" 与用户写下的摘要（允许省略前缀）。
+func digestBindingMatches(expected, actual string) bool {
+	norm := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		return strings.TrimSpace(strings.TrimPrefix(s, "sha256:"))
+	}
+	e, a := norm(expected), norm(actual)
+	return e != "" && e == a
+}
+
+// bindingToolDigest 读工具**字节**算 sha256:<hex>，与 internal/receipt 的口径相同。
+//
+// 这里刻意写成本包私有 helper 而不依赖另一处实现：绑定判据要与工具文件本身
+// 绑死，Go 标准库读字节即可，不 spawn sha256sum（Windows 上没有），也不把
+// 路径当身份。wasm 模块的 `command` 是相对项目根的文件路径，subprocess 走
+// LookPath（绝对路径原样、相对名查 PATH）；embed 没有可绑定的工具字节。
+func bindingToolDigest(c *Catalog, e Entry) (string, error) {
+	var path string
+	switch e.Adapter {
+	case AdapterSubprocess, AdapterWasm:
+		path = strings.TrimSpace(e.Program)
+		if path == "" {
+			return "", fmt.Errorf("engine %q has no tool file to bind", e.Name)
+		}
+		if e.Adapter == AdapterSubprocess {
+			resolved, err := exec.LookPath(path)
+			if err != nil {
+				return "", err
+			}
+			path = resolved
+		} else if !filepath.IsAbs(path) && c != nil {
+			path = filepath.Join(c.baseDir, path)
+		}
+	default:
+		return "", fmt.Errorf("adapter %q has no tool file to bind", e.Adapter)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
 // runTargetFor 给出 `run:<target>` 里的 target（用于报告文案）。
 //
 // 项目内的可执行文件给路径形式（`./tools/git`）：名字授权不再覆盖它们，
@@ -564,6 +676,14 @@ const (
 	// 判为失败会让 validate 变成版本管理器而非校验器。它存在是为了让
 	// `--json` 与 human 输出把这件事**说出来**，而不是藏着。
 	IssueVersion IssueKind = "version"
+	// IssueVersionBinding 显式 `expectedVersion` 与实装/声明版本不符 → exit 5。
+	//
+	// 与 IssueVersion 的差别是**用户有没有主动要求钉住**：前者是信息，后者是结论。
+	IssueVersionBinding IssueKind = "version-binding"
+	// IssueDigestBinding 显式 `expectedDigest` 与工具字节摘要不符 → exit 2。
+	//
+	// 完整性失败，按 ADR-039 压过 IssueVersionBinding(5) 与 IssueProbeDenied(3)。
+	IssueDigestBinding IssueKind = "digest-binding"
 	// IssueProbeDenied 引擎可用，但 `run:<target>` 未授权，因此**无法探测版本**。
 	//
 	// fail-closed：validate 拿不到结论就不能报成功，所以它是**问题**而不是
@@ -579,6 +699,10 @@ func (k IssueKind) ExitCode() int {
 		return errs.CodeConfigInvalid.ExitCode()
 	case IssueVersion:
 		return 0
+	case IssueVersionBinding:
+		return errs.CodeEngineNotFound.ExitCode()
+	case IssueDigestBinding:
+		return errs.CodeDigestMismatch.ExitCode()
 	default:
 		return errs.CodeEngineNotFound.ExitCode()
 	}
@@ -603,19 +727,27 @@ type Issue struct {
 
 // ExitCode 依据问题集合计算 `ngm engines validate` 的退出码。
 //
-// 规则：**schema 错误优先于可用性问题**。
+// 规则：**完整性失败 > schema 错误 > 权限缺失 > 可用性问题**。
 //
 // 清单结构坏掉时，"某个引擎不可用"这类结论是建立在无意义数据上的
 // （例如 command 字段被写成对象、kind 拼错），先让用户修结构（3），
 // 修好后再看可用性（5）。规则的唯一实现在这里，CLI 与测试都调它——
 // 避免"命令行按一种规则、测试按另一种规则"的漂移。
+//
+// 摘要不符（2）先单独扫一遍再进 switch：否则一旦它排在 probe-denied（3）
+// 后面，提前 return 3 会让优先级依赖问题列表的顺序（ADR-039 / ADR-058）。
 func ExitCode(issues []Issue) int {
+	for _, is := range issues {
+		if is.Kind == IssueDigestBinding {
+			return errs.CodeDigestMismatch.ExitCode()
+		}
+	}
 	code := 0
 	for _, is := range issues {
 		switch is.Kind {
 		case IssueSchema:
 			return errs.CodeConfigInvalid.ExitCode()
-		case IssueUnavailable, IssueUnimplemented:
+		case IssueUnavailable, IssueUnimplemented, IssueVersionBinding:
 			if code == 0 {
 				code = errs.CodeEngineNotFound.ExitCode()
 			}
@@ -659,6 +791,8 @@ func (c *Catalog) Validate() []Issue {
 			issues = append(issues, Issue{Entry: label, Kind: IssueSchema,
 				Message: fmt.Sprintf("unknown `kind` %q; valid kinds: %s", e.Kind, kindList())})
 		}
+		// 一次探测的结论供可用性、版本信息与绑定核对共用（V127：每条只探一次）。
+		var pr ProbeResult
 		if !e.Adapter.IsValid() {
 			issues = append(issues, Issue{Entry: label, Kind: IssueSchema,
 				Message: fmt.Sprintf("unknown `adapter` %q; valid adapters: %s", e.Adapter, adapterList())})
@@ -676,7 +810,7 @@ func (c *Catalog) Validate() []Issue {
 				}
 				// 可用性与版本来自**同一次**探测：模块文件在不在与 `--version`
 				// 是同一个结论的两半，分开问会让两处给出不同答案（P2-2）。
-				pr := c.Probe(e)
+				pr = c.Probe(e)
 				if !pr.Available {
 					if !e.Optional {
 						issues = append(issues, Issue{Entry: label, Kind: IssueUnavailable,
@@ -699,7 +833,7 @@ func (c *Catalog) Validate() []Issue {
 				// 注意：可用性检查之后**不能**提前 continue——后面的 stub / 重名
 				// 校验仍要执行。一个条目可以同时"没装"且"写法错误"，
 				// 只报前者会让用户修完安装再撞上第二个问题。
-				pr := c.Probe(e)
+				pr = c.Probe(e)
 				if !pr.Available {
 					if !e.Optional {
 						// 可选引擎未安装不是问题：用到它的那一刻自然会失败并给出提示，
@@ -712,6 +846,10 @@ func (c *Catalog) Validate() []Issue {
 				}
 			}
 		}
+
+		// 绑定字段是显式承诺，独立于可用性判定：即使这一条已经报了"没装 /
+		// 没授权"，摘要仍按文件字节核对——完整性失败必须压过资源类失败。
+		issues = append(issues, c.bindingIssues(e, pr)...)
 
 		if e.Stub && e.Adapter != AdapterEmbed {
 			issues = append(issues, Issue{Entry: label, Kind: IssueSchema,

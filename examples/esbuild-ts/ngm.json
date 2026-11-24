@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 3,
+  "name": "github.com:ngm-examples/esbuild-ts",
+  "version": "0.1.0",
+  "runtime": "node",
+  "main": "./src/index.ts",
+  "dependencies": [],
+  "engines": {
+    "transform": "esbuild",
+    "bundle": "esbuild"
+  },
+  "vendor": {
+    "mode": "local"
+  },
+  "scripts": {
+    "build": "ngm build --engine=esbuild",
+    "transform": "ngm transform src/index.ts --engine=esbuild --outfile=dist/index.transformed.js"
+  }
+}

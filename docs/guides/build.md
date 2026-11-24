@@ -61,7 +61,30 @@ ngm typedecl --outdir=dist/types --engine=typescript # .d.ts 声明（v0.4 起�
 ngm css src/app.css --engine=postcss --outfile=dist/app.css
 ```
 
-postcss **没有内建压缩**：`--minify` 会被明确告知忽略，而不是假装压缩过。
+postcss **没有内建压缩**。自 W2 起 `ngm css --minify --engine=postcss` 是 **exit 3**
+（配置错误，提示显式换一个支持压缩的引擎），不再静默忽略后产出未压缩文件；
+不带 `--minify` 的编译路径与既有的插件/引擎警告保持不变。声明支持压缩的引擎需要在
+`ngm.engines.json` 里写 `"supportsMinify": true`（字段形状见
+[配置指南](./configuration.md#引擎清单条目的绑定字段ngmenginesjson)）。
+
+### 压缩的确定性口径
+
+ngm 对压缩产物**只承诺一件事**：**同输入 / 同参数 / 同引擎** 时，`esbuild` 的
+`--minify` 回执字节是确定的。也就是说，重复同一条命令、同一份输入、同一个引擎二进制，
+`ngm.build.json` 里记录的产物摘要应当逐字节一致（[ADR-057](../adr/adr-057-build-receipt.md)）。
+
+**不跨工具承诺**——这是刻意的边界，不是待测事项：
+
+- 不承诺 esbuild / lightningcss / cssnano 等不同压缩工具之间字节一致；
+- 不承诺同一工具的不同版本（哪怕版本号只差一个补丁）之间字节一致；
+- 不承诺跨操作系统/平台字节一致；回执记录的是这次实际使用的工具字节摘要，
+  而不是"可复现构建"认证。
+
+对照证据：[ADR-013 远程 adapter（按决定排除）](../adr/adr-013-remote-adapter.md) 固定了
+"ngm 不自研引擎、压缩交给外部工具"的边界；可复现性探针
+[`scripts/probe-reproducibility.sh`](../../scripts/probe-reproducibility.sh) 给出当前
+工具链下"同输入/同参数/同引擎 → 同字节"的实测路径。探针过了只说明那一次组合确定，
+不扩展上面的承诺范围。
 
 ### 需要自行声明的引擎：deno / wasm
 

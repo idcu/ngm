@@ -103,7 +103,7 @@ func TestV02EngineAdaptersAcceptance(t *testing.T) {
 	})
 
 	// postcss 没有内建压缩：这条固定"不静默忽略用户传的 flag"
-	t.Run("css with postcss says so when --minify cannot be honoured", func(t *testing.T) {
+	t.Run("css with postcss fails closed when --minify cannot be honoured", func(t *testing.T) {
 		isolateUserEnv(t)
 		proj := newProject(t)
 		testutils.WriteFile(t, proj, "app.css", ".a{color:red}\n")
@@ -112,11 +112,11 @@ func TestV02EngineAdaptersAcceptance(t *testing.T) {
 		})
 
 		code, out := runCaptureCode(t, "css", "app.css", "--engine=postcss", "--minify", "--dir="+proj)
-		if code != 0 {
-			t.Fatalf("css exit=%d:\n%s", code, out)
+		if code != 3 {
+			t.Fatalf("css exit=%d, want 3 (config error):\n%s", code, out)
 		}
-		if !strings.Contains(out, "minifier") {
-			t.Errorf("the report must say --minify was ignored and why:\n%s", out)
+		if !strings.Contains(out, "supportsMinify") {
+			t.Errorf("the hint must point to an engine that supports minify:\n%s", out)
 		}
 	})
 

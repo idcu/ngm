@@ -147,6 +147,10 @@ var wiredFields = map[string]string{
 	"Entry.DefaultOptions": "TestCatalog_OverlayAndFind",
 	"Entry.Optional":       "TestBuiltinCatalog_IncludesAdaptedEngines",
 	"Entry.Stub":           "TestRunner_DryRunPlansTheStub",
+	// E7/E8：引擎绑定与压缩能力声明（ADR-058）。
+	"Entry.ExpectedVersion": "TestV227EngineBindingCodes",
+	"Entry.ExpectedDigest":  "TestV227EngineBindingCodes",
+	"Entry.SupportsMinify":  "TestV226CssMinifyFailsClosed",
 }
 
 // TestEveryConfigFieldHasAWiringTest 是"声明了、没接线"那类缺陷的机械化检查。

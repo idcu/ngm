@@ -358,6 +358,7 @@ var matrixArgs = map[string][]string{
 	// v0.120：`run` 读 package.json / ngm.json，因此配置形状错误必须先打断它。
 	"run":          {"ok"},
 	"update":       {"--all"},
+	"migrate":      {"--dry-run"},
 	"remove":       {"github:x/dep"},
 	"verify":       {},
 	"modules":      {"list", "--json"},
@@ -411,4 +412,6 @@ var exitZeroByDesign = map[string]string{
 		"（坏锁它不需要读）",
 	"config":  "`config validate` 校验的是**清单**，不读锁",
 	"engines": "`engines list` 读的是引擎目录，不读锁",
+	"migrate": "`migrate --dry-run` 只做 v2→v3 的字段映射预演，语义校验归 `ngm config validate`；" +
+		"实测四种语义损坏的清单退 0（版本本身不支持仍 exit 3），登记为设计行为",
 }

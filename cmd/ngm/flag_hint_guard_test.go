@@ -45,6 +45,8 @@ var crossFileFlags = map[string]string{
 	"apply":          "`ngm gc --apply`, named explicitly by store.go's usage text",
 	"require-signed": "declared in verify.go; this file renders its report",
 	"signatures":     "declared in verify.go; this file renders its report",
+	"dry-run":        "declared in migrate.go; root help names the preview flag",
+	"provenance":     "declared in build.go; verify --receipt hint points to it",
 }
 
 // TestHintsNameFlagsTheCommandAccepts 抓"报错让人去用一个不存在的 flag"。

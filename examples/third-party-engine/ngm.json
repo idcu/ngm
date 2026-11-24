@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 3,
+  "name": "github.com:ngm-examples/third-party-engine",
+  "version": "0.1.0",
+  "runtime": "node",
+  "main": "./src/index.ts",
+  "dependencies": [],
+  "engines": {
+    "bundle": "thirdparty-bundle"
+  }
+}

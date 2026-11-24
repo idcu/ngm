@@ -157,6 +157,32 @@ func denoInvocation(entry Entry, req buildRequest) (invocation, error) {
 }
 
 // ---------------------------------------------------------------------------
+// CSS 压缩能力声明
+// ---------------------------------------------------------------------------
+
+// CheckCSSMinifySupport 在请求了 `--minify` 而条目未声明支持时返回 exit 3。
+//
+// 这是 E7 的单一判定入口：此前 postcss 只是打印"--minify 被忽略"然后照常
+// 编译，产物没压缩却退出 0——CI 会把它当成一次成功的压缩构建。现在显式请求
+// 得不到压缩就是**配置错误**，必须换一个声明支持的引擎（或去掉 --minify）。
+//
+// 声明支持的条目（如用户在 ngm.engines.json 里写 `"supportsMinify": true`
+// 的 esbuild / lightningcss）直接放行；postcss 自己的解释性 note 仍保留在
+// postcssInvocation 里，非 minify 路径的行为完全不变。
+//
+// 导出是为了让自定义引擎的 argv 翻译（subprocess.go 的 genericInvocation）
+// 能复用同一条规则——接线点见最终答复。
+func CheckCSSMinifySupport(entry Entry, minify bool) error {
+	if !minify || entry.SupportsMinify {
+		return nil
+	}
+	return errs.New(errs.CodeConfigInvalid,
+		fmt.Sprintf("engine %q does not support CSS `--minify`", entry.Name),
+		"declare an engine that supports CSS minification in "+FileName+
+			" (e.g. esbuild or lightningcss with `supportsMinify: true`), or drop --minify")
+}
+
+// ---------------------------------------------------------------------------
 // postcss
 // ---------------------------------------------------------------------------
 
@@ -172,6 +198,10 @@ func postcssInvocation(entry Entry, req buildRequest) (invocation, error) {
 		return invocation{}, errs.New(errs.CodeEngineNotFound,
 			"postcss provides css only",
 			"use esbuild for bundle / transform")
+	}
+	// fail-closed：未声明压缩能力时，--minify 是配置错误（exit 3），不再是 note。
+	if err := CheckCSSMinifySupport(entry, o.Minify); err != nil {
+		return invocation{}, err
 	}
 
 	var args []string

@@ -54,7 +54,7 @@ wrote ngm.proof.json (source: npm package-lock.json, coverage 0/15 traceable)
 
 **代价**：0 行改动。**收益**：一份可 diff、可归档的内容清单。
 
-CI 里不需要自己拼命令——仓库根的 `action.yml` 有三个 mode，其中两个属于这条路径：
+CI 里不需要自己拼命令——仓库根的 `action.yml` 有四个 mode（`verify` / `adopt` / `adopt-check` / `receipt`），其中两个属于这条路径；`receipt` 走构建回执复验：
 
 ```yaml
 - uses: actions/checkout@v4

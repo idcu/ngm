@@ -98,18 +98,25 @@ func TestPostcss_KeepsPluginOrder(t *testing.T) {
 	}
 }
 
-// postcss 没有内建压缩：静默忽略 --minify 会让人以为产物被压缩过
-func TestPostcss_SaysSoWhenMinifyIsIgnored(t *testing.T) {
-	inv, err := buildInvocation(Entry{Name: "postcss", Kind: KindCSS, Program: "postcss"},
+// E7：postcss 没有内建压缩。旧行为是打印 note 后退出 0——CI 会把
+// "没压缩成功"当成成功构建；现在显式 --minify 必须 fail-closed。
+func TestPostcss_FailsClosedWhenMinifyIsRequested(t *testing.T) {
+	_, err := buildInvocation(Entry{Name: "postcss", Kind: KindCSS, Program: "postcss"},
 		buildRequest{Options: CSSOptions{Minify: true}})
+	if err == nil {
+		t.Fatal("postcss --minify must fail with CodeConfigInvalid, not silently succeed")
+	}
+	if !strings.Contains(err.Error(), "does not support CSS `--minify`") {
+		t.Fatalf("error should explain the unsupported minify request: %v", err)
+	}
+	// 不带 --minify 的旧路径仍要能产出 invocation。
+	inv, err := buildInvocation(Entry{Name: "postcss", Kind: KindCSS, Program: "postcss"},
+		buildRequest{Options: CSSOptions{}})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("non-minify postcss path regressed: %v", err)
 	}
-	if len(inv.Notes) == 0 {
-		t.Fatal("postcss must report that --minify cannot be honoured, not drop it silently")
-	}
-	if !strings.Contains(strings.Join(inv.Notes, " "), "minifier") {
-		t.Errorf("the note should explain why: %v", inv.Notes)
+	if !inv.ReadsStdin {
+		t.Fatal("postcss input comes from stdin")
 	}
 }
 

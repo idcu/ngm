@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "engines": [
+    {
+      "name": "thirdparty-bundle",
+      "kind": "bundle",
+      "adapter": "subprocess",
+      "command": "bash ./bin/thirdparty-bundle.sh",
+      "version": "0.1.0",
+      "supportedInput": [".ts", ".tsx", ".js"]
+    }
+  ]
+}

@@ -33,8 +33,10 @@ CATALOG SOURCES (highest wins):
 
 EXIT CODES:
   0  ok
+  2  an engine's tool bytes do not match its pinned ` + "`expectedDigest`" + `
   3  the catalog is malformed
-  5  an engine in the catalog is not usable (missing, or an unimplemented adapter)
+  5  an engine in the catalog is not usable (missing, an unimplemented adapter,
+     or its version does not match ` + "`expectedVersion`" + `)
 	6  internal failure: the conclusion was reached but could not be delivered (writing stdout, encoding JSON, reading stdin), or ngm panicked
 `
 
@@ -262,6 +264,13 @@ func issueAdvice(kind adapter.IssueKind) string {
 		return "update the declared `version` in " + adapter.FileName +
 			" to match what is installed (a mismatch is information, not a blocker); " +
 			"re-run `ngm engines validate` to confirm"
+	case adapter.IssueVersionBinding:
+		return "install the version named by `expectedVersion` in " + adapter.FileName +
+			", or update that pin to the installed version; then re-run `ngm engines validate`"
+	case adapter.IssueDigestBinding:
+		return "this is an integrity failure (exit 2): replace the engine tool with the bytes named by " +
+			"`expectedDigest` in " + adapter.FileName + ", or update that pin after verifying the tool; " +
+			"then re-run `ngm engines validate`"
 	case adapter.IssueProbeDenied:
 		// 不用 `<engine>` 这种尖括号占位符：JSON 默认会把 `<` 转义成 \u003c，
 		// 于是"人读的句子"在机器那侧逐字找不到（json_next_step_test）。

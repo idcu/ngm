@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Added（2026-11-24 生态路线 E1–E14）
+
+- 新增三个示例脚手架（`examples/esbuild-ts`、`local-dir-offline`、`deno-engine`）与第三方引擎样例 `examples/third-party-engine`；新增 `docs/guides/positioning.md` 说明 ngm 与包管理器/构建器/任务运行器的边界。
+- `ngm build --provenance` 输出确定性旁车 `ngm.build.json`（输入/引擎/argv/mappings/产物摘要，不进 lock、无时间戳）；`--cache` 按输入+引擎+argv+平台+mappings 命中本地缓存，并在报告中说明 `source`。
+- `ngm verify --receipt` 只读复验当前产物摘要（产物不符 exit 2、引擎缺失 exit 5）；`ngm run --explain` 只读展示 pre→main→post 计划与授权状态，不执行任何脚本。
+- `ngm.engines.json` 新增 `expectedVersion` / `expectedDigest` / `supportsMinify`；CSS 请求 `--minify` 而引擎未声明支持时 exit 3，不再静默忽略。
+- CI action 新增第四种 mode `receipt`（`build --provenance` → `verify --receipt`），原三 mode 与 verify 默认值不变。
+
+### Changed（2026-11-24 生态路线）
+
+- ADR-057（构建回执）、ADR-058（引擎绑定）入册；capability matrix 增加机器可读门禁；skip 台账登记 Vite 离线替身边界。
+
 ### Added（2026-11-24 竞品改进路线）
 
 - `ngm migrate`：把 v1/v2 清单与 2.x lock 迁到 v3，只搬能证明的字段，缺 digest 等条目逐条 skipped 且全量不写；`--dry-run` 可预演，写前备份 `.bak`。

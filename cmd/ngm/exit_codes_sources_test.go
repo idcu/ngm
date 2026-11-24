@@ -248,9 +248,46 @@ var exitOneSiteRegistry = map[string][]exitOneEntry{
 		role: roleSource, category: catInternal,
 		why: "`write report: %v`——why / outdated / tree / verify 四条命令的 `--json` 报告写不出去",
 	}},
-	"cmd/ngm/build.go :: runBuild": {{
-		role: roleSource, category: catInternal, why: "`write bundle: %v`",
+	"cmd/ngm/build.go :: runBuild": {
+		{
+			role: roleSource, category: catInternal,
+			why: "`read build cache`——缓存读不出来（E6）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`invalidate polluted build cache`——污染缓存删不掉（E6）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`CodeInternal.ExitCode()`——构建结果送不到消费方（原有出口）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`write build cache`——缓存写不进去（E6）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`write ngm.build.json`——回执写不出去（E4）",
+		},
+	},
+	"cmd/ngm/build.go :: engineDigestFor": {{
+		role: roleSource, category: catInternal,
+		why: "`locate running executable`——embed 引擎摘要算不出来（E4）",
 	}},
+	"cmd/ngm/build.go :: artifactBytes": {{
+		role: roleSource, category: catInternal,
+		why: "`read built artifact`——引擎退出 0 但产物读不出来（E4）",
+	}},
+	"cmd/ngm/build.go :: writeCachedArtifact": {
+		{
+			role: roleSource, category: catInternal,
+			why: "`create output directory`——缓存产物目录建不出来（E6）",
+		},
+		{
+			role: roleSource, category: catInternal,
+			why: "`write cached artifact`——缓存产物写不进去（E6）",
+		},
+	},
 	"cmd/ngm/typecheck.go :: runCSS": {{
 		role: roleSource, category: catInternal, why: "`write css: %v`",
 	}},

@@ -64,6 +64,9 @@ var configSectionFiles = map[string]struct {
 	"ngm.json":     {"../../internal/config/config.go", "ProjectFile"},
 	"dependencies": {"../../internal/config/config.go", "Dependency"},
 	"supplyChain":  {"../../internal/config/config.go", "SupplyChainConfig"},
+	// E8：`ngm.engines.json` 的 `engines[]` 条目也是用户可写的配置面，
+	// 但它属于 adapter.Entry，不在 ProjectFile 里。
+	"engines": {"../../internal/adapter/catalog.go", "Entry"},
 }
 
 // notAShapeKey 列出形状表里被反引号引着、但**不是字段名**的词。

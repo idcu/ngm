@@ -63,6 +63,58 @@
 
 ---
 
+## 机器可读索引（V222 门禁）
+
+> 本节是上面各表与「明确不做的能力」一节的**解析视图**，供 `TestV222CapabilityMatrixMatchesCode` 读取：
+> 它只陈述正文已有的事实，不新增能力。改动正文时同步本节；解析边界严格限于
+> `<!-- v222:begin -->` 与 `<!-- v222:end -->` 之间的三列表格（类别 / 名称 / 状态），
+> 表格外的说明文字不是门禁输入。
+
+<!-- v222:begin -->
+| 类别 | 名称 | 状态 |
+|------|------|------|
+| command | init | done |
+| command | adopt | done |
+| command | add | done |
+| command | install | done |
+| command | run | done |
+| command | update | done |
+| command | migrate | done |
+| command | remove | done |
+| command | modules | done |
+| command | doctor | done |
+| command | verify | done |
+| command | audit | done |
+| command | why | done |
+| command | tree | done |
+| command | outdated | done |
+| command | typecheck | done |
+| command | typedecl | done |
+| command | build | done |
+| command | transform | done |
+| command | css | done |
+| command | mappings | done |
+| command | integrations | done |
+| command | cache | done |
+| command | store | done |
+| command | gc | done |
+| command | config | done |
+| command | engines | done |
+| command | sbom | done |
+| command | attest | done |
+| command | registry | excluded |
+| command | semver | excluded |
+| command | publish | excluded |
+| command | workspace | excluded |
+| command | remote-build | excluded |
+| adapter | embed | done |
+| adapter | subprocess | done |
+| adapter | wasm | done |
+| adapter | remote | excluded |
+<!-- v222:end -->
+
+---
+
 ## 诚实版能力评估
 
 ### ngm 真正独有的
@@ -84,6 +136,12 @@
 **结论**：ngm 的差异化不在单项能力，而在**流程闭环**和**共享状态模型**。若这些策略只是分别调用外部命令，ngm 就只是配置与编排层。
 
 ---
+
+### 2026-11-24 生态路线新增（E1–E14）
+
+- **已实现**：构建回执（`build --provenance` → `ngm.build.json`）、回执复验（`verify --receipt`）、本地构建缓存（`build --cache`）、`run --explain` 只读计划、引擎版本/摘要绑定、CSS 压缩 fail-closed、CI action `receipt` mode、四个示例工程。
+- **仍非目标**：任务图 / 并行 / 增量 / watch / 安装型 `run` / vendored `.bin` shim（见 ADR-042 补记、ADR-043）；registry / semver / publish / workspace / 多版本共存；自研 bundler / minifier / test runner / remote adapter。
+- **边界**：回执只记录事实，不承诺跨工具可复现构建；provenance 不证明内容无害。
 
 ## 相关文档
 

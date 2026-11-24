@@ -16,6 +16,7 @@ const runUsage = `ngm run — run project scripts without npm
 USAGE:
   ngm run <script> [--dir=<path>] [--if-present] [-- <extra args>]
   ngm run --list [--json] [--dir=<path>]
+  ngm run --explain <script> [--json] [--dir=<path>]
 
 SOURCES:
   package.json.scripts is authoritative. ngm.json.scripts is the fallback.
@@ -26,7 +27,10 @@ FLAGS:
   --dir         project directory (default: .)
   --if-present  exit 0 when the script does not exist (like npm run --if-present)
   --list        list script names, their source, and whether pre/post exist
-  --json        with --list: machine-readable report (same data as the human text)
+  --json        with --list or --explain: machine-readable report (same data as the human text)
+  --explain     read-only plan for one script: pre/main/post order, source files,
+                injected PATH segments and the current run:script decision.
+                Executes nothing, creates nothing, grants nothing (未执行).
 
 EXECUTION:
   POSIX uses "sh -c"; Windows uses "cmd.exe /d /s /c". ngm does no extra quoting:
@@ -56,6 +60,13 @@ PERMISSION:
   sandbox — that is why this gate is separate from supplyChain.postInstallPolicy
   (which governs install-time dependency scripts). Enable it with:
     {"permissions":{"allow":["run:script"]}}
+
+EXPLAIN (--explain):
+  A read-only plan, not a dry run of the gate: it never evaluates the gate as an
+  error, never executes a script, never writes the permission config, never creates
+  files and never starts an engine. It only prints what an actual run would do and
+  which decision the current policy would make (当前策略会拒绝/放行（未执行）).
+  The pre/main/post order comes from the same plan builder as real execution.
 
 EXIT CODES:
   0  the script (and its pre/post steps) exited 0; also --if-present when absent
@@ -90,11 +101,13 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	ifPresent := fs.Bool("if-present", false, "")
 	list := fs.Bool("list", false, "")
 	asJSON := fs.Bool("json", false, "")
+	explain := fs.Bool("explain", false, "")
 	if err := fs.Parse(normalizeArgs(head, []flagSpec{
 		{Name: "dir"},
 		{Name: "if-present", Bool: true},
 		{Name: "list", Bool: true},
 		{Name: "json", Bool: true},
+		{Name: "explain", Bool: true},
 	})); err != nil {
 		fmt.Fprint(stderr, runUsage)
 		// 信封里的 message 必须说清**是哪个 flag**（V54 的第③条），而 flag 包
@@ -109,7 +122,11 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	ctx = markJSONIfRequested(ctx, *asJSON)
 
-	listMode := *list || *asJSON
+	// --explain 需要恰好一个脚本名，所以它走"取脚本"那支，而不是 --list/--json 的列表支。
+	// 因此解释模式必须把 *asJSON 从 listMode 里摘出去，否则 `--explain --json` 会被
+	// 误判成"列表且不给脚本名"。
+	explainMode := *explain
+	listMode := (*list || *asJSON) && !explainMode
 	positional := fs.Args()
 	if listMode && len(positional) > 0 {
 		fmt.Fprint(stderr, runUsage)
@@ -155,6 +172,12 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			"no such script: "+name, hint+" (run `ngm run --list` for all of them)"))
 	}
 
+	// --explain 在**权限闸门与执行之前**返回：它只呈现计划，绝不把 deny 变成错误，
+	// 也绝不进入下面任何会启动子进程、创建文件或写配置的路径（spec §3.6 / E10）。
+	if explainMode {
+		return runExplain(env, set, script, extra, *asJSON, stdout, stderr)
+	}
+
 	// 单一闸门：在**任何一步**执行前判定一次。pre/post 是同一个脚本链，
 	// 不能因为分步执行而重复要求授权。
 	if perr := env.Policy.CheckRun("script"); perr != nil {
@@ -167,23 +190,9 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	binDirs := runscript.BinDirs(env.ProjectDir)
-
-	type runStep struct {
-		event   string
-		command string
-	}
-	steps := make([]runStep, 0, 3)
-	if script.Pre != "" {
-		if pre, ok := set.Lookup(script.Pre); ok {
-			steps = append(steps, runStep{pre.Name, pre.Command})
-		}
-	}
-	steps = append(steps, runStep{script.Name, script.Command})
-	if script.Post != "" {
-		if post, ok := set.Lookup(script.Post); ok {
-			steps = append(steps, runStep{post.Name, post.Command})
-		}
-	}
+	// 与 --explain 共用同一个计划构造器：顺序/来源若在这里分叉，
+	// "explain 说的"就不是"run 做的"（E10 判据的"顺序同源"）。
+	steps := runPlanSteps(set, script)
 
 	for _, step := range steps {
 		// `--` 之后的参数只追加到**主脚本**：npm 的 pre/post 步骤不接收用户参数，
@@ -216,6 +225,121 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 	}
+	return 0
+}
+
+// runStep 是一步执行计划。run（真实执行）与 run --explain（只读预演）共用，
+// phase/source 只用于 explain 的展示，不参与执行。
+type runStep struct {
+	event   string
+	command string
+	phase   string // pre / main / post
+	source  string // package.json / ngm.json
+}
+
+// runPlanSteps 把一条脚本展开成 pre→main→post 的顺序。
+// 这是"顺序同源"的唯一来源：explain 与真实 run 都调用它，谁都不能另写一份。
+func runPlanSteps(set *runscript.Set, script runscript.Script) []runStep {
+	steps := make([]runStep, 0, 3)
+	if script.Pre != "" {
+		if pre, ok := set.Lookup(script.Pre); ok {
+			steps = append(steps, runStep{event: pre.Name, command: pre.Command,
+				phase: "pre", source: string(pre.Source)})
+		}
+	}
+	steps = append(steps, runStep{event: script.Name, command: script.Command,
+		phase: "main", source: string(script.Source)})
+	if script.Post != "" {
+		if post, ok := set.Lookup(script.Post); ok {
+			steps = append(steps, runStep{event: post.Name, command: post.Command,
+				phase: "post", source: string(post.Source)})
+		}
+	}
+	return steps
+}
+
+// ---- run --explain 的报告形状（--json 形状表由 cli.md 单独同步）----
+
+type runExplainStep struct {
+	Phase   string `json:"phase"`
+	Event   string `json:"event"`
+	Source  string `json:"source"`
+	Command string `json:"command"`
+}
+
+type runExplainAuth struct {
+	Permission string `json:"permission"` // 恒为 run:script
+	Allowed    bool   `json:"allowed"`
+	Decision   string `json:"decision"` // 当前策略会拒绝/放行（未执行）
+	Source     string `json:"source"`   // 策略配置文件
+}
+
+type runExplainReport struct {
+	Version  int              `json:"version"`
+	Project  string           `json:"project"`
+	Script   string           `json:"script"`
+	Auth     runExplainAuth   `json:"auth"`
+	PathDirs []string         `json:"pathDirs"`
+	Steps    []runExplainStep `json:"steps"`
+	Note     string           `json:"note"`
+}
+
+// runExplain 输出只读计划。整个函数**只做读**：
+//   - runPlanSteps 只查内存里的 set；
+//   - runscript.BinDirs 只 os.Stat；
+//   - Policy.CheckRun 只查 allow/deny map（与真实 run 同一个判定）；
+//   - 不调用 runscript.Exec、不建目录、不写文件、不写权限配置、不启引擎。
+func runExplain(env *projectEnv, set *runscript.Set, script runscript.Script, extra []string, asJSON bool, stdout, stderr io.Writer) int {
+	// 与真实 run 的闸门调用同一个 CheckRun，只是这里把结果**呈现**出来而不是
+	// 转成 exit 3：deny 与 allow 都会照常出计划（spec §3.6 的"当前授权状态"）。
+	allowed := env.Policy.CheckRun("script") == nil
+	decision := approvalDecisionLine(allowed)
+
+	rep := runExplainReport{
+		Version: 1,
+		Project: env.ProjectDir,
+		Script:  script.Name,
+		Auth: runExplainAuth{
+			Permission: "run:script",
+			Allowed:    allowed,
+			Decision:   decision,
+			Source:     env.Policy.Source(),
+		},
+		PathDirs: runscript.BinDirs(env.ProjectDir),
+		Note:     "read-only plan; nothing was executed (未执行)",
+	}
+	for _, st := range runPlanSteps(set, script) {
+		cmd := st.command
+		if st.phase == "main" && len(extra) > 0 {
+			// 与真实 run 一致：`--` 之后的参数只追加到主脚本。
+			cmd = runscript.AppendArgs(cmd, extra)
+		}
+		rep.Steps = append(rep.Steps, runExplainStep{
+			Phase: st.phase, Event: st.event, Source: st.source, Command: cmd,
+		})
+	}
+	if asJSON {
+		return writeJSONDocument(stdout, stderr, rep, 0)
+	}
+
+	fmt.Fprintf(stdout, "run --explain (read-only; 未执行)\n")
+	fmt.Fprintf(stdout, "project: %s\n", rep.Project)
+	fmt.Fprintf(stdout, "script:  %s\n", rep.Script)
+	fmt.Fprintf(stdout, "run:script authorization: %s\n", rep.Auth.Decision)
+	fmt.Fprintf(stdout, "  permission: %s  source: %s\n", rep.Auth.Permission, rep.Auth.Source)
+	fmt.Fprintln(stdout, "PATH injection (nearest first):")
+	if len(rep.PathDirs) == 0 {
+		fmt.Fprintln(stdout, "  (none: no node_modules/.bin found under the project)")
+	}
+	for _, d := range rep.PathDirs {
+		fmt.Fprintf(stdout, "  - %s\n", d)
+	}
+	fmt.Fprintln(stdout, "plan (pre -> main -> post):")
+	for i, st := range rep.Steps {
+		fmt.Fprintf(stdout, "  %d. %-5s %-20s [%s] %s\n",
+			i+1, st.Phase, st.Event, st.Source, st.Command)
+	}
+	fmt.Fprintln(stdout, rep.Note)
 	return 0
 }
 

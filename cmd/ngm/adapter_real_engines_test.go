@@ -80,16 +80,16 @@ func TestV02RealPostcss(t *testing.T) {
 
 	// 在**真实** postcss 上验证那条 note：假引擎只能证明我们把话说了，
 	// 真实工具才能证明"我们确实没有把它当成压缩器"。
-	t.Run("--minify is reported as ignored", func(t *testing.T) {
+	t.Run("--minify fails closed on postcss", func(t *testing.T) {
 		proj := newProject(t)
 		testutils.WriteFile(t, proj, "app.css", ".a{color:red}\n")
 
 		code, out := runCaptureCode(t, "css", "app.css", "--engine=postcss", "--minify", "--dir="+proj)
-		if code != 0 {
-			t.Fatalf("css exit=%d:\n%s", code, out)
+		if code != 3 {
+			t.Fatalf("css exit=%d, want 3 (config error):\n%s", code, out)
 		}
-		if !strings.Contains(out, "minifier") {
-			t.Errorf("the report must say --minify was ignored and why:\n%s", out)
+		if !strings.Contains(out, "supportsMinify") {
+			t.Errorf("the hint must point to an explicit engine:\n%s", out)
 		}
 	})
 }

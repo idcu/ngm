@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/idcu/ngm/internal/core/vendor"
+	"github.com/idcu/ngm/internal/receipt"
 )
 
 const cacheUsage = `ngm cache — maintain the (disposable) cache layer
@@ -72,4 +73,22 @@ func runCacheClean(ctx context.Context, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "note: the cache is disposable — mirror and content store were not touched")
 	return 0
+}
+
+// buildCacheHome 返回 ngm 用户态根目录（NGM_HOME 可覆盖，与测试隔离同源）。
+func buildCacheHome() string {
+	layout, err := vendor.DefaultLayout()
+	if err != nil {
+		return ""
+	}
+	return layout.Home
+}
+
+// buildCacheDir 是 `ngm build --cache` 唯一使用的本地构建缓存目录。
+//
+// 它就在用户态 ngm 根目录下（默认 ~/.ngm/build-cache），与 `ngm cache clean`
+// 清掉的层 4 缓存分开：构建缓存的键由回执字段算出（internal/receipt.CacheKey），
+// 语义只有 build 一处，不能另起第二套缓存。
+func buildCacheDir() string {
+	return receipt.CacheDir(buildCacheHome())
 }

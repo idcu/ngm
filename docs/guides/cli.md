@@ -54,8 +54,8 @@
 | `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
 | `ngm doctor [--dir=<dir>] [--json]` | 诊断本地环境与项目：git、ngm.json、ngm.lock、`~/.ngm` 布局、mirror/module-cache/content-store、**vendor 树的 Git 可见性**（present / ignored-by-git / absent）、嵌套模块扫描。诊断失败写进报告但命令仍退 0；用法错误退 3 | **v0.104 新增**；`vendor` 读数 **v0.117** | [可观测性](../architecture/observability.md) |
 | `ngm modules list\|validate\|index [--dir=<dir>] [--json] [--limit=<n>] [--strict] [--index=<file>] [--out=<file>] [--dry-run] [--releases=false] [--shards] [--branch=<name>]` | 集合模块的发现、校验与索引：`list` 扫描嵌套 `ngm.json`，`validate` 检查 JSON、重名、索引一致性，`--strict` 还检查集合内同一依赖是否被钉到不同 ref（把消费者端冲突前移到生产者端），`index` 写确定性的 `ngm.collection.json`、从本地 tag 收集 `version → commit`（`--shards` 写 `releases/<module>.json`），并默认更新本地 `ngm-index` 分支（不推送；支持分片树）；`changed` 列出 `--since` 以来被改动过的模块，`plan` 进一步给出建议的下一个版本/ tag（只读，不提交不打 tag）。**版本规则只有一份**：`--strict` 与 `plan` 共用同一个解析器（`1.2.3-rc1` 是合法版本，但 `plan` 不做后缀判断的进位）；改写索引时读到的 origin remote 若无法解析，warning 里的地址经 `resolve.RedactURL` 脱敏（userinfo / query 丢弃，host/path 保留） | **v0.103 已实现**；**v0.104 增 `--shards`、分片分支、`changed` 与 `plan`**；解析与脱敏统一 **2026-11-07 评估后** | [模块集合](../architecture/module-collections.md) |
-| `ngm verify [<dep>...] [--offline] [--content \| --level=structure\|content] [--deep] [--json] [--format=sarif\|github] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放检查；`--content`（别名 `--level=content`；`--deep` 是兼容旧脚本的同义 flag）**重放 lock 的 archiveDigest/moduleDigest 并逐文件哈希 vendor 与 content store**，报告里给出依赖、文件路径、期望/实际哈希（终端截断、`--json` 全量）。默认仍是 **structure**：只比结构与大小，等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode），汇总行会说明这一点。内容级在资源缺失（mirror/store 不全、无法重算）时退 **4**，只有确证内容不符才退 **2**。`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2） | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** / **v0.102 增 `--content`/`--level`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
-| `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run]` | 构建（adapter） | v0.1 | [构建](./build.md) |
+| `ngm verify [<dep>...] [--offline] [--content \| --level=structure\|content] [--deep] [--json] [--format=sarif\|github] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed] [--receipt]` | ref 漂移 + digest 重放检查；`--content`（别名 `--level=content`；`--deep` 是兼容旧脚本的同义 flag）**重放 lock 的 archiveDigest/moduleDigest 并逐文件哈希 vendor 与 content store**，报告里给出依赖、文件路径、期望/实际哈希（终端截断、`--json` 全量）。默认仍是 **structure**：只比结构与大小，等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode），汇总行会说明这一点。内容级在资源缺失（mirror/store 不全、无法重算）时退 **4**，只有确证内容不符才退 **2**。`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2）。`--receipt`（W1）是另一条**只读**通道：不读 lock、不重跑构建、不启动引擎，只重算 `ngm.build.json` 记录的产物摘要并检查引擎工具；产物不符 exit **2**，缺引擎 exit **5**，两者同时按 ADR-039 由完整性压过资源缺失 | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** / **v0.102 增 `--content`/`--level`** / **W1 增 `--receipt`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
+| `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run] [--provenance] [--cache]` | 构建（adapter）。`--provenance`（W1/E4，默认关）在项目根写旁车 `ngm.build.json`：输入摘要、engine 的 name/kind/version/字节摘要、排序后的 argv、mappingsDigest、产物摘要；**不进 lock、不写时间戳、不承诺可复现构建认证**（ADR-057）。`--cache`（W1/E6）只做本地 `~/.ngm/build-cache`（NGM_HOME 可覆盖），键含输入+engine digest+argv+平台三元组+mappingsDigest；命中时回执写 `source: cache`，现场构建写 `source: built`；污染缓存失效并重建一次，仍不符 exit 2 | v0.1 / **W1 增 `--provenance`、`--cache`** | [构建](./build.md) · [ADR-057](../adr/adr-057-build-receipt.md) |
 | `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（内置清单里是 `typescript` = tsc）。**需要声明**：`engines.typeCheck` 或 `--engine=typescript`——未声明是 `exit 3`，声明了但 `tsc` 未装才是 `exit 5` | [构建](./build.md) |
 | `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
 | `ngm transform [<file>] [--engine=<name>] [--outfile=<path>] [--loader=<name>] [--target=<es20xx>] [--format=<fmt>] [--minify] [--sourcemap] [--dry-run]` | **单文件**转换（adapter）；输入默认走 **stdin**，产物默认走 stdout。**不解析导入**——那是 `ngm build`。loader 按 `--loader` → 文件扩展名（推断会说出来）→ `engines.transform.options.loader` 的顺序取；都不适用时**不猜**，"必须有 loader" 由引擎自己判（esbuild 会） | **v0.5 已实现** | [构建](./build.md) |
@@ -195,7 +195,7 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 
 | 命令 | 顶层形状 | 带退出码字段 |
 |------|---------|------------|
-| `ngm verify --json` | 对象：`version` · `level`（取值 structure / content） · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明） · `gates`（启用签名/沙箱附加层时，逐层给出 `name` · `enabled` · `exitCode` · `status`）。`--content` 时每个依赖另有 `content`：`level` · `expectedDigest` · `computedDigest` · `expectedSource` · `files` · `symlinks` · `mismatches`（元素键 `path` · `kind` · `expected` · `actual`，哈希为完整 sha256） | ✅ `summary.exitCode` |
+| `ngm verify --json` | 对象：`version` · `level`（取值 structure / content） · `strict` · `deep` · `offline` · `allowDrift` · `dependencies` · `summary` · `notes`（选择性 verify 裁剪了 requiredBy 等来源说明） · `gates`（启用签名/沙箱附加层时，逐层给出 `name` · `enabled` · `exitCode` · `status`）。`--content` 时每个依赖另有 `content`：`level` · `expectedDigest` · `computedDigest` · `expectedSource` · `files` · `symlinks` · `mismatches`（元素键 `path` · `kind` · `expected` · `actual`，哈希为完整 sha256）；`--receipt` 复用本形状：`level` 取 receipt，`gates` 逐层给出 receipt-output 与 receipt-engine 的 `exitCode`，`summary.exitCode` 是合成结论（产物不符 2，缺引擎 5，2 压过 5） | ✅ `summary.exitCode` |
 | `ngm audit --json` | 对象：`generatedAt` · `coverageNote` · `dependencies` · `findings` · `vulnerabilities` · `ignoredByPolicy` · `exitCode`（有发现时另有 `bySeverity`） | ✅ `exitCode` |
 | `ngm integrations add <tool> --json` | 对象：`tool` · `dryRun` · `artifacts` · `warnings` · `exitCode` | ✅ `exitCode` |
 | `ngm tree --json` | 对象：`project` · `source`（图来源：锁内的 requiredBy 图 / 回退解析，取值就是锁文件名或清单文件名） · `entries` · `drifted` · `dependencies` · `osvChecked` · `notes`（图来源之外没查成的项，例如 mirror 不完整导致漂移未比对）；（截断时另有 `entriesTruncated` · `entriesLimit`，停止处条目带 `truncated`；查到漏洞时另有 `remediation`） | ✗ |
@@ -206,7 +206,8 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm engines list --json` | **数组**：每个元素是 `name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `probeDenied` · `runTarget` · `builtin` · `supportedInput` · `defaultOptions` | ✗ |
 | `ngm engines info <name> --json` | **数组**：同一个元素形状（`name` · `kind` · `adapter` · `command` · `declaredVersion` · `version` · `available` · `stub` · `probeDenied` · `runTarget` · `builtin` · `supportedInput` · `defaultOptions`）；同名不同 kind 会各占一行（`esbuild` 同时是 bundler 与 transformer） | ✗ |
 | `ngm engines validate --json` | 对象：`version` · `ok` · `issues` | ✗ |
-| `ngm doctor --json` | 对象：`version` · `ok` · `checks`；`checks` 元素键：`name` · `status` · `detail`（新增 `supplyChain` 检查项）；另有 `scripts`：`status`（none/declared/pending） · `policy` · `entries[]` · `allow` · `deny`，只预演不执行 | ✗ |
+| `ngm doctor --json` | 对象：`version` · `ok` · `checks`；`checks` 元素键：`name` · `status` · `detail`（name 可取值含 supplyChain）；另有 `scripts`：`status`（none/declared/pending） · `policy` · `entries` · `allow` · `deny`，只预演不执行 | ✗ |
+| `ngm run --explain --json` | 对象：`version` · `project` · `scripts`（`--list` 时返回的脚本清单） · `script` · `auth`（`permission` · `allowed` · `decision` · `source`） · `pathDirs` · `steps`（元素键：`phase` · `event` · `source` · `command`） · `note`；只读计划，不执行脚本 | ✗ |
 | `ngm modules list --json` | 对象：`version` · `modules` · `truncated`（截断时） · `limit`；`modules` 元素键：`name` · `path` · `version` · `error` | ✗ |
 | `ngm adopt --json` | 对象：`version` · `tool` · `source` · `coverage` · `packages` · `notes`（`source` 键：`manager` · `lockfile` · `lockfileDigest`；`coverage` 键：`packages` · `withCommit` · `withIntegrity` · `unknown` · `skipped`；`packages` 元素键：`name` · `version` · `path` · `digest` · `files` · `bytes` · `nested` · `provenance`——`provenance` 键：`kind` · `url` · `commit` · `ref` · `resolved` · `integrity`） | ✗ |
 | `ngm modules validate --json` | 对象：`version` · `ok` · `modules` · `errors` | ✗ |
@@ -219,6 +220,25 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 > 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。
 > 其余命令返回的是"一份报告"，所以是对象。本页只如实记录两者的差异——
 > **统一形状是破坏性变更**，要另立决定，不在文档里顺手改。
+
+### 构建回执旁车 `ngm.build.json`（W1）
+
+它不是 `--json` 输出，而是 `ngm build --provenance` 写在项目根的旁车文件；
+不进 `ngm.lock`，也不含时间戳或绝对路径。顶层键：
+
+| 键 | 内容 |
+|----|------|
+| `receiptVersion` | 固定 1 |
+| `inputs` | 元素键 `path`（相对项目根）· `digest`（sha256:…） |
+| `engine` | 键 `name` · `kind` · `version` · `digest`（**工具文件字节摘要**，不是路径） |
+| `argv` | 传给引擎的参数，按键排序 |
+| `mappingsDigest` | mappings 文件字节摘要；没有文件时是空串的固定摘要 |
+| `output` | 键 `path` · `digest`；走 stdout 时 path 是 `<stdout>` |
+| `source` | `built`（现场构建）或 `cache`（本地缓存命中），由 `--cache` 写入 |
+
+`ngm verify --receipt` 只读复验这份文件（形状见上表 `ngm verify --json` 行），
+不重跑构建；它只回答"当前产物是否仍是回执记录的那一串字节"，
+不对跨工具/跨平台的字节一致性背书（ADR-057）。
 
 **"接下来做什么"在机器那一侧也有名字**（v0.50）：人读的报告里，
 每一条失败项都配了一行 `→ …` 或 `Fixed in: …`（v0.32 起的契约）。

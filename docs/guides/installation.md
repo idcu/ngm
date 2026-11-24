@@ -143,6 +143,7 @@ ngm --help
 #   install        解析并安装依赖
 #   run            运行项目脚本（package.json 权威、ngm.json 回退；在沙箱外执行，需 run:script 授权）
 #   update         更新依赖 ref
+#   migrate        把 v1/v2 清单与 2.x lock 迁移到 v3（--dry-run 可预演）
 #   remove         移除依赖
 #   modules        模块集合的发现与校验
 #   doctor         诊断本地环境与项目状态

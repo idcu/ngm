@@ -347,6 +347,19 @@ func doctorVendorDepName(root, dir string) string {
 	return filepath.ToSlash(rel)
 }
 
+// approvalDecisionLine 是"当前策略会拒绝/放行（未执行）"这句固定文案的**唯一渲染点**。
+//
+// E10（spec §3.6）要求 `run --explain` 的授权状态预览与 doctor 的脚本审批预演
+// 共用渲染函数：否则一处说"未执行"、另一处说"已批准"，同一个策略在两条命令上
+// 给出不同结论，而"explain 会不会偷偷执行"恰恰是用户最需要信任的一点。
+// doctor 的 supplyChain 检查（上一行）不动，这里只是在其上扩展共享渲染。
+func approvalDecisionLine(allowed bool) string {
+	if allowed {
+		return "当前策略会放行（未执行）"
+	}
+	return "当前策略会拒绝（未执行）"
+}
+
 // writeScriptApprovals 把预演报告写成人读的一节；永不执行被列出的东西。
 func writeScriptApprovals(w io.Writer, r *scriptApprovalReport) {
 	if r == nil {
@@ -358,6 +371,8 @@ func writeScriptApprovals(w io.Writer, r *scriptApprovalReport) {
 		return
 	}
 	fmt.Fprintf(w, "  postInstallPolicy=%s; %d declaration(s)\n", r.Policy, len(r.Entries))
+	// 与 run --explain 共用同一句文案；保留上面那句英文说明，V214 仍认得出它。
+	fmt.Fprintf(w, "  %s\n", approvalDecisionLine(r.Status == "declared"))
 	if r.Status == "pending" {
 		fmt.Fprintf(w, "  %d would be denied by the default policy (nothing was executed)\n", len(r.Entries))
 	}

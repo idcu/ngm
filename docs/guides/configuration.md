@@ -220,6 +220,39 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 
 > `self` 引擎仅用于 `--dry-run` 与离线 stub，**不要**放入生产 fallbacks——引擎缺失时应显式报错，而不是静默降级为无效产物。
 
+### 引擎清单条目的绑定字段（`ngm.engines.json`）
+
+`ngm.engines.json` 的每条 `engines[]` 除 `name` / `kind` / `adapter` / `command` /
+`version` 外，还可写三个**可选**字段（schema 版本仍为 1，未知字段会被拒绝）：
+
+```json
+{
+  "version": 1,
+  "engines": [
+    {
+      "name": "postcss",
+      "kind": "css",
+      "adapter": "subprocess",
+      "command": "postcss",
+      "version": "8.4.0",
+      "expectedVersion": "8.4.0",
+      "expectedDigest": "sha256:<工具文件字节的 64 位十六进制摘要>",
+      "supportsMinify": true
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 留空时 | 写入后 |
+|------|------|--------|--------|
+| `expectedVersion` | string | 维持当前探测行为；`version` 与实装不符仍只是信息（exit 0） | 与探测到的版本（探测不到时退到 `version` 声明）不符 → `ngm engines validate` exit **5** |
+| `expectedDigest` | string | 不核对工具字节 | 与工具文件字节的 sha256 不符 → exit **2**（完整性失败，压过 5 与 3；允许省略 `sha256:` 前缀） |
+| `supportsMinify` | bool | 视为 false | 声明该 CSS 条目支持 `--minify`；未声明却给 `--minify` → `ngm css` exit **3**（提示显式换 esbuild / lightningcss），不再静默忽略 |
+
+摘要由 Go 标准库读取工具文件字节计算，**不 spawn `sha256sum`**（Windows 上没有该命令），
+也不把工具路径当身份。完整语义见 [ADR-058](../adr/adr-058-engine-binding.md)；
+压缩口径见 [构建指南](./build.md#压缩的确定性口径)。
+
 ---
 
 ## vendor

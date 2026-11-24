@@ -5,15 +5,20 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/idcu/ngm/internal/adapter"
 	"github.com/idcu/ngm/internal/config"
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/git"
 	"github.com/idcu/ngm/internal/core/lock"
 	"github.com/idcu/ngm/internal/core/resolve"
+	"github.com/idcu/ngm/internal/core/vendor"
 	"github.com/idcu/ngm/internal/core/verify"
+	"github.com/idcu/ngm/internal/receipt"
 	"github.com/idcu/ngm/internal/version"
 )
 
@@ -28,7 +33,7 @@ const verifyUsage = `ngm verify — check ref drift and replay the content diges
 
 USAGE:
   ngm verify [<dep>...] [--dir=<dir>] [--offline] [--content | --level=structure|content]
-             [--strict] [--allow-drift] [--json]
+             [--strict] [--allow-drift] [--json] [--receipt]
              [--format=sarif|github] [--sandbox] [--signatures] [--require-signed]
 
 ARGS:
@@ -78,6 +83,12 @@ FLAGS:
   --require-signed
                  make it a gate: anything unsigned, unverifiable with your keys, or
                  with a broken signature returns 2. Implies --signatures.
+  --receipt      read-only replay of ngm.build.json: recompute the artifact digest
+                 and check the recorded engine tool. It NEVER re-runs the build,
+                 never starts an engine and never writes a file. Artifact mismatch
+                 exits 2; a missing/changed engine tool exits 5; when both happen
+                 the integrity failure wins (ADR-039). Incompatible with dependency
+                 arguments and with --format/sandbox/signature layers.
 
 CHECK LEVELS (architecture/observability.md):
   ref      re-resolve refType and compare with the commit pinned in ngm.lock
@@ -126,6 +137,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	signatures := fs.Bool("signatures", false, "report each dependency's Git signature status")
 	requireSigned := fs.Bool("require-signed", false,
 		"fail (exit 2) unless every dependency's commit or tag is signed by a key you trust")
+	receiptFlag := fs.Bool("receipt", false, "replay ngm.build.json against the on-disk artifact (read-only)")
 
 	c := newCmdContext(ctx, args, stdout, stderr, fs)
 	c.usage(verifyUsage)
@@ -142,6 +154,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		{Name: "sandbox", Bool: true},
 		{Name: "signatures", Bool: true},
 		{Name: "require-signed", Bool: true},
+		{Name: "receipt", Bool: true},
 	}, nil) {
 		// v0.54：解析失败发生在「命令还不知道 --json」之前——从**原始参数**里问一次。
 		return 3
@@ -212,6 +225,20 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return runErr(ctx, stdout, stderr, errs.New(errs.CodeConfigInvalid,
 			"unknown --level "+strconv.Quote(*level),
 			"supported: structure, content"))
+	}
+
+	// --receipt 是一条只读的旁车复验通道：它不读 lock、不重跑构建、不启动引擎、
+	// 不创建文件。因此必须在常规 verify 的所有工作之前短路返回。
+	if *receiptFlag {
+		if fs.NArg() > 0 {
+			return c.rejectExtraArgs(verifyUsage, "verify --receipt takes no dependency arguments")
+		}
+		if *format != "" || *sandbox || *signatures || *requireSigned {
+			return c.fail(errs.New(errs.CodeConfigInvalid,
+				"--receipt cannot be combined with --format/--sandbox/--signatures/--require-signed",
+				"run `ngm verify --receipt [--json]` on its own"))
+		}
+		return runReceiptVerify(c, *dirFlag, stdout, stderr)
 	}
 
 	env, envCode := c.env(*dirFlag)
@@ -322,6 +349,127 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		rep.Summary.ExitCode, *sandbox, *signatures, *requireSigned, *jsonOut, stdout, stderr, &rep.Gates)
 	fmt.Fprintf(stdout, "\n%s\n", verifySummaryLine(rep, *offline, code))
 	return code
+}
+
+// runReceiptVerify 回答"当前产物是否仍由回执记录的输入+引擎+参数产生"。
+//
+// 只读两样东西：ngm.build.json 与它指向的产物文件、引擎工具文件。
+// 它不重跑构建、不启动引擎、不写任何文件（连回执也不改写）。
+//
+// 两类失败分开结论（spec §3.2 / ADR-039）：
+//   - 产物摘要不符（含产物不存在）→ exit 2，完整性失败；
+//   - 引擎工具缺失或摘要变了     → exit 5，资源缺失。
+//
+// 两者同时发生时用 errs.MergeCodes 合成，2 恒胜 5——已确证的篡改不能被
+// "机器上没装那个工具"盖过去。
+func runReceiptVerify(c *cmdContext, dirFlag string, stdout, stderr io.Writer) int {
+	proj, err := filepath.Abs(dirFlag)
+	if err != nil {
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "resolve --dir",
+			"pass an existing project directory to --dir, or run from inside the project", err))
+	}
+	rec, err := receipt.Read(filepath.Join(proj, receipt.FileName))
+	if err != nil {
+		return c.fail(errs.Wrap(errs.CodeConfigInvalid, "read "+receipt.FileName,
+			"run `ngm build --provenance` first to create it", err))
+	}
+
+	var notes []string
+	outputCode := verifyReceiptOutput(proj, rec, &notes)
+	engineCode := verifyReceiptEngine(proj, rec, &notes)
+	code := errs.MergeCodes(outputCode, engineCode)
+
+	rep := verify.Report{
+		Version:      1,
+		Level:        "receipt",
+		Offline:      true,
+		Dependencies: []verify.DepResult{},
+		Summary: verify.Summary{
+			Total:    1,
+			OK:       0,
+			Critical: 0,
+			ExitCode: code,
+		},
+		Notes: notes,
+		Gates: []verify.GateResult{
+			{Name: "receipt-output", Enabled: true, ExitCode: outputCode, Status: gateStatus(outputCode, 0)},
+			{Name: "receipt-engine", Enabled: true, ExitCode: engineCode, Status: gateStatus(engineCode, 0)},
+		},
+	}
+	if outputCode == 0 && engineCode == 0 {
+		rep.Summary.OK = 1
+	} else if outputCode != 0 {
+		rep.Summary.Critical = 1
+	}
+
+	if wantsJSON(c.ctx) {
+		return c.writeReport(&rep, code)
+	}
+	fmt.Fprintf(stdout, "receipt: %s (level: receipt)\n", receipt.FileName)
+	if code == 0 {
+		fmt.Fprintln(stdout, "artifact matches receipt")
+		return 0
+	}
+	for _, n := range notes {
+		fmt.Fprintf(stderr, "  %s\n", n)
+	}
+	fmt.Fprintf(stderr, "receipt verification failed (exit %d)\n", code)
+	return code
+}
+
+// verifyReceiptOutput 只读重算产物摘要，绝不调用引擎。
+func verifyReceiptOutput(proj string, rec *receipt.Receipt, notes *[]string) int {
+	if rec.Output.Path == "" || rec.Output.Path == receipt.StdoutPath {
+		*notes = append(*notes, "receipt has no on-disk output path (stdout artifacts cannot be replayed)")
+		return errs.CodeDigestMismatch.ExitCode()
+	}
+	path := rec.Output.Path
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(proj, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		*notes = append(*notes, "output "+rec.Output.Path+" is unreadable: "+err.Error())
+		return errs.CodeDigestMismatch.ExitCode()
+	}
+	actual := receipt.Digest(data)
+	if actual != rec.Output.Digest {
+		*notes = append(*notes, "output digest mismatch: expected "+rec.Output.Digest+", got "+actual)
+		return errs.CodeDigestMismatch.ExitCode()
+	}
+	return 0
+}
+
+// verifyReceiptEngine 检查回执记录的引擎工具是否还在、字节是否仍是那一套。
+//
+// 这里只做 LookPath + 读文件；`Catalog.Load` 与 `Probe` 都不 spawn，
+// 因此 --receipt 的"不启动引擎"承诺在代码层面成立。
+func verifyReceiptEngine(proj string, rec *receipt.Receipt, notes *[]string) int {
+	layout, err := vendor.DefaultLayout()
+	if err != nil {
+		*notes = append(*notes, "cannot resolve ngm home: "+err.Error())
+		return errs.CodeEngineNotFound.ExitCode()
+	}
+	cat, err := adapter.LoadCatalog(proj, layout.Home)
+	if err != nil {
+		*notes = append(*notes, "cannot read engine catalog: "+err.Error())
+		return errs.CodeEngineNotFound.ExitCode()
+	}
+	entry, ok := cat.Find(adapter.EngineKind(rec.Engine.Kind), rec.Engine.Name)
+	if !ok {
+		*notes = append(*notes, "engine tool missing from catalog: "+rec.Engine.Name)
+		return errs.CodeEngineNotFound.ExitCode()
+	}
+	digest, err := engineDigestFor(proj, entry)
+	if err != nil {
+		*notes = append(*notes, "engine tool unavailable: "+errs.Hint(err)+" "+err.Error())
+		return errs.ExitCode(err)
+	}
+	if digest != rec.Engine.Digest {
+		*notes = append(*notes, "engine tool digest changed: expected "+rec.Engine.Digest+", got "+digest)
+		return errs.CodeEngineNotFound.ExitCode()
+	}
+	return 0
 }
 
 // finishVerify 追加可选的两层（签名、沙箱）并合成退出码。

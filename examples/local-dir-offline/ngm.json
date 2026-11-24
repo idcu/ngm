@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 3,
+  "name": "github.com:ngm-examples/local-dir-offline",
+  "version": "0.1.0",
+  "runtime": "node",
+  "dependencies": [
+    {
+      "name": "local:fixture-pkg",
+      "ref": "auto",
+      "refType": "local-dir",
+      "sourcePath": "./vendor-src/fixture-pkg"
+    }
+  ]
+}

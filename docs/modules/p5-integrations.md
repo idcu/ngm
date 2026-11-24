@@ -91,7 +91,9 @@ ngm integrations add webpack
 3. **构建工具的演进风险**：各工具 alias / import map 机制变化时需要跟进
 4. **部分工具已用真工具验证，部分没有**：
    - **实测通过**：生成的 esbuild 脚本真打包（含 monorepo 子路径）、生成的 tsconfig 真被 `tsc` 用来解析 `github:` 前缀——两者都在 CI 的 `engine-integration` job 里跑
-   - **未逐条实测**：Vite / Webpack / Deno 的产物只经内容断言（CI 未安装这三个工具）。
+   - **契约级端到端**：Vite 自 2026-11-24（E13）起会加载真实生成的 `vite.config.ts` 并执行其 specifier/entry 逻辑；
+     CI 未安装真 Vite 时用仓库内离线替身，若 PATH 上有真 Vite 会额外真跑一次 `vite build`（V232）。
+   - **仍未逐条实测**：Webpack / Deno 的产物只经内容断言（CI 未安装这两个工具）。
      它们的语义按各工具文档写，并把"我不确定的部分"做成了不依赖具体规则的形式
      （Webpack 用 `$` 强制精确匹配、Deno 用精确键 + 前缀键）
 5. **Deno 的 import map 是静态的**：依赖增删后必须重新运行 `ngm integrations add deno`。

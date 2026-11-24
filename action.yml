@@ -10,17 +10,20 @@ description: >-
 # 它**不**下载 ngm：把二进制装到 PATH 是使用者的一次决定（版本、校验和、来源），
 # 而 action 悄悄替你决定"用哪个版本的 ngm"正是供应链工具最不该做的事。
 #
-# 三种 mode 覆盖两条接入路径（docs/internals/intake-paths.md）：
+# 四种 mode 覆盖两条接入路径（docs/internals/intake-paths.md）：
 #   verify      —— 有 ngm.lock 的项目：ref 漂移 + digest 重放，失败项变注解
 #   adopt       —— **不用 ngm 安装**的项目：为现有 node_modules 出一份内容证明
 #   adopt-check —— 同一棵树再跑一次，与那份证明比较，有变化即失败
+#   receipt     —— 先 `build --provenance` 写旁车回执，再 `verify --receipt` 只读复验产物
+#                  （产物必须落盘，默认的 stdout 产物无法复验）
 
 inputs:
   mode:
     description: >-
-      verify (default) | adopt | adopt-check.
+      verify (default) | adopt | adopt-check | receipt.
       `verify` needs ngm.lock; `adopt` needs only node_modules; `adopt-check`
-      compares against `proof-file` and needs no lock and no network.
+      compares against `proof-file` and needs no lock and no network; `receipt`
+      runs `build --provenance` then `verify --receipt` against ngm.build.json.
     required: false
     default: "verify"
   dir:
@@ -44,6 +47,13 @@ inputs:
       compare against.
     required: false
     default: "ngm.proof.json"
+  build-outfile:
+    description: >-
+      For mode=receipt only: where `build --provenance` writes the artifact.
+      Must be an on-disk path: `verify --receipt` recomputes the recorded digest
+      and cannot replay a stdout artifact.
+    required: false
+    default: "dist/index.js"
   verify-level:
     description: >-
       For mode=verify only: content (default in CI; replay the digest and hash
@@ -84,6 +94,7 @@ runs:
         NGM_FORMAT: ${{ inputs.format }}
         NGM_SARIF: ${{ inputs.sarif-file }}
         NGM_PROOF: ${{ inputs.proof-file }}
+        NGM_BUILDOUT: ${{ inputs.build-outfile }}
         NGM_ARGS: ${{ inputs.args }}
         NGM_LEVEL: ${{ inputs.verify-level }}
         NGM_FAIL: ${{ inputs.fail-on-error }}
@@ -117,8 +128,17 @@ runs:
             # 只读：不写任何文件，退出码就是结论。
             ngm adopt --dir "$NGM_DIR" --check="$NGM_PROOF" $NGM_ARGS || code=$?
             ;;
+          receipt)
+            # 先产生旁车回执，再只读复验。`--outfile` 不可省：默认的 stdout
+            # 产物没有磁盘路径，`verify --receipt` 会按完整性失败（exit 2）。
+            # 复验失败时不重跑构建，退出码直接作为门禁结论。
+            ngm build --provenance --dir "$NGM_DIR" --outfile="$NGM_BUILDOUT" $NGM_ARGS || code=$?
+            if [ "$code" -eq 0 ]; then
+              ngm verify --receipt --dir "$NGM_DIR" || code=$?
+            fi
+            ;;
           *)
-            echo "::error::unknown mode '$NGM_MODE' (expected verify, adopt or adopt-check)"
+            echo "::error::unknown mode '$NGM_MODE' (expected verify, adopt, adopt-check or receipt)"
             code=3
             ;;
         esac

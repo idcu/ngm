@@ -23,6 +23,7 @@
 基线：59 处 → 审计后 **56 处 / 38 个文件**（减掉的 3 处见 §4）。
 2026-11-19 新增一处平台边界（Windows 上 POSIX 权限位不存在，0644 断言无法成立），
 现为 **57 处 / 39 个文件**；它守的是 `init` 的产物是否按共享权限写出，不是掩盖缺口。
+2026-11-24 新增一处工具边界（Vite 不在 PATH 时用离线替身做契约级真调用），现为 **58 处 / 40 个文件**。
 2026-11-11 的 `run:` 身份判定修复（replay 到 v0.102.0-dev.3 后）新增 3 处平台边界 skip，
 现为 **63 处 / 44 个文件**（2026-11-23 local sources 的 symlink 平台边界 ×2，Windows-only 盘符判据 ×1）。
 
@@ -68,6 +69,7 @@
 | `cmd/ngm/v102_diagnostic_test.go` | 1 | 工具 | python3 |
 | `cmd/ngm/v128_engine_identity_test.go` | 2 | 平台 | symlink 不可用；`.cmd` 变体仅 Windows |
 | `cmd/ngm/v203_local_escape_and_branch_test.go` | 1 | 平台 | symlink 不可用（2026-11-23 local 逃逸判据） |
+| `cmd/ngm/v232_w4_test.go` | 1 | 工具 | 真 Vite 不在 PATH 时用离线替身（2026-11-24 E13 契约级覆盖） |
 | `cmd/ngm/verify_signatures_test.go` | 1 | 工具 | ssh-keygen / git |
 | `internal/adopt/adopt_test.go` | 1 | 平台 | symlink |
 | `internal/core/atomicfile/atomicfile_test.go` | 1 | 平台 | Windows chmod |

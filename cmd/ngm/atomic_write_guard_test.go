@@ -30,6 +30,11 @@ var bareArtifactWrites = map[string]string{
 	"internal/security/sandbox.go": "0600 probe script — atomicfile.Perm is 0644",
 	// 缓存是优化不是证据：写坏一份缓存应当下次重算，而不是把命令判失败。
 	"internal/supplychain/osv.go": "OSV cache is an optimization, not evidence",
+	// 构建缓存同样是优化：条目写坏时由 digest 复验发现并重建，不承载交付产物；
+	// 真正落到项目 outfile 的那份走 atomicfile.Write（cmd/ngm/build.go）。
+	"internal/receipt/cache.go": "build cache is an optimization; tampered entries are detected by digest and rebuilt",
+	// .bak 是 migrate 在改写前对原件的忠实副本；目标文件本身走 atomicfile.Write。
+	"cmd/ngm/migrate.go": "pre-migration .bak of the original bytes; the migrated file itself uses atomicfile.Write",
 }
 
 // TestUserVisibleWritesGoThroughAtomicfile 从源码派生"谁在裸写文件"。

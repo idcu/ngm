@@ -1018,6 +1018,12 @@ func genericInvocation(entry Entry, req buildRequest) (invocation, error) {
 		}
 		m.set("stdin", true)
 	case CSSOptions:
+		// E7：自定义 CSS 引擎与内置 postcss 走同一条 fail-closed 规则；
+		// 声明了 --minify 却没在 ngm.engines.json 里写 supportsMinify:true，
+		// 不能以"参数已转发"冒充压缩成功。
+		if err := CheckCSSMinifySupport(entry, o.Minify); err != nil {
+			return invocation{}, err
+		}
 		readsStdin = true
 		outfile = o.Outfile
 		m.set("kind", string(KindCSS))

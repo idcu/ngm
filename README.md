@@ -382,7 +382,7 @@ ngm attest --out=provenance.intoto.json
 
 ## 命令参考
 
-共 **29 个顶层命令**。逐条的用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
+共 **29 个顶层命令**；`build --provenance` / `--cache`、`verify --receipt`、`run --explain` 是既有命令的新增 flag。逐条用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
 `ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。
 
 | 类别 | 命令 |
@@ -589,7 +589,7 @@ go test -race ./...    # 可选；CI 在 ubuntu 上单独跑，同样放宽到 4
 - [配置详解](docs/guides/configuration.md) — 字段语义、vendor 模式、supplyChain
 - [快速上手](docs/guides/quickstart.md)、[安装指南](docs/guides/installation.md)
 - [术语表](docs/guides/glossary.md) · [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
-- [ADR 索引](docs/adr/README.md) — 56 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、verify 默认级别、本地来源、晾晒期默认与信任降级、迁移与补丁等）
+- [ADR 索引](docs/adr/README.md) — 58 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、verify 默认级别、本地来源、晾晒期默认与信任降级、迁移与补丁、构建回执与引擎绑定等）
 - [全维度代码评估（2026-11-20）](docs/analysis/ngm-full-assessment-2026-11-20.md) — 全量审查结论、缺陷清单与优先级（最新）
 - [竞品全维度差距评估（2026-11-21）](docs/analysis/ngm-competitive-gap-full-2026-11-21.md) — 与 npm/pnpm/Deno 等的最新差距、过期事实纠偏与建议
 - [历史评估归档](docs/internals/assessment-2026-11-07-full.md) — 此前的独立评估、缺陷清单与优先级

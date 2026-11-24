@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "engines": [
+    {
+      "name": "deno",
+      "kind": "typeCheck",
+      "adapter": "subprocess",
+      "command": "deno check",
+      "supportedInput": [".ts", ".tsx"]
+    },
+    {
+      "name": "deno",
+      "kind": "bundle",
+      "adapter": "subprocess",
+      "command": "deno bundle",
+      "supportedInput": [".ts", ".tsx"]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "name": "github.com:ngm-examples/deno-engine",
+  "version": "0.1.0",
+  "runtime": "deno",
+  "main": "./src/index.ts",
+  "dependencies": [],
+  "engines": {
+    "typeCheck": "deno",
+    "bundle": "deno"
+  }
+}

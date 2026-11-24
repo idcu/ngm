@@ -64,6 +64,8 @@
 | [ADR-054](./adr-054-conservative-adopt-and-script-preview.md) | adopt 的保守迁移边界与脚本审批"只预演" | 已定（2026-11-24）：adopt 接受 npm/pnpm/yarn/bun/deno 锁中的显式 Git 锚点，无法映射的条目逐条 skipped；doctor 只列出待审批脚本，不执行 |
 | [ADR-055](./adr-055-migrate-and-digest-audit.md) | 保守的 v1/v2→v3 迁移与只读的 digest 反查 | 已定（2026-11-24）：migrate 只搬能证明的字段、缺 digest 全量不写并备份；`why --digest` 只读反查引用该摘要的条目 |
 | [ADR-056](./adr-056-collection-constraints-and-explicit-patches.md) | 集合约束轻量版与显式补丁登记 | 已定（2026-11-24）：集合内共享 ref 一致性校验（不做求解）；`patches` 只换锚点并在 lock 留 `patchFrom`/`patchWhy` |
+| [ADR-057](./adr-057-build-receipt.md) | 构建回执契约 | 已定（2026-11-24）：`ngm.build.json` 旁车文件不进 lock；同输入同字节、无时间戳/绝对路径；不承诺跨工具可复现 |
+| [ADR-058](./adr-058-engine-binding.md) | 引擎版本/摘要绑定与压缩 fail-closed | 已定（2026-11-24）：`expectedVersion` 不符 exit 5、`expectedDigest` 不符 exit 2；`css --minify` 遇不支持引擎 exit 3 |
 
 ---
 

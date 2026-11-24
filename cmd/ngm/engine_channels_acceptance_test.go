@@ -91,13 +91,11 @@ func TestV05EngineChannelsAcceptance(t *testing.T) {
 		proj := newProj("postcss", "css", "")
 		t.Setenv("FAKE_STDERR", "postcss deprecation notice")
 
-		code, out := runCaptureCode(t, "css", "app.css", "--engine=postcss", "--minify", "--dir="+proj)
+		// E7 起 postcss + --minify 会 fail-closed（exit 3）；这里测的是两条诊断通道，
+		// 因此不带 --minify，避免把配置门禁当成通道失败。
+		code, out := runCaptureCode(t, "css", "app.css", "--engine=postcss", "--dir="+proj)
 		if code != 0 {
 			t.Fatalf("css exit=%d:\n%s", code, out)
-		}
-		// ngm 的说明（+ postcss 没有内建压缩，--minify 被忽略）
-		if !strings.Contains(out, "minifier") {
-			t.Errorf("ngm must say that --minify was ignored, and why:\n%s", out)
 		}
 		// 引擎自己的 stderr——这条此前被整个丢掉
 		if !strings.Contains(out, "postcss deprecation notice") {

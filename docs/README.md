@@ -65,11 +65,13 @@ Windows 上用同名的 `.ps1` 入口：`scripts/check-mirror-coverage.ps1` · `
 | 在 Node 和 Deno 之间选 | [Node vs Deno](./guides/node-vs-deno.md) | 使用者 |
 | 从 npm / pnpm 迁过来 | [迁移指南](./guides/migration.md) | 使用者 |
 | 给**你的项目**配测试（Vitest / Deno test） | [测试](./guides/test.md) | 使用者 |
+| 先搞懂"ngm 不是 npm" | [定位说明](./guides/positioning.md) · [三个可跑示例](./guides/examples.md) | 使用者 · 评估者 |
 | 跑 ngm 自己的测试与里程碑验收 | [开发总览](./development/README.md) | 贡献者 |
 | 搞懂它为什么这样设计 | [架构总览](./architecture/overview.md) | 贡献者 |
 | 查某个设计决策的理由 | [ADR 索引](./adr/README.md) | 贡献者 |
 | **梳理 ngm 现在有哪些功能** | **[功能现状梳理（2026-11-21）](./analysis/ngm-feature-inventory-2026-11-21.md)**（命令地图 · 状态模型 · 横切能力 · 边界） | **使用者 · 评估者 · 接手者** |
 | **基于梳理的下一步计划** | [下一阶段 spec + tasks](./specs/assessment-2026-11-21-next-step/spec.md)（读数纠偏 → 闭环证据 → 采用门槛） | **评估者 · 接手者** |
+| **独立生态的构建/压缩/任务计划** | [生态路线](./analysis/ngm-ecosystem-roadmap-2026-11-24.md) · [开发 spec](./specs/ecosystem-roadmap-2026-11-24/spec.md) · [任务清单](./specs/ecosystem-roadmap-2026-11-24/tasks.md) | **评估者 · 接手者** |
 | 看 ngm 与竞品的差异 | [竞品分析](./COMPETITIVE-ANALYSIS.md) | 评估者 |
 | **一眼看清"现在能用到什么程度、卡在哪、下一步"** | **[项目状态评估](./internals/project-state.md)** | **评估者 · 接手者** |
 | **评估"把外部仓库融入本生态"的可行性** | [qforge / plotpin → lytjs → ngm 适配评估](./internals/assessment-2026-10-16-lytjs-ngm-adapt.md) | 评估者 |
@@ -298,7 +300,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|------|
 | [guides/](./guides/) | 安装 / 快速上手 / 配置 / 依赖管理 / 构建 / CLI 参考 / 术语表 / Node vs Deno / 测试 / 发布 / 迁移 | 使用者 |
 | [architecture/](./architecture/) | 总览 / 运行时模型 / 信任模型 / vendor 4 层 / 引擎 adapter / 供应链 / 依赖解析 / 锁定 / 安全 / 可观测性 | 贡献者 |
-| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ ADR-056）与 ADR 流程 | 贡献者 |
+| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ ADR-058）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
 | [analysis/](./analysis/) | **[功能现状梳理（2026-11-21）](./analysis/ngm-feature-inventory-2026-11-21.md)** + 全量代码评估（当前快照 [2026-11-20](./analysis/ngm-full-assessment-2026-11-20.md)）+ [竞品全维度差距评估（2026-11-21）](./analysis/ngm-competitive-gap-full-2026-11-21.md) + 按日期归档的历史评估 | 评估者 |
