@@ -28,7 +28,7 @@ ngm 是单二进制 CLI：`ngm <command> [options]`。本文给出命令速览�
 | `ngm gc [--dir] [--apply] [--dry-run] [--json]` | 按当前项目 lock 回收不可达对象；默认 dry-run，global vendor 一律保留 | [配置详解](./configuration.md) |
 | `ngm config validate\|show [--dir]` | 校验 / 查看配置；目录里没有 `ngm.json` 时 validate 不是通过 | [配置详解](./configuration.md) |
 | `ngm engines list\|info\|validate [--json]` | 引擎目录探针；`list` 如实呈现，被权限拒绝时退出 0，`validate` 给结论，不可用时退出 3 | [配置详解](./configuration.md) |
-| `ngm modules list\|validate\|index [--dir] [--json] [--limit] [--strict] [--index] [--out] [--dry-run]` | 模块集合的发现、校验与索引；不做 semver 求解 | [生态定位](./positioning.md) |
+| `ngm modules list\|validate\|index\|changed\|plan [--dir] [--json] [--limit] [--strict] [--index] [--out] [--dry-run]` | 模块集合的发现、校验、索引与发布计划；不做 semver 求解 | [包开发指南](./package-authoring.md) |
 | `ngm sbom [--format=cyclonedx\|spdx] [--out] [--dir] [--allow-stale]` | 从 lock 导出 SBOM；只读、不联网，lock 过期默认 exit 3 | [快速上手](./quickstart.md) |
 | `ngm attest [--out] [--dir] [--allow-stale] [--with-timestamps]` | 导出未签名的 in-toto / SLSA v1 语句；默认逐字节确定 | [签名配方](./signing.md) |
 | `ngm run [--list] [--if-present] [--explain] [-- <args>]` | 运行项目脚本（package.json 权威、ngm.json 回退），沙箱外执行，需 `run:script` 授权；退出码原样透传 | [生态定位](./positioning.md) |
@@ -69,7 +69,7 @@ ngm 是单二进制 CLI：`ngm <command> [options]`。本文给出命令速览�
 | `ngm modules validate --json` | 对象：`version` · `ok` · `modules` · `errors` | ✗ |
 | `ngm modules changed --json` | 对象：`version` · `since` · `modules`；`modules` 元素键：`name` · `path` · `version` · `error` | ✗ |
 | `ngm modules plan --json` | 对象：`version` · `since` · `bump` · `modules`；`modules` 元素键：`name` · `path` · `version` · `nextVersion` · `tag` | ✗ |
-| `ngm modules index --json` | 对象：`version` · `out` · `dryRun`（dry-run 时） · `branch` · `branchCommit` · `releaseFiles`（分片时） · `index`（`schemaVersion` · `source` · `releaseDir` · `modules` · `releases`） | ✗ |
+| `ngm modules index --json` | 对象：`version` · `out` · `dryRun`（dry-run 时） · `branch` · `branchCommit` · `releaseFiles`（分片时） · `index`（`schemaVersion` · `source` · `releaseDir` · `modules` · `releases` · `constraints`） | ✗ |
 | `ngm gc --json` | 对象：`version` · `dryRun` · `applied` · `project` · `lock` · `store` · `mirror` · `moduleCache`（层 1.5，partial clone） · `vendor` · `total`（`objects` · `bytes`） · `warnings`；四层的键：`root` · `exists` · `mode`（vendor） · `candidates`（元素键 `id` · `bytes`，store 另有 `layout`） · `objects` · `bytes` · `removed` · `bytesFreed` · `kept`（global vendor） · `keptYoungBlobs` / `keptYoungBytes`（store） · `errors` | ✗ |
 | `ngm run --list --json` | 对象：`version` · `project` · `scripts`；`scripts` 元素键：`name` · `command` · `source`（定义来自 package.json 还是 ngm.json） · `pre` · `post`（按 npm 约定存在的 `pre<name>` / `post<name>`，无则省略） | ✗ |
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/check-library-standard.sh —— **JS Git 库标准**的自检（唯一实现）。
 #
-# 标准写在 docs/guides/js-git-library-standard.md；本文件是它的判据。
+# 标准写在 docs/guides/package-authoring.md；本文件是它的判据。
 # 两条纪律与本项目其它检查器一致：
 #
 #   1. **规则只允许有一种写法**：Windows 入口是 `.ps1`（转调本文件），不另写一份规则；
@@ -842,7 +842,7 @@ if [ "$skipped" -gt 0 ]; then
 	skip_note="（不适用 $skipped 条，见上）"
 fi
 if [ "$must_fail" -gt 0 ]; then
-	echo "必做项未通过 $must_fail 条 —— 这个库不符合标准（docs/guides/js-git-library-standard.md）$skip_note"
+	echo "必做项未通过 $must_fail 条 —— 这个库不符合标准（docs/guides/package-authoring.md）$skip_note"
 elif [ "$NESTED" = 1 ]; then
 	# "不完整"必须与"通过"分开说：子包没查过的东西，不能算在"符合"里。
 	echo "已查的判据全部通过，**但这不是一次完整体检**：检测到嵌套 monorepo，它的子包没有被体检（见 nested-monorepo）$skip_note"

@@ -60,7 +60,7 @@ ngm 的配置全部是 JSON：便于机器生成、schema 校验与 CI diff。�
 
 ### 入口推断（作为被依赖方）
 
-本项目被其他仓库依赖时，mappings 的 `main` / `types` 依次取自：本项目 `ngm.json` 的 `main` / `types` → `package.json` 的 `exports["."]` → `./index.ts` / `./index.js`（类型 `./index.d.ts`）。全部缺失时 `ngm install` 输出警告，映射仍生成但不带入口字段。
+本项目被其他仓库依赖时的三层入口顺序、候选文件名与 `exports` 条件优先级，统一写在[包开发指南](./package-authoring.md)；全部缺失时 `ngm install` 输出警告，映射仍生成但不带入口字段。
 
 ## dependencies
 

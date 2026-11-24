@@ -124,7 +124,7 @@ ngm attest --out=provenance.intoto.json
 
 ## 文档入口
 
-- 上手：[快速上手](docs/guides/quickstart.md) · [安装指南](docs/guides/installation.md) · [示例工程](docs/guides/examples.md)
+- 上手：[快速上手](docs/guides/quickstart.md) · [安装指南](docs/guides/installation.md) · [示例工程](docs/guides/examples.md) · [开发 ngm 包](docs/guides/package-authoring.md)
 - 日常：[CLI 参考](docs/guides/cli.md) · [配置详解](docs/guides/configuration.md) · [依赖管理](docs/guides/dependency-management.md) · [构建](docs/guides/build.md) · [测试](docs/guides/test.md) · [迁移](docs/guides/migration.md) · [发布](docs/guides/publishing.md) · [签名配方](docs/guides/signing.md)
 - 理解边界：[生态定位](docs/guides/positioning.md) · [术语表](docs/guides/glossary.md) · [能力矩阵](docs/internals/capability-matrix.md)
 - 架构：[总览](docs/architecture/overview.md) · [依赖解析](docs/architecture/dependency-resolution.md) · [锁定](docs/architecture/locking.md) · [引擎 adapter](docs/architecture/engine-adapter.md) · [供应链](docs/architecture/supply-chain.md) · [安全模型](docs/architecture/security-model.md) · [可观测性](docs/architecture/observability.md)

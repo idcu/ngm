@@ -187,5 +187,5 @@ if [ "$child_fail" -eq 0 ]; then
 	exit 0
 fi
 echo "不合格的依赖：$failed_list"
-echo "—— $count 个 vendored 依赖里有不合格项（判据：docs/guides/js-git-library-standard.md）"
+echo "—— $count 个 vendored 依赖里有不合格项（判据：docs/guides/package-authoring.md）"
 exit 1

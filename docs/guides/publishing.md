@@ -43,10 +43,10 @@ CI 里把 ngm 门禁排在 publish 之前：
 
 ## 作为 Git 依赖被别人引用
 
-需要三件事：
+需要三件事；逐步做法、monorepo 模块与自检脚本见[包开发指南](./package-authoring.md)：
 
-1. **可用的 tag**：`git tag v1.2.3 && git push --tags`。
-2. **明确的入口**：在 `ngm.json` 或 `package.json` 里给 `main` / `types` / `exports["."]`。推断顺序是 ngm.json → package.json → `index.*` 约定。
+1. **可用的 tag**：`git tag -a v1.2.3 -m "release 1.2.3" && git push --tags`。tag 发出后不要移动；monorepo 模块用 `<path>/v<version>`。
+2. **明确的入口**：`main` / `types` 可写在包的 `ngm.json` 或 `package.json`；`exports["."]` 只属于 `package.json`，写进 `ngm.json` 会 exit 3。三层推断顺序见[包开发指南](./package-authoring.md)。
 3. **仓库可被访问**：公开仓库任何人可 clone；私有仓库需要使用者配置 Git 凭证。
 
 ## 边界

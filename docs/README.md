@@ -13,6 +13,7 @@
 | 目的 | 文档 |
 |------|------|
 | 第一次接触：装好、跑通、查词、懂配置 | [安装](./guides/installation.md) → [快速上手](./guides/quickstart.md) → [术语表](./guides/glossary.md) → [配置详解](./guides/configuration.md) |
+| 开发给别人用的包（producer 视角） | [包开发指南](./guides/package-authoring.md) |
 | 查命令与 flag | [CLI 参考](./guides/cli.md) |
 | 增删改依赖、处理冲突 | [依赖管理](./guides/dependency-management.md) |
 | 构建 / 类型检查 / 编译 CSS | [构建](./guides/build.md) |
@@ -39,7 +40,7 @@ CI 上用锁死"装什么"和"怎么拿"的组合；两个 flag 的分工见[锁
 
 | 目录 | 内容 |
 |------|------|
-| [guides/](./guides/) | 使用者文档：安装、上手、配置、依赖管理、构建、CLI、术语、发布、迁移、签名、测试、定位、示例 |
+| [guides/](./guides/) | 使用者文档：安装、上手、配置、依赖管理、构建、CLI、术语、发布、迁移、签名、测试、定位、示例、包开发 |
 | [architecture/](./architecture/) | 贡献者文档：数据流 / 状态 / 失败语义 / 边界（见下表） |
 | [adr/](./adr/README.md) | 架构决策汇总表 ADR-001 ~ ADR-058（唯一 ADR 汇总文件） |
 | [internals/](./internals/) | 能力矩阵（能力归属与成熟度的唯一事实源） |

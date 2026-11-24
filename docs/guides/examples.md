@@ -22,6 +22,7 @@
 
 | 目标 | 文档 |
 |---|---|
+| 开发一个被别人引用的包 | [包开发指南](./package-authoring.md) |
 | 为什么这样做 | [定位页](./positioning.md) |
 | 配置字段 | [配置详解](./configuration.md) |
 | 引擎与 mappings | [构建指南](./build.md) |
