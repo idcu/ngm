@@ -165,6 +165,8 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "engines", code: 0, args: []string{"list"}, setup: setupProject},
 	{cmd: "modules", code: 0, args: []string{"list"}, setup: setupProject},
 	{cmd: "doctor", code: 0, args: nil, setup: setupProject},
+	// v0.103：migrate 对已 v3 的项目幂等返回 0。
+	{cmd: "migrate", code: 0, args: nil, setup: setupDep},
 	{cmd: "typecheck", code: 0, args: []string{"--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
 	{cmd: "typedecl", code: 0, args: []string{"--outdir=types", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
 	{cmd: "build", code: 0, args: []string{"entry.ts", "--engine=fake"}, setup: setupEngine, env: map[string]string{"FAKE_EXIT": "0"}},
@@ -186,6 +188,8 @@ var exitCodeMeasured = []exitCase{
 	{cmd: "adopt", code: 3, args: nil, setup: setupProject},
 	// v0.102：gc 没有 lock 就无法判断可达性，必须拒绝（而不是把所有东西当候选）。
 	{cmd: "gc", code: 3, args: nil, setup: setupProject},
+	// v0.103：migrate 在既没有 ngm.json 也没有 ngm.lock 的目录里必须拒绝。
+	{cmd: "migrate", code: 3, args: nil, setup: setupEmpty},
 	// ---- 2：完整性失败（--check 发现树与证明不一致）----
 	{cmd: "adopt", code: 2, args: []string{"--check=" + adopt.FileName}, setup: setupAdoptDrift},
 
@@ -393,6 +397,11 @@ var exitCodeGaps = map[string][]int{
 	//        于是先退 4（离线取数失败），到不了钩子那一步。
 	"update": {1, 2, 5},
 
+	// migrate 的码 6 是"结果算出来了却写不出去"（写回 .bak / 新清单失败）。
+	// 它需要受控的写失败注入点，目前 migrate 直接返回 os 错误而没有可注入的 hook；
+	// 声明保留，先登记为已知缺口，避免把"没测"写成"测过"。
+	"migrate": {6},
+
 	// v0.59 给码 6 立了"声明了就要能测"，v0.62 把 7 个命令搬进实测，
 	// v0.63 把最后四个也搬完——**码 6 已无缺口**（上表里 9 条 elsewhere 覆盖全部
 	// 声明过 6 的命令）。
@@ -488,7 +497,9 @@ func TestV22DeclaredCodesAreMeasuredOrKnownGaps(t *testing.T) {
 			// 漂移用例里的 fixture 用当前时间提交，而 ADR-050 的默认 P1D
 			// 会在"写了 supplyChain 段 + 刚 commit"时抢先 exit 3，掩盖真正
 			// 被测的漂移码。这里显式跳过晾晒期，让判据只测它声明的对象。
-			if trig.setup == setupDrifted && (spec.Name == "install" || spec.Name == "update") {
+			// ADR-053：init 现在写入 P1D，而所有 fixture 都是刚 commit 的。
+			// install/update 的本职不是测晾晒期，统一跳过它，避免 exit 3 掩盖被测码。
+			if spec.Name == "install" || spec.Name == "update" {
 				args = append(args, "--allow-fresh")
 			}
 			for k, v := range trig.env {

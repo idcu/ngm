@@ -106,7 +106,15 @@ var wiredFields = map[string]string{
 	"SupplyChainConfig.MinimumReleaseAge":   "TestPolicy_MinimumReleaseAgeAndVerifyOnLock",
 	"SupplyChainConfig.OSVIgnoreSeverities": "TestAudit_IgnoredIsStillCounted",
 	"SupplyChainConfig.PostInstallPolicy":   "TestV03PostInstallAcceptance",
+	"SupplyChainConfig.TrustPolicy":         "TestV212TrustPolicyIsWiredFromConfig",
 	"SupplyChainConfig.VerifyOnLock":        "TestV02VerifyOnLockAcceptance",
+
+	// ---- ngm.json：显式补丁（ADR-056）----
+	"ProjectFile.Patches": "TestV218PatchAnchorsAndDeepCopy",
+	"Patch.Name":          "TestV218PatchValidation",
+	"Patch.From":          "TestV218PatchValidation",
+	"Patch.To":            "TestV218PatchValidation",
+	"Patch.Why":           "TestV218PatchValidation",
 
 	// ---- ~/.ngm/config.json：GlobalFile ----
 	"GlobalFile.SchemaVersion": "TestUnsupportedSchemaVersionIsRejected",
@@ -225,6 +233,7 @@ func enumerateConfigFields(t *testing.T) []string {
 	}{
 		{"ProjectFile", ProjectFile{}},
 		{"Dependency", Dependency{}},
+		{"Patch", Patch{}},
 		{"EnginesConfig", EnginesConfig{}},
 		// EngineRef 曾在这里：它是死类型（零实例化、零字段访问），v0.5 删除。
 		// 删掉之后本检查少枚举三个键，而那正是"少几个键"的正确用法——

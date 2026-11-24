@@ -31,8 +31,8 @@ FLAGS:
   --all         update every dependency in ngm.json
   --dir         project directory containing ngm.json (default: .)
   --offline     never touch the network; require a warm local mirror (exit 4 if missing)
-  --allow-fresh skip minimumReleaseAge for this update (ADR-050; default P1D when
-                supplyChain is configured). Whitelists still apply.
+  --allow-fresh skip minimumReleaseAge for this update (ADR-053; P1D when the
+                project has an explicit supplyChain section). Whitelists still apply.
   --digest      also compute and print the archiveDigest (ADR-008)
   --store     report content-store status (implies --digest);
               the store is always populated by update regardless of this flag
@@ -40,6 +40,8 @@ FLAGS:
               progress text and warnings then go to stderr
 
 NOTES:
+  minimumReleaseAge is P1D for configured projects (ADR-053); the policy-layer
+  global default does not gate unconfigured projects until the CLI switch lands.
   This is the *re-resolving* writer: it rewrites ngm.lock and materializes the
   vendor tree (install follows the lock and never re-resolves). A root declaration
   wins over a transitive one; the settlement is printed. Dependencies declare
@@ -158,12 +160,16 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintln(stderr, "warning: --allow-fresh skips the minimumReleaseAge gate for this update")
 	}
 	opts.CheckRepo = pol.CheckRepo
-	g, rerr := resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
+	g, rerr := resolve.ResolveGraph(ctx, patchedSpecs(pf), opts)
 	if rerr != nil {
 		return runErr(ctx, stdout, stderr, rerr)
 	}
 	// 晾晒期只能在解析**之后**判定：时间源是 commit 的 committer date
 	if err := checkReleaseAges(ctx, env, g, pol); err != nil {
+		return runErr(ctx, stdout, stderr, err)
+	}
+	// ADR-053：写新 lock 之前，用旧 lock 的锚点强度挡住"commit/tag 退到 branch/tag"。
+	if err := checkTrustNoDowngrade(pol, previous, g); err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
 	for _, w := range g.Warnings {
@@ -216,6 +222,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 				ResolvedAt: lock.FormatResolvedAt(now), VendorPath: filepath.ToSlash(rel),
 				RequiredBy: n.RequiredBy,
 			})
+			stampPatch(pf, lf, n.Name, n.Ref)
 			if rep != nil {
 				rep.Dependencies = append(rep.Dependencies, writeReportDep{
 					Name: n.Name, Ref: n.Ref, RefType: string(n.RefType),
@@ -294,6 +301,7 @@ func runUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			// v0.73（ADR-028）：同 installFresh——直接边写进 lock（序列化时归一）。
 			RequiredBy: n.RequiredBy,
 		})
+		stampPatch(pf, lf, n.Name, n.Ref)
 		contentDigest := archiveDigest
 		if n.SubPath != "" {
 			contentDigest = proof.Digest

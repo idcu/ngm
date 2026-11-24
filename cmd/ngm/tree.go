@@ -170,7 +170,7 @@ func runTree(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			opts.EnsureMirror = offlineEnsureMirror(env)
 		}
 		var rerr error
-		g, rerr = resolve.ResolveGraph(ctx, toDepSpecs(pf.Dependencies), opts)
+		g, rerr = resolve.ResolveGraph(ctx, patchedSpecs(pf), opts)
 		if rerr != nil {
 			return runErr(ctx, stdout, stderr, rerr)
 		}

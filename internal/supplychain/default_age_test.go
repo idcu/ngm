@@ -7,14 +7,32 @@ import (
 	"github.com/idcu/ngm/internal/config"
 )
 
-// TestV139DefaultReleaseAge —— B 批判据（竞品全维度评估 B1 / ADR-050）。
+// TestV211DefaultReleaseAge —— ADR-053 判据，取代历史 TestV139（ADR-050 的"无段不门禁"）。
 //
-// 三条不变量：
-//  1. 写了 supplyChain 段但没写冷却 ⇒ 默认 P1D（对齐 pnpm 11+ / Deno 2.9 的 2026 默认）；
-//  2. 完全没有 supplyChain 段（sc == nil）⇒ 不门禁（ADR-009 底线：没配策略不挡所有既有项目）；
-//  3. --allow-fresh 的副本只关冷却、不改其他门禁（白名单/严重级别仍生效），且不泄漏回原策略。
-func TestV139DefaultReleaseAge(t *testing.T) {
-	// 1. 有段无字段 ⇒ 24h。
+// 四种形态：
+//  1. 无 supplyChain 段 ⇒ 全局默认 24h（覆盖 ADR-009 的空策略底线，仅限 minimumReleaseAge）；
+//  2. 有段无字段 ⇒ 24h；
+//  3. 显式 minimumReleaseAge: "PT0S" ⇒ 0（项目级关闭，不是"配了没生效"）；
+//  4. --allow-fresh 副本只关冷却、不改其他门禁，且不泄漏回原策略。
+func TestV211DefaultReleaseAge(t *testing.T) {
+	// 1. 无段 ⇒ 24h。
+	noSection, err := FromConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := noSection.MinimumReleaseAge(); got != 24*time.Hour {
+		t.Errorf("无 supplyChain 段的晾晒期 = %v, want 24h", got)
+	}
+	// IsEmpty 只描述"有没有显式配置"，不能再当作"门禁是否执行"的判据。
+	if !noSection.IsEmpty() {
+		t.Error("无段仍应 IsEmpty=true（历史判据读法）")
+	}
+	// 默认值的 CLI 强制执行切换依赖夹具迁移（ADR-053 接线事项）；此处只钉住 Policy 默认值。
+	if noSection.AgeGateActive() {
+		t.Error("无段的 CLI 门禁尚未切换，AgeGateActive 应为 false")
+	}
+
+	// 2. 有段无字段 ⇒ 24h。
 	withSection, err := FromConfig(&config.SupplyChainConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -22,27 +40,29 @@ func TestV139DefaultReleaseAge(t *testing.T) {
 	if got := withSection.MinimumReleaseAge(); got != 24*time.Hour {
 		t.Errorf("有段无字段的默认晾晒期 = %v, want 24h", got)
 	}
+	if !withSection.AgeGateActive() {
+		t.Error("显式写了 supplyChain 段的项目应继续执行晾晒期门禁")
+	}
 	if DefaultMinimumReleaseAge != 24*time.Hour {
 		t.Errorf("DefaultMinimumReleaseAge 常量 = %v, want 24h", DefaultMinimumReleaseAge)
 	}
 
-	// 2. 完全无段 ⇒ 0（ADR-009 底线不变）。
-	noSection, err := FromConfig(nil)
+	// 3. 显式 PT0S 关闭；P0D 仍被拒（避免"配了零却没生效"的错觉）。
+	off, err := FromConfig(&config.SupplyChainConfig{MinimumReleaseAge: "PT0S"})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("PT0S 应作为显式关闭被接受: %v", err)
 	}
-	if got := noSection.MinimumReleaseAge(); got != 0 {
-		t.Errorf("无 supplyChain 段的晾晒期 = %v, want 0（不门禁）", got)
+	if got := off.MinimumReleaseAge(); got != 0 {
+		t.Errorf("PT0S 的晾晒期 = %v, want 0", got)
 	}
-
-	// 项目级逃生口 = 完全不配 supplyChain 段（上面 noSection 已断言 0）。
-	// 注意 P0D 被 ParseISODuration 有意拒绝（"配了却不生效"的错觉），所以不用它做开关；
-	// 单命令逃生口是 --allow-fresh / WithoutMinimumAge（下面断言）。
+	if off.AgeGateActive() {
+		t.Error("PT0S 是显式关闭，不应再执行门禁")
+	}
 	if _, err := FromConfig(&config.SupplyChainConfig{MinimumReleaseAge: "P0D"}); err == nil {
-		t.Error("P0D 应仍被 ParseISODuration 拒绝——保持既有语义，不用它当逃生口")
+		t.Error("P0D 应仍被 ParseISODuration 拒绝——不用它当逃生口")
 	}
 
-	// 3. WithoutMinimumAge：副本关冷却，其他字段不变，且原策略不受影响。
+	// 4. WithoutMinimumAge：副本关冷却，其他字段不变，且原策略不受影响。
 	based := &config.SupplyChainConfig{
 		AllowlistRepos:      []string{"github.com/trusted/*"},
 		OSVIgnoreSeverities: []string{"low"},
@@ -70,7 +90,14 @@ func TestV139DefaultReleaseAge(t *testing.T) {
 		t.Errorf("副本丢了 postInstallPolicy: %q", bypass.PostInstallPolicy())
 	}
 
-	// nil 策略的副本仍是 nil（不能 panic，也不能凭空造出门禁）。
+	// 全局默认策略上做 --allow-fresh 也不泄漏（无段项目同样能单命令放行）。
+	implicit := noSection.WithoutMinimumAge()
+	if implicit.MinimumReleaseAge() != 0 || noSection.MinimumReleaseAge() != 24*time.Hour {
+		t.Errorf("无段项目的 --allow-fresh 副本泄漏: copy=%v orig=%v",
+			implicit.MinimumReleaseAge(), noSection.MinimumReleaseAge())
+	}
+
+	// nil 指针的副本仍是 nil（不能 panic，也不能凭空造出门禁）。
 	if (*Policy)(nil).WithoutMinimumAge() != nil {
 		t.Error("nil.WithoutMinimumAge() 应仍是 nil")
 	}

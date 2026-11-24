@@ -108,7 +108,7 @@ func runSbom(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// 于是 ngm.json 改过之后照样能导出一份"看起来正常"的 SBOM——
 	// 而 attest 那份是要被**签名**的。签名之后最难被发现的正是这一类错误：
 	// 结构合法、哈希正确，描述的却是一个已经不存在的状态。
-	if stale := lockManifestMismatch(lf, toDepSpecs(pf.Dependencies)); len(stale) > 0 {
+	if stale := lockManifestMismatch(lf, patchedSpecs(pf)); len(stale) > 0 {
 		// v0.136（ADR-046）：与 attest 同一门槛——默认拒绝，显式 --allow-stale 放行。
 		detail := strings.Join(stale, "; ")
 		if !*allowStale {

@@ -298,7 +298,7 @@ adapter 与单测、没有命令驱动）；`ngm verify --signatures` / `--requi
 |------|------|------|
 | [guides/](./guides/) | 安装 / 快速上手 / 配置 / 依赖管理 / 构建 / CLI 参考 / 术语表 / Node vs Deno / 测试 / 发布 / 迁移 | 使用者 |
 | [architecture/](./architecture/) | 总览 / 运行时模型 / 信任模型 / vendor 4 层 / 引擎 adapter / 供应链 / 依赖解析 / 锁定 / 安全 / 可观测性 | 贡献者 |
-| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ ADR-052）与 ADR 流程 | 贡献者 |
+| [adr/](./adr/README.md) | 架构决策记录（ADR-001 ~ ADR-056）与 ADR 流程 | 贡献者 |
 | [modules/](./modules/) | 模块分解（P0 ~ P8） | 维护者 |
 | [internals/](./internals/) | **项目状态评估** / 能力矩阵 / 健康度指标 / 路线图 | 维护者 · **接手者** |
 | [analysis/](./analysis/) | **[功能现状梳理（2026-11-21）](./analysis/ngm-feature-inventory-2026-11-21.md)** + 全量代码评估（当前快照 [2026-11-20](./analysis/ngm-full-assessment-2026-11-20.md)）+ [竞品全维度差距评估（2026-11-21）](./analysis/ngm-competitive-gap-full-2026-11-21.md) + 按日期归档的历史评估 | 评估者 |

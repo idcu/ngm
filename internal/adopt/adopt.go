@@ -95,6 +95,17 @@ type Coverage struct {
 	Skipped int `json:"skipped,omitempty"`
 }
 
+// SkippedEntry 是一条**在 lock 里声明过、但无法可靠映射到 Git provenance** 的条目。
+//
+// 为什么单列而不是塞进 notes：notes 是散文，读不出"究竟哪几条被丢了"。
+// 一条声明若有 Git 形状但没有 commit/ref 锚点、名字无法映射、或只是 registry
+// integrity，都必须在这里**逐条列出原因**——绝不静默吞掉，更不编造 Git 来源。
+type SkippedEntry struct {
+	Lockfile string `json:"lockfile"`
+	Key      string `json:"key"`
+	Reason   string `json:"reason"`
+}
+
 // Source 描述证据的来源。
 type Source struct {
 	// Manager 是本包**识别到**的安装器：npm / pnpm / yarn / unknown。
@@ -118,6 +129,8 @@ type Proof struct {
 	Source   Source    `json:"source"`
 	Coverage Coverage  `json:"coverage"`
 	Packages []Package `json:"packages"`
+	// Skipped 逐条记录无法映射的 lock 声明（含原因）；按 lockfile/key/reason 排序。
+	Skipped []SkippedEntry `json:"skipped,omitempty"`
 	// Notes 是**必须说出来**的边界：跳过了什么、为什么某类来源查不到。
 	Notes []string `json:"notes,omitempty"`
 }
@@ -148,7 +161,7 @@ func Run(opts Options) (*Proof, error) {
 				"(ngm adopt describes what is on disk; it never installs)")
 	}
 
-	lock, lockNotes, lockSource := readLock(root)
+	lock, skipped, lockNotes, lockSource := readLock(root)
 
 	sc := &scanner{root: root, lock: lock}
 	if err := sc.discover(nmRoot); err != nil {
@@ -175,6 +188,7 @@ func Run(opts Options) (*Proof, error) {
 		Tool:     Tool{Name: "ngm", Version: opts.ToolVersion},
 		Source:   lockSource,
 		Packages: sc.pkgs,
+		Skipped:  skipped,
 	}
 	proof.Coverage.Packages = len(sc.pkgs)
 	proof.Coverage.Skipped = sc.skipped
@@ -193,6 +207,11 @@ func Run(opts Options) (*Proof, error) {
 		}
 	}
 	proof.Notes = append(proof.Notes, lockNotes...)
+	if len(skipped) > 0 {
+		proof.Notes = append(proof.Notes, fmt.Sprintf(
+			"%d lock declaration(s) were skipped and are listed in skipped[] with reasons; "+
+				"they were not invented as Git sources", len(skipped)))
+	}
 	if sc.skipped > 0 {
 		proof.Notes = append(proof.Notes, fmt.Sprintf(
 			"%d filesystem entr(ies) were skipped (not a regular file or symlink, or unreadable)",
@@ -463,16 +482,31 @@ type lockEntry struct {
 
 // readLock 识别安装器并读取**能读懂的那一种** lock。
 //
-// 只支持 npm 的 `package-lock.json`（JSON，标准库即可）。pnpm 的是 YAML，
-// 而本项目不引入第三方依赖（ADR-003）：读不了就**说出读不了**，
-// 绝不退化成"假装没有来源"。
-func readLock(root string) (map[string]lockEntry, []string, Source) {
+// 支持的都是**窄形状**：npm package-lock.json / npm-shrinkwrap.json（JSON v2/v3）、
+// pnpm-lock.yaml、yarn.lock、bun.lock（文本，**不是**老的 bun.lockb）、deno.lock（JSON）。
+// 不引入 YAML 依赖（ADR-003）：按行读，只认"声明 + 锚点"足以映射的条目；
+// 其余逐条进 skipped[] 并说明原因，绝不把无锚点的 Git URL 编造成 commit。
+func readLock(root string) (map[string]lockEntry, []SkippedEntry, []string, Source) {
 	var notes []string
 	src := Source{Manager: "unknown"}
 
-	candidates := []struct{ file, manager string }{
-		{"package-lock.json", "npm"},
-		{"npm-shrinkwrap.json", "npm"},
+	// bun.lockb 是二进制格式，明确说出来，避免用户以为"没看见 lock"。
+	if _, err := os.Stat(filepath.Join(root, "bun.lockb")); err == nil {
+		notes = append(notes, "bun.lockb is a binary lockfile and is not read by ngm; "+
+			"export a text bun.lock to get provenance")
+	}
+
+	type parser func([]byte) (map[string]lockEntry, []SkippedEntry, error)
+	candidates := []struct {
+		file, manager string
+		parse         parser
+	}{
+		{"package-lock.json", "npm", parseNPMLock},
+		{"npm-shrinkwrap.json", "npm", parseNPMLock},
+		{"pnpm-lock.yaml", "pnpm", parsePNPMLock},
+		{"yarn.lock", "yarn", parseYarnLock},
+		{"bun.lock", "bun", parseBunLock},
+		{"deno.lock", "deno", parseDenoLock},
 	}
 	for _, c := range candidates {
 		path := filepath.Join(root, c.file)
@@ -480,54 +514,52 @@ func readLock(root string) (map[string]lockEntry, []string, Source) {
 		if err != nil {
 			continue
 		}
-		entries, perr := parseNPMLock(raw)
 		src.Manager = c.manager
 		src.Lockfile = c.file
 		src.LockfileDigest = "sha256:" + digest.HashBytes(raw)
+		entries, skipped, perr := c.parse(raw)
+		skipped = withLockfile(skipped, c.file)
 		if perr != nil {
 			notes = append(notes, fmt.Sprintf(
 				"%s was found but could not be parsed (%v); provenance is unknown for every package",
 				c.file, perr))
-			return nil, notes, src
+			return nil, skipped, notes, src
 		}
-		return entries, notes, src
-	}
-
-	for _, c := range []struct {
-		file, manager string
-		parse         func([]byte) (map[string]lockEntry, error)
-	}{
-		{"pnpm-lock.yaml", "pnpm", parsePNPMLock},
-		{"yarn.lock", "yarn", parseYarnLock},
-	} {
-		path := filepath.Join(root, c.file)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		src.Manager = c.manager
-		src.Lockfile = c.file
-		src.LockfileDigest = "sha256:" + digest.HashBytes(raw)
-		entries, perr := c.parse(raw)
-		if perr != nil {
+		if c.manager == "npm" {
 			notes = append(notes, fmt.Sprintf(
-				"%s was found but could not be parsed (%v); provenance is unknown for every package",
-				c.file, perr))
-			return nil, notes, src
+				"%s: npm v2/v3 `packages` entries were read (%d found); "+
+					"Git commits are traceable, a tag fragment stays a ref, registry entries keep their integrity",
+				c.file, len(entries)))
+		} else {
+			// 只给 Git 条目 provenance；registry 条目仍 unknown——这是设计决定
+			// （ADR-040），不是"没解析完"。notes 如实说明覆盖范围。
+			notes = append(notes, fmt.Sprintf(
+				"%s: ngm reads Git-sourced entries only (%d found, %d skipped); registry provenance is "+
+					"your installer's integrity field, not ngm's axis (ngm proves `content <-> commit`). "+
+					"Registry packages stay provenance=unknown; their content digests are still exact",
+				c.file, len(entries), len(skipped)))
 		}
-		// 只给 Git 条目 provenance；registry 条目仍 unknown——这是设计决定
-		// （ADR-040），不是"没解析完"。notes 如实说明覆盖范围。
-		notes = append(notes, fmt.Sprintf(
-			"%s: ngm reads Git-sourced entries only (%d found); registry provenance is "+
-				"your installer's integrity field, not ngm's axis (ngm proves `content <-> commit`). "+
-				"Registry packages stay provenance=unknown; their content digests are still exact",
-			c.file, len(entries)))
-		return entries, notes, src
+		return entries, skipped, notes, src
 	}
 
 	notes = append(notes, "no lock file was found; every package below is reported with "+
 		"provenance=unknown. The content digests are still exact")
-	return nil, notes, src
+	return nil, nil, notes, src
+}
+
+// withLockfile 给 skipped 条目补上来源 lock 名，并固定顺序（JSON 必须可逐字节复核）。
+func withLockfile(in []SkippedEntry, file string) []SkippedEntry {
+	out := append([]SkippedEntry(nil), in...)
+	for i := range out {
+		out[i].Lockfile = file
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Key != out[j].Key {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].Reason < out[j].Reason
+	})
+	return out
 }
 
 // npmLock 只取 v2/v3 的 `packages` 段（v1 没有它，解析结果为空——如实降级）。
@@ -540,20 +572,27 @@ type npmLock struct {
 	} `json:"packages"`
 }
 
-func parseNPMLock(raw []byte) (map[string]lockEntry, error) {
+func parseNPMLock(raw []byte) (map[string]lockEntry, []SkippedEntry, error) {
 	var l npmLock
 	if err := json.Unmarshal(raw, &l); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make(map[string]lockEntry, len(l.Packages))
+	var skipped []SkippedEntry
+	// map 遍历顺序随机；skipped 的顺序由 withLockfile 固定，entries 是 map 无此问题。
 	for path, e := range l.Packages {
 		// 只收依赖条目（`node_modules/...`）；根条目与 workspace 条目没有 resolved。
 		if !strings.Contains(path, "node_modules/") && !strings.HasPrefix(path, "node_modules/") {
 			continue
 		}
+		if e.Resolved == "" && e.Integrity == "" {
+			skipped = append(skipped, SkippedEntry{Key: path,
+				Reason: "entry declares neither resolved nor integrity; no source to map"})
+			continue
+		}
 		out[path] = lockEntry{Version: e.Version, Resolved: e.Resolved, Integrity: e.Integrity}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 func (s *scanner) provenanceFor(relPath string) Provenance {

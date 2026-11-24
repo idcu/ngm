@@ -55,18 +55,24 @@ WHAT IT DOES:
   100755). Nothing in ngm compares the two; --check only ever compares proofs
   with proofs.
 
-  Provenance comes from package-lock.json when it exists (npm lockfile v2/v3):
-  a git dependency resolved to a 40-char commit is recorded as commit, a git
-  fragment that is a tag or branch is recorded as ref (not as a commit - a ref
-  cannot be replayed), and everything else as registry integrity.
+  Provenance comes from the first recognized lock: package-lock.json /
+  npm-shrinkwrap.json (npm v2/v3), pnpm-lock.yaml, yarn.lock, bun.lock (text,
+  not binary bun.lockb), or deno.lock (JSON v4/v5). A git dependency with a
+  40-char commit is recorded as commit, a tag/branch fragment as ref (never as
+  a commit - a ref cannot be replayed), and npm registry entries keep their
+  integrity. Non-npm locks use a conservative subset: only declarations with
+  a reliable name and commit/ref anchor are mapped; every other declaration
+  is listed in the proof's skipped[] with a reason, never invented as a Git
+  source.
 
 WHAT IT DOES NOT DO:
   It never installs, never writes node_modules, never rewrites a lock file, and
   never claims a package is safe: a digest answers "are these the same bytes",
   not "is this code benign".
-  It does not parse pnpm-lock.yaml or yarn.lock (no YAML parser is vendored).
-  When that is the case the proof says so in notes and coverage.unknown, rather
-  than silently reporting every package as having no provenance.
+  It does not vendor a YAML parser: pnpm/yarn/bun text locks and deno JSON are
+  read as narrow, line/shape-based subsets. Unrecognized shapes, bare Git URLs
+  without an anchor, ambiguous names, and registry-only entries are listed in
+  skipped[] with reasons; notes and coverage.unknown say so as well.
 
 EXIT CODES:
   0  the proof was produced, or --check found nothing changed

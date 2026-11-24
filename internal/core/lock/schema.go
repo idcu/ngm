@@ -123,6 +123,13 @@ type Dependency struct {
 	// DirDigest 是 local-dir 来源的内容锚点（sha256:<hex>）。
 	// local-git / git 来源为空；它与 Commit 二选一。
 	DirDigest string `json:"dirDigest,omitempty"`
+
+	// ---- 显式补丁留痕（ADR-056）----
+	// PatchFrom 是 ngm.json patches 中被替换掉的原始 ref；PatchWhy 是登记理由。
+	// 两者只用于审计"当前锚点为何与原声明不同"，不参与 digest 计算；
+	// verify 仍以当前锚点为准重放证明。
+	PatchFrom string `json:"patchFrom,omitempty"`
+	PatchWhy  string `json:"patchWhy,omitempty"`
 }
 
 // RootRequirer 是 RequiredBy 里代表"项目本身直接声明"的标记。

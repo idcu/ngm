@@ -21,6 +21,10 @@ ADR-027 已经给出"ngm attest → 现场 cosign 签名"的节选，但**没有
 一句诚实的话：**签过名的语句 ≠ 内容一定无害**。它证明"某个身份为这份内容↔commit 的绑定签了名"，
 恶意 commit 也会被如实签名。签名补的是"谁说的"，不补"说的是不是真的"。
 
+> **边界（2026-11-24 竞品复核）**：OIDC / keyless 证明"这次发布走了哪条流程、由谁触发"，
+> 不证明依赖内容无害。2026 年多起事件里，恶意版本带有真实 provenance。
+> 因此签名只与 `minimumReleaseAge`、`no-downgrade`、内容 digest 并用，不能替代它们。
+
 ## 配方（GitHub Actions，keyless / OIDC）
 
 前置：`ngm install` 已完成、`ngm.lock` 与 `ngm.json` 自洽（`ngm attest` 在过期时默认 exit 3）。

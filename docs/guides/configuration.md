@@ -295,10 +295,23 @@ ngm 不执行 `git add`。两者的差别在于 **mappings 是清单、vendor �
 |------|------|------|------|
 | `allowedGitHosts` | string[] | 限制可接受的 Git host | `["github.com", "gitee.com"]` |
 | `allowlistRepos` | string[] | 白名单仓库（glob） | `["github.com/my-org/*"]` |
-| `minimumReleaseAge` | string | 最小晾晒期：基于 commit 的 committer date（ISO 8601 duration） | `"P3D"` |
+| `minimumReleaseAge` | string | 最小晾晒期：基于 commit 的 committer date（ISO 8601 duration）。`ngm init` 写入 `"P1D"`；显式 `"PT0S"` 是项目级关闭，`"P0D"` 仍被拒绝（避免"配了却不生效"的错觉） | `"P1D"` |
+| `trustPolicy` | `"" \| "no-downgrade"` | `no-downgrade` 时，update 若把已有依赖从强锚点（commit/dirDigest）退到 tag/branch 就 exit 3 | `"no-downgrade"` |
 | `osvIgnoreSeverities` | string[] | OSV 忽略的严重级别 | `["LOW"]` |
 | `postInstallPolicy` | `"deny" \| "prompt" \| "allow"` | postinstall 策略：`allow` 时才在**沙箱内**执行 `postinstall.js`（`prompt` 在非交互工具里等于不执行） | `"deny"` |
 | `verifyOnLock` | boolean | 更新 lock 时自动 verify | `true` |
+
+### 显式补丁（`patches`）
+
+`patches` 只替换锚点，不改依赖名与来源身份，也不是 semver override。每条要求 `name` / `from` / `to` / `why` 齐全，
+同一个 `name` 只能有一条；`to` 必须是完整 commit、tag/branch 或 `sha256:<64hex>`，不接受范围与 URL。
+生效的锚点与理由会写入 lock 的 `patchFrom` / `patchWhy` 字段，供审计"为何与声明不同"；verify 仍按当前锚点重放证明。
+
+```json
+"patches": [
+  { "name": "gitee:org/repo", "from": "v1.0.0", "to": "v1.0.1", "why": "上游 tag 撤回" }
+]
+```
 
 ---
 

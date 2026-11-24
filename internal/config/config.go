@@ -101,11 +101,16 @@ type ProjectFile struct {
 	//
 	// nil = 跟随全局默认（`ngm modules index --releases`）；显式 true/false
 	// 完全覆盖全局开关（ADR-037）。它只影响 release 索引生成，不影响安装/验证。
-	Publish      *bool              `json:"publish,omitempty"`
-	Dependencies []Dependency       `json:"dependencies"`
-	Engines      *EnginesConfig     `json:"engines,omitempty"`
-	Vendor       *VendorConfig      `json:"vendor,omitempty"`
-	SupplyChain  *SupplyChainConfig `json:"supplyChain,omitempty"`
+	Publish      *bool        `json:"publish,omitempty"`
+	Dependencies []Dependency `json:"dependencies"`
+	// Patches 是显式补丁登记（V218）：声明性地把某依赖从 from 锚点替换到 to 锚点。
+	//
+	// 它不是 semver override，也不改依赖的仓库身份。补丁只换锚点，且必须在
+	// lock 里留痕（from / why），由 verify 读取；本字段本身不静默改写源文件。
+	Patches     []Patch            `json:"patches,omitempty"`
+	Engines     *EnginesConfig     `json:"engines,omitempty"`
+	Vendor      *VendorConfig      `json:"vendor,omitempty"`
+	SupplyChain *SupplyChainConfig `json:"supplyChain,omitempty"`
 	// Scripts 是 `ngm run` 的回退脚本来源。
 	//
 	// package.json.scripts 是**权威**来源；只有那里没有同名脚本时，这里的定义才生效。
@@ -127,6 +132,18 @@ type Dependency struct {
 	// LocalRepo 是 local-git 来源的本地 git 仓根路径（相对项目根）。
 	// local-dir 不使用此字段。
 	LocalRepo string `json:"localRepo,omitempty"`
+}
+
+// Patch 是一条显式补丁登记。
+//
+// 语义：本仓库声明性地把 name 指向的依赖从 from 锚点替换到 to 锚点。
+// from / to 都是 git ref（或 local-dir 的 sha256 摘要），不是 semver 范围；
+// why 必填，且必须原样写进 lock，让 verify 能解释"为什么当前锚点不同于声明"。
+type Patch struct {
+	Name string `json:"name"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	Why  string `json:"why"`
 }
 
 // EnginesConfig 引擎选择；支持简写与完整写法。
@@ -191,6 +208,7 @@ type SupplyChainConfig struct {
 	MinimumReleaseAge   string   `json:"minimumReleaseAge,omitempty"`
 	OSVIgnoreSeverities []string `json:"osvIgnoreSeverities,omitempty"`
 	PostInstallPolicy   string   `json:"postInstallPolicy,omitempty"`
+	TrustPolicy         string   `json:"trustPolicy,omitempty"`
 	VerifyOnLock        *bool    `json:"verifyOnLock,omitempty"`
 }
 
@@ -469,6 +487,7 @@ func mergeProject(builtin *BuiltinDefaults, project *ProjectFile) *ProjectFile {
 	// 审计 P-03：v0.66 只深拷贝了 Vendor，其它引用字段仍与来源共享——
 	// "改有效视图不回写来源"的承诺只兑现了一部分。这里逐字段补齐。
 	out.Dependencies = append([]Dependency(nil), project.Dependencies...)
+	out.Patches = append([]Patch(nil), project.Patches...)
 	if project.Publish != nil {
 		v := *project.Publish
 		out.Publish = &v

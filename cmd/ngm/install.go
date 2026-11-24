@@ -102,7 +102,7 @@ func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if err != nil {
 		return runErr(ctx, stdout, stderr, err)
 	}
-	roots := toDepSpecs(pf.Dependencies)
+	roots := patchedSpecs(pf)
 
 	lf, err := lock.Read(env.LockPath())
 	if err != nil {
@@ -433,6 +433,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 				VendorPath: filepath.ToSlash(rel),
 				RequiredBy: n.RequiredBy,
 			})
+			stampPatch(pf, lf, n.Name, n.Ref)
 			if rep != nil {
 				rep.Dependencies = append(rep.Dependencies, writeReportDep{
 					Name: n.Name, Ref: n.Ref, RefType: string(n.RefType),
@@ -515,6 +516,7 @@ func installFresh(ctx context.Context, env *projectEnv, pf *config.ProjectFile, 
 			// Marshal 归一（排序 + 去重）——同一份解析 ⇒ 同一份字节。
 			RequiredBy: n.RequiredBy,
 		})
+		stampPatch(pf, lf, n.Name, n.Ref)
 		items = append(items, digestNodeFromResolved(n, archiveDigest, proof.Digest))
 		if rep != nil {
 			rep.Dependencies = append(rep.Dependencies, writeReportDep{

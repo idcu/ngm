@@ -53,6 +53,7 @@ var commands = []*commandSpec{
 	{Name: "install", Run: runInstall, Usage: installUsage, JSON: true},
 	{Name: "run", Run: runRun, Usage: runUsage, JSON: true},
 	{Name: "update", Run: runUpdate, Usage: updateUsage, JSON: true},
+	{Name: "migrate", Run: runMigrate, Usage: migrateUsage, JSON: true},
 	{Name: "remove", Run: runRemove, Usage: removeUsage},
 	{Name: "modules", Run: runModules, Usage: modulesUsage, JSON: true},
 	{Name: "doctor", Run: runDoctor, Usage: doctorUsage, JSON: true},

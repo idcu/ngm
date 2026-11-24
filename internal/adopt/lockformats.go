@@ -1,6 +1,9 @@
 package adopt
 
 import (
+	"encoding/json"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -53,8 +56,9 @@ func lockEntryFromGit(spec, commit, ref, version string) (lockEntry, bool) {
 //
 // v2+（berry）的 key 形如 `"github.com/foo/bar@npm:1.0.0"`，resolution 行是
 // `resolution: "github.com/foo/bar@commit=<sha>"`；同样只取 Git 形状。
-func parseYarnLock(raw []byte) (map[string]lockEntry, error) {
+func parseYarnLock(raw []byte) (map[string]lockEntry, []SkippedEntry, error) {
 	out := map[string]lockEntry{}
+	var skipped []SkippedEntry
 	lines := strings.Split(string(raw), "\n")
 	var key string
 	var keyName, version, resolved, commit string
@@ -63,14 +67,40 @@ func parseYarnLock(raw []byte) (map[string]lockEntry, error) {
 		if key == "" {
 			return
 		}
-		if entry, ok := lockEntryFromGit(resolved, commit, "", version); ok {
-			name := keyName
-			if name == "" {
-				name = yarnNameFromKey(key)
+		name := keyName
+		if name == "" {
+			name = yarnNameFromKey(key)
+		}
+		// scoped 名（@scope/pkg）保持原样，与 node_modules/@scope/pkg 对齐。
+		if name == "" {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "cannot derive a package name from the descriptor key"})
+		} else if resolved == "" && commit == "" {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "no Git declaration/anchor (registry or metadata entry); " +
+					"provenance stays unknown by design (ADR-040)"})
+		} else {
+			u, parsedCommit, parsedRef, isGit := parseGitResolved(resolved)
+			// v1 把锚点写在 resolved 的 fragment 里；berry 另有 `commit:` 行。
+			anchorCommit, anchorRef := commit, parsedRef
+			if anchorCommit == "" {
+				anchorCommit = parsedCommit
 			}
-			// scoped 名（@scope/pkg）保持原样，与 node_modules/@scope/pkg 对齐。
-			if name != "" {
-				out["node_modules/"+name] = entry
+			switch {
+			case !isGit && commit == "":
+				skipped = append(skipped, SkippedEntry{Key: key,
+					Reason: "resolved value is not a Git declaration and no commit was given"})
+			case anchorCommit == "" && anchorRef == "":
+				skipped = append(skipped, SkippedEntry{Key: key,
+					Reason: "Git declaration " + u + " has no commit/ref anchor; " +
+						"a bare URL cannot be mapped to a commit"})
+			default:
+				if entry, ok := lockEntryFromGit(resolved, anchorCommit, anchorRef, version); ok {
+					out["node_modules/"+name] = entry
+				} else {
+					skipped = append(skipped, SkippedEntry{Key: key,
+						Reason: "declaration could not be mapped to a Git source"})
+				}
 			}
 		}
 		key, keyName, version, resolved, commit = "", "", "", "", ""
@@ -117,7 +147,7 @@ func parseYarnLock(raw []byte) (map[string]lockEntry, error) {
 		}
 	}
 	flush()
-	return out, nil
+	return out, skipped, nil
 }
 
 func unquoteYarn(s string) string {
@@ -166,8 +196,9 @@ func yarnNameFromKey(key string) string {
 //
 //	/bar@1.0.0:
 //	  resolution: {integrity: sha512-...}   ← registry，跳过
-func parsePNPMLock(raw []byte) (map[string]lockEntry, error) {
+func parsePNPMLock(raw []byte) (map[string]lockEntry, []SkippedEntry, error) {
 	out := map[string]lockEntry{}
+	var skipped []SkippedEntry
 	lines := strings.Split(string(raw), "\n")
 	inPackages := false
 	var key string
@@ -177,16 +208,26 @@ func parsePNPMLock(raw []byte) (map[string]lockEntry, error) {
 		if key == "" {
 			return
 		}
-		if gitURL != "" {
-			if entry, ok := lockEntryFromGit(gitURL, commit, "", version); ok {
-				n := name
-				if n == "" {
-					n = pnpmNameFromKey(key)
-				}
-				if n != "" {
-					out["node_modules/"+n] = entry
-				}
-			}
+		n := name
+		if n == "" {
+			n = pnpmNameFromKey(key)
+		}
+		if n == "" {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "cannot derive a package name from the lock key"})
+		} else if gitURL == "" {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "no Git declaration/anchor (registry/integrity entry); " +
+					"provenance stays unknown by design (ADR-040)"})
+		} else if commit == "" {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "Git declaration " + gitURL + " has no commit anchor; " +
+					"tag/ref-only pnpm entries are outside the conservative subset"})
+		} else if entry, ok := lockEntryFromGit(gitURL, commit, "", version); ok {
+			out["node_modules/"+n] = entry
+		} else {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "declaration could not be mapped to a Git source"})
 		}
 		key, name, version, gitURL, commit = "", "", "", "", ""
 	}
@@ -228,7 +269,7 @@ func parsePNPMLock(raw []byte) (map[string]lockEntry, error) {
 		}
 	}
 	flush()
-	return out, nil
+	return out, skipped, nil
 }
 
 func parsePNPMResolution(r string) (gitURL, commit string) {
@@ -261,4 +302,287 @@ func pnpmNameFromKey(key string) string {
 	}
 	last := parts[len(parts)-1]
 	return last
+}
+
+// ---------------------------------------------------------------------------
+// bun.lock（文本）与 deno.lock（JSON）—— 同样是"窄形状 + skipped 说清边界"
+// ---------------------------------------------------------------------------
+
+// parseBunLock 读 bun.lock 的保守子集：`packages` 段里**单行**的
+//
+//	"<name>": ["<name>@<spec>", "", {...}, "<integrity>"]
+//
+// 只认 spec 里**显式声明**的 Git scheme 加 commit/ref 锚点（与 npm 的
+// `git+<url>#<anchor>` 同形）；名字必须来自 key 且与 spec 前缀一致。
+// 多行数组、其它写法、registry 条目一律 skipped 并给出原因——不猜包名，
+// 也不把没有锚点的 Git URL 写成 commit。老的二进制 bun.lockb 不读。
+func parseBunLock(raw []byte) (map[string]lockEntry, []SkippedEntry, error) {
+	out := map[string]lockEntry{}
+	var skipped []SkippedEntry
+	inPackages := false
+	sectionIndent := -1
+	for _, rawLine := range strings.Split(string(raw), "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		isEntry := inPackages && indent > sectionIndent
+		if strings.HasPrefix(t, "{") && strings.Contains(t, `"packages":`) {
+			// 紧凑写法：`{"lockfileVersion":0,"packages":{...}}`。
+			inPackages, sectionIndent = true, 0
+			continue
+		}
+		if !isEntry && strings.HasPrefix(t, `"`) {
+			// 根对象的段头（"packages": / "workspaces": / ...）：只切换段落，
+			// 不当作包条目。bun.lock 的 packages 段通常缩进 2，条目缩进 4。
+			k, rest, ok := cutQuoted(t)
+			if ok && strings.HasPrefix(strings.TrimSpace(rest), ":") {
+				inPackages, sectionIndent = k == "packages", indent
+				continue
+			}
+		}
+		if !inPackages || !isEntry {
+			continue
+		}
+		if strings.HasPrefix(t, "}") || strings.HasPrefix(t, "]") || strings.HasPrefix(t, ",") {
+			continue
+		}
+		if !strings.HasPrefix(t, `"`) {
+			skipped = append(skipped, SkippedEntry{Key: t,
+				Reason: "unsupported entry shape; expected a quoted package key"})
+			continue
+		}
+		key, rest, ok := cutQuoted(t)
+		if !ok || !strings.HasPrefix(strings.TrimSpace(rest), ":") {
+			skipped = append(skipped, SkippedEntry{Key: t,
+				Reason: "cannot read the quoted package key of this entry"})
+			continue
+		}
+		after := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(rest), ":"))
+		if !strings.HasPrefix(after, "[") {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "entry is not the supported single-line array shape"})
+			continue
+		}
+		spec, ok := firstQuoted(strings.TrimPrefix(after, "["))
+		if !ok {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "first array element is not a quoted spec string; " +
+					"multi-line entries are outside the conservative subset"})
+			continue
+		}
+		prefix := key + "@"
+		if !strings.HasPrefix(spec, prefix) {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "spec " + spec + " does not declare the same package name as the key"})
+			continue
+		}
+		gitSpec := strings.TrimPrefix(spec, prefix)
+		u, commit, ref, isGit := parseGitResolved(gitSpec)
+		if !isGit {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "spec has no Git declaration/anchor (registry/integrity entry); " +
+					"provenance stays unknown by design (ADR-040)"})
+			continue
+		}
+		if commit == "" && ref == "" {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "Git declaration " + u + " has no commit/ref anchor; a bare URL " +
+					"cannot be mapped to a commit"})
+			continue
+		}
+		if entry, ok := lockEntryFromGit(gitSpec, commit, ref, ""); ok {
+			out["node_modules/"+key] = entry
+		} else {
+			skipped = append(skipped, SkippedEntry{Key: key,
+				Reason: "declaration could not be mapped to a Git source"})
+		}
+	}
+	return out, skipped, nil
+}
+
+// cutQuoted 取 s 开头的双引号字符串，返回内容与剩余部分。
+func cutQuoted(s string) (string, string, bool) {
+	if len(s) < 2 || s[0] != '"' {
+		return "", s, false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] == '"' {
+			return s[1:i], s[i+1:], true
+		}
+	}
+	return "", s, false
+}
+
+func firstQuoted(s string) (string, bool) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '"' {
+			v, _, ok := cutQuoted(s[i:])
+			return v, ok
+		}
+	}
+	return "", false
+}
+
+// parseDenoLock 读 deno.lock 的 JSON 形式（version 4/5）的 `specifiers` 段。
+//
+// 只认显式 Git specifier（`git+…` / `git://…`）且带锚点（`#<anchor>` 或
+// `?rev=`/`?tag=`）的条目。包名由**声明的 URL 路径末段**推出，仅用作
+// `node_modules/<name>` 的查表键；若同一名字有多个不同锚点则整组 skipped，
+// 不可映射就 skipped。npm/jsr/remote 段只有 integrity，逐条 skipped 说明原因。
+func parseDenoLock(raw []byte) (map[string]lockEntry, []SkippedEntry, error) {
+	var l struct {
+		Version    json.RawMessage            `json:"version"`
+		Specifiers map[string]string          `json:"specifiers"`
+		NPM        map[string]json.RawMessage `json:"npm"`
+		JSR        map[string]json.RawMessage `json:"jsr"`
+		Remote     map[string]string          `json:"remote"`
+	}
+	if err := json.Unmarshal(raw, &l); err != nil {
+		return nil, nil, err
+	}
+	var skipped []SkippedEntry
+	version := denoVersion(l.Version)
+	if version != "4" && version != "5" {
+		skipped = append(skipped, SkippedEntry{Key: "version",
+			Reason: "unsupported deno.lock version " + strconv.Quote(version) +
+				"; only JSON version 4/5 is in the conservative subset"})
+		return nil, skipped, nil
+	}
+
+	type candidate struct {
+		spec, url, commit, ref string
+	}
+	byName := map[string][]candidate{}
+	keys := make([]string, 0, len(l.Specifiers))
+	for k := range l.Specifiers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, spec := range keys {
+		u, commit, ref, ok := denoGitSpecifier(spec)
+		if !ok {
+			skipped = append(skipped, SkippedEntry{Key: spec,
+				Reason: "specifier has no Git declaration (registry/jsr/remote); " +
+					"provenance stays unknown by design (ADR-040)"})
+			continue
+		}
+		if commit == "" && ref == "" {
+			skipped = append(skipped, SkippedEntry{Key: spec,
+				Reason: "Git declaration " + u + " has no commit/ref anchor"})
+			continue
+		}
+		name := denoNameFromURL(u)
+		if name == "" {
+			skipped = append(skipped, SkippedEntry{Key: spec,
+				Reason: "cannot map specifier to a package name without guessing"})
+			continue
+		}
+		byName[name] = append(byName[name], candidate{spec: spec, url: u, commit: commit, ref: ref})
+	}
+
+	out := map[string]lockEntry{}
+	for name, cands := range byName {
+		if len(cands) > 1 {
+			for _, c := range cands {
+				skipped = append(skipped, SkippedEntry{Key: c.spec,
+					Reason: "ambiguous: " + strconv.Itoa(len(cands)) +
+						" different Git anchors claim package " + name})
+			}
+			continue
+		}
+		c := cands[0]
+		// lockEntryFromGit 自己按 commit/ref 拼 `#anchor`；spec 不能带锚点，
+		// 否则 provenance 会读成两段 fragment。
+		if entry, ok := lockEntryFromGit("git+"+c.url, c.commit, c.ref, ""); ok {
+			out["node_modules/"+name] = entry
+		} else {
+			skipped = append(skipped, SkippedEntry{Key: c.spec,
+				Reason: "declaration could not be mapped to a Git source"})
+		}
+	}
+	for k := range l.NPM {
+		skipped = append(skipped, SkippedEntry{Key: "npm:" + k,
+			Reason: "npm integrity entry: no Git declaration/anchor in deno.lock"})
+	}
+	for k := range l.JSR {
+		skipped = append(skipped, SkippedEntry{Key: "jsr:" + k,
+			Reason: "JSR integrity entry: no Git declaration/anchor in deno.lock"})
+	}
+	for k := range l.Remote {
+		skipped = append(skipped, SkippedEntry{Key: "remote:" + k,
+			Reason: "remote hash entry: no Git declaration/anchor in deno.lock"})
+	}
+	return out, skipped, nil
+}
+
+func denoVersion(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var n int
+	if json.Unmarshal(raw, &n) == nil {
+		return strconv.Itoa(n)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// denoGitSpecifier 从 deno specifier 里取显式 Git URL 与锚点。
+func denoGitSpecifier(spec string) (url, commit, ref string, ok bool) {
+	rest := spec
+	switch {
+	case strings.HasPrefix(rest, "git+"):
+		rest = strings.TrimPrefix(rest, "git+")
+	case strings.HasPrefix(rest, "git://"):
+		// 合法 scheme，原样保留。
+	case strings.HasPrefix(rest, "git:"):
+		rest = strings.TrimPrefix(rest, "git:")
+	default:
+		return "", "", "", false
+	}
+	anchor := ""
+	if i := strings.LastIndex(rest, "#"); i >= 0 {
+		anchor, rest = rest[i+1:], rest[:i]
+	} else if i := strings.Index(rest, "?"); i >= 0 {
+		base, query := rest[:i], rest[i+1:]
+		for _, field := range strings.Split(query, "&") {
+			kv := strings.SplitN(field, "=", 2)
+			if len(kv) == 2 && (kv[0] == "rev" || kv[0] == "tag") && kv[1] != "" {
+				anchor, rest = kv[1], base
+				break
+			}
+		}
+		if anchor == "" {
+			rest = base
+		}
+	}
+	if isFullHex(anchor) {
+		return rest, anchor, "", true
+	}
+	return rest, "", anchor, true
+}
+
+// denoNameFromURL 只从声明的 URL 路径末段取名；取不出就交给 skipped，
+// 不拿完整 URL 当名字去猜 node_modules 的布局。
+func denoNameFromURL(u string) string {
+	if i := strings.Index(u, "://"); i >= 0 {
+		after := u[i+3:]
+		if slash := strings.Index(after, "/"); slash >= 0 {
+			u = after[slash+1:]
+		} else {
+			return ""
+		}
+	}
+	u = strings.TrimSuffix(u, "/")
+	if i := strings.LastIndex(u, "/"); i >= 0 {
+		u = u[i+1:]
+	}
+	u = strings.TrimSuffix(u, ".git")
+	if u == "" || strings.ContainsAny(u, "?#@ ") {
+		return ""
+	}
+	return u
 }

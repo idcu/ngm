@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added（2026-11-24 竞品改进路线）
+
+- `ngm migrate`：把 v1/v2 清单与 2.x lock 迁到 v3，只搬能证明的字段，缺 digest 等条目逐条 skipped 且全量不写；`--dry-run` 可预演，写前备份 `.bak`。
+- `ngm why --digest=<sha256>`：按内容摘要反查引用它的 lock 条目、subPath 与 requiredBy，支持前缀匹配与歧义提示。
+- `adopt` 保守支持 pnpm/yarn/bun(文本)/deno 锁中的显式 Git 锚点，无法映射的条目逐条 skipped；`doctor` 新增脚本审批预演与晾晒期检查。
+- `supplyChain.trustPolicy: no-downgrade`：update 时拒绝把已有依赖从 commit/dirDigest 退到 tag/branch；`ngm.json` 新增 `patches` 显式换锚点并在 lock 留 `patchFrom`/`patchWhy`。
+
+### Changed（2026-11-24）
+
+- 晾晒期默认值进入 Policy API（24h）与 `ngm doctor` 提示，CLI 强制门禁仍要求项目显式写 `supplyChain` 段；显式 `PT0S` 是项目级关闭，`P0D` 仍被拒绝（兼容性渐进切换，见 ADR-053）。
+
 ## [0.103.0-dev.3] - 2026-11-23
 
 开发版本。本段汇总 `0.103.0-dev.1`～`dev.3` 的本地来源特性与同日全量复扫修复，

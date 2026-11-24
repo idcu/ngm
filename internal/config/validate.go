@@ -3,7 +3,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/idcu/ngm/internal/core/errs"
 	"github.com/idcu/ngm/internal/core/localfs"
@@ -22,6 +24,7 @@ import (
 //   - dependencies[].refType ∈ {commit, tag, branch}
 //   - dependencies[].name 非空且符合 "host:org/repo" 格式
 //   - dependencies[].ref 非空
+//   - patches[]：why 必填、from/to 为合法锚点（非裸范围）、同一 name 仅一条
 //   - postInstallPolicy ∈ {deny, prompt, allow}
 //
 // fieldErr 造一条"某个字段不合法"的错误：**消息说哪里不对，建议说该怎么改**。
@@ -83,6 +86,14 @@ func (p *ProjectFile) Validate() error {
 	if err := validateUniqueRootDependencies(p.Dependencies); err != nil {
 		return err
 	}
+	for i := range p.Patches {
+		if err := p.Patches[i].Validate(); err != nil {
+			return fmt.Errorf("patches[%d]: %w", i, err)
+		}
+	}
+	if err := validateUniquePatches(p.Patches); err != nil {
+		return err
+	}
 	if p.SupplyChain != nil {
 		if err := p.SupplyChain.Validate(); err != nil {
 			return fmt.Errorf("supplyChain: %w", err)
@@ -118,6 +129,125 @@ func validateUniqueRootDependencies(deps []Dependency) error {
 				fmt.Sprintf("duplicate dependency declaration %q: dependencies[%d] (%s@%s) and dependencies[%d] (%s@%s)",
 					label, prev, deps[prev].Name, deps[prev].Ref, i, d.Name, d.Ref),
 				"remove one of the two declarations; one dependency may have exactly one declared version")
+		}
+		seen[key] = i
+	}
+	return nil
+}
+
+// Validate 校验一条显式补丁登记。
+//
+// 判据（V218）：name 必须仍解析为仓库来源（或 local: 命名空间且不逃逸），
+// from / to 必须是合法锚点而非裸范围，why 必填。补丁**不改身份语义**——
+// name 字段就是身份，to 只替换锚点。
+func (p *Patch) Validate() error {
+	if p == nil {
+		return fieldErr("patch entry is null", "write each patch as an object with name/from/to/why")
+	}
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return fieldErr("patch `name` is required",
+			"name the dependency whose anchor is being replaced, e.g. `gitee:org/repo`")
+	}
+	if strings.HasPrefix(name, "local:") {
+		if len(name) <= len("local:") {
+			return fieldErr(fmt.Sprintf("patch name %q has an empty local namespace", p.Name),
+				"write `local:<name>` with a non-empty name")
+		}
+		// 本地来源不逃出项目根：复用 sourcePath 的唯一规则。
+		if err := localfs.ValidateSourcePath(strings.TrimPrefix(name, "local:")); err != nil {
+			return fieldErr("patch name "+strconv.Quote(p.Name)+" escapes the local namespace: "+err.Error(),
+				"use `local:<name>` with a relative name that has no `..` component")
+		}
+	} else if _, err := resolve.ParseSlug(name); err != nil {
+		return err // ParseSlug 自带建议（唯一事实源）
+	}
+	if err := validatePatchRef("from", p.From); err != nil {
+		return err
+	}
+	if err := validatePatchRef("to", p.To); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.Why) == "" {
+		return fieldErr("patch `why` is required",
+			"explain why the anchor is replaced; the reason is recorded in ngm.lock and shown by verify")
+	}
+	return nil
+}
+
+// validatePatchRef 校验补丁锚点：完整 commit / tag / branch / local-dir 摘要都可，
+// **裸 semver 范围一律拒绝**（补丁换的是锚点，不是版本求解器的输入）。
+func validatePatchRef(field, ref string) error {
+	hint := "set `patches[]." + field + "` to a commit, tag, branch or `sha256:<64 hex>` anchor, not a range like `^1.2.3`"
+	s := strings.TrimSpace(ref)
+	if s == "" {
+		return fieldErr("patch `"+field+"` is required", hint)
+	}
+	if s != ref || strings.IndexFunc(s, unicode.IsSpace) >= 0 {
+		return fieldErr(fmt.Sprintf("patch %s %q contains whitespace", field, ref), hint)
+	}
+	if strings.ContainsAny(s, "\x00\r\n") {
+		return fieldErr(fmt.Sprintf("patch %s %q contains a control character", field, ref), hint)
+	}
+	if strings.Contains(s, "://") {
+		return fieldErr(fmt.Sprintf("patch %s %q is a URL, not a ref", field, ref), hint)
+	}
+	if strings.HasPrefix(s, "/") || strings.Contains(s, `\`) ||
+		strings.Contains(s, "..") || strings.Contains(s, "//") {
+		return fieldErr(fmt.Sprintf("patch %s %q is not a relative ref (path escape)", field, ref), hint)
+	}
+	// Git 引用名 itself 不能含这些字符；`^ ~ * ? [ \` 同时正是范围语法。
+	if strings.ContainsAny(s, "^~*?[]") || strings.Contains(s, "||") ||
+		strings.Contains(s, ">=") || strings.Contains(s, "<=") ||
+		strings.Contains(s, "!=") || strings.Contains(s, "==") ||
+		strings.ContainsAny(s, "<>") || strings.Contains(s, "@{") ||
+		strings.HasSuffix(s, ".lock") || strings.HasPrefix(s, ".") || strings.HasSuffix(s, ".") {
+		return fieldErr(fmt.Sprintf("patch %s %q is not a valid ref (bare ranges are not accepted)", field, ref), hint)
+	}
+	if strings.HasPrefix(s, "sha256:") {
+		hexPart := strings.TrimPrefix(s, "sha256:")
+		if len(hexPart) != 64 || !isHexString(hexPart) {
+			return fieldErr(fmt.Sprintf("patch %s %q is not a sha256:<64 hex> digest", field, ref), hint)
+		}
+		return nil
+	}
+	// `1.x` / `1.2.X` / `x` 这类通配符范围没有上面的特殊字符，单独拦。
+	if !resolve.IsFullCommit(s) {
+		for _, part := range strings.Split(strings.TrimPrefix(s, "v"), ".") {
+			if part == "x" || part == "X" || part == "*" {
+				return fieldErr(fmt.Sprintf("patch %s %q is a version range, not a ref", field, ref), hint)
+			}
+		}
+	}
+	return nil
+}
+
+func isHexString(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return false
+	}
+	return s != ""
+}
+
+// validateUniquePatches 拒绝同一 name 的重复补丁（等价 slug 视为同一 name）。
+func validateUniquePatches(patches []Patch) error {
+	seen := map[string]int{}
+	for i := range patches {
+		name := strings.TrimSpace(patches[i].Name)
+		key := name
+		if !strings.HasPrefix(name, "local:") {
+			if canon, err := resolve.ParseSlug(name); err == nil {
+				key = canon.Slug()
+			}
+		}
+		if prev, ok := seen[key]; ok {
+			return fieldErr(
+				fmt.Sprintf("duplicate patch for dependency %q: patches[%d] and patches[%d]", name, prev, i),
+				"one dependency may have exactly one patch; merge the two entries into one")
 		}
 		seen[key] = i
 	}
@@ -219,7 +349,7 @@ func (s *SupplyChainConfig) Validate() error {
 			return fmt.Errorf("allowlistRepos[%d]: %w", i, err)
 		}
 	}
-	if s.MinimumReleaseAge != "" {
+	if s.MinimumReleaseAge != "" && s.MinimumReleaseAge != "PT0S" {
 		if _, err := ParseISODuration(s.MinimumReleaseAge); err != nil {
 			// 解析器自己只报"哪里看不懂"（八处裸错误），字段层补上"该怎么写"——
 			// 一处建议代替八处，而且它知道这个值**该填在哪个字段里**（v0.49）。
@@ -244,6 +374,11 @@ func (s *SupplyChainConfig) Validate() error {
 				"set `supplyChain.postInstallPolicy` to `deny`, `prompt` or `allow`",
 			)
 		}
+	}
+	if s.TrustPolicy != "" && s.TrustPolicy != "no-downgrade" {
+		return fieldErr(
+			fmt.Sprintf("trustPolicy %q invalid; must be `no-downgrade`", s.TrustPolicy),
+			"set `supplyChain.trustPolicy` to `no-downgrade`, or omit it to disable the check")
 	}
 	return nil
 }

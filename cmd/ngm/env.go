@@ -387,6 +387,58 @@ func (e *projectEnv) validateVendorLocation(pf *config.ProjectFile) error {
 	return validateVendorLocation(e.Layout, pf)
 }
 
+// patchedDeps 返回应用了 ngm.json `patches` 的声明副本。
+//
+// 补丁只换锚点（ref），不改依赖名与来源身份；原件不动，因此 frozen 校验、
+// attest 等仍能把"声明 → 实际锁定"讲清楚。lock 里的 patchFrom/patchWhy
+// 由写入方根据这份副本与 pf.Patches 对齐填入（ADR-056）。
+func patchedDeps(pf *config.ProjectFile) []config.Dependency {
+	if pf == nil {
+		return nil
+	}
+	out := make([]config.Dependency, len(pf.Dependencies))
+	copy(out, pf.Dependencies)
+	if len(pf.Patches) == 0 {
+		return out
+	}
+	byName := make(map[string]config.Patch, len(pf.Patches))
+	for _, p := range pf.Patches {
+		byName[p.Name] = p
+	}
+	for i := range out {
+		p, ok := byName[out[i].Name]
+		if !ok || p.From != out[i].Ref {
+			continue
+		}
+		out[i].Ref = p.To
+		if out[i].RefType == "" && resolve.IsFullCommit(p.To) {
+			out[i].RefType = config.RefTypeCommit
+		}
+	}
+	return out
+}
+
+// stampPatch 把补丁来源写进刚追加的 lock 条目（ADR-056）。
+// 只在 name 与**补丁后的 ref**同时命中时留痕，避免把无关条目标成补丁。
+func stampPatch(pf *config.ProjectFile, lf *lock.File, name, ref string) {
+	if pf == nil || lf == nil || len(lf.Dependencies) == 0 {
+		return
+	}
+	for _, p := range pf.Patches {
+		if p.Name == name && p.To == ref {
+			d := &lf.Dependencies[len(lf.Dependencies)-1]
+			d.PatchFrom = p.From
+			d.PatchWhy = p.Why
+			return
+		}
+	}
+}
+
+// patchedSpecs 是 toDepSpecs 的"先应用补丁"版本。
+func patchedSpecs(pf *config.ProjectFile) []resolve.DepSpec {
+	return toDepSpecs(patchedDeps(pf))
+}
+
 // toDepSpecs 把 ngm.json 的依赖声明转换为图解析用的规格。
 func toDepSpecs(deps []config.Dependency) []resolve.DepSpec {
 	out := make([]resolve.DepSpec, 0, len(deps))

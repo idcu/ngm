@@ -163,7 +163,14 @@
 
 ---
 
-## 8. 相关文档
+## 8. 本轮落地状态（2026-11-24，用户授权全量推进）
+
+- **P0 全部落地**：① 晾晒期默认值进入 Policy API（24h）与 `doctor` 提示，`PT0S` 为显式关闭、`P0D` 仍拒绝；CLI 强制门禁仍要求显式 `supplyChain` 段，避免 176 处测试安装夹具被无差别打红（ADR-053 记为渐进切换）。② `supplyChain.trustPolicy: no-downgrade` 已接到 update 的旧锁→新图比较，拦 commit/dirDigest → tag/branch 降级。③ `adopt` 支持 npm/pnpm/yarn/bun(文本)/deno 锁的显式 Git 锚点，不可映射项逐条 skipped。④ `doctor` 增加脚本审批预演，只读不执行。
+- **P1 全部落地**：`ngm migrate`（dry-run + `.bak` + 缺 digest 全量不写）、`ngm why --digest`、集合内共享 ref 一致性校验与过期豁免、`ngm.json.patches` 显式换锚点并在 lock 留 `patchFrom`/`patchWhy`（ADR-055/056）。
+- **P2 取舍**：OIDC/keyless 配方文档已补充"provenance 不证明内容无害"的边界；universal lock 与 timing JSON/离线包导出暂不实现——前者 ngm 的 lock 本就平台无关，后两者需要先有可复述性能读数与打包契约，按"观察即可"登记，不为了对齐竞品而扩产品面。
+- 新增判据 V211–V219 均完成（含补丁从配置到解析、lock 留痕的端到端接线）；契约判据 V22/V26/V27/V28/V30/V57/V71/V114/V117/V130/V142 与 docs 锚点全绿。
+
+## 9. 相关文档
 
 - 上一轮竞品评估：[ngm-competitive-gap-full-2026-11-21.md](./ngm-competitive-gap-full-2026-11-21.md)
 - 早期定位分析：[ngm-architecture-and-npm-gap-2026-11-18.md](./ngm-architecture-and-npm-gap-2026-11-18.md)

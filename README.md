@@ -99,7 +99,7 @@ Gitee 仅 `v0.2.0`–`v0.4.0`（3 个）；正式 tag 的 release 缺口是 **38
 
 ### ngm.json 的 schemaVersion
 
-`ngm init` / `ngm add` 写出的 `schemaVersion` 是 **3**；读取器全链路只接受 **3**。v1/v2（refType 三值、单 Git 来源）已随通用包管理器升级废止，旧清单需手工升级 `schemaVersion` 并重新 `ngm install`；不提供迁移命令（[ADR-052](docs/adr/adr-052-local-sources.md)）。超出范围的版本以 exit 3 拒绝并写出支持区间。
+`ngm init` / `ngm add` 写出的 `schemaVersion` 是 **3**；读取器全链路只接受 **3**。v1/v2（refType 三值、单 Git 来源）已随通用包管理器升级废止，旧清单可用 `ngm migrate --dry-run` 预演迁移、`ngm migrate` 落地（只搬能证明的字段，缺 digest 的条目需人工重装，见 [ADR-055](docs/adr/adr-055-migrate-and-digest-audit.md)）。超出范围的版本以 exit 3 拒绝并写出支持区间。
 
 ### ngm.lock（lock v3）
 
@@ -229,7 +229,7 @@ ngm --version
 # ngm 0.0.0-dev (git:dev, built: unknown)   ← 本地未注入版本信息时的输出
 
 ngm --help
-# 28 个顶层命令与全局退出码约定
+# 29 个顶层命令与全局退出码约定
 ```
 
 ### 方式二：预编译二进制（有前提）
@@ -382,7 +382,7 @@ ngm attest --out=provenance.intoto.json
 
 ## 命令参考
 
-共 **28 个顶层命令**。逐条的用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
+共 **29 个顶层命令**。逐条的用法、参数与退出码见 [cli.md](docs/guides/cli.md)（唯一权威）。
 `ngm <command> --help` 打印该命令自己的用法，与参数错误时看到的是同一份文本。
 
 | 类别 | 命令 |
@@ -554,8 +554,8 @@ ngm verify --format=sarif > ngm.sarif
 
 ### 设计性限制（不是缺陷）
 
-- 只解析 npm `package-lock.json`（v2/v3）；`adopt` 不解析 pnpm-lock.yaml / yarn.lock，
-  会在 `notes` 与 `coverage.unknown` 里明说。
+- `adopt` 从 npm `package-lock.json`（v2/v3）读取全部来源；pnpm/yarn/bun(文本)/deno 锁只保守提取显式 Git 锚点，
+  无法映射的条目逐条进入 `skipped` 并在 `notes` 里明说，不猜 provenance（[ADR-054](docs/adr/adr-054-conservative-adopt-and-script-preview.md)）。
 - 不支持 registry 包、workspace 依赖、子模块（gitlink）与 LFS 实体内容。
 - `verify` 默认只比结构与大小，字节级保证必须加 `--content`（或 `--level=content`；`--deep` 是旧别名）。
 - `ngm gc` 的可达性只看**当前项目的 lock**：层 1/2 是全机共享的，另一个 checkout 仍可能需要被回收的 mirror 或 digest（可重新拉取/安装，但离线 CI 会失败）。global vendor 条目无法判定，一律保留并 warning。
@@ -589,7 +589,7 @@ go test -race ./...    # 可选；CI 在 ubuntu 上单独跑，同样放宽到 4
 - [配置详解](docs/guides/configuration.md) — 字段语义、vendor 模式、supplyChain
 - [快速上手](docs/guides/quickstart.md)、[安装指南](docs/guides/installation.md)
 - [术语表](docs/guides/glossary.md) · [架构总览](docs/architecture/overview.md) — 分层、依赖解析、锁定、供应链、安全模型
-- [ADR 索引](docs/adr/README.md) — 52 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、verify 默认级别、本地来源等）
+- [ADR 索引](docs/adr/README.md) — 56 个决策记录（refType、archiveDigest、锁、沙箱、attestation、项目范围的 gc、verify 默认级别、本地来源、晾晒期默认与信任降级、迁移与补丁等）
 - [全维度代码评估（2026-11-20）](docs/analysis/ngm-full-assessment-2026-11-20.md) — 全量审查结论、缺陷清单与优先级（最新）
 - [竞品全维度差距评估（2026-11-21）](docs/analysis/ngm-competitive-gap-full-2026-11-21.md) — 与 npm/pnpm/Deno 等的最新差距、过期事实纠偏与建议
 - [历史评估归档](docs/internals/assessment-2026-11-07-full.md) — 此前的独立评估、缺陷清单与优先级

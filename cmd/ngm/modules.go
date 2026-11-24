@@ -104,6 +104,15 @@ type collectionIndex struct {
 	ReleaseDir    string                                  `json:"releaseDir,omitempty"`
 	Modules       []collectionModule                      `json:"modules"`
 	Releases      map[string]map[string]collectionRelease `json:"releases,omitempty"`
+	// Constraints 是集合级策略（V217）。目前只含共享 ref 一致性豁免。
+	Constraints *collectionConstraints `json:"constraints,omitempty"`
+}
+
+// collectionConstraints 是集合级约束的轻量版：只做一致性校验，不做版本求解。
+type collectionConstraints struct {
+	// IgnoreSharedRefs 允许显式豁免某些 name 的共享 ref 分歧。
+	// 列表里的每一项都必须被至少一个模块声明，否则按过期豁免报错。
+	IgnoreSharedRefs []string `json:"ignoreSharedRefs,omitempty"`
 }
 
 type collectionSource struct {
@@ -322,8 +331,15 @@ func runModulesValidate(ctx context.Context, args []string, stdout, stderr io.Wr
 	if err != nil {
 		return c.fail(err)
 	}
+	// 豁免来自集合索引（--index 指定，否则用 <dir>/ngm.collection.json）。
+	// 文件不存在时没有豁免；存在但解析不了是错误——validate 要以它为依据判绿，
+	// 不能对一份读不懂的约束文件给出"通过"。
+	ignored, ierr := loadIgnoredSharedRefs(*dir, *indexPath)
+	if ierr != nil {
+		return c.fail(ierr)
+	}
 	errsList := validateModuleManifests(*dir, mods)
-	errsList = append(errsList, validateModules(mods, *strict)...)
+	errsList = append(errsList, validateModules(mods, *strict, ignored)...)
 	sort.Strings(errsList)
 	if *indexPath != "" {
 		indexErrs, ierr := validateIndexAgainstModules(*dir, *indexPath, mods)
@@ -600,7 +616,7 @@ func runModulesIndex(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return c.fail(err)
 	}
-	if problems := validateModules(mods, false); len(problems) > 0 {
+	if problems := validateModules(mods, false, nil); len(problems) > 0 {
 		for _, p := range problems {
 			fmt.Fprintf(stderr, "✗ %s\n", p)
 		}
@@ -1057,12 +1073,49 @@ func writeIndexBranch(ctx context.Context, gitOpts git.Options, dir, branch stri
 	return commit, nil
 }
 
+// collectionIndexPath 解析集合索引路径：--index 指定则用之，否则用集合根目录的
+// 默认索引名。validate 与约束读取共用这一处，避免"校验读 A、豁免读 B"的分裂。
+func collectionIndexPath(dir, indexPath string) string {
+	if indexPath == "" {
+		return filepath.Join(dir, "ngm.collection.json")
+	}
+	if filepath.IsAbs(indexPath) {
+		return indexPath
+	}
+	return filepath.Join(dir, indexPath)
+}
+
+// loadIgnoredSharedRefs 从集合索引读取显式豁免名单。
+//
+// 文件不存在表示"没有豁免"，不报错：`modules validate` 可以在没有生成索引的
+// 仓库里独立跑。文件存在但 JSON 不合法则报错——豁免是判绿的依据，读不懂时
+// 不能静默当成空名单。
+func loadIgnoredSharedRefs(dir, indexPath string) ([]string, error) {
+	p := collectionIndexPath(dir, indexPath)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, errs.Wrap(errs.CodeConfigInvalid,
+			"read collection constraints from "+p,
+			"check file permissions on the collection index", err)
+	}
+	var idx collectionIndex
+	if uerr := json.Unmarshal(data, &idx); uerr != nil {
+		return nil, errs.Wrap(errs.CodeConfigInvalid,
+			"parse collection constraints from "+p,
+			"the collection index is not valid JSON; re-run `ngm modules index`", uerr)
+	}
+	if idx.Constraints == nil {
+		return nil, nil
+	}
+	return idx.Constraints.IgnoreSharedRefs, nil
+}
+
 // validateIndexAgainstModules 防止索引与目录漂移：多一个、少一个、字段不一致都报。
 func validateIndexAgainstModules(dir, indexPath string, mods []moduleInfo) ([]string, error) {
-	absIndex := indexPath
-	if !filepath.IsAbs(absIndex) {
-		absIndex = filepath.Join(dir, absIndex)
-	}
+	absIndex := collectionIndexPath(dir, indexPath)
 	data, err := os.ReadFile(absIndex)
 	if err != nil {
 		return nil, errs.Wrap(errs.CodeConfigInvalid,
@@ -1342,7 +1395,7 @@ func validateModuleManifests(root string, mods []moduleInfo) []string {
 	return out
 }
 
-func validateModules(mods []moduleInfo, strict bool) []string {
+func validateModules(mods []moduleInfo, strict bool, ignoredSharedRefs []string) []string {
 	var problems []string
 	byName := map[string][]string{}
 	for _, m := range mods {
@@ -1375,23 +1428,30 @@ func validateModules(mods []moduleInfo, strict bool) []string {
 	sort.Strings(dupes)
 	problems = append(problems, dupes...)
 	if strict {
-		problems = append(problems, validateSharedDependencies(mods)...)
+		problems = append(problems, validateSharedDependencies(mods, ignoredSharedRefs)...)
 	}
 	sort.Strings(problems)
 	return problems
 }
 
-// validateSharedDependencies 检查集合内同一依赖是否被钉到不同 ref。
+// validateSharedDependencies 检查集合内同一 **name** 的依赖是否被钉到不同 ref
+// （pnpm catalogs / Yarn constraints 的轻量版，V217）。
 //
 // ngm 是扁平图 + 单版本选择：A 要 lib@v1、B 要 lib@v2，消费者端必然冲突。
 // `--strict` 把它前移到生产者端；默认只做发现，不阻止索引生成。
-func validateSharedDependencies(mods []moduleInfo) []string {
+//
+// 这里只做一致性判定，**不做版本求解**：两个 ref 谁更新、能否共存都不由本函数
+// 决定。真正的例外只能靠 ngm.collection.json 的 constraints.ignoreSharedRefs
+// 显式登记，而且登记本身受守——名单里的 name 必须至少被一个模块声明，
+// 否则是过期豁免（红），不能靠删掉所有声明把例外悄悄留下来。
+func validateSharedDependencies(mods []moduleInfo, ignoredSharedRefs []string) []string {
 	type use struct {
 		ref     string
 		refType string
 		module  string
 	}
 	uses := map[string][]use{}
+	declared := map[string]bool{}
 	for _, m := range mods {
 		if m.Err != "" {
 			continue
@@ -1400,16 +1460,30 @@ func validateSharedDependencies(mods []moduleInfo) []string {
 			if d.Name == "" {
 				continue
 			}
-			key := d.Name
-			if d.Path != "" {
-				key += "#" + d.Path
-			}
-			uses[key] = append(uses[key], use{ref: d.Ref, refType: d.RefType, module: m.Path})
+			uses[d.Name] = append(uses[d.Name], use{ref: d.Ref, refType: d.RefType, module: m.Path})
+			declared[d.Name] = true
 		}
 	}
 
+	ignored := make(map[string]bool, len(ignoredSharedRefs))
 	var problems []string
-	for key, list := range uses {
+	for _, name := range ignoredSharedRefs {
+		if strings.TrimSpace(name) == "" {
+			problems = append(problems, "constraints.ignoreSharedRefs: empty dependency name is not a valid exemption")
+			continue
+		}
+		ignored[name] = true
+		if !declared[name] {
+			problems = append(problems, fmt.Sprintf(
+				"constraints.ignoreSharedRefs: stale exemption %q: no module in the collection declares that dependency",
+				name))
+		}
+	}
+
+	for name, list := range uses {
+		if ignored[name] {
+			continue
+		}
 		byPin := map[string][]string{}
 		for _, u := range list {
 			pin := u.ref + " (" + u.refType + ")"
@@ -1426,7 +1500,7 @@ func validateSharedDependencies(mods []moduleInfo) []string {
 		sort.Strings(pins)
 		problems = append(problems, fmt.Sprintf(
 			"shared dependency %s is pinned to different refs across the collection: %s",
-			key, strings.Join(pins, "; ")))
+			name, strings.Join(pins, "; ")))
 	}
 	return problems
 }

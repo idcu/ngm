@@ -60,6 +60,10 @@
 | [ADR-050](./adr-050-default-release-age.md) | `minimumReleaseAge` 默认 **P1D** | 已定（2026-11-21）：写了 `supplyChain` 段但没写冷却 ⇒ 默认 24h（对齐 pnpm/Deno 2026 默认，独立安全理由非"更像 npm"）；**完全不配段仍不门禁**（ADR-009 底线）；逃生口 = `--allow-fresh` 单命令副本（白名单不变、不泄漏）。不用 P0D 当开关（`ParseISODuration` 有意拒绝零值） |
 | [ADR-051](./adr-051-verify-level-defaults.md) | `verify` 默认级别：CLI structure / CI action **content** | 已定（2026-11-21）：CI 是供应链关键路径，action 默认 content（逐文件哈希）；CLI 保持 structure（本地轻量）。两者不同是有意的，双向写进 action description 与 help；action 里显式 `verify-level: structure` 可回到廉价检查 |
 | [ADR-052](./adr-052-local-sources.md) | 通用包管理器定位与**本地来源**（local-git / local-dir） | 已定（2026-11-22）：来源通用但身份可证明；local-git 复用 commit 证明、local-dir 用 dirDigest（清单摘要）；schemaVersion 3 / lockfileVersion 3.0.0、旧格式拒绝；不做 registry / semver / node_modules（ADR-044 重启条件③触发） |
+| [ADR-053](./adr-053-global-age-default-and-trust-no-downgrade.md) | 晾晒期全局默认与信任降级防护 | 已定（2026-11-24）：`ngm init` 写入 `minimumReleaseAge: P1D`，老项目由 doctor 提示；`PT0S` 是显式关闭、`P0D` 仍拒绝；`supplyChain.trustPolicy: no-downgrade` 拦 commit/dirDigest → tag/branch 的锚点降级（对 ADR-009 空策略底线的覆盖仅限晾晒期） |
+| [ADR-054](./adr-054-conservative-adopt-and-script-preview.md) | adopt 的保守迁移边界与脚本审批"只预演" | 已定（2026-11-24）：adopt 接受 npm/pnpm/yarn/bun/deno 锁中的显式 Git 锚点，无法映射的条目逐条 skipped；doctor 只列出待审批脚本，不执行 |
+| [ADR-055](./adr-055-migrate-and-digest-audit.md) | 保守的 v1/v2→v3 迁移与只读的 digest 反查 | 已定（2026-11-24）：migrate 只搬能证明的字段、缺 digest 全量不写并备份；`why --digest` 只读反查引用该摘要的条目 |
+| [ADR-056](./adr-056-collection-constraints-and-explicit-patches.md) | 集合约束轻量版与显式补丁登记 | 已定（2026-11-24）：集合内共享 ref 一致性校验（不做求解）；`patches` 只换锚点并在 lock 留 `patchFrom`/`patchWhy` |
 
 ---
 
