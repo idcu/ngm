@@ -3,6 +3,8 @@
 > **结论**：这是开发的唯一入口。构建、测试、加命令、加引擎、判据纪律、文档规则都在这里；
 > 历史叙事与版本回顾不在本仓库的活文档里。先读本页，再按链接下钻。
 
+主仓 `https://gitee.com/idcu/ngm` 是源码、issue、PR 与 tag 的唯一权威来源；`https://github.com/idcu/ngm` 是单向同步的镜像。版本在 [GitHub Releases](https://github.com/idcu/ngm/releases) 发布，完整口径见根 [README](../README.md) 的「仓库与发布」。
+
 ---
 
 ## 1. 构建与本地校验

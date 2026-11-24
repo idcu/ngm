@@ -21,7 +21,7 @@ mv ngm /usr/local/bin/
 ngm --version
 ```
 
-Windows 用 `go build -o bin\ngm.exe .\cmd\ngm`。主仓在 Gitee，GitHub 镜像为 `https://github.com/idcu/ngm.git`，两者内容一致。
+Windows 用 `go build -o bin\ngm.exe .\cmd\ngm`。主仓是 `https://gitee.com/idcu/ngm`，`https://github.com/idcu/ngm.git` 是由主仓单向同步的镜像。两者的角色与发布位置见根 [README](../../README.md) 的「仓库与发布」。
 
 未注入版本信息的本地构建输出 `ngm 0.0.0-dev (git:dev, built: unknown)`；发布构建通过 `-ldflags -X` 注入版本、git 短哈希与构建时间。
 
@@ -38,7 +38,7 @@ Windows 用 `go build -o bin\ngm.exe .\cmd\ngm`。主仓在 Gitee，GitHub 镜�
 | Windows x86-64 | `ngm-windows-amd64.exe` |
 | Windows ARM64 | `ngm-windows-arm64.exe` |
 
-下载源：GitHub Release 的 `https://github.com/idcu/ngm/releases/latest/download`，或 Gitee 发行版的固定版本地址 `https://gitee.com/idcu/ngm/releases/download/<tag>`（Gitee 没有 `latest/download` 形态）。
+正式版本在 [GitHub Releases](https://github.com/idcu/ngm/releases) 发布，下载前缀为 `https://github.com/idcu/ngm/releases/latest/download`；Gitee 发行版的固定版本地址 `https://gitee.com/idcu/ngm/releases/download/<tag>` 只在同步开启时提供同一份产物（Gitee 没有 `latest/download` 形态）。
 
 ```bash
 # 先把 BASE 换成你选的下载源前缀

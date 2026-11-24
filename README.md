@@ -42,6 +42,12 @@ Windows 用 `go build -o bin\ngm.exe .\cmd\ngm`。`ngm --help` 列出全部 29 �
 
 也可下载预编译二进制：产物名为 `ngm-<os>-<arch>[.exe]`（`GOOS` / `GOARCH`），随 release 附带 `SHA256SUMS`，下载后用 `sha256sum -c --ignore-missing SHA256SUMS` 校验。发布产物可能落后于源码，需要当前能力就从源码构建。详见[安装指南](docs/guides/installation.md)。
 
+## 仓库与发布
+
+- **主仓**：<https://gitee.com/idcu/ngm> —— 源码、issue、PR 与 tag 的唯一权威来源，开发改动合入这里。
+- **镜像**：<https://github.com/idcu/ngm> —— 由主仓单向同步，只作 GitHub 侧的只读入口；不在镜像上开发，也不从镜像提 PR。
+- **版本发布**：在 [GitHub Releases](https://github.com/idcu/ngm/releases) 发布。tag 从主仓同步过去后，发布工作流创建 release 并上传 `ngm-<os>-<arch>[.exe]` 与 `SHA256SUMS`；Gitee 发行版只在同步开启时提供同一份产物，不是第二个发布源。
+
 ## 5 分钟跑通
 
 前置：机器上有 Git；构建步骤还需外部引擎（下面用 esbuild，`npm i -g esbuild` 或装在项目里）。
