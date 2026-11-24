@@ -9,23 +9,21 @@ import (
 	"testing"
 )
 
-// 退出码这件事**有四处事实源**：
+// 退出码这件事**有三处事实源**：
 //
-//	① internal/errs/errs.go             —— 实现（数值 + 名字）
-//	② docs/architecture/observability.md —— 契约的**规范**出处（"退出码约定（全局）"表）
-//	③ docs/modules/p0-core.md            —— 规格里的错误模型（`ErrorCode` 常量块）
-//	④ docs/guides/cli.md                 —— 用户看到的那一行汇总
+//	① internal/core/errs/errs.go          —— 实现（数值 + 名字，显式常量）
+//	② docs/architecture/observability.md  —— 契约的**规范**出处（"退出码约定（全局）"表）
+//	③ docs/guides/cli.md                  —— 用户看到的那一行汇总
 //
-// v0.23 在 ③ 里抓到过一处漏写：它写着「1 非预期漂移」，而 ② 早就写准了
-// （策略失败：verify 漂移 / adapter 引擎运行失败 / audit 超阈值）。
-// **规范与架构文档不一致，而错的那份是规范**——下一个人会照着规范把错的再抄一遍。
-// 当时只有人眼发现它；这一张网让它以后必须自己撞上去。
-//
-// 另一件被钉住的事：③ 用的是 `iota + 1`，**顺序一变，所有码静默平移**。
-// 规格是给人抄的，抄错一个顺序就是全线错位。
+// v0.23 时还有第四处：一份规格文档里的 `ErrorCode = iota + 1` 规格块（该文档已随历史清理移出工作树），
+// 它曾抓到过一处漏写（写着「1 非预期漂移」，而 observability 早就写准了：
+// 策略失败 = verify 漂移 / adapter 引擎运行失败 / audit 超阈值）。那份规格随历史
+// 文档清理移出工作树，实现侧 `internal/core/errs/errs.go` 也早已改为**显式赋值**
+// （不再用 iota，顺序漂移不会再静默平移所有码），因此那一条腿随之撤销：
+// 实现常量这一半由 `errsCodeNames` 从源码直接读，另外两条（observability 0–6 表、
+// cli 退出码摘要）继续保留并互相核对。
 func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 	impl := errsCodeNames(t)
-	p0 := p0CoreErrorCodes(t)
 	obs := observabilityExitCodes(t)
 	cli := cliExitCodes(t)
 
@@ -47,28 +45,6 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 		if got != code {
 			t.Errorf("Code%s = %d, the contract says %d", name, got, code)
 		}
-	}
-
-	// ③ 规格：`iota + 1` 推出的名字→值，必须与实现完全一致。
-	if len(p0) == 0 {
-		t.Fatal("docs/modules/p0-core.md: no `ErrorCode = iota + 1` block found — the net's scope shrank")
-	}
-	for name, code := range want {
-		if name == "OK" {
-			continue
-		}
-		got, ok := p0[name]
-		if !ok {
-			t.Errorf("docs/modules/p0-core.md no longer names Err%s — the spec drifted from the implementation", name)
-			continue
-		}
-		if got != code {
-			t.Errorf("docs/modules/p0-core.md implies Err%s = %d (from iota ordering), the implementation says %d",
-				name, got, code)
-		}
-	}
-	if len(p0) != len(want)-1 {
-		t.Errorf("docs/modules/p0-core.md lists %d error codes, the contract defines %d", len(p0), len(want)-1)
 	}
 
 	// ② 规范表：0..5 全部列出，且每行都有语义与来源。
@@ -118,8 +94,8 @@ func TestV24ExitCodeContractAgreesAcrossSources(t *testing.T) {
 	// 现在：来源由**源码派生**（谁能让进程以 1 退出）、双向对账，
 	// 类别名由那条判据要求出现在这一行里。同一件事只留一份判据。
 
-	t.Logf("exit-code contract: %d impl codes · %d spec codes · %d table rows · %d summary entries",
-		len(impl), len(p0), len(obs), len(cli))
+	t.Logf("exit-code contract: %d impl codes · %d table rows · %d summary entries",
+		len(impl), len(obs), len(cli))
 }
 
 // readDoc 读一份仓库内的文档；读不到就 Fatal（**网的判据来源不许静默消失**）。
@@ -137,7 +113,6 @@ func readDoc(t *testing.T, path string) string {
 
 var (
 	reErrsConst = regexp.MustCompile(`(Code[A-Z]\w*)\s+Code\s*=\s*(\d+)`)
-	reP0Ident   = regexp.MustCompile(`^(Err[A-Z]\w*)`)
 	reObsRow    = regexp.MustCompile("^\\|\\s*`([0-9])`\\s*\\|([^|]*)\\|([^|]*)\\|")
 	reCLIPart   = regexp.MustCompile(`^([0-9])\s+(.*)$`)
 )
@@ -154,34 +129,6 @@ func errsCodeNames(t *testing.T) map[string]int {
 			t.Fatalf("unparsable code %q: %v", m[1], err)
 		}
 		out[name] = n
-	}
-	return out
-}
-
-// p0CoreErrorCodes 从规格的 `ErrorCode = iota + 1` 块推出 名字（去掉 Err 前缀）→ 数值。
-//
-// **这就是要钉的东西**：`iota` 的值取决于顺序，重排一行，所有退出码静默平移。
-func p0CoreErrorCodes(t *testing.T) map[string]int {
-	t.Helper()
-	raw := readDoc(t, "../../docs/modules/p0-core.md")
-	out := map[string]int{}
-	for _, block := range regexp.MustCompile(`(?s)const \((.*?)\)`).FindAllStringSubmatch(raw, -1) {
-		if !strings.Contains(block[1], "ErrorCode = iota + 1") {
-			continue
-		}
-		val := 0
-		for _, line := range strings.Split(block[1], "\n") {
-			l := strings.TrimSpace(line)
-			if l == "" || strings.HasPrefix(l, "//") {
-				continue
-			}
-			m := reP0Ident.FindStringSubmatch(l)
-			if m == nil {
-				continue
-			}
-			val++
-			out[strings.TrimPrefix(m[1], "Err")] = val
-		}
 	}
 	return out
 }

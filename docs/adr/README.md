@@ -1,114 +1,78 @@
-# 架构决策记录（ADR）
+# 架构决策汇总
 
-> ADR 记录"已定的重大决策与理由"。状态流转：`提议` → `已定` → `已废弃` / `被取代`。
-
----
-
-## 索引
-
-| 编号 | 决策 | 状态 |
-|------|------|------|
-| [ADR-001](./adr-001-go.md) | 为什么用 Go | 已定（v2 修订） |
-| [ADR-002](./adr-002-git-direct.md) | 为什么直接拉 Git 仓库 | 已定 |
-| [ADR-003](./adr-003-vendor.md) | 为什么纯 vendor/ 目录 | 已定（v2 修订） |
-| [ADR-004](./adr-004-reftype.md) | 为什么声明用 refType 锁定用 commit | 已定 |
-| [ADR-005](./adr-005-engine-interface.md) | 为什么引擎统一接口动态选择 | 已定（v2 修订） |
-| [ADR-006](./adr-006-lytd-merge.md) | 为什么 lytd 并入 ngm | 已定（v2 修订） |
-| [ADR-007](./adr-007-runtime-node-deno.md) | Node 还是 Deno？ | 已定 |
-| [ADR-008](./adr-008-archive-digest.md) | archiveDigest 的定义 | 已定 |
-| [ADR-009](./adr-009-supply-chain-policy.md) | 供应链策略的执行时机与失败语义 | 已定（v0.2 首个决策） |
-| [ADR-010](./adr-010-online-verify-fetch-policy.md) | 在线 verify 的抓取策略 | 已定 |
-| [ADR-011](./adr-011-wasm-runtime.md) | wasm adapter 的运行时与 ABI | 已定（v0.3 A 组） |
-| [ADR-012](./adr-012-sandbox.md) | 沙箱与执行边界 | 已定（v0.3 D 组之后） |
-| [ADR-013](./adr-013-remote-adapter.md) | remote adapter 的信任边界 | 已定（v0.3 A 组，**结论：不发布**） |
-| [ADR-014](./adr-014-self-report-signatures.md) | 依赖自述的签名检查 | 已定（v0.4 复核，**结论：不做**；身份交回 Git 的签名机制） |
-| [ADR-015](./adr-015-commit-ref-resolution.md) | commit 型依赖不做 ref 解析 | 已定（v0.5 A 组）：commit 型 **0 次 git 子进程**；tag/branch 不变 |
-| [ADR-016](./adr-016-mirror-url-local-read.md) | mirror 远端地址改为读 config 文件 | 已定（v0.5 A4）：形状不认识即回退子进程；tag 型 4.00 → **3.00 次/依赖** |
-| [ADR-017](./adr-017-remote-adapter-release-decision.md) | remote adapter 的**发布决策** | 已定（v0.6）：**仍不发布**；剩下的问题写成可判定的门槛（修订 [ADR-013](./adr-013-remote-adapter.md)） |
-| [ADR-018](./adr-018-store-reclaim.md) | 内容寻址 store 的**回收与去重** | 已定（v0.6）：**不做**按可达性自动删除；`store usage` / `store prune` 排期；**写入侧去重**是长期解法。**ADR-041** 在其"显式给出 lock 集合"的条件下提供项目范围的 `ngm gc` |
-| [ADR-019](./adr-019-content-addressed-blobs.md) | 层 2 改为**按文件内容寻址**（blob 池 + 树清单） | 已定（v0.7）**并已实施（v0.8）**：digest 定义不变、blob 里含 mode（§修订）、`symlink` 落地模式退化；实测 20.0× → 0.6× |
-| [ADR-020](./adr-020-remote-adapter-shelved.md) | `remote` adapter **正式搁置** | 已定（2026-10-03）：该 adapter **在代码里不存在**（"发布"= 从零写协议）；三条触发条件（真实需求 / 本地算力证据 / 跨生态标准） |
-| [ADR-021](./adr-021-symlink-link-mode.md) | `symlink` 落地模式**保留降级** | 已定（2026-10-03）：不实现"按需物化一棵 hardlink 树"；触发条件是"具体的工具/流程要求 + 实测数字" |
-| [ADR-022](./adr-022-verify-performance-target.md) | verify 的性能目标改为**次数门禁 + 秒数观测** | 已定（2026-10-03）：3s 不再是验收目标（v0.5 实测它在噪声里不可判别）；门禁是 spawn 预算 |
-| [ADR-023](./adr-023-orphan-reclaim.md) | 回收**无人引用的 blob**（`store prune --orphans`） | 已定**并已实施**（2026-10-03）：只删"没有任何清单引用 + 比门槛更旧"的字节；**有清单读不出来时拒绝删除**；仍不做按可达性删除 |
-| [ADR-024](./adr-024-bounded-explanations.md) | 解释输出**必须有界**（`why` 的路径枚举 / `tree` 的展开） | 已定**并已实施**（2026-10-04）：`why` 默认最多 **64** 条路径、`tree` 默认最多 **4096** 个条目；达到上界**必须说出来**（`pathsTruncated` / `entriesTruncated` + 文字里那句），`--all` 显式解除，退出码不变。实测：**41 个节点 → 1 048 576 条路径 / 626 MB**，而图的形状来自上游清单 |
-| [ADR-025](./adr-025-no-builtin-engine-defaults.md) | 引擎选择**不设**内置默认 | 已定（2026-10-04）：`typeCheck` / `typeDecl` / `css` 三个 kind **刻意不预置**；缺声明 → `exit 3`，报错点名 kind、列出目录里的候选、指向 `ngm.engines.json`；声明了但未装 → `exit 5` |
-| [ADR-026](./adr-026-exit-code-6-internal-failure.md) | 加一个退出码 **6 = 内部失败** | 已定**并已实施**（2026-10-08）：panic 与"结论有了却送不出去"（原先与策略失败共用码 1）分出来；码 1 的四类策略来源一个不动 |
-| [ADR-029](./adr-029-loopback-addresses.md) | 仓库地址：**收下回环**（只收 `localhost` / `127.0.0.1`） | 已定**并已实施**（v0.83；原编号 028，因与 ADR-028「直接依赖边进 lock」撞号改 029）：单标签主机名此前一律拒绝，于是"本机跑一遍"不可做，而 `127.0.0.1` 一直能用——**同一件事两种结论**。收下两个字面量、其余照旧拒绝（反笔误不受影响），报错把三条出路说清；`[::1]`、端口、`git://` 协议、`net:` 门禁**都不动**（各自的边界写进 ADR-029 §代价与边界） |
-| [ADR-027](./adr-027-attestation.md) | attestation：**接一层谓词，不自造签名** | 已定**并已实施**（v0.70）：`ngm attest` 输出**未签名**的 in-toto Statement v1（谓词 SLSA provenance v1）；确定性优先（无时间戳、`invocationId` = lock 的哈希）；签名交给用户/CI 的标准工具（cosign） |
-| [ADR-028](./adr-028-dependency-graph-in-lock.md) | 把**直接依赖边**写进 ngm.lock | 已定（2026-10-09，**v0.73 实现**）：每依赖新增**恒在**的 `requiredBy`（直接引用者，排序去重，直接依赖为 `[]`）——`why` 离线 0 spawn、SBOM 增依赖关系段；lockfileVersion 不动（可选字段 + 解码器忽略未知字段是既有契约）；**只存直接边**（全路径是指数的，ADR-024）；`verify`/`tree`/`attest` 明确不变 |
-| [ADR-030](./adr-030-mirror-reclaim.md) | 层 1（mirror）的**占用、残骸与整理** | 已定**并已实施**（2026-10-15，v0.100）：`store usage` 增报 mirror（含点名 **一个 ref 都没有**的目录）、`store prune` 收 `objects/pack/tmp_*`（门槛 **1 小时**；实测 git 自己只清 **14 天**以上的）、新增 `store gc`；**拒绝** `--single-branch` 与部分克隆（会打断 refType 的完整性与"离线 digest 重放"，见 ADR-004/008/010） |
-| [ADR-031](./adr-031-module-collections.md) | 一个仓库承载**多个模块**（Module Collections） | 已定（2026-10-20）：模块身份 `repo + subPath`；模块自己的 `ngm.json` 权威，根清单仅在缺失时回退并 warning；不做 workspace/registry；tag 可选，commit 是真相 |
-| [ADR-032](./adr-032-scoped-content-proof.md) | **模块级内容证明**：`moduleDigest` + `subtreeOid` | 已定**并已实施**（2026-10-20，v0.102）：根依赖保留 `archiveDigest`，模块依赖只写 `moduleDigest + subtreeOid + version`；lockfileVersion 2.0；模块 content store/vendor/verify landing 均按模块 scope |
-| [ADR-033](./adr-033-language-neutral-core.md) | 抽离**语言无关**的 Git 模块证明核心 | 已定（2026-10-20，v0.104 搬迁完成）：`core/{atomicfile,digest,errs,git,lock,resolve,vendor,verify}` 已落地；`gitee.com/idcu-go/modproof v0.2.0` 已发布，ngm 模块 proof 已切换外部依赖，idcu-go 仍登记 `planned`（仅剩双消费者） |
-| [ADR-034](./adr-034-module-cache.md) | **module cache** 与 mirror 的边界 | 已定**并已实施**（2026-10-20，v0.104）：ADR-030 对 mirror 的拒绝不变；module cache 只服务 lock 钉住的 `(commit, subPath)`，可 `blob:none`/`--depth=1`；install-from-lock 优先使用，filter 不支持明确回退；verify --offline 复用且禁止惰性联网 |
-| [ADR-035](./adr-035-refType-narrow-default.md) | `refType` 的**窄默认**（仅完整 commit hash） | 已定**并已实施**（2026-10-20）：完整 40 位 hex 可省略 refType 并按 commit 写回；tag/branch/短 hash 仍必填；三处共用 `resolve.IsFullCommit`；不做全局默认 |
-| [ADR-036](./adr-036-infer-ref-type-opt-in.md) | `--infer-ref-type`：显式 opt-in 的远端证据推断 | 已定**并已实施**（2026-10-20）：只在 `add` 缺 `--ref-type` 且非完整 commit 时生效；tag/branch 二选一，同名或缺失即失败；顺带修 `git.LSRemote` 参数顺序 |
-| [ADR-037](./adr-037-per-module-publish-override.md) | 逐模块 `publish` **完全覆盖**全局 `--releases` | 已定**并已实施**（2026-10-21）：`publish` 显式 true/false 直接决定，nil 才跟随全局；不做 AND/OR 短路；只影响 release 索引 |
-| [ADR-038](./adr-038-no-own-git.md) | **不自研 Git**，保持子进程 + 单一边界 | 已定（2026-10-28）：运行时 Git 只在 `internal/core/git`；不自研对象/协议；未来只考虑 go-git/gitoxide/libgit2 backend |
-| [ADR-039](./adr-039-exit-code-precedence.md) | `verify` 退出码 **2 压过 4**：已确证的篡改 > 没查成 | 已定**并已实施**（2026-10-29）：原"4 优先"的理由只排除 0/1，没排除 2；而 4 的语义是可重试，于是 CI 会把被篡改的树当成网络抖动重试。`ExitCode()` 改为先记漂移分类再看 `Err` |
-| [ADR-040](./adr-040-adopt-proof-layer.md) | 从"包管理器"退回"证明层"：`ngm adopt` 为已装好的依赖出证据 | 已定**并已实施**（2026-10-29）：只读 `node_modules` + `package-lock.json`（v0.135 起也窄解析 pnpm/yarn lock 里的 **Git 来源**条目，见补记——registry 条目仍为 unknown），摘要与 `archiveDigest` 同构；读不了的 lock 在 `notes`/`coverage.unknown` 里具名；**不接管安装**，因此不再把 registry 互通列为待办 |
-| [ADR-041](./adr-041-project-scoped-gc.md) | 按**当前项目 lock** 的显式回收（`ngm gc`） | 已定**并已实施**（2026-11-03）：默认 dry-run，`--apply` 才删；层 2 只回收候选树独占的 blob（1 分钟内的新 blob 留下），global vendor 无法判定时保留并 warning；逐对象删除失败汇总为 exit 4。满足 ADR-018 的重新考虑条件（显式给出要保留的 lock 集合），但仍**不做**自动/跨项目 GC |
-| [ADR-042](./adr-042-run-outside-sandbox.md) | 为**项目脚本**开一个沙箱外执行面（`ngm run`） | 已定**并已实施**（2026-11-04，v0.120）：只编排用户自己的脚本（`package.json.scripts` 权威、`ngm.json.scripts` 回退、同名冲突 exit 3）；平台 shell 原样执行、祖先 `node_modules/.bin` 注入 PATH、退出码与信号原样透传；单一 `run:script` 闸门（默认 deny），与 install 期 `supplyChain.postInstallPolicy` 是两套闸门；不接进 install/verify/CI |
-| [ADR-043](./adr-043-vendored-bin-shim.md) | vendored Git 依赖的 `.bin` shim **暂缓** | 已定（2026-11-18）：**不做**。为 vendored 依赖生成 `.bin` shim 等于从第三方内容创建一个新的可执行面，越过 ADR-042 的边界（它只编排用户自己的脚本），而当前没有用户证据支撑这个代价。重启条件写在 ADR 里（出现"纯 Git 依赖 + 依赖自带 CLI"的真实项目，且威胁模型说清 shim 的归属） |
-| [ADR-044](./adr-044-independent-ecosystem.md) | ngm 是**独立生态**，npm / pnpm 只是迁移来源 | 已定（2026-11-19）：主轴是"Git 依赖的可证明同一性"；npm / pnpm / Yarn / Bun 不承诺语义（registry 协议、semver 求解、peer deps、`node_modules` 布局、lifecycle 全族、publish）；`adopt` 是坡道而非主干，`run` 读 `package.json.scripts` 的理由是成本而非兼容；路线图准入：唯一理由是"更接近 npm"的条目不进。评估报告 §5 的缺口表因此降级为迁移成本观察 |
-| [ADR-045](./adr-045-json-output-contract.md) | `--json` 的契约层级：**解码语义**是契约、字节不是 | 已定（2026-11-19）：字段名/类型/`version`/错误信封形状/退出码是契约；字节不是。报告类统一 `MarshalIndent` + 末尾 LF（含 HTML 转义）；唯一例外是 `sbom` / `attest` 的**产物**（字节本身要被人比对/签名）。一个实现：`writeJSONDocument`，失败统一 `write report: …` 退 6。按字节 diff `--json` 是未定义行为——需要稳定字节的场合用产物而非报告 |
-| [ADR-046](./adr-046-stale-export-gate.md) | 过期 lock 的审计产物**默认拒绝导出** | 已定**并已实施**（2026-11-20）：`sbom` / `attest` 在 `ngm.json` 与 lock 不一致时 exit 3、不写产物；显式 `--allow-stale` 才放行（事实仍写 stderr，不塞进产物字节以保确定性）。此前只写 warning，导致签名了一份描述过期状态的语句 |
-| [ADR-047](./adr-047-package-main-size.md) | `cmd/ngm` 拆包的**触发条件** | 已定（2026-11-20，暂不重构）：规模本身不是触发条件；只有当同类跨文件耦合缺陷 ≥2 次、现有守卫抓不到的用户可见缺陷、或可观测的编译/测试退化出现才拆。拆时按命令实现/报告渲染/环境装配分三类，沿用 cmdContext |
-| [ADR-048](./adr-048-usage-flag-dual-source.md) | usage 常量与 flag 声明双源的**容忍度** | 已定（2026-11-20，暂不合并）：golden + `TestHintsNameFlagsTheCommandAccepts` 已兜住漂移；只有 golden 漏过真实漂移或 AST 守卫维护成本显著上升才合并。在此之前不得削弱该判据 |
-| [ADR-049](./adr-049-contract-net-freeze.md) | **契约网冻结**：停止新建，保留复核节奏 | 已定（2026-11-20）：新判据必须先指着一个已发生的产品缺陷；存量网作为回归档案保留；仅当某网连续 3 版因自身而红、且删除不影响产品不变量时才复核精简。与 roadmap 停止清单同源 |
-| [ADR-050](./adr-050-default-release-age.md) | `minimumReleaseAge` 默认 **P1D** | 已定（2026-11-21）：写了 `supplyChain` 段但没写冷却 ⇒ 默认 24h（对齐 pnpm/Deno 2026 默认，独立安全理由非"更像 npm"）；**完全不配段仍不门禁**（ADR-009 底线）；逃生口 = `--allow-fresh` 单命令副本（白名单不变、不泄漏）。不用 P0D 当开关（`ParseISODuration` 有意拒绝零值） |
-| [ADR-051](./adr-051-verify-level-defaults.md) | `verify` 默认级别：CLI structure / CI action **content** | 已定（2026-11-21）：CI 是供应链关键路径，action 默认 content（逐文件哈希）；CLI 保持 structure（本地轻量）。两者不同是有意的，双向写进 action description 与 help；action 里显式 `verify-level: structure` 可回到廉价检查 |
-| [ADR-052](./adr-052-local-sources.md) | 通用包管理器定位与**本地来源**（local-git / local-dir） | 已定（2026-11-22）：来源通用但身份可证明；local-git 复用 commit 证明、local-dir 用 dirDigest（清单摘要）；schemaVersion 3 / lockfileVersion 3.0.0、旧格式拒绝；不做 registry / semver / node_modules（ADR-044 重启条件③触发） |
-| [ADR-053](./adr-053-global-age-default-and-trust-no-downgrade.md) | 晾晒期全局默认与信任降级防护 | 已定（2026-11-24）：`ngm init` 写入 `minimumReleaseAge: P1D`，老项目由 doctor 提示；`PT0S` 是显式关闭、`P0D` 仍拒绝；`supplyChain.trustPolicy: no-downgrade` 拦 commit/dirDigest → tag/branch 的锚点降级（对 ADR-009 空策略底线的覆盖仅限晾晒期） |
-| [ADR-054](./adr-054-conservative-adopt-and-script-preview.md) | adopt 的保守迁移边界与脚本审批"只预演" | 已定（2026-11-24）：adopt 接受 npm/pnpm/yarn/bun/deno 锁中的显式 Git 锚点，无法映射的条目逐条 skipped；doctor 只列出待审批脚本，不执行 |
-| [ADR-055](./adr-055-migrate-and-digest-audit.md) | 保守的 v1/v2→v3 迁移与只读的 digest 反查 | 已定（2026-11-24）：migrate 只搬能证明的字段、缺 digest 全量不写并备份；`why --digest` 只读反查引用该摘要的条目 |
-| [ADR-056](./adr-056-collection-constraints-and-explicit-patches.md) | 集合约束轻量版与显式补丁登记 | 已定（2026-11-24）：集合内共享 ref 一致性校验（不做求解）；`patches` 只换锚点并在 lock 留 `patchFrom`/`patchWhy` |
-| [ADR-057](./adr-057-build-receipt.md) | 构建回执契约 | 已定（2026-11-24）：`ngm.build.json` 旁车文件不进 lock；同输入同字节、无时间戳/绝对路径；不承诺跨工具可复现 |
-| [ADR-058](./adr-058-engine-binding.md) | 引擎版本/摘要绑定与压缩 fail-closed | 已定（2026-11-24）：`expectedVersion` 不符 exit 5、`expectedDigest` 不符 exit 2；`css --minify` 遇不支持引擎 exit 3 |
+> **结论**：这里是全部 ADR（ADR-001 ~ ADR-058）的唯一汇总文件。单篇 ADR 已随历史文档清理移出工作树，
+> 历史正文用 `git log --oneline -- docs/adr/` 查；下表给出每条决策的**当前结论**。
 
 ---
 
-## 流程
+## 如何使用这些决策
 
-1. 复制模板，编号为下一个可用编号（`adr-XXX-<slug>.md`）
-2. 状态先标 `提议`，讨论定稿后改 `已定`
-3. 决策被推翻时：新 ADR 标注"取代 ADR-XXX"，旧 ADR 状态改为 `被取代`，**不删除**
-
-## 模板
-
-```markdown
-# ADR-XXX：<决策标题>
-
-- **状态**：提议 / 已定 / 已废弃 / 被取代（by ADR-YYY）
-- **日期**：YYYY-MM-DD
-- **范围**：<影响的领域>
-
-> **结论**：<一句话，读完就知道选了什么>
-> **代价**：<诚实写出这个决策付出了什么>
+- 先按主题在表里找编号，读"结论"一列判断是否仍适用于你的场景；需要背景与代价时从 git 历史读当时的单篇。
+- 决策是**快照**，不随实现频繁修改；协议、清单、接口的活文档在各自唯一事实源位置（能力矩阵、可观测性、架构文档）。
+- 实现与决策冲突时，先在这里修订结论（补一句新结论或新增编号），再改代码；旧决策不删除，只在结论里写明被取代关系。
+- 新增决策用下一个可用编号，一行一句话写清"选了什么"；不要创建对象，也不要在本表之外维护第二份清单。
 
 ---
 
-## 背景
-<面临的问题与约束>
+## 决策汇总
 
-## 决策
-<明确的一句话决策；可与上方"结论"重复，也可更精确>
-
-## 理由
-<支持点；以及诚实的代价。若上方"结论/代价"两行已写清，本节可省略>
-
-## 后果
-<决策带来的影响与后续约束>
-
-## 相关文档
-- <链接>
-```
-
-> **为什么把"结论 / 代价"提到最前面**：ADR 的价值是让后来者几秒钟内理解"选了什么、付出什么"。
-> **代价必须写**——只列好处的 ADR 是宣传，不是决策记录。
-
-## 约定
-
-- ADR 是**决策快照**，不随实现频繁修改；协议、清单、接口的"活文档"在各自唯一事实源位置（见 [README](../README.md) 的文档约定）
-- 与 ADR 冲突的实现必须先修订 ADR，再改代码
+| ADR | 决策 | 结论 |
+|-----|------|------|
+| ADR-001 | 为什么用 Go | 核心用 Go 写单二进制，宿主运行时只负责运行用户代码。 |
+| ADR-002 | 为什么直接拉 Git 仓库 | 依赖直接来自 Git 仓库，不引入 registry 协议与 host API。 |
+| ADR-003 | 为什么纯 vendor 目录 | 依赖以纯 vendor 目录落地，便于审计、离线交付与 digest 重放。 |
+| ADR-004 | 为什么声明用 refType 锁定用 commit | 声明层保留人类可读的 ref，锁定层记录不可变 commit。 |
+| ADR-005 | 为什么引擎统一接口动态选择 | 引擎走统一接口、按清单动态选择，第三方实现永久优先。 |
+| ADR-006 | 为什么 lytd 并入 ngm | lytd 的能力并入 ngm，不保留独立工具。 |
+| ADR-007 | Node 还是 Deno | Node 与 Deno 都作为宿主运行时，core 不绑定任何 JS 运行时。 |
+| ADR-008 | archiveDigest 的定义 | digest 是规范化内容清单（path / mode / blob-sha256）的 sha256，可本地重放。 |
+| ADR-009 | 供应链策略的时机与失败语义 | 空 supplyChain 段不门禁，所有策略只绑锁定 commit 而非 tag/branch。 |
+| ADR-010 | 在线 verify 的抓取策略 | 只读一次远端 ref 广播，对象按需才取，无变化时完全不 fetch。 |
+| ADR-011 | wasm adapter 的运行时与 ABI | 用 wazero 执行 WASI preview1 命令模块，期待 JS 宿主的 wasm 不在范围内。 |
+| ADR-012 | 沙箱与执行边界 | 用 Deno 的 default-deny 沙箱执行单一脚本，最小授权、无写权限、不派生进程。 |
+| ADR-013 | remote adapter 的信任边界 | 不发布 remote adapter：源码要离开本机，产物无法被用户本地证明。 |
+| ADR-014 | 依赖自述的签名检查 | 不自造签名机制，身份判定交回 Git 自身的签名与用户密钥配置。 |
+| ADR-015 | commit 型依赖不做 ref 解析 | commit 型依赖 0 次 git 子进程，tag/branch 不变。 |
+| ADR-016 | mirror 远端地址读 config | mirror 地址从 config 读取，形状不认识就回退 git 子进程。 |
+| ADR-017 | remote adapter 的发布决策 | 仍不发布，剩余问题写成可判定门槛。 |
+| ADR-018 | store 的回收与去重 | 不做按可达性自动删除，写入侧去重是长期解法。 |
+| ADR-019 | 层 2 按文件内容寻址 | blob 池 + 树清单已实施，digest 定义不变，symlink 落地模式退化。 |
+| ADR-020 | remote adapter 正式搁置 | 该 adapter 在代码里不存在，只有真实需求、本地算力证据或跨生态标准才重启。 |
+| ADR-021 | symlink 落地模式 | 保留降级，不实现按需物化一棵 hardlink 树。 |
+| ADR-022 | verify 性能目标 | 改为次数门禁加秒数观测，3 秒不再是验收目标。 |
+| ADR-023 | 回收无人引用的 blob | 已实施按清单引用与门槛回收，清单读不出来时拒绝删除。 |
+| ADR-024 | 解释输出必须有界 | why 默认最多 64 条路径、tree 默认最多 4096 个条目，达界必须明说，all 才解除。 |
+| ADR-025 | 引擎选择不设内置默认 | typeCheck / typeDecl / css 刻意不预置，缺声明 exit 3，声明了没装 exit 5。 |
+| ADR-026 | 加退出码 6 表示内部失败 | panic 与"结论有了却送不出去"已从码 1 分出，码 1 的四类策略来源一个不动。 |
+| ADR-027 | attestation 接一层谓词 | 输出未签名的 in-toto Statement v1，签名交给用户与 CI 的标准工具。 |
+| ADR-028 | 直接依赖边写进 lock | 每条依赖增加恒在的 requiredBy，why 离线零子进程，只存直接边。 |
+| ADR-029 | 仓库地址收下回环 | 只收 localhost 与 127.0.0.1 两个字面量，其余按原规则拒绝。 |
+| ADR-030 | mirror 的占用与整理 | store usage / prune / gc 已实施，拒绝 single-branch 与部分克隆。 |
+| ADR-031 | 一仓多模块 | 模块身份是 repo + subPath，模块清单优先，不做 workspace 与 registry。 |
+| ADR-032 | 模块级内容证明 | 模块条目用 moduleDigest + subtreeOid，根条目保留 archiveDigest，lock v2。 |
+| ADR-033 | 抽离语言无关核心 | core 各包已落地，模块证明切到外部依赖，ngm 只保留双消费者场景。 |
+| ADR-034 | module cache 与 mirror 的边界 | module cache 只服务 lock 钉住的 commit 与子路径，filter 不支持时明确回退。 |
+| ADR-035 | refType 的窄默认 | 完整 40 位 hex 可省略 refType 并按 commit 写回，tag/branch/短 hash 仍必填。 |
+| ADR-036 | 证据式 refType 推断 | 只在显式 opt-in 且远端证据唯一时推断 tag 或 branch，同名或缺失即失败。 |
+| ADR-037 | 逐模块 publish 覆盖 | 显式 true/false 直接决定，nil 才跟随全局，不做短路合并。 |
+| ADR-038 | 不自研 Git | 运行时 Git 只在单一子进程边界，当前只评估成熟的 Git backend。 |
+| ADR-039 | verify 退出码优先级 | 已确证的篡改（2）压过可重试的网络失败（4），避免 CI 把篡改当抖动重试。 |
+| ADR-040 | 从包管理器退回证明层 | adopt 只读已装依赖并出具内容证明，不接管安装。 |
+| ADR-041 | 按当前项目 lock 的显式回收 | gc 默认 dry-run、apply 才删，只回收候选树独占的 blob，不做自动或跨项目 GC。 |
+| ADR-042 | 为项目脚本开沙箱外执行面 | run 只编排用户自己的脚本，独立 run:script 闸门，退出码与信号原样透传。 |
+| ADR-043 | vendored 依赖的 .bin shim 暂缓 | 不做：会从第三方内容创建新的可执行面，重启需要真实项目与威胁模型。 |
+| ADR-044 | ngm 是独立生态 | npm/pnpm 只是迁移来源，不承诺 registry 协议、semver 求解与 node_modules 布局。 |
+| ADR-045 | --json 的契约层级 | 字段、类型、版本、错误信封与退出码是契约，字节不是；产物字节是例外。 |
+| ADR-046 | 过期 lock 默认拒绝导出 | sbom / attest 在声明与 lock 不一致时 exit 3，显式放行才写产物。 |
+| ADR-047 | cmd/ngm 拆包的触发条件 | 暂不重构：规模本身不是触发条件，需要同类跨文件缺陷或可观测退化。 |
+| ADR-048 | usage 与 flag 双源的容忍度 | 暂不合并：golden 与 AST 守卫已兜住漂移，先不增加维护成本。 |
+| ADR-049 | 契约网冻结 | 停止新建判据，新判据必须先指着一个已发生的产品缺陷，存量作回归档案。 |
+| ADR-050 | minimumReleaseAge 默认 P1D | 写了 supplyChain 段却没写冷却时默认 24 小时，完全不配置段仍不门禁。 |
+| ADR-051 | verify 的默认级别 | CLI 默认 structure，CI action 默认 content，两者不同是有意的。 |
+| ADR-052 | 通用来源与本地来源 | local-git / local-dir 复用可证明身份，schemaVersion 3、lockfileVersion 3.0.0，旧格式拒绝。 |
+| ADR-053 | 晾晒期全局默认与信任降级防护 | init 写入 P1D，no-downgrade 拦住 commit 或 dirDigest 锚点向 tag/branch 降级。 |
+| ADR-054 | adopt 的保守迁移与脚本只预演 | 只接受锁中显式 Git 锚点，无法映射的逐条 skipped，doctor 只列待审批脚本不执行。 |
+| ADR-055 | 保守的迁移与只读 digest 反查 | migrate 只搬能证明的字段并备份，why 的 digest 反查只读不写。 |
+| ADR-056 | 集合约束轻量版与显式补丁 | 只做共享 ref 一致性校验不做求解，patches 只换锚点并留 patchFrom / patchWhy。 |
+| ADR-057 | 构建回执契约 | ngm.build.json 是旁车文件不进 lock，同输入同字节，不承诺跨工具可复现。 |
+| ADR-058 | 引擎版本绑定与压缩 fail-closed | expectedVersion 不符 exit 5、expectedDigest 不符 exit 2，CSS 压缩能力不支持 exit 3。 |

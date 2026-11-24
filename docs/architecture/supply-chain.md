@@ -1,265 +1,108 @@
 # 供应链防护
 
-## 核心原则
-
-**供应链防护基于锁定 commit 做审计，不基于 tag/branch。**
-
-所有防护机制共享同一依赖图和策略状态。
+> **结论**：所有防护共享同一依赖图和策略状态，并且**基于锁定 commit 做审计**，不基于 tag/branch。
+> "版本没变、commit 变了"正是投毒的常见形态。空 `supplyChain` 段不门禁——底线是不对没配置的人突然变红。
 
 ---
 
-## 防护机制
+## 数据流与状态
 
-| 机制 | 作用 | 数据来源 |
-|------|------|---------|
-| `minimumReleaseAge` | 推迟新 commit 进入项目 | commit 的 committer date |
-| 白名单 | 只允许白名单内的源/命名空间 | allowedGitHosts / allowlistRepos |
-| OSV.dev | 已知漏洞扫描 | lock 中的 commit |
-| `verify` | ref 漂移检测 | refType → commit 对比 |
-| `archiveDigest` | 本地内容一致性（清单重放） | 规范化内容清单哈希（见 [ADR-008](../adr/adr-008-archive-digest.md)） |
-| `postInstallPolicy` | 控制 build script 是否运行 | 策略配置 |
-| `verifyOnLock` | 更新锁定时自动检查漂移 | 策略配置 |
+```
+lock（commit + digest） + 策略（ngm.json.supplyChain） + 本地 mirror
+        │
+        ├─ minimumReleaseAge：当前时间 - commit 的 committer date
+        ├─ allowlist / allowedGitHosts：对根与传递依赖同样生效
+        ├─ OSV：按 commit 查询，结果缓存 24h（--offline 只读缓存）
+        ├─ postInstallPolicy：控制依赖脚本是否运行（deny 默认）
+        └─ verifyOnLock：install/update 后自动复查（结论按 verify 自己的码返回）
+        ▼
+    同一份门禁状态 → 允许 / exit 1（超阈值）/ exit 3（策略错）/ exit 4（网络）
+```
+
+**边界**：时间源是 commit 的 committer date（从本地 mirror 的 Git 对象读，离线可用），不是 `resolvedAt`；
+Git 没有可信时间戳，该机制防的是"快速跟随上游的自动投毒"，不是敌手刻意回填日期。
 
 ---
 
-## minimumReleaseAge
+## 机制
 
-### 语义
+| 机制 | 作用 | 失败/边界 |
+|------|------|----------|
+| `minimumReleaseAge` | 新 commit 晾晒后才进项目；写了 `supplyChain` 段但没写冷却 ⇒ 默认 P1D，`PT0S` 显式关闭、`P0D` 拒绝 | 紧急修复可临时调低或显式放行；见 ADR 汇总表 ADR-050、ADR-053 |
+| `allowedGitHosts` / `allowlistRepos` | 限制可接受的 host 与 org/repo（支持 glob），防 typosquatting | 对传递依赖同样生效；维护白名单有成本 |
+| `OSV.dev` | 按 lock 中的 commit 查已知漏洞 | 零日不在库中；多数公告按 semver 记录，对 commit 覆盖有限；查不到不报"安全" |
+| `archiveDigest` | 规范化清单哈希，本地重放 | 不匹配 exit 2，禁止构建 |
+| `postInstallPolicy` | 控制依赖脚本是否运行 | `deny`（默认）/ `prompt`（不执行，非交互语义）/ `allow`（仅 Deno 沙箱内） |
+| `verifyOnLock` | 更新锁定时自动复查漂移 | 无默认值，只显式配置才执行；结论按 verify 的码返回，不折成 0 |
 
-新发布的代码必须"晾晒"一段时间才能进入项目，降低"上游刚发布即被自动引入"的快速投毒风险。
-
-### 实现
+### minimumReleaseAge
 
 ```
-当前时间 - commit 的上游时间 >= minimumReleaseAge
+当前时间 - commit committer date >= 阈值
 ```
 
-上游时间取 **commit object 的 committer date**（从本地 mirror 的 Git 对象读取，离线可用）。
+```json
+{ "supplyChain": { "minimumReleaseAge": "P3D" } }
+```
 
-### 配置
+ISO 8601 duration：`P3D` = 3 天，`PT12H` = 12 小时。ngm 不发明概念，只把这套门禁绑到 Git commit
+而不是 registry version。安全修复需紧急引入时，临时调低阈值或经显式放行。
+
+### 白名单
 
 ```json
 {
   "supplyChain": {
-    "minimumReleaseAge": "P3D"
-  }
-}
-```
-
-ISO 8601 duration 格式：`P3D` = 3 天，`PT12H` = 12 小时，`P1W` = 1 周。
-
-### 时间源与局限（诚实说明）
-
-- Git 没有可信时间戳：committer date 由仓库作者控制，可以被回填；该机制防的是"快速跟随上游的自动投毒"，不是敌手刻意伪造日期
-- **不使用 resolvedAt（本地解析时间）**：否则新依赖首次安装必然失败，且防不住投毒窗口
-- 安全修复需要紧急引入时：临时调低阈值，或经 allowlist 显式放行；`minimumReleaseAgeExclude` 列入后续规划
-- 与 `resolvedAt` 的关系：resolvedAt 只用于审计"何时引入"，不参与门禁计算
-
-### 同类方案参考
-
-- pnpm：`minimumReleaseAge`（基于 registry 发布时间）
-- Deno：`minimumDependencyAge`
-- npm：`min-release-age`（npm 11.10+）
-
-ngm 不发明概念，只把这套门禁**绑定到 Git commit 的 committer date，而不是 registry version**。
-
----
-
-## 白名单
-
-### allowedGitHosts
-
-```json
-{
-  "supplyChain": {
-    "allowedGitHosts": ["github.com", "gitee.com"]
-  }
-}
-```
-
-限制可接受的 Git 托管来源，防止 typosquatting 或恶意 host。
-
-### allowlistRepos
-
-```json
-{
-  "supplyChain": {
+    "allowedGitHosts": ["github.com", "gitee.com"],
     "allowlistRepos": ["github.com/my-org/*", "gitee.com/trusted/*"]
   }
 }
 ```
 
-精确到 org/repo 的白名单。支持 glob 模式。
+### OSV 与 audit
+
+按 commit 查询 OSV.dev，结果缓存 24 小时，支持离线只读缓存。`supplyChain.osvIgnoreSeverities` 过滤严重级别，
+被过滤的严重度仍计入报告的 ignored 条数，不是"忽略"。
+
+- 超阈值漏洞 → exit 1；配置/策略错误 → exit 3；OSV 网络失败且无缓存 → exit 4
+- 每条发现项都要有一行"接下来做什么"：有修复版本写 `Fixed in: <版本>`；
+  没有就给两条真实的路——读公告，或**明确**把严重度记进 `osvIgnoreSeverities`
+- 详见[可观测性 · audit](./observability.md#ngm-audit)
+
+### postInstallPolicy：执行入口很窄
+
+`allow` 也**只执行依赖根目录的 `postinstall.js`**，且只在 Deno 沙箱内、无写权限（vendor 是可证明的，
+能改写它的钩子会让 digest 失效）。`package.json` 的 `scripts.postinstall` 检测到但不执行：
+实测派生的 shell 不受 Deno 权限约束，执行它等于把沙箱一次性绕开。有钩子要跑而缺 Deno → exit 5，
+**不降级**为非沙箱执行；没有钩子要跑时不需要 Deno（见 ADR 汇总表 ADR-009、ADR-012、[安全模型](./security-model.md)）。
+
+### verifyOnLock
+
+`ngm install` / `ngm update` 完成后自动跑一遍复核，但它**不撤回**已写下的内容——只是不允许"写完了却说不出是否一致"。
+典型场景：`ngm.lock` 已提交，上游把 tag 移到别的 commit；install 按 lock 装得对，但自己说不出"ref 已不再指向锁定的 commit"。
+默认不开启，因为复核每个 ref 需要额外 spawn 与网络，不该替所有用户付这个代价。
 
 ---
 
-## OSV.dev 集成
+## 审计产物
 
-### 查询方式
+`sbom` / `attest` 只读 lock 导出 CycloneDX 1.7 / SPDX 2.3 与 in-toto / SLSA v1 的**未签名**语句，
+确定性字节（无时间戳、无绝对路径）；签名交给用户/CI 的标准工具，ngm 不自签（见 ADR 汇总表 ADR-027、ADR-045）。
 
-```
-GET https://api.osv.dev/v1/query
-{
-  "commit": "abc123def4567890abcdef1234567890abcdef12",
-  "ecosystem": "Go"  // 或 "npm" / "Maven" 等
-}
-```
-
-### 结果处理
-
-```json
-{
-  "vulns": [
-    {
-      "id": "GHSA-xxxx-xxxx-xxxx",
-      "summary": "Prototype pollution in library X",
-      "severity": "HIGH",
-      "affected": [
-        {
-          "commit": ["abc123..."],
-          "versions": ["< 1.2.3"]
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 告警策略
-
-```json
-{
-  "supplyChain": {
-    "osvIgnoreSeverities": ["LOW"]
-  }
-}
-```
-
-`ngm audit` 输出：
-
-```
-✗ github:org/utils@v1.2.3 (tag) → abc123def
-  HIGH: Prototype pollution (GHSA-xxxx)
-  修复建议：升级到 v1.2.4
-```
-
----
-
-## postInstallPolicy
-
-```json
-{
-  "supplyChain": {
-    "postInstallPolicy": "deny"
-  }
-}
-```
-
-| 值 | 行为 |
-|----|------|
-| `deny`（默认） | 不执行。有依赖声明钩子时**明说**它们没有被执行 |
-| `prompt` | 不执行。ngm 是**非交互**工具（CI 里没有 TTY），"询问用户"没有真实形态——它的语义是"别自动执行，把决定权留在配置里显式表达" |
-| `allow` | 在 **Deno 沙箱内**执行依赖的 `postinstall.js`；失败即 `exit 2` |
-
-**执行入口很窄，这是刻意的**（[ADR-009](../adr/adr-009-supply-chain-policy.md) 决策 5 / 5a）：
-
-- 只执行 `postinstall.js`（依赖根目录）——它能在沙箱里被约束；
-- `package.json` 的 `scripts.postinstall` **检测到但不执行**：实测派生的 shell 不受 Deno 权限约束
-  （[ADR-012](../adr/adr-012-sandbox.md)），执行它等于把沙箱一次性绕开；
-- 沙箱内**没有写权限**：vendor 是可证明的，任何能改写它的钩子都会让 digest 失效。
-  因此"需要写文件的钩子"（编译原生模块等）**不被支持**；
-- 有钩子要跑而缺 Deno → `exit 5`，**不降级**为非沙箱执行；没有钩子要跑时不需要 Deno。
-
-Deno 的 default-deny 哲学：默认不让依赖跑代码——**要跑也只在沙箱里跑**。
-
----
-
-## verifyOnLock
-
-```json
-{
-  "supplyChain": {
-    "verifyOnLock": true
-  }
-}
-```
-
-**done (v0.2)**：`ngm install` / `ngm update` 完成后自动跑一遍 `ngm verify`。
-
-两处刻意的设计（失败语义定义在 [ADR-009 决策 6](../adr/adr-009-supply-chain-policy.md)）：
-
-- **结论按 `verify` 自己的退出码返回**（`1` 漂移 / `2` 完整性 / `4` 网络），**不折成 0**。
-  "装好了，但锁定的 ref 已经指向别处"如果被报成成功，这条策略就没有存在的意义。
-  自动复查**不撤回** install/update 已写下的内容——它只是不允许"写完了却说不出是否一致"。
-- **无默认值，只有显式配置才执行**。verify 要重新解析每个 ref（100 依赖约 3 秒且需网络），
-  默认替所有用户付这个代价不是好交易。
-
-典型场景（也是它唯一无法被 install 自身覆盖的场景）：`ngm.lock` 已提交，上游把 tag 挪到了
-另一个 commit。install 会正确地按 lock 安装，但它自己说不出"ref 已经不再指向你锁定的那个
-commit"——自动复查补上这句。
-
----
-
-## audit 命令
-
-> **done (v0.2)**。`ngm audit` 已实现：按 lock 中的 **commit** 查询 OSV.dev（不是按版本——
-> "版本没变、commit 变了"正是投毒的常见形态），结果缓存 24 小时，
-> 支持 `--offline`（只读缓存）、`--no-cache`、`--json`。本节的报告格式与退出码即当前行为。
->
-> 两点仍需说明：`supplyChain` 里只有 `osvIgnoreSeverities` 参与 audit（过滤严重级别），
-> 其余字段的生效情况见[配置详解 · 成熟度](../guides/configuration.md)；而"审计通过"表示
-> **库里没有关于这个 commit 的记录**，不等于安全——见下方覆盖局限。
-
-```bash
-ngm audit
-```
-
-输出：
-
-```
-ngm audit report (2026-09-29T10:00:00Z)
-==========================================
-
-Dependencies: 12
-Vulnerabilities: 2
-
-✗ github:org/utils@v1.2.3 (tag) → abc123def
-  HIGH: Prototype pollution (GHSA-xxxx-xxxx)
-  Fixed in: v1.2.4
-
-⚠ github:org/logger@main (branch) → def456abc
-  MEDIUM: ReDoS in parser (GHSA-yyyy-yyyy-yyyy)
-  Fixed in: v2.0.1
-
-✓ github:org/legacy@v0.9.0 (tag) → 123abc456
-  No known vulnerabilities
-
----
-
-Summary:
-  2 vulnerabilities (1 HIGH, 1 MEDIUM)
-  1 dependency with ref drift
-```
-
-### 退出码（规划）
-
-`0` 无超阈值漏洞 / `1` 存在超阈值漏洞（经 `osvIgnoreSeverities` 过滤）/ `3` 策略或配置错误 /
-`4` OSV 网络失败且无可用缓存。定义与全局约定唯一维护在[可观测性 · 退出码](./observability.md)。
+**过期 lock 默认拒绝导出**：`ngm.json` 与 lock 不一致时 exit 3、不写产物；显式放行才允许，且事实写 stderr
+而不塞进产物字节以保确定性。此前只写 warning，导致签名了一份描述过期状态的语句（见 ADR 汇总表 ADR-046）。
+构建回执是旁车文件、不进 lock，同输入同字节，不承诺跨工具可复现构建（见 ADR 汇总表 ADR-057）。
 
 ---
 
 ## 诚实说明
 
-1. **ngm 的防护不是独有的**：pnpm/Deno/npm 都有类似机制
-2. **ngm 的差异化在流程闭环**：refType + commit + archiveDigest + vendor + verify + OSV 共享同一状态模型
-3. **OSV.dev 不是万能的**：零日漏洞不在数据库中；且多数漏洞按 semver 版本记录，对 Git commit 的匹配覆盖率有限，未覆盖的 commit 无法给出结论
-4. **白名单管理有成本**：需要持续维护 allowlistRepos
-
----
+1. ngm 的防护不是独有的：pnpm / Deno / npm 都有类似机制
+2. 差异化在流程闭环：refType + commit + digest + vendor + verify + OSV 共享同一状态模型
+3. 白名单管理有持续成本；"审计通过"不等于安全
+4. 若这些策略只是分别调用外部命令，ngm 就只是配置与编排层
 
 ## 相关文档
 
-- [信任模型](./trust-model.md)
-- [锁定机制](./locking.md)
-- [配置详解](../guides/configuration.md)
-- [可观测性](./observability.md)
+- [锁定机制](./locking.md) · [可观测性](./observability.md) · [安全模型](./security-model.md)
+- [配置详解](../guides/configuration.md) · [ADR 汇总表](../adr/README.md)

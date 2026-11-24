@@ -1,103 +1,124 @@
 # 可观测性
 
-## 核心命令
+> **结论**：所有机器可读的"结果"都来自同一份判定——退出码是它的标量，`--json` 是它的结构，
+> 人类文本只是它的渲染。判定先算出来，再决定怎么送出去；送不出去本身是一类失败，不是成功。
+> 契约出处只有一处：下面的[退出码约定](#退出码约定全局)；各命令的用法文本从它取上界。
 
-| 命令 | 作用 | 成熟度 | 退出码 |
-|------|------|--------|--------|
-| `ngm verify` | ref 漂移 + digest 重放检查（`--sandbox` 追加自检、`--signatures` 追加签名报告） | **done (v0.1)**；`--sandbox` v0.3、`--signatures` v0.4 | 0/1/2/3/4（`--sandbox` 缺 Deno 时 5） |
-| `ngm why <dep>` | 为什么装了这个依赖 | **done (v0.2)** | 见下节 |
-| `ngm tree` | 依赖树可视化 | **done (v0.2)** | 见下节 |
-| `ngm outdated` | 哪些依赖有新版本 | **done (v0.2)** | 见下节 |
-| `ngm audit` | 已知漏洞扫描（OSV.dev） | **done (v0.2)**；`--hook` v0.3 | 0/1/3/4 |
+---
 
-> 这五条命令**都已实现**，各节描述的都是已实现行为。本表此前标着 "planned" 与
-> "当前 exit 3"——那是 v0.1 时代的写法，v0.2 交付后没有跟着改。
-> 「文档说没做、实际做了」与反向的错误同样有害：它会让读者绕过一条可用的命令。
+## 数据流
+
+```
+lock + ngm.json + 本地 mirror/content store
+        │
+        ▼
+  判定层（ref 漂移 / binding / digest 重放 / 落地 / OSV / 策略）
+        │  → 一份结果：driftKind + checks[] + summary.exitCode
+        ├──────────────► 退出码 0..6（进程状态，CI 唯一该读的东西）
+        ├──────────────► --json / --format=sarif|github（机器通道，同一份判定）
+        └──────────────► 人类文本（→ 行动行照失败的性质给建议）
+```
+
+**状态**：判定是纯函数式的（给同样输入给同样结论）；`--offline` 只读本地镜像与缓存，不触网；
+"没问到"与"问到了、没问题"是两种状态，前者记为 `operational: true`，绝不冒充通过。
+
+**边界**：渲染不新增判定。`sarif` / `github` 是别人的 schema，`--json` 是 ngm 自己的 schema；
+两者同时给出是配置错误（exit 3）。没有产出报告时 stdout 为空，错误走 stderr。
 
 ---
 
 ## 退出码约定（全局）
 
-所有命令共用一套退出码（与 P0 的 `ErrorCode` 对齐）：
+所有命令共用一套退出码（与 `internal/core/errs/errs.go` 的 `Code*` 一一对应）：
 
 | 退出码 | 语义 | 典型来源 |
 |--------|------|---------|
-| `0` | 成功（verify 的"仅预期更新"也归此） | 所有命令 |
-| `1` | 策略失败 | **策略漂移**：verify 非预期漂移（`expected` 之外都算；`why` / `outdated` 走同一出口）；**引擎运行失败**：adapter 引擎跑起来了但失败（引擎自己的退出码保留在消息与 `--json` 里，不透传）；**漏洞超阈值**：audit 存在超阈值漏洞、`tree --osv` 查到漏洞；**审计钩子否决或超时**（`--hook`）。来源分类由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生核对（v0.57 立、v0.59 扩到两个码） |
-| `2` | 完整性失败 | verify 的 digest 重放或模块 subtreeOid 绑定不匹配 |
-| `3` | 配置/策略/lock 错误 | schema 非法、lock 损坏、frozen 与声明不一致 |
-| `4` | Git/网络失败 | fetch / ls-remote 失败；`--offline` 下资源缺失 |
-| `5` | 引擎不可用 | adapter 找不到外部引擎 |
-| `6` | 内部失败 | **内部失败**的具体来源：`runWithRecovery` 捕获的 panic；"结论有了却送不出去"——写 stdout 失败 / JSON 编码失败 / 读 stdin 失败（原先它们与策略失败共用码 1）；以及够到 `errs.ExitCode` 兜底的、**没走错误模型**的错误；**人读通道的写失败也走这条**（v0.60 —— 从前它退 0，于是"报告只写出去一半"与"成功"分不出来）；**例外**是"**对端关闭**"（`ngm verify | head` 这类用法 ⇒ 安静退出，因为它不是失败而是用户的意图），判定跨平台（Unix 的 `EPIPE` 与 Windows 的 109/232/233），见 v0.61 复盘。**与策略失败分开的理由**：策略漂移要人看，写不出去重跑可能就好——CI 需要用一个数字区分这两种事（[ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)）。分类同样由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生核对 |
+| `0` | 成功（verify 的"仅预期更新"也归此） | 所有命令判定通过；branch 快进、签名未发现等 |
+| `1` | 策略失败 | **策略漂移**：verify 非预期漂移（tag 重打 / 分支历史改写 / 声明的 ref 消失；`why` / `outdated` 走同一出口）；**引擎运行失败**：adapter 引擎跑起来了但自己失败（引擎原始退出码保留在消息与 `--json`，不透传）；**漏洞超阈值**：audit 发现超阈值漏洞、`tree --osv` 查到漏洞；**审计钩子否决或超时**（`--hook`）。五类的登记由 `TestV57ExitCodeSourcesAreRegistered` 从源码派生双向核对，每个站点都要落在这里 |
+| `2` | 完整性失败 | digest 重放不匹配；模块 `subtreeOid` 绑定不符；`--require-signed` 下依赖不是由你信任的密钥签名；`--sandbox` 自检失败或超时 |
+| `3` | 配置/策略/lock 错误 | schema 非法、lock 损坏、frozen 与声明不一致、权限未授予、引擎未声明、缺少 Deno 之外的配置 |
+| `4` | Git/网络失败 | fetch / ls-remote 失败；`--offline` 下资源缺失；OSV 查询失败且无缓存 |
+| `5` | 引擎不可用 | adapter 找不到外部引擎；已声明但引擎没装或干不了该能力 |
+| `6` | 内部失败 | **内部失败**：panic、"结论有了却送不出去"（写 stdout / JSON 编码 / 读 stdin 失败）、错误没走 ngm 错误模型而落到兜底。与策略失败分开：策略漂移要人看，写不出去重跑可能就好（见 ADR 汇总表 ADR-026） |
 
-`ngm run` 是唯一**不**落在这张表里的命令：项目脚本自己的退出码原样透传
-（信号终止见 `128 + signal`，SIGINT→130、SIGTERM→143），不映射到 0–6。
-那些码由脚本产生，不是 ngm 的错误分类，也不参与 `contracts/exit-codes.json` 的
-`retryable` 判定。ngm 自己在 `ngm run` 上的失败仍用 0/3/5（脚本缺失/冲突/权限、
-平台 shell 不可用）。
+**合并语义**：两层判据同时给码时取"最严重者"，不是后写者赢——优先级
+`2 > 3 > 5 > 4 > 6 > 1 > 0`。完整性失败（2）压过环境类失败，CI 才不会把"依赖被篡改"读成"机器上没装工具"。
 
-`ngm verify --json` 输出的 `driftKind`（`expected` / `unexpected` / `critical`）用于区分"预期更新"与"非预期漂移"。
+**失败语义的几条硬规矩**：
+
+- 码 2 禁止构建，`--allow-drift` 对它无效；码 1 默认阻断，可用 `--allow-drift` 降级为 0。
+- `0` 不等于"一切正常"：branch 前进（预期更新）也是 0，要严格拦下需 `--strict`。
+- `ngm run` 是唯一例外：项目脚本自己的退出码原样透传（信号终止为 `128 + signal`），不映射到 0–6。
+- `ngm doctor` 是诊断型命令：结论写在报告里，命令本身恒退 0（用法错误退 3）。
+
+**错误码枚举**（与 `internal/core/errs/errs.go` 名字和顺序一致；`iota + 1` 从 1 起）：
+
+```go
+const (
+    ErrRefDrift ErrorCode = iota + 1 // 1 策略失败
+    ErrDigestMismatch                // 2 完整性失败
+    ErrConfigInvalid                 // 3 配置/策略/lock 错误
+    ErrGitFetch                      // 4 Git/网络失败
+    ErrEngineNotFound                // 5 引擎不可用
+    ErrInternal                      // 6 内部失败（panic / 结论有了却送不出去）
+)
+```
 
 ---
 
-## ngm doctor
+## ngm verify
 
-> **done (v0.104)**；`vendor` 读数 **v0.117**。本节此前不存在——`cli.md` 让读者"详见可观测性"，
-> 而那个落点没有对应章节（文档指向了自己没有的东西）。
+**用途**：检查 ref 是否仍指向锁定 commit、digest 是否可本地重放一致、落地内容是否完好。
 
-`ngm doctor` 只回答一个问题：**这台机器、这个目录，现在能不能正常干活**。
-它是**诊断型**命令：发现写进报告，命令本身恒退 **0**（用法错误退 3）。
-判定在报告里，不在退出码里——"哪里坏了"由 `status: fail` 的条目说，
-而不是让 CI 从"命令失败了"去猜。
+**检查层**（每一项都记录，"没做"记为 `status: fail` + `operational: true`，不让数组变短）：
 
-### 检查项
+| 检查 | 内容 | 默认 |
+|------|------|------|
+| ref → commit | 在线读远端 ref 广播（`ls-remote`）；`--offline` 用本地 mirror 快照并标 stale | 是 |
+| binding | 模块条目的 `commit:subPath` tree OID 对比 `subtreeOid` | 是（本地可离线） |
+| digest 重放 | 根条目重放 `archiveDigest`；模块条目重放 `moduleDigest` | 是（本地可离线） |
+| 落地完整性 | vendor 与 content store 的存在性/链接校验 | 是 |
+| 逐文件哈希 | `--content`（旧别名 `--deep`）追加全量字节比对 | 否 |
+| 签名 | `--signatures` 追加报告锁定 commit 的 Git 签名状态；`--require-signed` 强制 | 否 |
 
-| 检查 | 读数 | 什么时候值得看 |
-|------|------|----------------|
-| `git` | 可执行文件与版本 | 版本过低（< 2.30）或不在 PATH 上，后面的失败都会长得像网络问题 |
-| `project` | `ngm.json` 的 `name` / `version` | 读不出来 ⇒ 后面的每一项都不可信 |
-| `lock` | 依赖条数 | 缺 lock 是 **warn**：还没装过，不是坏了 |
-| `layout` | `~/.ngm` 是否存在 | 缺是 **warn**：`install` 会创建它 |
-| `store` | mirror / module-cache / content 三层的仓库数 | 与 `ngm store usage` 同一套口径，这里只给条数 |
-| `vendor` | `present` / `ignored-by-git` / `absent` | 见下节：**配置意图与 Git 状态的错配** |
-| `modules` | 嵌套模块清单的条数 | 集合仓库里 `modules validate` 之前的快速体检 |
+**"预期更新" vs "非预期漂移"**：两者外部现象相同（ref 指向别的 commit），区别在新旧 commit 的祖先关系，
+用 `git merge-base --is-ancestor` 判定。快进 → `expected`（退 0，`--strict` 时退 1）；非快进 / tag 重打 /
+ref 消失 → `unexpected`（退 1）；digest 重放不匹配 → `critical`（退 2，`--allow-drift` 不降级）；
+问不到（网络失败 / 权限拒绝 / mirror 缺失）→ 不是结论，`operational: true`，退 4。
 
-### vendor 读数：为什么它只是读数
+**边界**：无法证明快进时按 `unexpected` 处理——保守方向，不是遗漏；"没问到"不冒充"漂移"（见 ADR 汇总表 ADR-039、ADR-053）。
+在线路径只在 ref 已变或 lock 的 commit 不在本地时才 fetch，"什么都没变"的常见路径不传输对象（见 ADR 汇总表 ADR-010）。
 
-同一个 `ngm.vendor/`，两种做法都合法：
-
-- **随仓库分发**（部署机不装 npm、不联网）⇒ 必须提交，冷克隆才装得出来；
-- **由 `.gitignore` 排除**（CI 现场 `install`）⇒ 不提交，工作树更干净。
-
-ngm 不替用户选，也**不执行任何 Git 写操作**（[ADR-038](../adr/adr-038-no-own-git.md)）：
-`check-ignore` 是一次只读探测，读的是 Git 自己的判定，不是 ngm 自研的 `.gitignore` 解析器。
-
-错的只有第三种情况：**打算分发、却被 Git 忽略**。它的表现极具误导性——冷克隆的 CI 在
-`install --frozen-lockfile --offline` 处以 **exit 4** 失败，报告说"缺内容"，指向不了
-"你的 `.gitignore` 排除了整棵树"。所以 doctor 把它**说出来**，并且用 `warn` 而不是 `fail`：
+**输出**：
 
 ```
-vendor   warn  present (3 entries) but ignored by Git — if you intend to ship it, check .gitignore and `git add ngm.vendor/`
+$ ngm verify
+
+✓ github:org/A@v2.0.0 (tag) → fedcba9 — match
+⚠ github:org/logger@main (branch) → def456a (now 789xyz0) — expected update
+  → driftKind: expected; expected update, not blocking; run `ngm update github:org/logger`
+✗ github:org/legacy@v0.9.0 (tag) → 123abc4 — integrity failure
+
+verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
 ```
 
-`global` 模式（`vendor.mode=global`）落在项目工作树之外，Git 本来就管不到它，读数是 `ok` 加一句说明——
-不制造一条恒亮的告警。
+每一类失败都有一行以 `→` 开头的建议，且建议承认失败的性质：漂移指向 `ngm update`、
+字节被改指向 `ngm install`、漏洞指向 `ngm audit`；"检查未能完成"没有可分类的漂移时只写建议，
+并原样透传最贴近成因的那一层（权限层知道该加哪个 `net:` host，报告不替它猜）。
+CI 只需读 `driftKind` 与 `summary.exitCode`，不解析人类文本。
 
-**不做的两件事**：不读 `.gitignore` 自己算一份（两份真相），也不因为"忽略"就变红
-（那会把一个合法的部署形态判成错误）。
+**机器出口**：`--json` 是 ngm 自己的 schema；`--format=sarif|github` 走外部 schema，渲染不引入新判定
+（级别跟着阻断语义走、不编造行号、无时间戳与随机 id，两次渲染逐字节相同）。
 
 ---
 
 ## ngm why
 
-> **done (v0.2)**。下面的输出即当前真实行为。同一依赖被多个父节点引入时会列出
-> **全部**路径——"为什么装了它"常常不止一个答案。
+**用途**：回答"我项目里为什么有这个依赖"。同一依赖被多个父节点引入时列出全部路径。
+依赖图写在 lock 里（见 ADR 汇总表 ADR-028），`why` 读 lock 即可回答、不启动 git 子进程；
+旧 lock 没有图时退回重新解析，并明说"重新解析上游清单"。
 
-### 用途
-
-回答："我项目里为什么有这个依赖？"
-
-### 输出
+**输出**：
 
 ```
 github:snap/leaf@v1 (tag) → <sha>
@@ -107,43 +128,23 @@ github:snap/leaf@v1 (tag) → <sha>
   ngm.json → github:snap/parent@v1 → github:snap/leaf@v1
 
 锁定：<sha> (<time>)
-archiveDigest: sha256:<digest>
+archiveDigest: sha256:7f69fa5497bee3a6342b807b9b65014422143ea7ecc65e69526f6fa5f0c96f24
 
 来源：ngm.lock（未重新解析：0 次 git 子进程）
 ```
 
-模块条目的“锁定”段会显示 `moduleDigest`、`subtreeOid` 与 `version`；根条目仍只显示 `archiveDigest`。
-
-> **这一段就是快照**（`cmd/ngm/testdata/why.golden`）：它由 `TestV02ObservabilityGolden`
-> 生成，并由 `TestV17DocOutputExamplesMatchTheGoldens` 与本页**逐行对照**。
-> 改输出就要同时改这两处。本页此前画的是**渲染器从不产生的形状**（树形方块 + `├──`），
-> 而本页开头又声明"输出即当前真实行为"——两张网里，是快照说了算。
-> 末行 `来源：` 是 v0.73 起的：依赖图写进了 lock（[ADR-028](../adr/adr-028-dependency-graph-in-lock.md)），
-> `why` 读 lock 即可回答、**不启动 git 子进程**；旧 lock 没有图时它退回重新解析，
-> 并把那一句换成"重新解析上游清单"——**回退从不懈怠到静默**。
-
-**上界（v0.17，[ADR-024](../adr/adr-024-bounded-explanations.md)）**：
-默认最多枚举 **64** 条路径。达到上界时那一行变成
-
-```
-传递依赖：已列出 64 条（枚举达到上限 64，还有更多未列出；用 --all 展开全部）
-```
-
-`--json` 里对应 `pathsTruncated: true` 与 `pathsLimit: 64`；`--all` 解除上界。
-**为什么**：路径数在图"宽"时是指数的（实测 41 个节点 → 1 048 576 条路径 / 626 MB），
-而图的形状来自**上游的 `ngm.json`**——不是本项目的输入。
+**上界**：默认最多枚举 64 条路径；达到上界时明写"已列出 64 条…用 `--all` 展开"，
+`--json` 对应 `pathsTruncated: true` / `pathsLimit: 64`。路径数在"宽"图里是指数的，而图的形状来自上游清单
+（见 ADR 汇总表 ADR-024）。
 
 ---
 
 ## ngm tree
 
-> **done (v0.2)**。`⚠`（漂移）默认就有；`✗`（已知漏洞）需要显式 `--osv`。
->
-> 这条是对原设计的**刻意偏离**：让"打印一棵树"顺手发起网络查询不合适。
-> 不带 `--osv` 时报告会明写"未查询漏洞数据"——把"没查"说成"查过没事"
-> 是这类工具最容易骗人的地方。
+**用途**：依赖树可视化。`⚠` 标记漂移，`↺` 标记环（`cycle, not expanded`），`…` 标记展开预算用尽。
+`✗`（已知漏洞）需显式 `--osv`——"打印一棵树"不该顺手触网；不带它时报告明写"未查询漏洞数据"。
 
-### 输出
+**输出**：
 
 ```
 github.com:my-org/app
@@ -154,292 +155,65 @@ source: ngm.lock (requiredBy graph; no re-resolution)
 vulnerability data not consulted; run `ngm audit` (or `ngm tree --osv`)
 ```
 
-> 与 why 一样，**这一段就是快照**（`cmd/ngm/testdata/tree.golden`），
-> 由 `TestV17DocOutputExamplesMatchTheGoldens` 逐行对照。
->
-> `--osv` 查到漏洞时（退出码 1），树末追加一行以 `→` 开头的**下一步**：
-> 树只画 `✗` 与**条数**，而"哪条公告、严重度多少、修复在哪个版本"在 `ngm audit` 的报告里——
-> 不指过去，用户只被告知"有事"，不知道"做什么"（v0.32 修）。
-> 层级由**缩进**体现（子节点前缀 `│   `）——本页此前画的是 `├──`/`└──` 方框，
-> 那是渲染器从不产生的形状。
-
-`⚠` 标记有漂移的 ref；`↺` 标记环（`cycle, not expanded`）；
-`…` 标记展开预算在此用尽（见下）。
-
-**上界（v0.17，[ADR-024](../adr/adr-024-bounded-explanations.md)）**：
-默认最多展开 **4096** 个条目。达到时报告末尾写明
-
-```
-（展开达到上限 4096，树不完整；用 --all 展开全部）
-```
-
-停止处的条目带 `… 此处达到展开上限（还有子节点未列出）`；`--json` 里对应
-`entriesTruncated` / `entriesLimit`（以及该条目上的 `truncated`）。`--all` 解除上界。
-**为什么**：树是**按路径展开**的，条目数与 why 的路径数是同一个量级（同一实测），
-而它还要把每条路径渲染出来。
+**上界**：默认最多展开 4096 个条目；达到时末尾明写"树不完整；用 `--all` 展开"，
+`--json` 对应 `entriesTruncated` / `entriesLimit`。树按路径展开，条目数与 why 的路径数同量级（见 ADR 汇总表 ADR-024）。
 
 ---
 
 ## ngm outdated
 
-> **done (v0.2)**。一条硬纪律：**查不到就报 `unknown`，绝不写"已是最新"**。
-> 因此 `--offline` 下的 branch 依赖是 `unknown` 而不是 `no`——"不知道"
-> 与"查过，确实没有"是两种结论，报告刻意把它们分开。
->
-> **v0.12 起**，`unknown` 的行下会打印**原因**（此前原因只存在于 `--json` 的 `note` 字段里，
-> 于是默认输出只告诉用户"我不知道"、不告诉他该去修什么）；同时 `--offline` **不再触网**：
-> 冷 mirror 时报"没有本地镜像"，而不是退化成一次 clone（那样既违反 `--offline` 的契约，
-> 又会把报错引向"mirror 不可用"这个错误的方向）。
+**用途**：检查哪些依赖有新版本。
 
-### 用途
+**硬纪律**：查不到就报 `unknown`，绝不写"已是最新"。"不知道"与"查过，确实没有"是两种结论；
+`--offline` 下的 branch 依赖是 `unknown` 而不是 `no`，且离线不退化成一次 clone。
 
-检查哪些依赖有新版本可用。
-
-### 实现
-
-- tag refType：列举**本地 mirror** 中的 tag，取最新（semver 优先，无可解析 semver 时按 tag 创建时间）。
-  **不依赖 Git host API**——ngm 是 Git 直连（[ADR-002](../adr/adr-002-git-direct.md)），
-  走 host API 会引入 rate limit 与平台差异，而 mirror 里的 tag 列表就是权威
-- 模块条目：只在该模块的 `<subPath>/` tag 前缀里选最新；没有自己的 tag 时标 `unknown`，
-  **绝不**拿兄弟模块的 tag 当最新；人类输出显示 `name#subPath`
-- branch refType：需要 fetch 才能知道最新 tip，并与 lock 对比、给出落后提交数
-- commit refType：无更新（已锁定）
-
-### 输出
-
-```
-$ ngm outdated
-
-Package                Current    Latest     Type   Drift
-github:org/A          v2.0.0     v2.1.0     tag    yes
-github:org/utils      v1.2.3     v1.3.0     tag    yes
-github:org/logger     main       main       branch yes (3 commits)
-github:org/legacy     abc123d    -          commit no
-github:org/offline    v1.0.0     -          tag    unknown
-  → --offline: no local mirror for github.com/org/offline
-```
+**实现**：tag 依赖只读本地 mirror 的 tag 列表（不依赖 Git host API，见 ADR 汇总表 ADR-002）；
+模块条目只在该模块的 tag 前缀里选最新；branch 需要 fetch 才知道最新 tip；commit 无更新。
 
 ---
 
 ## ngm audit
 
-### 用途
+**用途**：按 lock 中的 commit 查询 OSV.dev 的已知漏洞（不是按版本——"版本没变、commit 变了"正是投毒常见形态）。
 
-已知漏洞扫描（OSV.dev）。
-
-### 输出
-
-```
-$ ngm audit
-
-✗ github:org/utils@v1.2.3 (tag) → abc123def
-  HIGH: Prototype pollution (GHSA-xxxx-xxxx)
-  Fixed in: v1.2.4
-
-⚠ github:org/logger@main (branch) → def456abc
-  MEDIUM: ReDoS in parser (GHSA-yyyy-yyyy-yyyy)
-  Fixed in: v2.0.1
-  → no fixed version is recorded for this advisory: read https://osv.dev/vulnerability/GHSA-yyyy-yyyy-yyyy, or record the acceptance via supplyChain.osvIgnoreSeverities in ngm.json
-```
-
-**每一条发现项都要有一行"接下来做什么"**（v0.32 起）：
-
-- 公告记录了修复版本 ⇒ `Fixed in: <版本>`
-- 公告**没有**记录修复版本 ⇒ 以 `→` 开头的一行，给出两条真实的路：读公告，或**明确**把该严重度记进
-  `supplyChain.osvIgnoreSeverities`（不是"忽略"，是"记录下来"——它仍会被计入报告里的 ignored 条数）
-
-> 为什么值得单列一条：修复版本**没有**被记录在 OSV 里是常见情形，而此前这种发现项只报"有什么"、
-> 不说"怎么办"——用户看到"1 个 HIGH、退 1"，却没有任何可做的事。
-
-详见 [供应链防护](./supply-chain.md)。
+**失败语义**：发现超阈值漏洞 → exit 1；配置/策略错误 → exit 3；OSV 网络失败且无缓存 → exit 4。
+每条发现项都必须有一行"接下来做什么"：公告有修复版本就写 `Fixed in: <版本>`；没有就给两条真实的路
+（读公告，或**明确**把该严重度记进 `supplyChain.osvIgnoreSeverities`——是"记录下来"，仍计入 ignored 条数）。
+"审计通过"只表示库里没有关于这个 commit 的记录，不等于安全。详见[供应链防护](./supply-chain.md)。
 
 ---
 
-## ngm verify
+## ngm doctor
 
-### 用途
+**诊断型命令**：只回答"这台机器、这个目录现在能不能正常干活"。发现写进报告，命令恒退 0（用法错误退 3）。
 
-检查 ref 是否仍指向锁定 commit，digest 是否可本地重放一致。
+| 检查 | 读数 | 什么时候值得看 |
+|------|------|----------------|
+| `git` | 可执行文件与版本 | 版本过低或不在 PATH，后续失败都会像网络问题 |
+| `project` | `ngm.json` 的 name / version | 读不出来 ⇒ 其余每项都不可信 |
+| `lock` | 依赖条数 | 缺 lock 是 warn：还没装过，不是坏了 |
+| `layout` / `store` | `~/.ngm` 是否存在 / 三层仓库数 | install 会创建；条数与 `ngm store usage` 同口径 |
+| `vendor` | `present` / `ignored-by-git` / `absent` | 见下 |
+| `modules` | 嵌套模块条数 | 集合仓库 `modules validate` 前的快速体检 |
 
-### 退出码
-
-| 退出码 | 含义 |
-|--------|------|
-| `0` | 全部匹配，或仅有"预期更新"（branch 前进；`--strict` 时升级为 1） |
-| `1` | 非预期漂移（tag 重打 / commit 改写；`--allow-drift` 可降级为 0） |
-| `2` | digest 重放不匹配（严重事件）；`--sandbox` 下依赖自检脚本失败/超时；`--require-signed` 下某个依赖不是由**你信任的密钥**签名的 |
-| `3` | 配置/策略错误 |
-| `4` | Git 网络/操作失败（含 `--offline` 资源缺失） |
-| `5` | `--sandbox` 要求跑依赖自带的脚本，而 Deno 缺失或过旧（**不降级**为非沙箱执行） |
-
-**同时出现时（v0.105，[ADR-039](../adr/adr-039-exit-code-precedence.md)）**：
-`2` **压过** `4`。一个依赖可以同时"landing 已确证被改"（critical）与"ref 检查撞上网络失败"
-（`Err`），分属不同依赖时也一样。原实现是 4 优先，理由写作"不完整的校验不得被读作完整性结论"——
-那条理由排除的是 0/1，不包括 2；而 4 的语义是"资源缺失、**可重试**"，于是 CI 会把
-已证明被篡改的树当成一次网络抖动去重试，**构建从未被阻断**。
-
-### 检查层次与开关
-
-| 检查 | 内容 | 默认 |
-|------|------|------|
-| ref → commit | 重新解析 refType，对比 lock | ✓（在线读**远端 ref 广播**；`--offline` 用本地 mirror 快照并标 stale） |
-| binding | 模块条目：`commit:subPath` 的 tree OID 对比 `subtreeOid` | ✓（模块条目；本地、可离线） |
-| digest 重放 | 根条目重放 `archiveDigest`；模块条目重放 `moduleDigest` | ✓（本地、可离线） |
-| 落地完整性 | vendor 与 content store 的存在性/链接校验 | ✓ |
-| 逐文件哈希 | `--content`（旧别名 `--deep`）追加：全量校验 vendor 文件字节 | ✗ |
-| 签名 | `--signatures` 追加：报告锁定 commit（commit 未签时再看它来源的 tag）的 Git 签名状态。判定用**用户自己的**密钥配置，ngm 不管理密钥 | ✗（默认不查：每个依赖一到两次 git 子进程，而 verify 的主要成本就是 spawn） |
-
-**`checks[]` 不会因为跳过而变短（v0.107）**：每一项检查都有记录，
-"没做"记为 `status: fail` + `operational: true` + `detail: "not attempted: …"`。
-此前 ref 检查操作性失败时，digest 检查被整块跳过且**不留记录**——脚本读到的数组
-凭空少一项，而"少了一项"与"那一项通过了"在数据上无法区分。
-
-### 另两个机器出口：`--format=sarif|github`（v0.105）
-
-`--json` 是 **ngm 自己的** schema；`--format` 是**别人的** schema。两者是
-**同一条通道的两种写法**，同时给出会 exit 3（"猜一个比报错更糟"）。
-
-| 取值 | 消费者 | 形态 |
-|------|--------|------|
-| `sarif` | GitHub code scanning / 任何 SARIF 查看器 | SARIF 2.1.0 单 run；每条**失败检查**一条 result；规则表固定 6 条 |
-| `github` | GitHub Actions | 每行一条 workflow command：`::error` / `::warning` / `::notice`，无需额外权限 |
-
-三条纪律（**渲染不引入新判定**）：
-
-- **级别跟着阻断语义走**：`critical` / `unexpected` → `error`；`expected` 与
-  "检查未能完成" → `warning`。这与退出码表同源，不是另一套判断。
-- **不编造位置**：不发 region / startLine。ngm 不知道行号，而写一个 `line: 1`
-  会让 GitHub 把每条注解钉在文件第一行——那比没有位置更糟。
-- **确定性**：无时间戳、无随机 id，同一份报告两次渲染逐字节相同。
-
-`github` 格式对 `%` / `\r` / `\n` 做转义（`%25` / `%0D` / `%0A`）：消息里带换行时
-不转义会让后半句变成**一条新的命令**，而消息里的依赖名来自 lock，可以是任何字符串。
-
-没有产出报告时（lock 损坏、配置缺失）stdout **仍然为空**，错误走 stderr——
-SARIF 没有"我没有报告"这种表达方式，半份 SARIF 比空更糟。
-
-**对过官方 schema（2026-10-30，一次性外部校验）**：用
-`https://json.schemastore.org/sarif-2.1.0.json` 与 `ajv` 校验两份真实输出——
-全绿时（`results: 0`，6 条规则）与有一个 landing 失败时
-（`results: 1`、`level: error`、`ruleId: ngm/landing-integrity`、无 region）——
-**都 VALID**。
-
-这不是 CI 判据，也刻意不做成判据：它需要联网取 schema + 一个 JS 校验器，
-而"测试不依赖公网"是本仓库的硬规矩。它是**证据**，不是守卫——
-所以这条读数会随时间变旧。真要自动化，代价是在 CI 里引入 schema 校验器
-与一份随上游漂移的外部文件；当前收益不足以付这个代价。
-
-### 另外两个机器出口：SBOM 与证明（同样的外部校验，2026-10-30）
-
-同一套办法（官方 schema + `ajv`）验了 `ngm sbom` 的两份产物：
-
-| 产物 | schema | 结果 |
-|------|--------|------|
-| `ngm sbom --format=cyclonedx` | `CycloneDX/specification` 的 `bom-1.5.schema.json`（含它引用的 `spdx.schema.json` / `jsf-0.82.schema.json` 子 schema） | **VALID** |
-| `ngm sbom --format=spdx` | `spdx/spdx-spec` 的 `v2.3/schemas/spdx-schema.json` | **VALID** |
-
-**没验的那一份，以及为什么**：`ngm attest` 的 `predicateType` 是
-`https://slsa.dev/provenance/v1`，而 SLSA v1 的 JSON Schema 在它文档给出的路径上
-取不到（`in-toto/attestation` 与 `slsa-framework/slsa` 的 raw 与 jsDelivr **都是 404**，
-两个仓库都挪过目录）。自己凭记忆写一份 schema 去校验自己的产物，等于自证——
-那比不验更坏，因为它会给出一个"已验证"的错觉。
-
-这条留到**出现第一个消费方**时一起做（与 `attest --sign` 同一条启动条件）：
-到那时才有真实的校验路径可对齐，而不是我对规范的理解。
-
-### 输出
-
-```
-$ ngm verify
-
-✓ github:org/A@v2.0.0 (tag) → fedcba9 — match
-✓ github:org/utils@v1.2.3 (tag) → abc123d — match
-⚠ github:org/logger@main (branch) → def456a (now 789xyz0) — expected update
-    ref: branch main advanced: def456a → 789xyz0 (fast-forward)
-  → driftKind: expected; expected update, not blocking; run `ngm update github:org/logger`
-✗ github:org/legacy@v0.9.0 (tag) → 123abc4 — integrity failure
-    landing: content store digest mismatch: the installed tree hashes to sha256:51d4433… but ngm.lock says sha256:9f86d08…
-
-verified 4 dependency(ies): 2 ok, 1 expected, 1 critical (exit 2)
-```
-
-> `tree` 在 v0.102 起会在输出末尾写一行 `source: ngm.lock (requiredBy graph; no re-resolution)`
->（旧 lock 回退解析时写 `source: ngm.json (…re-resolved from the local mirror)`）。
-> 若本地 mirror 不足以比对漂移，还会写一行 `note: drift was not checked for N dependency(ies): …`，
-> 而不是静默把"没查"读成"没漂移"。
-
-细节：
-
-- 符号语义：`✓` 通过、`⚠` 预期更新、`✗` 非预期漂移或完整性失败
-- **每一类失败都要有 `→` 行**（v0.32 起，v0.34 补齐最后一支）：可分类的漂移写
-  `→ driftKind: <kind>; <建议>`；**检查未能完成**（mirror 不在 / 网络被权限拒）时没有可分类的漂移，
-  就只写 `→ <建议>`——这一支曾经被渲染的门整块吞掉（建议算好了却没送到用户眼前）
-- **建议要承认失败的形状**（v0.34）：因漂移失败指向 `ngm update`、因字节被改失败指向
-  `ngm install`、因漏洞失败指向 `ngm audit`——**而不是随便一个真实存在的命令**
-- **建议要承认成因**（v0.35）："检查未能完成"这一支覆盖两种**成因完全不同**的失败——
-  mirror 不在（⇒ 跑一次在线，或 `ngm install`）与网络被**策略**拒（⇒ 往 `permissions.allow`
-  里加那个 host）。后者由**权限层自己**给出（它知道该改哪个键、哪个 host），
-  报告原样透传：**最贴近成因的那一层最知道该怎么办**，`remediationFor` 猜不出来
-- 通过的检查不展开；只有**未通过**的检查才输出其 `check: detail` 行（信息密度留给行动依据）
-- `--offline` 时依赖行带 `[stale]`，并在末尾注明"refs were compared against the local mirror snapshot"
-- `--json` 输出同一份判定的机器可读形式（`dependencies[].checks[]` + `summary.exitCode`），
-  CI 只需读 `driftKind` 与 `summary.exitCode`，**不应**解析上述人类文本
-
-### "预期更新" vs "非预期漂移"
-
-两者在外部现象上完全相同（ref 指向了别的 commit），区别只在**新旧 commit 的祖先关系**，
-因此 `verify` 用 `git merge-base --is-ancestor` 判定：
-
-| 场景 | 性质 | driftKind | verify 行为 |
-|------|------|-----------|------------|
-| branch 快进（旧 commit 是新 commit 的祖先） | 预期更新 | `expected` | 告警输出，exit 0（`--strict` 时 exit 1），提示可 update |
-| branch 非快进（历史被改写 / force push） | 非预期漂移 | `unexpected` | 告警，exit 1，需人工确认（`--allow-drift` 可降级为 0） |
-| tag 被重打 | 非预期漂移 | `unexpected` | 同上（tag 的语义就是不可变） |
-| 声明的 ref 在上游消失（删除 / 改名） | 非预期漂移 | `unexpected` | 同上 |
-| **问不到**（网络失败 / 权限被拒 / mirror 缺失） | **不是结论** | 空 | `operational: true`，exit 4；`details` 里保留成因原文 |
-| digest 重放不匹配 | 严重事件 | `critical` | 阻断，exit 2，禁止构建（`--allow-drift` **不**降级） |
-| 落地内容与 content store 不一致 | 严重事件 | `critical` | 阻断，exit 2（`--content` 追加逐文件字节比对；旧别名 `--deep`） |
-
-> **无法证明快进时按 `unexpected` 处理**：祖先关系查不出来（对象缺失等）时，把结果当成快进
-> 会让一次 force push 悄悄通过门禁。保守方向是明确的取舍，不是遗漏。
-
-> **"没问到"不许冒充漂移（v0.112）**：上表倒数第三行与"问不到"曾经被混为一谈。
-> `refResolveFailure` 用的是**白名单**——只有 `CodeGitFetch` 算"没问到"，其余一律算
-> "ref 没了"；而权限拒绝是 `CodeConfigInvalid`，于是实测出现过
-> `detail: tag "…" can no longer be resolved: permission denied: net:gitee.com`
-> 配 `driftKind: unexpected`（exit 1）。CI 的读数是"上游漂了，去改 lock"，
-> 而真相是"补一条 `net:` 权限"。
->
-> 现在只看**问到没有**：`resolve.IsRefNotFound(err)` 才是漂移结论，其余（含任何
-> 我们没预料到的解析失败）都是 `operational`。默认方向倒向"没查到"，
-> 因为**漂移是一个判断，而判断需要证据**；与 `TagSignature` 那条（把执行失败
-> 说成签名结论）是同一条纪律。
+**vendor 读数只是读数**：随仓库分发（必须提交）与由 `.gitignore` 排除（CI 现场装）都合法；ngm 不替用户选，
+也不执行任何 Git 写操作（见 ADR 汇总表 ADR-038）。错的只有"打算分发、却被 Git 忽略"——它的表现极具误导性
+（冷克隆 CI 在 `install --frozen-lockfile --offline` 处 exit 4，报告只说"缺内容"），所以 doctor 用 `warn` 说出来。
 
 ---
 
 ## 诚实说明
 
-1. **ngm outdated 的 branch 需要 fetch**：tag 判定只读本地 mirror（不触网），但 branch 的最新 tip
-   必须 fetch 才拿得到；离线时报 `unknown`（**不是**"已是最新"）
-2. **ngm audit 依赖 OSV.dev**：零日漏洞不在数据库中；多数公告按 semver 记录而非 commit
-3. **verify 的签名检查（`--signatures` / `--require-signed`）**：
-   **未签名不是失败**——绝大多数依赖没有签名，把它当错误会让 verify 对所有人变红，
-   而假警报会让真的警报失效。要门槛的人自己开 `--require-signed`（exit 2）。
-   判定完全交给**用户自己的** Git 密钥配置（GPG keyring / `gpg.ssh.allowedSignersFile`）：
-   ngm 不管理密钥、不分发密钥、不发明签名格式（[ADR-014](../adr/adr-014-self-report-signatures.md)）。
-   它报告的是"这份代码由谁签名"这一事实，**不是**"这份代码安全"——签名证明"谁说的"，
-   不证明"说的是真的"。
-   覆盖范围：锁定 commit 的签名；commit 未签且声明是 tag 时，再看那个 tag 的签名
-   （多数项目只签 tag，不签每个 commit）。轻量 tag 无法携带签名，此时只会报 commit 的结论。
-4. **verify 的网络依赖（在线）**：ref 判定只读一次**远端 ref 广播**（`ls-remote`，不传输对象）；
-   **对象按需才取**——只有 ref 已变（判性质需要祖先关系）或 lock 的 commit 不在本地时才 fetch。
-   因此"什么都没变"的常见路径**完全不 fetch**（[ADR-010](../adr/adr-010-online-verify-fetch-policy.md)）。
-   `--offline` 用本地 mirror 快照（缺失时 exit 4），digest 重放本身完全本地。
-
----
+1. `outdated` 的 branch 需要 fetch；离线时报 `unknown`，不是"已是最新"
+2. `audit` 依赖 OSV.dev：零日不在库中；多数公告按 semver 而非 commit 记录
+3. 签名检查里**未签名不是失败**（多数依赖没签名，全报红会让真警报失效）；判定完全交给用户自己的 Git 密钥配置，
+   ngm 不管理密钥。签名证明"谁说的"，不证明"说的是真的"（见 ADR 汇总表 ADR-014）
+4. verify 在线只读一次远端 ref 广播，对象按需才取；`--offline` 用本地 mirror 快照（缺失 exit 4），digest 重放完全本地
+5. `ngm run` 透传脚本退出码，不参与 0–6 与 `retryable` 判定
 
 ## 相关文档
 
-- [供应链防护](./supply-chain.md)
-- [信任模型](./trust-model.md)
+- [架构总览](./overview.md)
 - [锁定机制](./locking.md)
+- [供应链防护](./supply-chain.md)
+- [ADR 汇总表](../adr/README.md)

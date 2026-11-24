@@ -34,7 +34,6 @@ func livingDocs(t *testing.T) []string {
 	for _, g := range []string{
 		"../../docs/guides/*.md",
 		"../../docs/architecture/*.md",
-		"../../docs/modules/*.md",
 		"../../docs/internals/*.md",
 	} {
 		m, err := filepath.Glob(g)

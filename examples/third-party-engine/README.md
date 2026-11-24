@@ -1,6 +1,6 @@
 # third-party-engine 示例
 
-一个完全自足的外部引擎样例：项目自带引擎清单与一个最小 subprocess 脚本，证明协议不依赖任何预置引擎。权威契约只有一个：[P4 — 生态与协议](../../docs/modules/p4-ecosystem.md)；本文只给最短上手命令。
+一个完全自足的外部引擎样例：项目自带引擎清单与一个最小 subprocess 脚本，证明协议不依赖任何预置引擎。权威契约只有一个：[P4 — 生态与协议](../../docs/architecture/engine-adapter.md)；本文只给最短上手命令。
 
 ## 命令序列
 
@@ -23,4 +23,4 @@ ngm build --engine=thirdparty-bundle --outfile=dist/index.js
 
 ## 边界
 
-脚本只演示协议，不做打包/压缩；它不写 `ngm.lock`，也不把证明当成产物认证。要接入真正的工具，照 [P4 用户自定义引擎](../../docs/modules/p4-ecosystem.md#用户自定义引擎) 替换 `command` 即可。
+脚本只演示协议，不做打包/压缩；它不写 `ngm.lock`，也不把证明当成产物认证。要接入真正的工具，照 [P4 用户自定义引擎](../../docs/architecture/engine-adapter.md) 替换 `command` 即可。

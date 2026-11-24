@@ -1,57 +1,70 @@
 # 快速上手
 
-> 本页的 5 分钟流程（init → add → install → verify → build）可在真实项目上**逐字执行**，
-> 由 CI 的两条验收守护：`TestM7Quickstart`（用受控的**替身引擎**，保证流程本身不被外部工具影响）
-> 与 `TestM7Quickstart_RealToolchain`（用**真实 esbuild**，机器上没装 esbuild 时自动跳过）。
-> 未实现的能力都显式标注了版本号。
+本文是一条可逐字复制的流程：init → add → install → verify → build → sbom。它只依赖两样外部条件：
 
----
+- **Git**（ngm 自己不实现 Git，靠它拉仓库与重放对象）；
+- **外部构建引擎**（下面用 esbuild；装成全局命令或装在项目里，缺了 ngm 返回 exit 5，不会静默产出空文件）。
 
-## 5 分钟上手
+需要 Node.js 还是 Deno 由你的项目决定，ngm 不替你选运行时。
 
-### 1. 初始化项目
+## 1. 初始化
 
 ```bash
-# Node.js 项目
 ngm init github.com/my-org/my-app --runtime=node
-
-# Deno 项目
-ngm init github.com/my-org/my-app --runtime=deno
 ```
 
-生成：
+生成 `ngm.json` 与 `src/index.ts`（入口已存在时不覆盖）。`--runtime` 只接受 `node` / `deno`；目录里已有 `ngm.json` 时返回 exit 3。
 
-```
-my-app/
-├── ngm.json
-├── src/
-│   └── index.ts
-└── ngm.vendor/   （install 后生成）
+`ngm.json` 的关键字段：
+
+```json
+{
+  "schemaVersion": 3,
+  "name": "github.com/my-org/my-app",
+  "version": "0.1.0",
+  "runtime": "node",
+  "main": "./src/index.ts",
+  "dependencies": [],
+  "engines": { "transform": "esbuild", "bundle": "esbuild" },
+  "vendor": { "mode": "local", "linkMode": "auto" }
+}
 ```
 
-### 2. 添加依赖
+`schemaVersion` 必须是 3；`vendor.mode` 默认 `local`，依赖落在项目的 `ngm.vendor/`。
+
+## 2. 添加依赖
 
 ```bash
-# tag 依赖
-ngm add github:my-org/utils@v1.2.3 --ref-type tag
+# tag：解析为 tag 当前指向的 commit
+ngm add github:my-org/utils@v1.2.3 --ref-type=tag
 
-# branch 依赖
-ngm add github:my-org/logger@main --ref-type branch
+# branch：解析为分支当前 tip
+ngm add github:my-org/logger@main --ref-type=branch
 
-# commit 依赖
-ngm add github:my-org/legacy@abc123def --ref-type commit
+# 完整 40 位 commit：refType 可省略
+ngm add github:my-org/legacy@5b28ce4d1a2b3c4d5e6f708192a3b4c5d6e7f809
+
+# monorepo 子路径
+ngm add github:my-org/monorepo@v2.0.0 --ref-type=tag --path=packages/core
+
+# 只打印结果，不写文件
+ngm add github:my-org/utils@v1.2.3 --ref-type=tag --dry-run
 ```
 
-`--ref-type` 通常必填，因为 `@main` 无法区分是 tag 还是 branch；只有完整 40 位 commit hash 可以省略。
+`@main` 无法区分"叫 main 的 tag"和"叫 main 的分支"，所以 `refType` 通常必填；完整 40 位 hash 是唯一的窄默认。`ngm add --infer-ref-type` 会用一次远端 `ls-remote` 消歧，两者都存在时报错而不猜。
 
-### 3. 安装（第一次要放行一个主机）
+依赖也可来自本地：`ngm add local:kernel --ref-type=local-dir --source-path=./packages/kernel`，这类来源用目录摘要 `dirDigest` 作锚点，可完全离线。
+
+## 3. 安装
 
 ```bash
+ngm config validate
 ngm install
 ```
 
-**这一步第一次会失败，而且是设计如此**：`net:` 的默认档位是"需配置"——
-既没被 `allow` 也没被 `deny` 的权限按**拒绝**处理。所以第一次会看到：
+流程：解析 refType → commit（或 dirDigest）→ 计算内容 digest → 落地 `ngm.vendor/` → 写 `ngm.lock` 与 `ngm.mappings.json`。
+
+第一次访问远端会失败，这是**默认拒绝**的网络权限：
 
 ```
 ConfigInvalid: permission denied: net:github.com
@@ -59,177 +72,56 @@ ConfigInvalid: permission denied: net:github.com
          paste {"permissions":{"allow":["net:github.com"]}}
 ```
 
-把提示里那个 JSON 落进 `~/.ngm/config.json`（文件不存在就新建；已存在就把
-`allow` 数组里加上这一项），再重跑 `ngm install`。要用多个主机就把它们都列进去，
-漏洞查询用的 `net:api.osv.dev` 也在这套规则里（见[配置详解](./configuration.md#全局配置-ngmconfigjson)）。
+把提示里的 JSON 写进 `~/.ngm/config.json`（文件不存在就新建，已存在就往 `allow` 数组里加一项），再重跑 `ngm install`。漏洞查询另需 `net:api.osv.dev`。
 
-> 为什么默认拒绝：ngm 的卖点是"能证明的东西才落地"，而"默认放行、出事了再收"
-> 与那条卖点相反。代价就是这里必须多一步——所以提示直接给可粘贴的 JSON，
-> 而不是让你自己翻译成配置。
+CI 里用这两个 flag 做门禁：
 
-流程：
-
-```
-解析 refType → commit → archiveDigest → vendor 4 层落地 → 生成 lock
+```bash
+ngm install --frozen-lockfile            # 禁止解析新 ref、改 lock；允许网络
+ngm install --offline                    # 禁止联网，只用本地内容
+ngm install --frozen-lockfile --offline  # 完全离线且可复现（需 lock 已提交）
 ```
 
-> 这几个词（`refType` / `archiveDigest` / `vendor 4 层` / `driftKind`）都有精确定义，
-> 不熟就先翻[术语表](./glossary.md)——每个词都标了出处，不用猜。
-
-### 4. 验证
+## 4. 验证
 
 ```bash
 ngm verify
+ngm verify --content        # 重放 digest + 逐文件字节比对（--deep 是旧别名）
+ngm verify --json           # CI 读 summary.exitCode
+ngm verify --format=github  # PR 注解
 ```
 
-检查 ref 是否仍指向锁定 commit。
+默认只比结构与大小，**等长字节篡改检不出来**；发布门禁用 `--content`。每个依赖的漂移分为 `expected`（分支正常前进）、`unexpected`（tag 被移动等）、`critical`（digest 不符，exit 2）；资源缺失记为 `operational`，exit 4。
 
-### 5. 构建
-
-> **前置条件**：`ngm build` 调用的是**外部**引擎，需要先装 esbuild（`npm i -g esbuild`，或装在项目里）。
-> 没装时 ngm 返回 `exit 5`（引擎不可用）并给出提示，不会静默产出一个空文件。
+## 5. 构建
 
 ```bash
-# 通过 adapter 调 esbuild（内置的 bundle 引擎）
-ngm build --engine=esbuild
-
-# 指定产物；不写 --outfile 时产物走 stdout（与直接跑 esbuild 一致）
-ngm build --outfile=dist/app.js
-
-# 先看看 ngm 究竟会怎么调引擎（只打印，不执行）
-ngm build --dry-run
+ngm build --engine=esbuild --outfile=dist/app.js
+ngm build --dry-run     # 只打印 ngm 会怎么调引擎，不执行
 ```
 
-`ngm build` 会把 `ngm.mappings.json` 的每条映射变成引擎的模块别名，因此
-`import utils from "github:my-org/utils"` 能解析到 `ngm.vendor/` 里那份**可证明**的代码。
+前置：esbuild 已安装，且 `~/.ngm/config.json` 里放行了 `run:esbuild`。`ngm build` 把 `ngm.mappings.json` 的每条映射变成引擎别名，所以 `import utils from "github:my-org/utils"` 能解析到 `ngm.vendor/` 里那份可证明的代码。除此之外它只是对外部引擎的薄封装；构建、压缩、类型检查都不由 ngm 实现。
+
+## 6. 导出审计产物
 
 ```bash
-# 或调 deno —— 已适配，但**需自行声明**（它的 bundle 是 Deno ≥ 2.4 的实验特性，
-# 因此不进内置清单）；声明方法见 ngm.engines.json 与 P4 协议
-# ngm build --engine=deno
+ngm sbom --format=cyclonedx --out=sbom.cdx.json
+ngm attest --out=provenance.intoto.json
 ```
 
----
+两条命令只读 `ngm.lock`：不联网、不重解析、不写项目。lock 与 `ngm.json` 不一致时默认 exit 3、不产出；显式加 `--allow-stale` 才导出。`ngm attest` 的语句**未签名**，签名配方见[签名指南](./signing.md)。
 
-## 完整工作流
+## 提交什么
 
 ```bash
-# 初始化
-ngm init github.com/my-org/my-app --runtime=node
-
-# 添加依赖
-ngm add github:vuejs/core@v3.5.0 --ref-type tag
-ngm add github:my-org/utils@main --ref-type branch
-
-# 安装
-ngm install
-
-# 提交 lock file
-git add ngm.json ngm.lock
+git add ngm.json ngm.lock ngm.mappings.json
 git commit -m "chore: add dependencies"
-
-# CI 安装（不修改 lock，lock 与声明不一致则失败）
-ngm install --frozen-lockfile
-ngm install
-
-# 检查漂移
-ngm verify
-
-# 审计已知漏洞（OSV.dev；结果缓存 24 小时，--offline 时只读缓存）
-ngm audit
-
-# 构建
-ngm build --engine=esbuild
 ```
 
----
+`ngm.vendor/` 是否入库由你决定（离线交付 / 审计门禁时才需要）；ngm 自己从不执行 `git add`。
 
-## ngm.json 最小结构
+## 相关文档
 
-`ngm init` 生成的就是下面这份（逐字取自实际输出）：
-
-```json
-{
-  "schemaVersion": 1,
-  "name": "github.com/my-org/my-app",
-  "version": "0.1.0",
-  "runtime": "node",
-  "main": "./src/index.ts",
-  "dependencies": [],
-  "engines": {
-    "transform": "esbuild",
-    "bundle": "esbuild"
-  },
-  "vendor": {
-    "mode": "local",
-    "linkMode": "auto"
-  }
-}
-```
-
-- `main` 与 `src/index.ts` 一并生成，使 `ngm build` 无需参数即可工作（`ngm init` **不会**覆盖已存在的入口文件）
-- 依赖由 `ngm add` 追加；手写时字段为 `name` / `ref` / `refType`（`refType` **必填**），可选 `path`（monorepo 子目录）
-
-手写一份带依赖的示例：
-
-```json
-{
-  "schemaVersion": 1,
-  "name": "github.com/my-org/my-app",
-  "version": "0.1.0",
-  "runtime": "node",
-  "main": "./src/index.ts",
-  "dependencies": [
-    {
-      "name": "github:my-org/utils",
-      "ref": "v1.2.3",
-      "refType": "tag"
-    },
-    {
-      "name": "github:my-org/logger",
-      "ref": "main",
-      "refType": "branch"
-    }
-  ],
-  "engines": {
-    "transform": "esbuild",
-    "bundle": "esbuild"
-  }
-}
-```
-
-> `typeCheck` / `typeDecl: "typescript"` 自 **v0.2** 起可用（`tsc` 未装时 `exit 5`，且它是
-> `optional` 引擎——"没装"不算清单问题）。声明一个未适配的引擎会得到明确的 `exit 5`
-> （而不是静默跳过）。自行声明 subprocess 引擎的方法见[配置详解](./configuration.md)。
-
----
-
-## ngm.lock 示例
-
-```json
-{
-  "version": 1,
-  "lockfileVersion": "2.0.0",
-  "dependencies": [
-    {
-      "name": "github:my-org/utils",
-      "ref": "v1.2.3",
-      "refType": "tag",
-      "commit": "abc123def4567890abcdef1234567890abcdef12",
-      "archiveDigest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-      "resolvedAt": "2026-09-29T10:00:00Z",
-      "vendorPath": "github.com/my-org/utils",
-      "requiredBy": ["(root)"]
-    }
-  ]
-}
-```
-
----
-
-## 下一步
-
-- [配置详解](./configuration.md)
-- [依赖管理](./dependency-management.md)
-- [构建](./build.md)
-- [Node vs Deno](./node-vs-deno.md)
+- [安装指南](./installation.md) · [CLI 参考](./cli.md) · [配置详解](./configuration.md)
+- [依赖管理](./dependency-management.md) · [构建](./build.md) · [测试](./test.md)
+- [生态定位](./positioning.md) · [术语表](./glossary.md)

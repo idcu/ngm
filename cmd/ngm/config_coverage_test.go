@@ -61,7 +61,7 @@ var fieldWithTag = regexp.MustCompile("(?m)^\\s*([A-Z][A-Za-z0-9]*)\\s+\\S.*?jso
 
 // TestConfigKeysAreExercisedByTests 是"声明了、没接线"那类缺陷的机械化检查。
 //
-// 背景（[v0.3 复盘](../docs/development/v0.3-retrospective.md) §4）：同类缺陷
+// 背景（v0.3 复盘 §4，历史文档已随清理移出工作树）：同类缺陷
 // **连续三个版本**出现——`verifyOnLock`（v0.2）、`permissions`（v0.3 D）、
 // `SubPaths`（v0.3 E）——共同特征都是"字段齐备、注释完整、没有任何地方读它"，
 // 而且全都是靠人工核对才发现的。v0.2 复盘提过"让验收条目成为锚点"，没落地，

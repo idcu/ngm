@@ -27,7 +27,8 @@ import (
 //	NGM_NET_FIXTURES=1 go test ./cmd/ngm -run TestNetFixture -v
 //
 // 夹具仓库在 https://gitee.com/idcu/ngm-fixture-{basic,monorepo,content}，
-// 由 TestV112PushInstructions 生成后人工推送一次（见 docs/internals/remote-fixtures.md）。
+// 由 TestV112PushInstructions 生成并打印推送命令，人工照着推送一次即可；
+// 生成器与 SHA 快照都在本文件（expectedFixtureRefs / TestV112FixtureGeneratorReproducesTheSameSHAs）。
 
 const fixtureOrgURL = "https://gitee.com/idcu/"
 
@@ -67,7 +68,7 @@ func requireNetFixtures(t *testing.T) {
 	t.Helper()
 	if strings.TrimSpace(os.Getenv("NGM_NET_FIXTURES")) != "1" {
 		t.Skip("network fixture test — set NGM_NET_FIXTURES=1; needs gitee.com and the " +
-			"three ngm-fixture-* repositories (see docs/internals/remote-fixtures.md)")
+			"three ngm-fixture-* repositories (push instructions: TestV112PushInstructions)")
 	}
 	if testing.Short() {
 		t.Skip("network fixture test skipped in -short mode")
@@ -206,8 +207,8 @@ func TestNetFixturesHaveNotBeenRewritten(t *testing.T) {
 			}
 			if gotSHA != wantSHA {
 				t.Errorf("%s: %s = %s, want %s — the fixture was rewritten.\n"+
-					"    Either restore it, or regenerate and update BOTH this table and\n"+
-					"    docs/internals/remote-fixtures.md in the same commit: a fixture whose\n"+
+					"    Either restore it, or regenerate with TestV112PushInstructions and update\n"+
+					"    expectedFixtureRefs in this file in the same commit: a fixture whose\n"+
 					"    recorded SHA is stale turns every downstream failure into a mystery.",
 					repo, ref, gotSHA, wantSHA)
 			}

@@ -1,393 +1,135 @@
 # 安全模型
 
-## 核心问题
-
-> 依赖管理器本身也可能成为攻击面。ngm 如何处理"不可信代码"？
-
----
-
-## 威胁模型
-
-| 威胁 | 描述 | ngm 的防护 |
-|------|------|-----------|
-| 恶意 Git 仓库 | 依赖的 postinstall 脚本执行恶意代码 | `postInstallPolicy: deny` |
-| 传递依赖引入未授权仓库 | 攻击者诱导引入近似名/未审批仓库 | allowlistRepos 对传递依赖同样生效 |
-| typosquatting | 近似名称的恶意仓库 | allowlistRepos |
-| 供应链投毒 | 依赖被植入后门 | OSV.dev + minimumReleaseAge |
-| 内容篡改/损坏 | 本地内容树被篡改或损坏 | archiveDigest 本地重放校验 |
-| ref 漂移 | tag 重打 / branch 移动 | verify |
-| token 泄露 | Git 凭证被恶意依赖读取 | 权限隔离 |
+> **结论**：ngm 对"不可信代码"的答案是默认拒绝、显式授权、边界可审计。
+> 所有会触网、起子进程、读凭证的地方都收束到少数几个施加点；每个拒绝都是 exit 3 且**未发起动作**。
 
 ---
 
-## 权限模型（借鉴 Deno）
+## 威胁与边界
 
-Deno 的 default-deny 权限模型：
+| 威胁 | 防护 |
+|------|------|
+| 恶意 Git 仓库的 postinstall 脚本 | `postInstallPolicy: deny` 默认；`allow` 也只在 Deno 沙箱内 |
+| typosquatting / 未授权传递依赖 | `allowlistRepos` / `allowedGitHosts` 对传递依赖同样生效 |
+| 供应链投毒 | OSV + `minimumReleaseAge`，绑 commit 而非 tag/branch |
+| 内容篡改 / ref 漂移 | digest 本地重放 + verify |
+| 参数被环境偷换 | 子进程环境剔除注入变量 + 远端地址形状校验 + lock 路径安全校验 |
+| 凭证泄露 | 只透传不落盘；输出脱敏；沙箱内不可读 |
 
-```bash
-deno run \
-  --allow-net=github.com \
-  --allow-read=$NGM_VENDOR \
-  --allow-run=git \
-  --deny-run=npm \
-  script.ts
-```
-
-ngm 把这套思路映射到自己的操作：
-
-| ngm 操作 | 对应权限 | 默认 |
-|---------|---------|------|
-| 读项目文件 | `read:$PROJECT` | 允许 |
-| 写 vendor/ | `write:$PROJECT/ngm.vendor` | 允许 |
-| 写 lock file | `write:$PROJECT/ngm.lock` | 允许 |
-| 网络（Git fetch） | `net:github.com,gitee.com` | 需配置 |
-| 执行 git | `run:git` | 允许 |
-| 执行引擎 | `run:esbuild,tsc,deno,postcss` | 需配置 |
-| 执行**项目脚本**（`ngm run`） | `run:script` | 需配置（默认拒绝） |
-| 读 Git 凭证 | `env:GITHUB_TOKEN` / `ssh-agent` | 见下方成熟度说明 |
-| 执行依赖的 postinstall | `run:node` | **默认禁止** |
-
-> **两套闸门，不要混在一起**：`ngm run` 执行的是**你自己写的项目脚本**，它在
-> **ngm 沙箱之外**运行（继承调用者的环境与文件系统权限），因此用一条独立的
-> `run:script` 授权；install 期依赖的 `postinstall` 则是**别人的代码**，由
-> `supplyChain.postInstallPolicy` 控制，且即使 `allow` 也只在**沙箱内**执行。
-> 前者不能用后者放行，后者也不会因为 `run:script` 被允许而执行。
-
-> **成熟度（v0.3 D 组）**：上表已**实际施加**，不再是规划。
-> `~/.ngm/config.json` 的 `permissions` 段此前只被解析、从不生效——写下
-> `"deny": ["env:GITHUB_TOKEN"]` 不会阻止任何事，现在它会。
->
-> **这是一处会影响既有项目的行为变化**：`net:` 与 `run:` 的默认档位是"需配置"，
-> 因此升级后第一次访问远端会以 `exit 3` 结束，并在提示里给出要加的那一行：
->
-> ```json
-> { "permissions": { "allow": ["net:github.com", "net:gitee.com", "run:esbuild"] } }
-> ```
->
-> 本地 mirror（本地路径 / `file://`）**不是网络访问**，不需要 `net:` 权限——
-> 离线安装与 CI 预置镜像的场景不受影响。
-
-### 施加点
-
-每个 ngm 会请求权限的地方都列在这里；新增门禁必须同时更新本表，
-否则"哪些地方有门禁"就只能靠读代码回答。
-
-| 权限 | 施加点 | 拒绝时的表现 |
-|------|--------|-------------|
-| `net:<host>` | ①`vendor.Mirror.Ensure`（clone / fetch 的唯一出口）与 `resolve` 的 `ls-remote`；②ngm 自己的 **HTTP 出口**（OSV 查询：`ngm audit` / `ngm tree --osv`，主机取自**实际端点**，产品端点是 `api.osv.dev`） | `exit 3`，**未发起任何网络请求** |
-| `run:git` | **git 包唯一的子进程构造点** `newGitCommand`——三个出口（`Run` / `RunAllowFailure` / `CatFileBatch`）共用它 | `exit 3`，git 从未启动 |
-| `env:<NAME>` | 四个施加点：①git 子进程（`buildEnv`）；②引擎子进程（`adapter` 的 `envutil.Without`）；③Deno 沙箱（`--allow-env` / `--deny-env`）；④`ngm run` 的脚本子进程（`runscript.ChildEnv`，v0.135 补上） | 变量从子进程环境里被**剔除**，ngm 仍不读取它的值；ngm 自己的 lifecycle 契约变量（PATH、`npm_lifecycle_*`、`INIT_CWD`）不受 deny 治理——它们不是继承来的状态 |
-| `read:` / `write:` | **裁决（v0.5 C 组）：不在 ngm 自身路径上施加，仅在沙箱内**（`read:` 按依赖子树授予、`write:` 恒不授予）。两者默认允许，而"读项目、写 vendor 与 lock"本就是 ngm 的职能——没有需要拦下的场景 | — |
-| `run:<引擎>` | `adapter.Runner` 的 preflight（**排在能力与可用性之后**），以及**所有探测路径**共用的 `Catalog.Probe`（`engines list` / `engines validate` / 版本探测）；判定对象是**解析后的文件身份**（`internal/runid`），项目内文件与路径形式声明必须用路径授权 | `exit 3`，引擎从未启动｜引擎未安装时仍是 `exit 5` |
-
-> **v0.5 C 组的更正**：上一版的 `run:git` 那行写的是"`git.Run`（**所有** git 子进程的出口）"。
-> 那句话**是错的**——包里当时有三个各自 `exec` 的地方，其中两个
-> （`RunAllowFailure`：`cat-file -e` / `merge-base --is-ancestor`；`CatFileBatch`：digest 重放）
-> **没有门禁**。也就是说写下 `deny: ["run:git"]` 的用户，在探测与 digest 重放这两条路径上
-> 仍然会执行 git。发现方式不是读代码，而是**先装子进程计数器、再对着它写断言**：
-> `TestSpawn_GateOnEveryExit` 当场报出 `deny run:git must refuse this path` 与 `spawned 1`。
->
-> 处置：三个出口收进同一个构造点（门禁与计数都只在那儿），
-> 并由 `TestSpawn_OnlyOneFileBuildsProcesses` 机械地守住"没有第二个地方构造进程"；
-> 另由 `internal/security/enforcement_test.go` 守住"每个命名空间都有施加点、有断言、且本表提到它"。
-> **本表从此不再靠人记得更新**：新增命名空间却不登记，那条检查会红。
->
-> **v0.5 C 组的第二处缺口**：`net:` 那行当时只列了 git 的两处，而 ngm 还有自己的
-> HTTP 客户端——**OSV 查询此前直连 `api.osv.dev`，一个门禁调用都没有**。
-> 于是写着 `allow: ["net:github.com"]` 的用户，`ngm audit` 照样会连上另一个主机；
-> 同一个配置文件，`ngm install` 会 `exit 3` 而 `ngm audit` 不会。
-> 处置：判定放进 `queryRemote`（**只有它知道最终主机**），并在发起请求前执行；
-> 命中缓存与 `--offline` 不碰网络，因此都不需要这条权限。
-> 守它的是 `TestV05AuditNeedsNetPermission`（不授权 → exit 3 且替身**零命中**；
-> 授权 → 同一个调用通过）与 `TestHTTPEgressIsRegistered`（新增 HTTP 出口必须登记）。
-
-`run:<引擎>` 的判定排在**可用性之后**，理由是同一个：引擎根本没装时，正确的退出码是
-`exit 5`（工具缺失，脚本据此区分"环境问题"与"配置问题"）。顺序反了的话，一个拼错的引擎名
-会得到"请把 `run:ngm-definitely-not-a-real-engine` 加进配置"——用户照做之后仍然跑不了，
-而那条权限永远不会有用。
-
-判定的两条规则：
-
-- **deny 优先于 allow**：同一条同时出现在两边时以 deny 为准——这是唯一不会让"我明明禁了"落空的选择
-- **匹配是精确的**：`net:github.com` 不等于 `net:api.github.com`。刻意不做通配：
-  通配需要一套自己的匹配语义（`*` 跨不跨 `.`？），而它写错时用户会以为某个 host 被允许、实际却没有
-
-`ngm config validate` 会检查权限列表本身：**写错的命名空间直接 `exit 3`**（一条写错会让整份列表
-都不被采用，静默跳过等于骗人），同时出现在 allow 与 deny 里的条目会给出警告。
-
-### `run:` 的身份判定（2026-11-11 P0 修复）
-
-`run:<target>` 的 target **不一定等于**声明的程序名。判定对象是**解析后的真实文件**：
-
-1. 用与执行**同一个** `resolveProgram` 解析（项目相对路径 → 项目目录；裸名字 → PATH，
-   再回退 `node_modules/.bin`），然后展开符号链接。
-2. 授权分两个匹配空间，永不互串：
-   - **名字授权**：`run:git`、`run:esbuild`——target 是裸名字；
-   - **路径授权**：`run:./tools/git`、`run:../x/tool`、`run:C:/tools/x.exe`——target 含
-     分隔符或以 `.` 开头；比较前统一分隔符、`path.Clean`、Windows 下折叠大小写。
-3. 判定顺序：**deny（名字或路径任一命中）> 路径 allow > 名字 allow > 默认档位**。
-4. **默认档位只对"裸名字 + 解析到项目外"生效**。因此 `run:git` 的默认放行只覆盖系统 git，
-   不覆盖仓库自带的 `./git`、`./git.exe`、`./git.cmd`、`../x/bin/git`，也不覆盖由
-   `PATH="."` 或 `node_modules/.bin` 解析进项目的同名文件。
-5. **项目内的可执行文件只能用路径授权放行**：名字授权（包括默认的 `run:git`）一律不覆盖；
-   被拒时提示给出精确的 `run:./relative/path` 与可粘贴的 `allow` JSON。
-6. 路径形式声明（`./`、`../`、`cmd/foo.exe`、绝对路径）不享受默认档位；项目**外**的
-   路径形式仍接受显式名字授权（兼容既有 `ngm.engines.json` 里的绝对路径写法）。
-7. **wasm 例外（2026-11-23 登记）**：`AdapterWasm` 的身份名是模块文件名
-   （`run:engine.wasm`），不解析 `Path`——WASM 运行时自带能力边界，且没有与
-   subprocess 共用的可执行文件实体。这是有意的不对称，不是身份判定漏洞；
-   项目内的 wasm 模块仍只能靠显式 allow 授权，不存在默认放行。
-
-> **行为变化**：`engines list` / `engines validate` 的探测与执行走同一道闸门，且不再因
-> "没有全局配置"而跳过（`Policy == nil` 时默认档位仍然生效）。未授权的引擎会显示
-> `not probed`，而不是先探测再报告版本。项目内引擎的提示从 `run:<name>` 改为
-> `run:./<relative/path>`——名字授不动它，照旧写法授权会再次被拒。
->
-> **残留**：显式名字授权对**项目外**的路径形式仍然有效（`allow: ["run:git"]` 会放行
-> `../x/bin/git`），这是为兼容既有绝对路径引擎保留的；项目内文件不受名字授权影响。
-> 需要执行项目内的工具时，用路径授权并配合 `deny`。
-
-### 子进程与信任根的输入校验（2026-11-07 评估后）
-
-权限回答"能不能做"，下面这组回答"做的时候参数会不会被环境偷换"。它们不新增权限，
-是**无条件**的：
-
-- **git 子进程环境**（`buildEnv`）：`GIT_SSH_COMMAND` / `GIT_SSH` / `GIT_ASKPASS` /
-  `SSH_ASKPASS` / `GIT_EXTERNAL_DIFF` / `GIT_PROXY_COMMAND` / `GIT_PAGER` 以及
-  `GIT_CONFIG_*`（含 `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` / `GIT_CONFIG_PARAMETERS` /
-  `GIT_CONFIG_COUNT` 与 `KEY_n` / `VALUE_n`）一律**剔除**。前一组能改成执行另一段程序，
-  后一组能把 ngm 显式传入的 `-c` 值或 host 白名单换成任意内容。保留的是凭证本身
-  （token、ssh-agent、credential helper）与用户自己的 `~/.gitconfig`——
-  签名校验因此仍读**用户自己的**密钥配置（[ADR-014](../adr/adr-014-self-report-signatures.md)）。
-- **远端地址形状**（`ValidateRemoteURL`）：`git clone` 会把地址交给 remote helper，
-  因此拒绝 `-` 开头的选项形状、拒绝 `helper::<address>`（`ext::` / `fd::` 等），
-  只接受 https/http/ssh/git/file、scp 形式（`user@host:path` 或带点的 `host:path`）与本地路径。
-  检查发生在构造子进程之前。无 `@` 又无点的单 token（`foo:bar`）在 clone 前就被拒绝——
-  它不是可信的 scp 地址；但仍按 scp host 计入 `net:` 门禁（ fail-closed：绝不因形状可疑
-  就当本地路径放行，让 git 触网绕过门禁），见 `remoteurl_test.go`。
-- **lock 路径字段**：`vendorPath` / `subPath` 必须是 vendor 根内的相对路径
-  （`lock.IsSafeRelPath`：无空段、`.` / `..`、盘符、反斜杠、NUL、URL 形状）；
-  `verify` 与 `--sandbox` 在拼接后**再判一次**，越界条目不参与任何 `Stat` / 哈希 / 脚本执行。
-  `vendor.globalPath` 与清理旧 vendor 目录时都会先解析符号链接（含尚未创建路径的已存在前缀），
-  词法在根内、实际指向根外的条目同样拒绝。
-- **origin URL 的展示脱敏**（`resolve.RedactURL`）：`https://user:token@host/...` 这种内嵌
-  凭据的 remote 允许出现在配置里，但**不允许出现在输出里**。`modules index` 解析失败时的
-  warning 走这份规则（userinfo 与 query 丢弃，host/path 保留），连解析器错误消息里重复的
-  原始地址也一并为脱敏后的形态；`scp` 形式的 `git@host:path` 不含秘密，原样保留。
-- **探测与执行是同一条路径**：可用性判定、`run:<engine>` 闸门与版本 spawn 全部收束在
-  `Catalog.Probe`；`--dry-run` 走 `NoProbe` 的 argv 预检（**不 spawn**），deno bundle 的
-  版本门槛用与执行相同的目录与 denied-env。判据 `TestV127*`（子进程计数：`engines list`
-  每个程序一次、`engines validate` 每条清单一次、dry-run 零次）。
+**边界**："无 registry"不等于"去信任"——仍需面对 Git host、凭证、force push。
+沙箱限制的是文件系统与网络两个维度，不是"跑不可信代码也安全"的开关。
 
 ---
 
-## sandbox 模式（done v0.3）
+## 权限模型（借鉴 Deno 的 default-deny）
 
-> **已实现**（决策见 [ADR-012](../adr/adr-012-sandbox.md)）。`ngm verify --sandbox` 在 Deno 子进程里
-> 执行依赖自带的 `verify.js`。它是整个项目里**唯一运行他人代码**的地方，因此规则比别处更硬。
+`~/.ngm/config.json` 的 `permissions` 段默认档位：`net:` 与 `run:` 需要配置，未授权 action 前即失败。
 
-```bash
-ngm verify --sandbox
-```
+| 权限 | 施加点 | 拒绝表现 |
+|------|--------|---------|
+| `net:<host>` | mirror 的 clone/fetch 唯一出口、`resolve` 的 ls-remote、ngm 自己的 HTTP 出口（OSV 查询，主机取实际端点） | exit 3，未发起网络请求 |
+| `run:git` | git 包唯一的子进程构造点，三个出口共用 | exit 3，git 从未启动 |
+| `env:<NAME>` | git 子进程、引擎子进程、Deno 沙箱、`ngm run` 的脚本子进程 | 变量从子进程环境剔除，ngm 不读取其值 |
+| `read:` / `write:` | 只在沙箱内施加：按依赖子树授予读，写恒不授予 | 沙箱外不施加（读项目、写 vendor/lock 本就是 ngm 职能） |
+| `run:<引擎>` | `Catalog.Probe`（探测与执行同一路径），排在能力与可用性之后 | exit 3，引擎从未启动；没装仍是 exit 5 |
+| `run:script` | 项目脚本的独立闸门（默认拒绝） | exit 3 |
 
-设计：
+**两套闸门不要混**：`ngm run` 执行的是你自己写的脚本，在沙箱**之外**运行，用独立的 `run:script` 授权；
+install 期依赖的 postinstall 是别人的代码，由 `supplyChain.postInstallPolicy` 控制，即使 allow 也只在沙箱内。
+前者不能用后者放行，反之亦然。
 
-- core Go 做决策（哪些 ref 漂了、digest 是否匹配），Deno **只执行**被交给它的那一个脚本
-- 沙箱只授予最小权限：默认只有"读该依赖自己的 vendor 子树"
-- 脚本**只能否决**：它失败会让 verify 失败（`exit 2`，`--allow-drift` 无效），
-  它成功不会改变 ngm 自己的任何结论；输出照原样展示但**不解析、不采信**
+**规则**：deny 优先于 allow；匹配精确（`net:github.com` ≠ `net:api.github.com`，刻意不做通配）；
+`ngm config validate` 会检查命名空间本身，写错直接 exit 3，不让一整份列表被静默跳过。
 
-沙箱有**三个用途**，都遵循同一套权限映射（ADR-012 决策 2）：
+### `run:` 的身份判定
 
-| 用途 | 触发方式 | 输入 |
-|------|---------|------|
-| 依赖自证 | `ngm verify --sandbox`（依赖提供 `verify.js`） | 无 |
-| 依赖的安装步骤 | `postInstallPolicy: allow`（依赖提供 `postinstall.js`） | 无 |
-| **团队自己的策略** | `ngm audit --hook=<script.js>` | 报告 JSON 从 **stdin** 进入 |
+判定对象是**解析后的真实文件**，不是声明的程序名：
 
-第三种的读权限给**项目目录**（它要看 `ngm.json` / `ngm.lock` / vendor）而不是某一个依赖的子树——
-它是用户自己的代码，不是依赖的。但它同样**无写权限、无网络、无环境变量、不派生进程**：
-一个会写盘、会联网的审计脚本，和依赖脚本一样需要被约束。
-否决时退出码是 `1`（"有需要处理的东西"，与"发现漏洞"同类），不是 `2`（完整性失败）。
+1. 用与执行同一个解析器解析（项目相对路径 → 项目目录；裸名字 → PATH，再回退 `node_modules/.bin`），展开符号链接
+2. 名字授权（`run:git`）与路径授权（`run:./tools/git`）分两个空间，永不互串
+3. 顺序：deny（任一命中）> 路径 allow > 名字 allow > 默认档位
+4. 默认档位只对"裸名字 + 解析到项目外"生效——`run:git` 不覆盖仓库自带的 `./git` 或 PATH 解析进项目的同名文件
+5. 项目内可执行文件只能用**路径授权**放行；路径形式声明不享受默认档位
+6. wasm 例外：身份名是模块文件名（`run:engine.wasm`），不解析路径——WASM 运行时自带能力边界
 
-### 模块加载层：三个必须一起给的开关（v0.105）
+**行为**：探测与执行走同一闸门，未授权引擎显示 `not probed`；项目内引擎的提示给出可粘贴的 `run:./<path>`。
 
-`--deny-net` 管的是 **Deno API 的 fetch**，而**模块加载**是另一条路。
-实测（Deno 1.45.2）：在 `--deny-net --no-remote --deny-write --deny-run --deny-env
---deny-read` 全部给出的情况下，`import "npm:is-number@7.0.0"` **仍然成功**，
-`<DENO_DIR>/npm/registry.npmjs.org/is-number/7.0.0/package.json` 被真的下载下来。
+---
 
-所以 argv 里还必须有三项，它们与其它 deny 一样**显式写出**（边界要能被读日志的人看见）：
+## 施加点：不可信输入不碰信任根
 
-| 开关 | 拦住的路径 |
-|------|-----------|
-| `--no-npm` | `npm:` / `node:` 说明符——运行时自己的 registry 客户端，不经过 fetch 权限 |
-| `--no-config` | **工作目录里的 `deno.json`**。沙箱的 cwd 是依赖自己的目录，那份配置由上游控制，能重写 `imports` 与 `nodeModulesDir` |
-| `--no-lock` | 锁文件参与的解析 |
+以下校验无条件生效，不新增权限：
 
-判据：`TestV105SandboxDeniesModuleLoading`（argv 断言 + 真 Deno 行为断言，
-后者**禁止 `t.Skip`**——它就是这条边界本身）。
+- **git 子进程环境**：`GIT_SSH_COMMAND` / `GIT_ASKPASS` / `GIT_CONFIG_*` / 仓库定位变量（`GIT_DIR` / `GIT_WORK_TREE` 等）
+  一律剔除；保留凭证本身与用户自己的 `~/.gitconfig`（签名校验因此读用户自己的密钥配置，见 ADR 汇总表 ADR-014）
+- **远端地址形状**：拒绝 `-` 开头、拒绝 `helper::<address>`（`ext::` / `fd::`）；只接受 https/http/ssh/git/file、
+  scp 形式与本地路径。可疑形状仍按 scp host 计入 `net:` 门禁——绝不因形状可疑就当本地路径放行而触网绕过门禁
+- **lock 路径字段**：`vendorPath` / `subPath` 必须是 vendor 根内的安全相对路径；拼接后再判一次，
+  越界条目不参与任何 `Stat` / 哈希 / 脚本执行；清旧 vendor 与 `globalPath` 先解析符号链接
+- **输出脱敏**：内嵌凭据的 remote（`https://user:token@host/...`）允许出现在配置里，不允许出现在输出里；
+  脱敏在统一出口完成，新增命令自动继承
+- **默认非交互**：注入 `GIT_TERMINAL_PROMPT=0`，无 tty 时不挂起，凭证不足立即失败
+- **探测与执行同路**：可用性判定、`run:<engine>` 闸门、版本 spawn 收在一处；`--dry-run` 走不 spawn 的 argv 预检
 
-### 显式拒绝面、最小环境与逗号路径（2026-11-07 评估后）
+---
 
-沙箱的 argv 把**所有**拒绝项都写出来，而不是依赖运行时的默认档位：
+## sandbox 模式
 
-| 项 | 说明 |
-|----|------|
-| `--deny-sys` / `--deny-ffi` / `--deny-hrtime` | 主机信息（fingerprinting 与绕过"无网络"的辅路）、动态库加载（等价于整个进程能力）、高精度计时（侧信道）。三者此前只靠默认拒绝 |
-| `--deny-node` | **不存在**：Deno 1.45.2 的 `deno run --help` 里没有这个 flag，传了会让每次沙箱启动失败。Node 兼容面由 `--no-npm` 加上 read/write/net/run/env 的拒绝共同约束（`node:` 内置模块的访问仍要过同一套权限检查） |
-| 最小环境 | 子进程只拿到运行时必需的变量（PATH / HOME(USERPROFILE) / TEMP / SYSTEMROOT / 证书 / `DENO_*`）**加上** `Needs.EnvVars` 显式授权过的名字；`deny: ["env:X"]` 永远优先。父进程的 token 不再整体带进沙箱 |
-| 逗号路径 | Deno 1.45.2 **拒绝重复的** `--allow-read=a --allow-read=b`（"cannot be used multiple times"），多个读路径只能用一条逗号分隔的 flag，且逗号不可转义。因此含 `,` 的读路径在 `PlanSandbox` 就 **fail-closed**（`exit 3`），而不是被静默拆成第二个授予 |
+**唯一运行他人代码的地方**：`verify --sandbox` 执行依赖自带的 `verify.js`；`postInstallPolicy: allow` 执行
+`postinstall.js`；`audit --hook` 执行团队自己的策略脚本（报告 JSON 从 stdin 进入，读权限给项目目录）。
 
-判据：`TestSandboxEnvIsMinimal`、`TestGrants_DenoArgs`（argv 里的 deny 清单），
-以及真实 Deno 用例（它们同时证明这些 flag 在 1.45.2 上被接受且生效）。
-
-### 内存也是边界的一部分（v0.107）
-
-沙箱约束了网络、写入与派生，但**内存**此前没有上界：stdout / stderr 是裸
-`bytes.Buffer`，一条 `while (true) console.log("x")` 就能把 `ngm install` OOM 掉——
-依赖不需要逃出沙箱，只需要把宿主喂饱。现在三个捕获点（沙箱、subprocess 引擎、wasm）
-都走 `internal/boundbuf`：stderr 恒为 **1 MiB**，stdout 默认同为 1 MiB，
-超出部分丢弃并计数，`Bytes()` 末尾追加一行
-`[ngm: output truncated after N bytes; …]`。对子进程来说写入仍报成功
-（`len(p), nil`）——我们要的是**有界的失败**，不是让工具在跑到一半被 SIGPIPE 打断。
-
-**一个例外，且它必须是例外**：`ngm transform`、`ngm css`、不带 `--outfile` 的
-`ngm build` 里 **stdout 就是产物**。对它们用 1 MiB 上界等于静默改坏用户的构建产物，
-比 OOM 更坏——因为它看起来成功了。这三条走 `artifactLimit`（64 MiB），
-而且**撞到上界即失败**（绝不交付一份被截断的产物）。
-64 MiB 不是安全边界，是误用的护栏：超过它的产物几乎一定是参数写错了。
-
-### 为什么用 Deno 做沙箱
-
-- Deno 原生支持 permission 参数
-- 可限制 `--allow-read` 到具体目录
-- 可限制 `--allow-net` 到具体 host
-- 可限制 `--allow-run` 到具体可执行文件
-- `--deny-*` 可显式拒绝（ngm 把未授予的类别**逐条写进 argv**：边界应当是读日志就能看见的东西）
-
-### 权限怎么给
-
-沙箱**不新造权限语言**：需求与 `permissions` 求交，未获授权即失败。
-
-| 需求 | 默认 | 来源 |
+| 用途 | 触发 | 判定 |
 |------|------|------|
-| 读该依赖自己的 vendor 子树 | **允许** | ngm 自行加入（不含它就没有可执行的东西） |
-| `net:<host>` / `env:<NAME>` | **必须显式授权** | 要出现在 `permissions.allow` 里才算数——`env:` 在别处的默认值是给 **git** 的，不该延伸到一段不受信任的脚本上 |
-| `run:<exe>` | **从不授予** | 见下：派生的进程不受 Deno 约束 |
-| 写任何东西 | **从不授予** | 自证脚本没有正当的写入需求；vendor 是可证明的，能改写它就会让 digest 失效 |
-| 从网络加载模块 | **禁止** | `--no-remote`：否则 `import "https://…"` 会把网络访问变成模块加载的副作用 |
+| 依赖自证 | `verify --sandbox` | 脚本只能否决：失败 → exit 2，`--allow-drift` 无效；成功不改变 ngm 结论 |
+| 依赖安装步骤 | `postInstallPolicy: allow` | 失败 → exit 2 |
+| 团队策略 | `audit --hook=<script>` | 否决 → exit 1（"有需要处理的东西"，与"发现漏洞"同类） |
 
-**为什么 `run:` 从不授予（实测）**：`--allow-run` 允许的进程**不受 Deno 权限约束**。
-实测：给脚本 `--allow-run=cmd` 后，它通过 `cmd /c type <path>` 读到了脚本自己被禁止读取的文件。
-一旦允许派生，文件系统与网络两条约束都能被一次性绕开——**沙箱的意义正是这两条**，
-所以这里不给任何开口。这条在类型层面也是硬保证：沙箱的授权结构里没有"可执行的程序"这一项。
+**core 做决策，Deno 只执行被交给它的那一个脚本**。脚本输出照展示但不解析、不采信。
 
-### 沙箱内不可做的事（实测确认）
+### 沙箱的硬边界
 
-- 读 `~/.ssh/` 或 `~/.git-credentials`（允许目录之外的一切读取都被权限错误拦下：
-  Deno 1.x 叫 `PermissionDenied`，Deno 2.x 叫 `NotCapable`——**两个名字都实测过**，
-  见 [ADR-012 补测](../adr/adr-012-sandbox.md)）
-- 访问网络（除非显式授予该 host）
-- 派生任何子进程
-- 读任何环境变量
-- 写入任何位置
+- **模块加载要单独关**：`--deny-net` 管 fetch，`import "npm:..."` 走运行时自己的 registry 客户端；
+  因此还必须显式给 `--no-npm` / `--no-config`（工作目录里由上游控制的 `deno.json`）/ `--no-lock`
+- **显式拒绝面**：`--deny-sys` / `--deny-ffi` / `--deny-hrtime` / `--no-remote` 逐条写进 argv——边界要能被读日志的人看见
+- **`run:` 从不授予**：`--allow-run` 允许的进程不受 Deno 权限约束，实测能借它读到被禁读的文件；
+  文件系统与网络两条约束会被一次派生同时绕开，所以类型层面就没有"可执行程序"这一项
+- **写从不授予**：vendor 是可证明的，能改写它的钩子会让 digest 失效；需要写盘的钩子（编译原生模块）不被支持
+- **最小环境**：子进程只拿运行时必需变量加显式授权的变量；`deny: ["env:X"]` 永远优先
+- **内存有界**：三个捕获点（沙箱、subprocess 引擎、wasm）的 stdout/stderr 走 boundbuf（1 MiB，超出丢弃并计数）；
+  产物通道例外（64 MiB，撞界即失败，绝不交付截断产物）
+- **超时**是唯一的 CPU/时间限制（默认 30 秒，超时与"脚本报错"分别报告）
 
-### 未安装 Deno 时
-
-**有脚本要跑**时缺失 Deno → `exit 5` + 安装提示，**不静默降级**为非沙箱执行（安全语义不允许隐式降级）。
-
-没有任何依赖提供 `verify.js` 时**不需要 Deno**：那时没有任何东西要执行，报"沙箱不可用"是一句与事实
-不符的话。默认的 `ngm verify`（不带 `--sandbox`）同样不需要 Deno。
-
-版本门槛**按能力判定**：需要 `--allow-read=<dir>` 与 `--deny-*`；启动时用一次最小执行探测，
-探测不到就 `exit 5` 并说明缺什么（写死版本号会在能跑的版本上拒绝运行）。
-
-### 明确没有防护的部分
-
-**没有内存 / CPU 上限**（Deno 没有稳定的跨平台开关，用一个近似手段会造成"已经限制住了"的错觉）。
-唯一的资源限制是**超时**（默认 30 秒，超时即失败，并与"脚本报错"分别报告）。
-`--sandbox` 把爆炸半径限制在文件系统与网络两个维度，它不是"跑不可信代码也安全"的开关。
+**未安装 Deno**：有脚本要跑时 exit 5 + 安装提示，不静默降级；没有脚本要跑时不需要 Deno。
+版本门槛按能力判定（一次最小执行探测），不写死版本号。**没有内存 / CPU 上限**：Deno 没有稳定的跨平台开关。
 
 ---
 
-## token 与凭证管理
+## 凭证
 
-### 原则
+**原则**：ngm 本身不读取 Git 凭证，除非必要。推荐顺序：SSH agent → Git credential helper →
+环境变量 → `~/.ngm/config.json`（权限 600）。不要：在 `ngm.json` / lock 里写明文 token，或把 token 传给引擎。
 
-**ngm 本身不应读取 Git 凭证，除非必要。**
+已落实的保证：
 
-### 推荐方式
-
-1. **SSH agent**：`ssh-agent` 已加载 key，ngm 通过 `ssh` 协议 clone
-2. **Git credential helper**：`git` 命令自己处理认证，ngm 不碰 token
-3. **环境变量**：`GITHUB_TOKEN` / `GITLAB_TOKEN`，ngm 透传给 `git`
-4. **配置文件**：`~/.ngm/config.json`，权限 600
-
-### 不推荐
-
-- 在 ngm.json 里写明文 token
-- 在 lock file 里记录 token
-- 把 token 传给引擎 adapter
-
-### v0.1 已落地的保证
-
-以下行为已实现并由测试锁定（`internal/git`、`internal/adapter`），是"原则"的可验证形式：
-
-- **凭证只透传、不落盘**：`os.Environ()` 原样交给 `git` 子进程；ngm 不读取、不解析、不缓存任何 token。
-  测试断言 mirror 的 `.git/config` 不含凭证，且 token 不出现在任何输出、lock 或 ngm.json 中。
-- **输出脱敏**：错误消息与日志里的 `https://user:token@host/...` 被替换为 `https://***@host/...`。
-  脱敏发生在 `internal/git` 的统一出口，因此后续新增的命令自动继承这条保证。
-- **剔除仓库定位变量**：`GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE` / `GIT_OBJECT_DIRECTORY` /
-  `GIT_ALTERNATE_OBJECT_DIRECTORIES` / `GIT_COMMON_DIR` / `GIT_NAMESPACE` / `GIT_PREFIX`
-  一律不传给子进程。否则用户 shell 里残留的 `GIT_DIR`（钩子脚本、`git worktree` 会话、
-  复杂 CI 中常见）会让 mirror 操作落到**另一个**仓库——静默失效或数据错乱。
-- **默认非交互**：注入 `GIT_TERMINAL_PROMPT=0`，无 tty 时不挂起；凭证不足时立即失败并给出配置提示。
-- **清单不能注入命令**：引擎 `command` 从不经过 shell，按空白切分（允许引号包裹）后直接执行
-  （见 [P4](../modules/p4-ecosystem.md)）；`ngm.engines.json` 随仓库进入 ngm，走 `sh -c`
-  等于把任意命令执行权交给任何一个 PR。
+- 凭证只透传、不落盘：`os.Environ()` 原样交给 git 子进程；mirror 的 `.git/config` 不含凭证，
+  token 不出现在输出、lock 或 `ngm.json` 中
+- 输出脱敏、仓库定位变量剔除、默认非交互（见上节）
+- 引擎 `command` 不经过 shell（见[引擎 adapter](./engine-adapter.md)）
 
 ---
 
 ## verify 的安全语义
 
-### 退出码即策略
+退出码定义唯一出处是[可观测性](./observability.md)，安全相关三条：
 
-退出码定义唯一维护在[可观测性 · 退出码约定](./observability.md)（此处不再复制整表）。安全相关的只有三条：
+- 码 2（完整性失败）**必须**阻断构建，`--allow-drift` 无效
+- 码 1（非预期漂移）默认阻断，`--allow-drift` 可降级为 0
+- 码 0 不等于"一切正常"：branch 前进也是 0，严格拦下需 `--strict`
 
-- `2`（完整性失败）**必须**阻断构建——`--allow-drift` 对它无效
-- `1`（非预期漂移）默认阻断，`--allow-drift` 可降级为 0
-- `0` **不等于**"一切正常"：branch 前进（预期更新）也是 0，要严格拦下需 `--strict`
-
-### `install --frozen-lockfile` / `install --offline`（v0.2 已实现）
-
-下面三条命令即当前真实行为。两个 flag 约束的是两件事：frozen 管"装什么"，
-offline 管"怎么拿"；CI 上通常合并使用。
-
-```bash
-ngm install --frozen-lockfile            # 不解析新 ref、不改 lock；允许网络下载
-ngm install --offline                    # 不访问网络，只用 content store / vendor；未命中即失败
-ngm install --frozen-lockfile --offline  # 完全离线可复现安装（CI 首选，需预置 store/vendor）
-```
-
-- `--frozen-lockfile`：禁止解析新 ref、禁止修改 lock；lock 缺失或与 ngm.json 不一致 → exit 3。**它不禁止网络**——依赖未在 content store 命中时仍需下载
-- `--offline`：禁止一切网络访问，本地资源未命中 → exit 4
-- 两者组合即"完全离线可复现"：前提是 content store 或提交的 vendor 已就绪
-
----
-
-## 诚实说明
-
-1. **"无 registry"≠"去信任"**：仍需面对 Git host、凭证、force push
-2. **sandbox 不是银弹**：Deno 沙箱只能限制 Deno 进程，C++ addon 可逃逸
-3. **权限模型增加复杂度**：用户需要理解 `ngm.config.json` 的权限字段
-4. **token 泄露风险始终存在**：最小权限 + 短期 token 是最佳实践
-
----
+`install --frozen-lockfile` 管"装什么"（不解析新 ref、不改 lock，不禁止网络）；
+`install --offline` 管"怎么拿"（禁一切网络，未命中 exit 4）；组合即完全离线可复现安装。
 
 ## 相关文档
 
-- [信任模型](./trust-model.md)
-- [运行时模型](./runtime-model.md)
-- [供应链防护](./supply-chain.md)
-- [ADR-007：Node 还是 Deno？](../adr/adr-007-runtime-node-deno.md)
+- [架构总览](./overview.md) · [供应链防护](./supply-chain.md) · [引擎 adapter](./engine-adapter.md)
+- [可观测性](./observability.md) · [ADR 汇总表](../adr/README.md)

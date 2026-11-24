@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
-# scripts/check-release-status.sh — "已交付"与"已发布"必须成对出现。
+# scripts/check-release-status.sh — CHANGELOG 覆盖范围内的正式 tag 必须有自己的段落。
 #
-# 规则（对称三条）：
-#   1. 有 docs/development/vX.Y-retrospective.md  ⇒ 必须有 vX.Y.* 的 tag
-#   2. 有 vX.Y.* 的 tag                            ⇒ 必须有那一版的复盘
-#      **例外：预发布 tag（vX.Y.Z-<suffix>，如 v0.102.0-dev.1）不要求复盘**。
+# 规则（两条，单向）：
+#   1. 每个 git 正式 tag vX.Y.Z（不早于 CHANGELOG 最早段落）⇒ CHANGELOG.md
+#      必须有 `## [X.Y.Z]` 段落。更早的历史版本发布说明只存在于 git tag 与历史
+#      commit 中——按用户 2026-11-24 的文档精简授权，不再回填进工作树。
+#      **反向不成立**：CHANGELOG 有段落却没有 tag 也允许——那是 unreleased /
+#      待补发，不把"还没发"读成"交付失败"。发布说明本来就只从对应段落取文本，
+#      先写段落、后补 tag（或先写段落、暂不发）是正常的工作方式。
+#   2. 每个 release tag 都是**附注 tag**（`git tag -a`）——轻量 tag 带不了说明。
+#      **例外：预发布 tag（vX.Y.Z-<suffix>，如 v0.102.0-dev.1）不参与规则 1**。
 #      它不标记"一个版本交付了"，而是给下游（ngm-repo 的 `.ngm-version`）一个
-#      可直接下载的固定点；硬要它配一份复盘，等于把预发布读成正式交付。
-#      例外只放开规则 2：预发布仍受规则 3（附注 tag）与 `--published`（真的发布了）约束。
-#   3. 每个 release tag 都是**附注 tag**（`git tag -a`）——轻量 tag 带不了说明
+#      可直接下载的固定点；预发布仍受规则 2 与 `--published`（真的发布了）约束。
 #
-# 为什么判据是**复盘文件**，而不是计划里那行"状态：已交付"：
-# 那一行是散文，格式历来不统一（v0.1 写"本计划已全部完成"，v0.2~v0.4 干脆没有这一行）。
-# 用一个会漏的判据当门禁，得到的是"看起来在检查"——本项目把这种状态叫**仪器说谎**
-# （见 docs/internals/metrics.md 与 v0.6 复盘 §5.1）。而复盘的位置是发布清单里写死的：
-# **版本的最后一次提交是该版的复盘提交**，那正是第 0 步要打 tag 的地方。两条因此可以互推。
+# 为什么判据从"复盘文件"换成了 CHANGELOG 段落：历史文档（含逐版复盘与计划）
+# 已随 docs/ 精简移出工作树，而 `## [X.Y.Z]` 段落一直是发布说明的**唯一来源**——
+# `release.yml` 只从对应版本的段落取文本。tag 是"对外真的存在一个固定点"，
+# 段落是"这个版本对外说了什么"；用后者核对前者，两边都是活的、同源可查的。
 #
 # 为什么需要这条检查：v0.2~v0.4 交付时没打 tag（结果这三版在仓库里存在、
-# 在任何发行源上都取不到），发布清单因此补上了第 0 步"交付即打 tag"；
-# **然后是 v0.5 ~ v0.8 又一次四版都没打**。写进清单挡不住它，因为这一步
-# 不与代码同源、没有编译错误会提醒你，也没有任何自动检查会红。
-# 这个脚本就是那个自动检查。
+# 在任何发行源上都取不到）；换过来，"打了 tag 却忘了写发布说明段落"同样会让
+# release.yml 拿不到文本。写进清单挡不住它，因为这一步不与代码同源、
+# 没有编译错误会提醒你，也没有任何自动检查会红。这个脚本就是那个自动检查。
 #
 # 用法：scripts/check-release-status.sh [--published] [--repo OWNER/NAME]
 #        scripts/check-release-status.sh --drift-guard [--drift-last N]
@@ -115,27 +116,12 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$(git rev-parse --show-toplevel)"
-RETRO_DIR="docs/development"
+RETRO_DIR="docs/development"   # 只供下面的工作树状态读数用（历史版本工件）
 
-# ---------------------------------------------------------------- 收集两边
-shopt -s nullglob
-retro_files=("$RETRO_DIR"/v*-retrospective.md)
-shopt -u nullglob
-
-retro_list=""   # 每行一个 vX.Y
+# ---------------------------------------------------------------- 收集 tag 与 CHANGELOG 段落
 unrecognised=0
-for f in "${retro_files[@]}"; do
-  base="${f##*/}"
-  if [[ "$base" =~ ^(v[0-9]+\.[0-9]+)-retrospective\.md$ ]]; then
-    retro_list+="${BASH_REMATCH[1]}"$'\n'
-  else
-    echo "UNRECOGNISED retrospective filename: $f" >&2
-    echo "  expected the form vX.Y-retrospective.md" >&2
-    unrecognised=1
-  fi
-done
 
-tag_list=""     # 每行 "vX.Y<TAB>vX.Y.Z"（正式版：参与 tag ↔ 复盘配对）
+tag_list=""     # 每行 "vX.Y<TAB>vX.Y.Z"（正式版：参与 tag ↔ CHANGELOG 对账）
 pre_list=""     # 每行 "vX.Y<TAB>vX.Y.Z-suffix"（预发布：只受附注 tag 与发布检查约束）
 tag_count=0
 pre_count=0
@@ -161,16 +147,35 @@ while IFS= read -r tag; do
   fi
 done < <(git tag --list 'v*' | sort)
 
-# ---------------------------------------------------------------- 查询（awk，不用 grep）
-versions() {
-  {
-    printf '%s' "$retro_list" | awk -F'\t' 'NF { print $1 }'
-    printf '%s' "$tag_list" | awk -F'\t' 'NF { print $1 }'
-  } | sort -u
+# ---------------------------------------------------------------- CHANGELOG 段落（awk，不用 grep）
+# CHANGELOG.md 是每个 `## [X.Y.Z]` 段落的唯一来源：release.yml 只从对应段落取文本。
+changelog_list=""  # 每行一个不带 v 的正式版本号（X.Y.Z）
+if [ -f CHANGELOG.md ]; then
+  while IFS= read -r ver; do
+    [ -n "$ver" ] || continue
+    changelog_list+="$ver"$'\n'
+  done < <(awk '
+    /^## \[/ {
+      v = $0; sub(/\r$/, "", v); sub(/^## \[/, "", v); sub(/\].*$/, "", v)
+      if (v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print v
+    }' CHANGELOG.md)
+else
+  echo "NOTE: CHANGELOG.md is missing — every formal tag will be reported without a section." >&2
+fi
+
+has_changelog() { printf '%s' "$changelog_list" | awk -v v="$1" '$0 == v { f = 1 } END { exit !f }'; }
+
+# CHANGELOG 从某个版本起才是发布说明的唯一来源；更早的 tag 属于历史区间。
+baseline_tag=""
+if [ -n "$changelog_list" ]; then
+  baseline_tag="v$(printf '%s' "$changelog_list" | awk 'NF' | sort -V | head -1)"
+fi
+is_history_tag() {
+  [ -n "$baseline_tag" ] || return 1
+  [ "$1" = "$baseline_tag" ] && return 1
+  [ "$(printf '%s\n%s\n' "$1" "$baseline_tag" | sort -V | head -1)" = "$1" ]
 }
-has_retro() { printf '%s' "$retro_list" | awk -F'\t' -v v="$1" 'NF && $1 == v { f = 1 } END { exit !f }'; }
-has_tag() { printf '%s' "$tag_list" | awk -F'\t' -v v="$1" 'NF && $1 == v { f = 1 } END { exit !f }'; }
-tag_name() { printf '%s' "$tag_list" | awk -F'\t' -v v="$1" 'NF && $1 == v { print $2; exit }'; }
+has_formal_tag() { printf '%s' "$tag_list" | awk -F'\t' -v t="v$1" 'NF && $2 == t { f = 1 } END { exit !f }'; }
 count() { printf '%s' "$1" | awk 'NF' | wc -l | tr -d ' '; }
 
 # ---------------------------------------------------------------- 工作树状态（v0.84）
@@ -221,56 +226,53 @@ echo "  bash scripts/check-docs-links.sh # 文档链接"
 echo
 
 # ---------------------------------------------------------------- 报告
-echo "release status (one retrospective per released version):"
-echo "  saw $tag_count tag(s) ($pre_count pre-release), $(count "$retro_list") retrospective(s)"
+echo "release status (formal tags from $baseline_tag onward need a CHANGELOG section):"
+echo "  saw $tag_count tag(s) ($pre_count pre-release), $(count "$changelog_list") CHANGELOG section(s)"
 echo
 
-missing_tag=""
-missing_retro=""
-while IFS= read -r v; do
-  [ -n "$v" ] || continue
-  if has_retro "$v"; then r="retro OK "; else r="retro -- "; fi
-  if has_tag "$v"; then t="tag $(tag_name "$v")"; else t="tag --"; fi
-  verdict="OK"
-  if ! has_retro "$v"; then
-    verdict="MISSING RETROSPECTIVE"
-    missing_retro+=" $v"
+missing_changelog=""
+untagged_sections=""
+while IFS=$'\t' read -r series tag; do
+  [ -n "$tag" ] || continue
+  ver="${tag#v}"
+  if is_history_tag "$tag"; then
+    c="history (pre-CHANGELOG)"
+  elif has_changelog "$ver"; then
+    c="changelog OK"
+  else
+    c="CHANGELOG --"; missing_changelog+=" $tag"
   fi
-  if ! has_tag "$v"; then
-    verdict="MISSING TAG"
-    missing_tag+=" $v"
-  fi
-  printf '  %-7s %s  %-16s %s\n' "$v" "$r" "$t" "$verdict"
-done < <(versions)
+  if [ "$(git cat-file -t "$tag" 2>/dev/null || true)" = "tag" ]; then a="annotated"; else a="lightweight"; fi
+  printf '  %-12s %-15s %s\n' "$tag" "$c" "$a"
+done <<< "$tag_list"
+
+# 单向：CHANGELOG 有段落、却没有 tag —— 允许（unreleased / 补发），只作读数。
+while IFS= read -r ver; do
+  [ -n "$ver" ] || continue
+  if ! has_formal_tag "$ver"; then untagged_sections+=" v$ver"; fi
+done <<< "$changelog_list"
+if [ -n "$untagged_sections" ]; then
+  echo
+  echo "CHANGELOG section(s) with no tag (unreleased / backfill — allowed):$untagged_sections"
+fi
 
 if [ -n "$pre_list" ]; then
   echo
-  echo "pre-release tag(s) (not a delivered version: no retrospective required):"
+  echo "pre-release tag(s) (not a formal release: no CHANGELOG section required):"
   printf '%s' "$pre_list" | awk -F'\t' 'NF { printf "  %-8s %s\n", $1, $2 }'
 fi
 
 status=0
 
-if [ -n "$missing_tag" ]; then
+if [ -n "$missing_changelog" ]; then
   status=1
   echo
-  echo "ERROR: delivered but NOT tagged:$missing_tag"
-  echo "  Release checklist step 0 (docs/development/README.md): a delivered version must be"
-  echo "  tagged at its retrospective commit — otherwise it exists in the repo but is"
-  echo "  downloadable from nowhere. That is exactly how v0.2~v0.4 and then v0.5~v0.8 went"
-  echo "  missing on every release source."
-  echo "  Fix (one per version): git tag -a vX.Y.0 -m 'ngm vX.Y.0 - <what changed>' <commit>"
-  echo "                         git push origin vX.Y.0"
-fi
-
-if [ -n "$missing_retro" ]; then
-  status=1
-  echo
-  echo "ERROR: tagged but NO retrospective:$missing_retro"
-  echo "  The project's rule is to finish the previous version's retrospective before starting"
-  echo "  the next one; a tag therefore implies a retrospective file"
-  echo "  (docs/development/vX.Y-retrospective.md). v0.7 was delivered without one and it was"
-  echo "  only noticed two versions later (see v0.7-retrospective.md §5.2)."
+  echo "ERROR: formal tag(s) with NO CHANGELOG section:$missing_changelog"
+  echo "  Every formal tag vX.Y.Z from $baseline_tag onward must have a '## [X.Y.Z]' section —"
+  echo "  release.yml takes a release's notes from that section, so a tag without one"
+  echo "  ships no user-facing release notes."
+  echo "  The check is one-way: a section with no tag is fine (unreleased / backfill)."
+  echo "  Fix: add the '## [X.Y.Z]' section to CHANGELOG.md for each tag above."
 fi
 
 if [ -n "$lightweight" ]; then
@@ -294,7 +296,7 @@ fi
 
 if [ "$status" -eq 0 ]; then
   echo
-  echo "every delivered version has a release tag, and every tag has a retrospective"
+  echo "every formal tag has a CHANGELOG section and is annotated"
 fi
 
 # ---------------------------------------------------------------- 在线：真的发布了吗

@@ -18,7 +18,7 @@ import (
 
 // TestV07StoreAcceptance 端到端验证 `ngm store usage` 与 `ngm store prune`（v0.7 A/B 组）。
 //
-// 它们存在的理由（[ADR-018](../docs/adr/adr-018-store-reclaim.md)）：层 2 **只增不减**，
+// 它们存在的理由（ADR-018，见 docs/adr/README.md 汇总表）：层 2 **只增不减**，
 // 而"按可达性自动删除"被裁定为不可做。于是至少要让两件事成立——
 //
 //  1. **占用可见**：`usage` 说出 store 里有什么、各占多少（且**只读**）

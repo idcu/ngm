@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestCoreBoundaryForbidsLanguageSpecificImports 是 [ADR-033](../docs/adr/adr-033-language-neutral-core.md)
-// 的第一条机械判据：语言无关核心包不许 import JS/TS 专属层。
+// TestCoreBoundaryForbidsLanguageSpecificImports 是 ADR-033（见 docs/adr/README.md 汇总表
+// 的 ADR-033 行）的第一条机械判据：语言无关核心包不许 import JS/TS 专属层。
 //
 // 它守的是**包边界**，不是目录名字：`internal/core/...` 与尚未搬迁的
 // `internal/{atomicfile,errs,git,lock,resolve,vendor}` 都算核心。目录可以

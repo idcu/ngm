@@ -387,11 +387,11 @@ jobs:
           fi
           echo "worktree: clean"
 
-  # 收口状态（v0.85）：tag ↔ 复盘、文档链接。
+  # 收口状态：正式 tag ↔ CHANGELOG 段落、文档链接。
   #
   # 为什么单独一个 job：`check-release-status.sh` 要看见**全部 tag**，
   # 而默认 checkout 是 `fetch-depth: 1`（看不见）——那会让脚本把每个版本都判成
-  # "MISSING TAG"并吵闹。宁可慢一点、把 tag 取全，也不要一条会误报的门禁。
+  # "无 tag"并吵闹。宁可慢一点、把 tag 取全，也不要一条会误报的门禁。
   release-state:
     # v0.136：docs links 由独立的 docs-links job 跑，这里不再重复一遍。
     name: release state
@@ -402,7 +402,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: release status (tag ↔ retrospective)
+      - name: release status (tag ↔ CHANGELOG)
         run: bash scripts/check-release-status.sh
 
       # 真门禁：最近 3 个正式 tag 的 release 必须存在、附件与矩阵一致、
@@ -866,7 +866,8 @@ jobs:
           if (-not (Test-Path "$env:RUNNER_TEMP\notes.md")) { exit 1 }
           if ((Get-Item "$env:RUNNER_TEMP\notes.md").Length -eq 0) { exit 1 }
 
-  # 发布状态检查：**有复盘 ⇔ 有 tag**（按 vX.Y 配对），见 scripts/check-release-status.sh。
+  # 发布状态检查：**每个正式 tag 必须有 CHANGELOG 段落**（单向；无段落即红，
+  # 有段落但无 tag 允许——unreleased / 补发），见 scripts/check-release-status.sh。
   #
   # 为什么值得单独一个 job：本条检查的是"交付"与"发布"有没有对上，而这是本项目
   # **唯一**不产生编译错误、也没有任何其他自动提醒的交付动作——v0.2~v0.4 因此漏了，
@@ -875,7 +876,7 @@ jobs:
   # fetch-depth: 0 是必须的：默认的 depth 1 不取 tag，那样这条检查会（正确地）报
   # "所有版本都没 tag"并红——本脚本刻意不做"看不到就跳过"，而宁可吵闹。
   release-status:
-    name: release status (retrospective <-> tag)
+    name: release status (tag ↔ CHANGELOG)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

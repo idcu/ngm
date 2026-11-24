@@ -1,54 +1,33 @@
 # 安装指南
 
-> 本页的命令与输出示例取自实际运行，并由 CI 的快照测试守护。
-> **发布覆盖不完整**：GitHub release 与 Gitee 附件都远少于 tag 总数，取当前源码的能力请走[方式二：从源码编译](#方式二从源码编译)。
-> 各源的确切覆盖范围与缺口以[发布流水线](./release-pipeline.md#1-现状实测2026-11-03)为唯一事实源；
-> 下载前先按本文的 `SHA256SUMS` 步骤逐个校验附件。
-
----
+ngm 是单个 Go 二进制，运行时只依赖 Git。本文给出安装方式、版本前置与帮助输出。
 
 ## 前置要求
 
 | 工具 | 版本要求 | 说明 |
 |------|---------|------|
-| Go | >= 1.25（`go.mod` 的 `go 1.25.0`；CI 使用 1.27） | 编译 ngm（ngm 本身运行时不需要 Go）。注意：过旧的工具链构建出的二进制在较新的 macOS 上可能被内核拒绝加载（`missing LC_UID Load Command`），报 `signal: abort trap` |
-| Git | >= 2.30 | 拉取依赖 |
+| Go | >= 1.25（`go.mod` 的 `go 1.25.0`） | 编译 ngm 时需要；运行 ngm 不需要 |
+| Git | >= 2.30 | 拉取依赖、离线重放对象 |
 | Node.js | >= 22.0.0 | 用户项目运行时（可选，Deno 项目不需要） |
 | Deno | >= 2.0 | 用户项目运行时（可选，Node 项目不需要） |
 
----
+## 从源码编译
 
-## 安装方式
+```bash
+git clone https://gitee.com/idcu/ngm.git
+cd ngm
+go build -o ngm ./cmd/ngm
+mv ngm /usr/local/bin/
+ngm --version
+```
 
-### 方式一：下载预编译二进制
+Windows 用 `go build -o bin\ngm.exe .\cmd\ngm`。主仓在 Gitee，GitHub 镜像为 `https://github.com/idcu/ngm.git`，两者内容一致。
 
-> **先选下载源**：
->
-> | 你的网络 | 用哪个 | 地址前缀 | 目前最新可取 |
-> |---------|--------|---------|------------|
-> | 国内 | **Gitee 发行版**（推荐） | `https://gitee.com/idcu/ngm/releases/download/v0.4.0` | **v0.4.0** |
-> | 海外 / 想取最新 | GitHub Release（上游） | `https://github.com/idcu/ngm/releases/latest/download` | **v0.101.0** |
->
-> 两个源的产物**字节完全相同**，共用同一份 `SHA256SUMS`，可以互相校验。
-> Gitee 的附件在每次发布后**手动**上传，因此只有**版本固定**地址（Gitee 没有 `latest/download` 形态）；
-> 若该地址 404，说明这一版的附件还没上传——改用 GitHub 或「方式二」。
->
-> ✅ **当前可取性（2026-11-03；权威读数与复核方式见[发布流水线](./release-pipeline.md#1-现状实测2026-11-03)）**：
->
-> | 发行源 | 有附件的版本 |
-> |--------|------------|
-> | **GitHub** | `v0.1.0`–`v0.4.0`、`v0.9.0`–`v0.64.0`、`v0.99.0`/`v0.100.0`/`v0.101.0`（共 63 个正式版，各 13 个附件）；另有预发布 `v0.102.0-dev.2` |
-> | **Gitee** | `v0.2.0`–`v0.4.0`（各 7 个附件 + 2 个源码包；`SHA256SUMS` 已与 GitHub 逐字节比对） |
->
-> ⚠️ **正式版缺口共 38 个**（`v0.5.0`–`v0.8.0` 与 `v0.65.0`–`v0.98.0`），且补发已决定暂缓——
-> **有意延后，不是遗漏**。成因是凭据：镜像转发 tag 不触发发布工作流，而 Gitee 侧上传需要
-> `GITEE_UPLOAD` / `GITEE_TOKEN`。缺口涉及的版本**功能全在源码里**（下面的「方式二」），
-> 所以现在没有人在等这些二进制。**一旦有人要用 Gitee 取到 `v0.4.0` 之后的版本，它就值得恢复。**
->
-> **换句话说：想要最新的产物请从 GitHub 取**（最新正式版 `v0.101.0`）；
-> 只在 Gitee 上取的话，最新是 `v0.4.0`，`v0.4.0` 之后的版本请用「方式二」编译。
+未注入版本信息的本地构建输出 `ngm 0.0.0-dev (git:dev, built: unknown)`；发布构建通过 `-ldflags -X` 注入版本、git 短哈希与构建时间。
 
-产物命名统一为 **`ngm-<os>-<arch>[.exe]`**，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
+## 下载预编译二进制
+
+产物命名统一为 `ngm-<os>-<arch>[.exe]`，`<os>` / `<arch>` 取 Go 的 `GOOS` / `GOARCH`：
 
 | 平台 | 文件名 |
 |------|--------|
@@ -59,83 +38,39 @@
 | Windows x86-64 | `ngm-windows-amd64.exe` |
 | Windows ARM64 | `ngm-windows-arm64.exe` |
 
-从 **v0.102** 起，release 还会附带**同一份字节**的版本化别名
-`ngm-<version>-<os>-<arch>[.exe]`，方便按 `.ngm-version` 直接拼地址；
-旧的 release 只有上面那份既有名字。两者都列在 `SHA256SUMS` 里。
-发布范围、回填策略与凭据见[发布流水线](./release-pipeline.md)。
-
-> 命名刻意不依赖 `uname`：`uname -m` 给的是 `x86_64` / `aarch64`，与 Go 的 `amd64` / `arm64`
-> 并不一致（且 macOS 的 `arm64` 与 Linux 的 `aarch64` 同名不同字），靠它拼出的下载地址会 404。
-> 用 `GOOS`/`GOARCH` 与 Go 生态其余工具保持一致。
+下载源：GitHub Release 的 `https://github.com/idcu/ngm/releases/latest/download`，或 Gitee 发行版的固定版本地址 `https://gitee.com/idcu/ngm/releases/download/<tag>`（Gitee 没有 `latest/download` 形态）。
 
 ```bash
-# 先把 BASE 换成你选的下载源前缀：
-#   Gitee（国内推荐）: BASE=https://gitee.com/idcu/ngm/releases/download/v0.4.0
-#                      （Gitee 侧最新有附件的版本就是 v0.4.0，原因见上面的空缺说明）
-#   GitHub（上游）   : BASE=https://github.com/idcu/ngm/releases/latest/download
-#                      （想钉版本就用 .../releases/download/v0.65.0）
-
-# macOS (Apple silicon)
-curl -L "$BASE/ngm-darwin-arm64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm
-
-# Linux (x86-64)
+# 先把 BASE 换成你选的下载源前缀
 curl -L "$BASE/ngm-linux-amd64" -o /usr/local/bin/ngm && chmod +x /usr/local/bin/ngm
 ```
 
 Windows（PowerShell）：
 
 ```powershell
-# 国内用 Gitee；换成 GitHub 时改这一行即可
-$BASE = "https://gitee.com/idcu/ngm/releases/download/v0.4.0"
+$BASE = "https://github.com/idcu/ngm/releases/latest/download"
 Invoke-WebRequest -Uri "$BASE/ngm-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\ngm\ngm.exe"
 ```
 
-每个 release 都附带 `SHA256SUMS`（每行 `<hex>  <文件名>`，上表六个产物全部在内）。
-**两个下载源用的是同一份校验文件**，所以从哪里下载都一样：
+每个 release 附带 `SHA256SUMS`（每行 `<hex>  <文件名>`）。两个源产物字节相同，共用同一份校验文件，下载后务必校验：
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS      # Linux
 shasum -a 256 -c --ignore-missing SHA256SUMS  # macOS
 ```
 
-### 方式二：从源码编译
+预编译产物可能落后于源码；需要当前代码的能力时优先从源码编译。
 
-```bash
-git clone https://gitee.com/idcu/ngm.git
-cd ngm
-go build -o ngm ./cmd/ngm
-mv ngm /usr/local/bin/
-```
-
-> 主仓在 Gitee（国内可直连）；GitHub 镜像为 `https://github.com/idcu/ngm.git`，两者内容与 tag 一致（tag 由主仓镜像推送）。
-
-### 方式三：包管理器（未来）
-
-```bash
-# Homebrew（规划中）
-brew install ngm
-
-# Scoop（规划中）
-scoop install ngm
-
-# npm（规划中，仅分发二进制）
-npm install -g @ngm/cli
-```
-
----
-
-## 验证安装
+## 验证安装：`--help`
 
 ```bash
 ngm --version
-# ngm 0.1.0 (git:abc1234, built: 2026-09-29T10:00:00Z)
-
 ngm --help
-# ngm — Git-first Dependency Provenance Layer
-#
-# USAGE:
-#   ngm <command> [options]
-#
+```
+
+帮助输出中的命令与 flag 如下（与运行时逐字一致）：
+
+```text
 # COMMANDS:
 #   init           初始化项目
 #   adopt          为**已安装**的依赖（npm/pnpm 装的）出具内容证明：不接管安装，只描述磁盘上的字节
@@ -172,32 +107,28 @@ ngm --help
 #   --help, -h     输出本帮助
 ```
 
-`--version` 的三个字段都由构建时注入（`-ldflags -X`）：`git:` 是**短**哈希，`built:` 是
-构建时刻（RFC3339 UTC）。本地未经注入的构建输出 `ngm 0.0.0-dev (git:dev, built: unknown)`——
-CI 用快照测试守护这份输出，任何格式漂移都会在 PR 阶段被拦下。
-
----
+`ngm <command> --help` 打印该命令自己的用法——就是它参数错误时看到的那份文本。`--help` 写在子命令**之前**才是根级；其他根级 flag 会被拒绝（exit 3），命令的 flag 要写在命令之后。
 
 ## 选择宿主运行时
 
 ngm 不替你选运行时。初始化时指定：
 
 ```bash
-# Node.js 项目
 ngm init github.com/my-org/my-app --runtime=node
-
-# Deno 项目
 ngm init github.com/my-org/my-app --runtime=deno
 ```
 
-`<name>` 是项目标识（推荐 Git URL 形式，写入 `ngm.json` 的 `name` 字段）；也可先用目录名，之后在 ngm.json 中补全。这会生成对应的 `ngm.json` 模板。
+`<name>` 是项目标识，推荐 Git URL 形式，写入 `ngm.json` 的 `name` 字段。
 
-> Deno 版本注意：作为**用户项目运行时** Deno >= 2.0 即可；若使用 `deno bundle` 作为构建引擎，需要 Deno 2.4+（实验特性），2.0–2.3 请改用 esbuild adapter。
+Deno 版本注意：作为**用户项目运行时** Deno >= 2.0 即可；若使用 `deno bundle` 作为构建引擎，需要 Deno 2.4+（实验特性），2.0–2.3 请改用 esbuild adapter。Deno 不在内置引擎清单里，需自行声明，声明方法见[配置详解](./configuration.md)。
 
----
+## 为什么这样设计
+
+- 用 `GOOS` / `GOARCH` 命名而不是 `uname -m`：后者给的是 `x86_64` / `aarch64`，拼出的下载地址通常 404。
+- 交付物必须可校验：`SHA256SUMS` 是单一事实源，两个下载源共用，校验命令与平台无关。
+- 帮助文本是命令用法的一部分：`ngm <command> --help` 与参数错误输出同一份内容，避免"两份帮助各自漂移"。
 
 ## 相关文档
 
-- [快速上手](./quickstart.md)
-- [配置详解](./configuration.md)
-- [Node vs Deno](./node-vs-deno.md)
+- [快速上手](./quickstart.md) · [CLI 参考](./cli.md)
+- [配置详解](./configuration.md) · [生态定位](./positioning.md)

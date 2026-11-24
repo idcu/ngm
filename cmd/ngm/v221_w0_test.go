@@ -68,7 +68,7 @@ func TestV221PositioningCoversFourQuestions(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repoRoot(t), "docs", "internals", "capability-matrix.md")); err != nil {
 		t.Errorf("能力矩阵链接目标不存在: %v", err)
 	}
-	for _, adr := range []string{"adr-044", "adr-052"} {
+	for _, adr := range []string{"ADR-044", "ADR-052"} {
 		if !strings.Contains(doc, adr) {
 			t.Errorf("定位页必须引用 %s 的决策边界", adr)
 		}

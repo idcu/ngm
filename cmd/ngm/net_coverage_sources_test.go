@@ -65,8 +65,8 @@ var netCoverageSources = map[string]netSource{
 		source: "`commands` × `declaredExitCodes(usage)`；三张判定表（`exitCodeMeasured`/`exitCodeElsewhere`/`exitCodeGaps`）双向对账",
 	},
 	"TestV24ExitCodeContractAgreesAcrossSources": {
-		what:   "退出码契约在四处事实源上一致（实现常量 · p0-core · observability · cli 参考）",
-		source: "`readDoc(` 读 `internal/errs/errs.go` 与三份文档，四份集合互为对账",
+		what:   "退出码契约在三处事实源上一致（实现常量 · observability 0–6 表 · cli 退出码摘要）；p0-core 规格随历史文档清理删除，那一条腿已撤",
+		source: "`readDoc(` 读 `internal/core/errs/errs.go` 与 observability / cli 两份文档，三份集合互为对账",
 	},
 	"TestV25JSONShapeTableMatchesTheImplementation": {
 		what:   "`--json` 形状表里每个字段都能在实现的 json tag 里找到",
@@ -163,7 +163,7 @@ var netCoverageSources = map[string]netSource{
 		source: "判据在 `cmd/ngm/v098_entry_paths_test.go`（走公开 API，因此能进登记表；同一件事的内部单测已删，不留两份）；对齐网 `TestV87EntryInferenceAgreesBetweenProductAndChecker` 同步加了 11 个边缘形态（exports 数组/null/嵌套/空白串/`*` 模式 · main 的反斜杠/多前导斜杠/空白/裸文件名）",
 	},
 	"TestV097LinkImplementationsAgree": {
-		what: "**链接检查的两条实现必须对同一批输入给出同一批坏链接**：同一份语料（25+ 形态）上比「坏链接三元组（文件:行号:原文）」，排序后逐条相等；再在真仓库上跑一遍（两边都应当为空，且 Go 侧扫到 > 1000 处——防「范围缩了、变成空比」）",
+		what: "**链接检查的两条实现必须对同一批输入给出同一批坏链接**：同一份语料（25+ 形态）上比「坏链接三元组（文件:行号:原文）」，排序后逐条相等；再在真仓库上跑一遍（两边都应当为空，且 Go 侧扫到 > 80 处——防「范围缩了、变成空比」；阈值随 docs/ 从 364 篇精简到约 25 篇而下调，仍远高于「空比」的下限）",
 		why: "分工（shell 管存在性 / Go 管大小写）成立的前提是**两边一致**，而 v0.78 的原案正是「两份实现谁也没对过账」（代价是一次误判）。这条网第一次跑就抓到**两处**分歧：Go 侧漏了 v0.96 才加的围栏代码块规则；" +
 			"shell 侧把**根相对**链接（`/x`，Markdown 里相对仓库根）按文件所在目录解析（修它时又踩到「剥前导 `/` 必须在规范化之前」）。语料刻意不放括号不配平的形态——按 CommonMark 那不是链接，shell 的回退路径消息形态不同（判定相同，由 v0.91 黄金用例守着）",
 		source: "判据在 `cmd/ngm/v097_link_impl_equivalence_test.go`；Go 侧唯一的扫描实现在 `cmd/ngm/linkrefs_test.go`（v0.97 抽出来，两种判据共用）",
@@ -226,7 +226,7 @@ var netCoverageSources = map[string]netSource{
 	},
 	"TestV89PackageGateDemoRuns": {
 		what:   "`scripts/packagegate-demo.sh` 在判据里**真的跑一次**，并要求它自己报出结论（`… passed, 0 failed`）——不接受「跑完没报错」",
-		why:    "它是 `docs/COMPETITIVE-ANALYSIS.md` 里那套对照的**证据生成器**（demo 的断言只写在它里面），而此前它只被文档与 `.ps1` 入口提到——正是 v0.88 教训里的那一类「只被读过、从没被跑过」。它不碰网络（全部在本地合成目录里做），适合进全量测试",
+		why:    "它是「有锁与无锁」那套对照的**证据生成器**（demo 的断言只写在 `scripts/packagegate-demo.sh` 里面），而此前它只被 `.ps1` 入口提到——正是 v0.88 教训里的那一类「只被读过、从没被跑过」。它不碰网络（全部在本地合成目录里做），适合进全量测试",
 		source: "判据在 `cmd/ngm/v089_packagegate_demo_test.go`；实现在 `scripts/packagegate-demo.sh`（`.ps1` 转调同一个实现）",
 	},
 	"TestV89WorkflowReferencesExistingScripts": {
@@ -317,17 +317,11 @@ var netCoverageSources = map[string]netSource{
 		source: "判据与实现在 `scripts/check-library-standard.sh`（唯一实现）；夹具由 `writeConformingFixture` 现场造",
 	},
 	"TestV71AdrIndexCoversEveryAdrFile": {
-		what: "ADR 索引必须与 `docs/adr/` 的文件集双向对账：每文件恰好一行、链接存在、3 列、编号连续",
+		what: "ADR 汇总表必须自洽：恰好 58 行 `| ADR-NNN | 决策 | 结论 |`、编号 001..058 连续、无重复、每行恰好三列",
 		why: "v0.70 修掉的缺陷就是这条判据的缺席——ADR-025 的行缺失、ADR-024 重复、" +
-			"ADR-026 的行与之粘连，挂了数版没有任何东西变红；索引行靠手抄，而手抄必然漂移",
-		source: "文件集来自 `docs/adr/adr-*.md`（`os.ReadDir(`）；索引行来自 `docs/adr/README.md` 的表格（`readDoc(`）",
-	},
-	"TestV63MilestoneTablesListEveryVersionExactlyOnce": {
-		what: "逐版表：每个版本恰好一行、升序、连续到最新",
-		why: "版本集**派生**自 `docs/development/` 的复盘文件名（与 v0.58 同源）；" +
-			"「哪些文档算逐版表」由**扫描活文档**决定——任何一份活文档只要其版本行够得到最新版本，" +
-			"就必须在 `milestoneTableStartsAt` 里声明起点（没声明即红，新表不会漏网）；" +
-			"起点之前的行不归它管（roadmap 之类）。四张表的起点都是量出来的现状",
+			"ADR-026 的行与之粘连，挂了数版没有任何东西变红；索引行靠手抄，而手抄必然漂移。" +
+			"单篇 adr-*.md 已随历史文档清理移出工作树，事实源改为唯一的 `docs/adr/README.md` 汇总表",
+		source: "汇总表来自 `docs/adr/README.md`（`readDoc(`）；58 与顺序都是表内自洽的直接读数，不再扫单篇文件",
 	},
 	"TestV63EngineCommandsAreMeasuredForCodeSix": {
 		what: "最后四个命令（build · typecheck · css · transform）的码 6 搬进实测",
@@ -357,11 +351,6 @@ var netCoverageSources = map[string]netSource{
 			"`--help`），每个都配一条对照（正常 stdout ⇒ 仍退 0）——" +
 			"而「所有命令」那一侧由 `dispatch` 里的**唯一一处包装**覆盖（不是逐命令加检查），" +
 			"所以这张网不需要从命令表派生；它要证明的是「一致性」本身",
-	},
-	"TestV58PublishedReadingsAgreeWithTheirSource": {
-		what: "散文里的发布读数：版本总数 · 最新版本 · GitHub/Gitee 数 · 缺口数 · 成功次数",
-		source: "文件系统派生已交付版本数（`docs/development/` 的复盘与计划文件数，两者交叉核对）" +
-			"+ `livingDocs(` 的活文档清单（另加发布清单那张**索引**，它是活的）",
 	},
 	"TestV57ExitCodeSourcesAreRegistered": {
 		what: "码 1 的来源：谁能让进程以 1 退出 · 每一处归哪一类 · 每类都要写进文档",

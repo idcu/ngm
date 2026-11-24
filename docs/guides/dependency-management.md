@@ -1,75 +1,26 @@
 # 依赖管理
 
-## 核心概念
-
-ngm 只管理来自 Git 仓库的依赖。registry 包（npm/pnpm）交给 pnpm/npm/yarn。
-
----
+ngm 依赖的来源是 Git ref 或本地目录，不是 registry 包。lock 钉住锚点与内容 digest，`ngm verify` 复核；registry 包交给 pnpm / npm / yarn。
 
 ## 添加依赖
 
-### 基本语法
-
 ```bash
-ngm add <git-url>@<ref> --ref-type <type>
+ngm add github:my-org/utils@v1.2.3 --ref-type=tag
+ngm add github:my-org/logger@main --ref-type=branch
+ngm add github:my-org/legacy@abc123def --ref-type=commit
+ngm add github:my-org/monorepo@v2.0.0 --ref-type=tag --path=packages/core
+ngm add local:kernel --ref-type=local-dir --source-path=./packages/kernel
 ```
 
-### 示例
+`refType` 通常必填：`@main` 分不清是 tag 还是 branch；完整 40 位 commit hash 是唯一的窄默认。`--infer-ref-type` 用一次 `ls-remote` 消歧，两者都存在时报错。字段定义见[配置详解](./configuration.md#dependencies)。
 
-```bash
-# tag 依赖
-ngm add github:my-org/utils@v1.2.3 --ref-type tag
-
-# branch 依赖
-ngm add github:my-org/logger@main --ref-type branch
-
-# commit 依赖
-ngm add github:my-org/legacy@abc123def --ref-type commit
-
-# monorepo 子路径
-ngm add github:my-org/monorepo@v2.0.0 --ref-type tag --path=packages/core
-```
-
-`--ref-type` 通常必填，因为 `@main` 无法区分是 tag 还是 branch；只有完整 40 位 commit hash 可以省略。
-
----
-
-## refType 三种类型
-
-| refType | 示例 | 适用场景 | 锁定行为 |
-|---------|------|---------|---------|
-| `commit` | `@abc123def` | 生产环境，绝对锁定 | 锁定该 commit |
-| `tag` | `@v1.2.3` | 生产环境，语义化版本 | 锁定解析到的 commit |
-| `branch` | `@main` | 开发环境，跟随最新 | 锁定解析到的 commit |
-
----
-
-## 快速验证一个未发布改动
-
-不需要为了试一次改动就打 tag。两种模式：
-
-```bash
-# 1) 分支模式：改推送到一个分支，消费该分支
-ngm add github:my-org/utils@try-fix --ref-type branch --path=packages/utils
-ngm install
-ngm verify          # 分支再前进会报 expected，不阻断
-```
-
-```bash
-# 2) 精确 commit 模式：完整 40 位 hash，连 --ref-type 都可省略
-ngm add github:my-org/utils@0123456789abcdef0123456789abcdef01234567 --path=packages/utils
-ngm install
-ngm verify          # commit 不可变，无漂移
-```
-
-判据：
-
-- lock 永远钉住解析到的 `commit`；
-- branch 模式只报 `expected`，`--strict` 下才 exit 1；
-- commit 模式无 ref 漂移；
-- 验证通过后，再按集合发布流程打 tag / 更新 `ngm.collection.json`。
-
----
+| refType | 示例 | 锁定行为 |
+|---|---|---|
+| `commit` | `@abc123def` | 锁定该 commit；不可变 |
+| `tag` | `@v1.2.3` | 解析为当前指向的 commit；tag 移动会报漂移 |
+| `branch` | `@main` | 解析为当前 tip；正常前进是 `expected` |
+| `local-git` | `local:pkg@v1.0.0` | 复用 commit 证明链，可完全离线 |
+| `local-dir` | `local:kernel@auto` | 钉住目录内容摘要 `dirDigest` |
 
 ## 安装
 
@@ -77,171 +28,50 @@ ngm verify          # commit 不可变，无漂移
 ngm install
 ```
 
-### 流程
+流程：读取 `ngm.json` → 解析 refType → commit / dirDigest → 计算内容 digest → vendor 落地 → 写 `ngm.lock` 与 `ngm.mappings.json`。术语见[术语表](./glossary.md)。
 
-```
-1. 读取 ngm.json
-2. 归一化 Git URL（4 种协议）
-3. 解析 refType → commit
-4. 生成规范化内容清单
-5. 计算 archiveDigest
-6. vendor 4 层落地
-7. 生成 ngm.lock
-8. 生成 ngm.mappings.json
-```
-
-> 术语（`refType` / `archiveDigest` / `vendor 4 层`）见[术语表](./glossary.md)。
-
-### install 的 `--frozen-lockfile` / `--offline`（v0.2 已实现）
-
-> 这两个 flag 自 **v0.2 起可用**（v0.1 的 `ngm install` 只有 `--dir` / `--digest`）。
-> 它们约束的是两件不同的事：frozen 管"装什么"（不许重新决定 commit），
-> offline 管"怎么拿"（不许联网）。只想要可复现性用前者即可（它仍可从网络取内容）；
-> 合并使用才得到"完全离线且可复现"。
+CI 的两个开关管不同的事：
 
 ```bash
-ngm install --frozen-lockfile            # 不解析新 ref、不改 lock；允许网络
-ngm install --offline                    # 不访问网络，只用本地 content store / vendor
-ngm install --frozen-lockfile --offline  # 完全离线可复现安装（CI 首选）
+ngm install --frozen-lockfile            # 管"装什么"：不解析新 ref、不改 lock
+ngm install --offline                    # 管"怎么拿"：不联网，只用本地内容
+ngm install --frozen-lockfile --offline  # 完全离线且可复现（需 lock 已提交）
 ```
 
-- `--frozen-lockfile`：lock 缺失或与 ngm.json 不一致 → 失败
-- `--offline`：本地资源未命中 → 失败
+frozen 遇到 lock 缺失或与 `ngm.json` 不一致时 exit 3；offline 本地资源未命中 exit 4。
 
-（具体退出码见[可观测性 · 退出码](../architecture/observability.md)，此处不重复。）
-
----
-
-## 更新
+## 验证与更新
 
 ```bash
-# 更新单个依赖
+ngm verify
+ngm verify --content
 ngm update github:my-org/utils
-
-# 更新所有依赖
 ngm update --all
-
-# 想换到别的 ref（例如升到 v1.3.0）：先改 ngm.json 里的 ref/refType，再 update
-# 注意：ngm update 只接受依赖名，不接受 `<name>@<ref>` 写法，也没有 --ref-type
-# （refType 是声明层的信息，只写在 ngm.json 里）
-$EDITOR ngm.json
-ngm update github:my-org/utils
-```
-
-更新后 verify 检查是否为"预期更新"。
-
----
-
-## 删除
-
-```bash
 ngm remove github:my-org/utils
 ```
 
-从 ngm.json 和 vendor/ 中移除。
+`ngm update` 只接受依赖名，不接受 `<name>@<ref>`，也没有 `--ref-type`——refType 是声明层信息，只写在 `ngm.json`。想换 ref 就先改 `ngm.json` 再 `update`。`ngm verify` 的漂移三态（`expected` / `unexpected` / `critical`）与退出码见[CLI 参考](./cli.md)。
 
----
+## vendor 与 mappings
 
-## vendor 模式
+`ngm.vendor/` 默认本地隔离（`vendor.mode: local`），也可设为 `global` 共享内容。是否提交由 Git 侧决定，ngm 不执行 `git add`。
 
-### 全局缓存
+`ngm install` 自动生成 `ngm.mappings.json`，把裸导入映射到 vendor 路径。它**必须提交**：同一份 lock 与同一个 `linkMode` 生成逐字节相同的文件，而多阶段镜像与 CI 的 build job 通常不跑 `ngm install`。构建工具接入见[构建指南](./build.md)。
 
-```json
-{
-  "vendor": {
-    "mode": "global"
-  }
-}
-```
+## 传递依赖与 registry 共存
 
-所有项目共享 `~/.ngm/global-vendor/`。省磁盘，但削弱隔离。
+Git 依赖内部声明的 Git 依赖会被递归解析，并一起进入 lock 与 verify 范围。
 
-### 本地 vendor/（默认）
+registry 包与 ngm 依赖可以共存：`node_modules/` 归 pnpm，`ngm.vendor/` 归 ngm；把 Git 依赖用 `ngm add` 声明出来即可。ngm 不解析 `.npmrc`，不接管 `node_modules`；`ngm adopt` 只读扫描已装好的依赖并出具内容证明，不安装、不修改。
 
-```json
-{
-  "vendor": {
-    "mode": "local"
-  }
-}
-```
+## 边界
 
-每个项目独立的 `ngm.vendor/`。隔离清晰，CI 可复现。
-
-### 提交 vendor/
-
-在 Git 侧把 `ngm.vendor/` 纳入版本控制（`.gitignore` 里不要排除它）——
-**这不是配置项**：`vendor.commit` 已在 v0.5 移除，理由与迁移方式见
-[配置详解 §vendor](../guides/configuration.md)。
-
-适合离线交付、审计门禁、镜像场景。
-
-**代价**：仓库体积膨胀、clone 时间变长、依赖更新 diff 巨大。
-
----
-
-## 与 registry 包共存
-
-ngm 只管 Git 依赖。registry 包交给 pnpm：
-
-```json
-// package.json（pnpm 管理）
-{
-  "dependencies": {
-    "express": "^4.21.0"
-  }
-}
-
-// ngm.json（ngm 管理）
-{
-  "dependencies": [
-    { "name": "github:my-org/utils", "ref": "v1.2.3", "refType": "tag" }
-  ]
-}
-```
-
-构建时：
-
-- pnpm 把 registry 包装到 `node_modules/`
-- ngm 把 Git 依赖装到 `ngm.vendor/`
-- ngm 生成 `ngm.mappings.json`，构建工具（Vite/esbuild/Deno）读取后把裸导入映射到 vendor 路径
-
----
-
-## ngm.mappings.json
-
-`ngm install` 后自动生成 `ngm.mappings.json`，把裸导入（如 `github:my-org/utils`）映射到 vendor 路径。
-
-**它必须提交**（与 `ngm.lock` 同级）：同一份 lock 与同一个 `linkMode` 生成逐字节相同的文件，
-而多阶段镜像 / CI 的 build job 通常不跑 `install`，那时构建工具读到的只能是仓库里的那份。
-理由与反例见[配置详解 §`ngm.mappings.json` 为什么必须提交](./configuration.md#ngmmappingsjson-为什么必须提交)。
-
-- schema 与生成规则：[P4 — 生态与协议](../modules/p4-ecosystem.md)
-- 接入示例（Vite / esbuild / Deno）：[构建指南](./build.md)
-
----
-
-## 传递性依赖
-
-Git 依赖内部也可能声明自己的 Git 依赖。
-
-ngm 递归解析：
-
-```
-project
-├── ngm.json → github:org/A@v1.0.0
-│   └── A/ngm.json → github:org/B@v2.0.0
-│       └── B/ngm.json → github:org/C@v3.0.0
-└── ngm.lock（包含所有层级）
-```
-
-**传递性依赖也进入 lock 与 verify 的范围**；自 v0.2 起 OSV / `audit` 同样覆盖传递依赖。
-
----
+- 不解析 semver 区间、不做版本求解、不做 workspace / hoisting。
+- 不支持 git submodule（gitlink）与 LFS 实体内容，它们会被拒绝而不是被哈希成一个指针。
+- `verify` 默认只比结构与大小，字节级保证要加 `--content`。
+- `ngm gc` 的可达性只看当前项目的 lock：层 1/2 是全机共享的，另一个 checkout 仍可能需要被回收的对象（可重新拉取，但离线 CI 会失败）；global vendor 条目一律保留并 warning。
 
 ## 相关文档
 
-- [配置详解](./configuration.md)
-- [架构：依赖解析](../architecture/dependency-resolution.md)
-- [架构：vendor 4 层](../architecture/vendor-layers.md)
-- [架构：锁定机制](../architecture/locking.md)
+- [配置详解](./configuration.md) · [构建](./build.md) · [CLI 参考](./cli.md)
+- [依赖解析](../architecture/dependency-resolution.md) · [锁定机制](../architecture/locking.md) · [生态定位](./positioning.md)

@@ -1,202 +1,89 @@
 # 构建
 
-> ngm 不做自研构建引擎。所有构建通过 engine adapter 调用外部工具。
-
----
+ngm 不自研构建引擎：所有构建通过 engine adapter 调用外部工具（esbuild / tsc / postcss / deno）。ngm 负责把 `ngm.mappings.json` 变成引擎能懂的别名，并记录输入、参数与产物摘要。
 
 ## 基本用法
 
 ```bash
-# 使用默认引擎（ngm.json 中配置）
-ngm build
-
-# 指定引擎
+ngm build                                   # 使用 ngm.json 里 engines.bundle 的配置
 ngm build --engine=esbuild
-ngm build --engine=deno      # 已适配，但需在 ngm.engines.json 里自行声明（见「需要自行声明的引擎」）
-
-# 指定入口
-ngm build src/index.ts --engine=esbuild
-
-# 生产构建
-ngm build --production --engine=esbuild
+ngm build src/index.ts --engine=esbuild     # 指定入口
+ngm build --production --engine=esbuild     # 压缩 + NODE_ENV=production
+ngm build --outfile=dist/app.js             # 不写 --outfile 时产物走 stdout
+ngm build --dry-run                         # 只打印 ngm 会怎么调引擎，不执行
+ngm build --provenance                      # 写旁车回执 ngm.build.json
 ```
 
----
+`--dry-run` 是排查"参数为什么没生效"最快的入口；它不执行引擎、不探测版本。
 
 ## 引擎选择
 
-内置清单**自带** `esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`）
-与 `postcss`（`css`）；后两者是 `optional`，**没装不算清单问题**。
-`deno` 与 wasm 模块**不进内置清单**，需自行声明（理由见下）。
-
-### esbuild（内置的 bundle / transform 引擎）
-
-```json
-{
-  "engines": {
-    "transform": "esbuild",
-    "bundle": "esbuild"
-  }
-}
-```
-
-```bash
-ngm build --engine=esbuild
-```
-
-adapter 调用 `esbuild` CLI。`ngm init` 生成的模板已包含这段配置，因此 `ngm build` 无需参数。
-
-### typescript（内置的 typeCheck / typeDecl 引擎，v0.2 起）
-
-```bash
-ngm typecheck --engine=typescript                    # 或在 ngm.json 里写 "typeCheck": "typescript"
-ngm typedecl --outdir=dist/types --engine=typescript # .d.ts 声明（v0.4 起有命令入口）
-```
-
-`tsc` 未安装时是 `exit 5`（引擎不可用），**不是**"检查通过"。
-
-### postcss（内置的 css 引擎，v0.2 起）
-
-```bash
-ngm css src/app.css --engine=postcss --outfile=dist/app.css
-```
-
-postcss **没有内建压缩**。自 W2 起 `ngm css --minify --engine=postcss` 是 **exit 3**
-（配置错误，提示显式换一个支持压缩的引擎），不再静默忽略后产出未压缩文件；
-不带 `--minify` 的编译路径与既有的插件/引擎警告保持不变。声明支持压缩的引擎需要在
-`ngm.engines.json` 里写 `"supportsMinify": true`（字段形状见
-[配置指南](./configuration.md#引擎清单条目的绑定字段ngmenginesjson)）。
-
-### 压缩的确定性口径
-
-ngm 对压缩产物**只承诺一件事**：**同输入 / 同参数 / 同引擎** 时，`esbuild` 的
-`--minify` 回执字节是确定的。也就是说，重复同一条命令、同一份输入、同一个引擎二进制，
-`ngm.build.json` 里记录的产物摘要应当逐字节一致（[ADR-057](../adr/adr-057-build-receipt.md)）。
-
-**不跨工具承诺**——这是刻意的边界，不是待测事项：
-
-- 不承诺 esbuild / lightningcss / cssnano 等不同压缩工具之间字节一致；
-- 不承诺同一工具的不同版本（哪怕版本号只差一个补丁）之间字节一致；
-- 不承诺跨操作系统/平台字节一致；回执记录的是这次实际使用的工具字节摘要，
-  而不是"可复现构建"认证。
-
-对照证据：[ADR-013 远程 adapter（按决定排除）](../adr/adr-013-remote-adapter.md) 固定了
-"ngm 不自研引擎、压缩交给外部工具"的边界；可复现性探针
-[`scripts/probe-reproducibility.sh`](../../scripts/probe-reproducibility.sh) 给出当前
-工具链下"同输入/同参数/同引擎 → 同字节"的实测路径。探针过了只说明那一次组合确定，
-不扩展上面的承诺范围。
-
-### 需要自行声明的引擎：deno / wasm
-
-`deno` 不进内置清单有两个理由：它的 `bundle` 是自身 ≥ 2.4 的实验特性；且内置会抢掉
-typeCheck 的默认顺序。wasm 模块则是**项目本地文件**，路径得由你给。两者都按
-[P4 协议](../modules/p4-ecosystem.md)自行声明（示例见
-[engine-adapter](../architecture/engine-adapter.md)）：
+内置清单自带 `esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`，可选）与 `postcss`（`css`，可选）。`deno` 与 wasm 模块不在内置清单里，需在 `ngm.engines.json` 自行声明（Deno 的 `bundle` 是 ≥ 2.4 的实验特性；wasm 模块是项目本地文件，路径要你自己给）。
 
 ```json
 {
   "version": 1,
   "engines": [
-    {"name": "deno", "kind": "typeCheck", "adapter": "subprocess",
-     "command": "deno check", "defaultOptions": {}},
-    {"name": "deno", "kind": "bundle", "adapter": "subprocess",
-     "command": "deno bundle", "defaultOptions": {}}
+    { "name": "deno", "kind": "typeCheck", "adapter": "subprocess", "command": "deno check", "defaultOptions": {} },
+    { "name": "deno", "kind": "bundle", "adapter": "subprocess", "command": "deno bundle", "defaultOptions": {} }
   ]
 }
 ```
 
 ```bash
-ngm typecheck --engine=deno   # 需要你已声明上面的条目
+ngm typecheck --engine=deno
 ngm build --engine=deno
 ```
 
-**按内置名声明不会静默降级**：清单里的名字对不上本 build 能做的事时，你会得到明确的
-`exit 5`（可用性）或 `exit 3`（清单结构），而不是一个"看起来通过"的结果。
+按内置名声明但能力对不上时会明确失败：`exit 3` 表示"清单里没有这个名字"，`exit 5` 表示"这个名字存在，但干不了这件事"（例如 esbuild 只删类型标注，不做 `typeCheck`）。修法分别是改名字与换引擎。工具缺失一律 `exit 5`，不是"检查通过"。
 
 ### esbuild 不做类型检查
 
-这是一个容易踩的坑：`ngm build` 通过（甚至很顺利）**不代表类型是干净的**——
-esbuild 只删类型标注。把 esbuild 当作 `typeCheck` 引擎会被明确拒绝（`exit 5`）而不是"当作通过"。
-
-**但要注意这一步的前提**（v0.14 实测补上）：`--engine=<name>` 的名字是**按 kind 查**的，
-而内置清单里 `esbuild` 只覆盖 `bundle` / `transform`——所以**没声明**时它连能力检查都走不到，
-直接是配置错误（`exit 3`）：
+`ngm build` 通过**不代表类型干净**：esbuild 只删除类型标注。把 esbuild 当作 `typeCheck` 引擎会被明确拒绝；类型检查请用 `typescript`（`tsc`）或你声明的其它引擎。
 
 ```bash
-$ ngm typecheck --engine=esbuild          # 未声明 esbuild 为 typeCheck 引擎
-ConfigInvalid: no `typeCheck` engine named "esbuild" in the catalog
-  hint:  pick one of the known engines, or declare yours in ngm.engines.json
-         (available: self, typescript)
+ngm typecheck --engine=typescript
+ngm typedecl --outdir=dist/types --engine=typescript
+ngm css src/app.css --engine=postcss --outfile=dist/app.css
 ```
 
-**声明之后**才走到能力检查（`exit 5`，正是这一节要说明的那个拒绝）：
+postcss 没有内建压缩：`ngm css --minify --engine=postcss` 是 `exit 3`，提示显式换一个支持压缩的引擎；声明 `"supportsMinify": true` 的条目才接受 `--minify`，绑定字段见[配置详解](./configuration.md#engines)。
+
+## 单文件转换
+
+`ngm transform` 只碰一个文件、**不解析任何导入**；`ngm build` 才打包并解析导入。它面向测试运行器、开发服务器和你自己的构建步骤。
 
 ```bash
-# 先在 ngm.engines.json 里加一条 {"name":"esbuild","kind":"typeCheck",...}
-$ ngm typecheck --engine=esbuild
-EngineNotFound: esbuild does not type-check: it only strips type annotations
-  hint:  use the built-in `typescript` engine instead: pass --engine=typescript,
-         or set "typeCheck": "typescript" in ngm.json (see modules/p4-ecosystem.md)
-```
-
-**两个退出码的差别不是措辞问题**：`3` 说的是"你的清单里没有这个名字"，
-`5` 说的是"这个名字存在，但它干不了这件事"——修法不同（改名字 vs 换个引擎）。
-
-### 先看清 ngm 会怎么调引擎
-
-```bash
-$ ngm build --dry-run
-would bundle src/index.ts
-✓ primary: esbuild (bundle, subprocess)
-    status:  available (0.28.2)
-    command: esbuild --bundle --format=esm --target=es2020 src/index.ts
-    source:  built-in catalog
-```
-
-`--dry-run` 只打印、不执行，是排查"参数为什么没生效"最快的入口。
-
----
-
-## 单文件转换（`ngm transform`，v0.5）
-
-`ngm build` 打包一个项目并解析导入；`ngm transform` 只碰**一个文件**，**不解析任何导入**。
-它面向的是"想要一个引擎、不想要一个打包器"的管道——测试运行器、开发服务器、自己的构建步骤。
-
-```bash
-# 从 stdin 读（管道形态），产物走 stdout
 cat src/util.ts | ngm transform --loader=ts --minify
-
-# 从文件读：loader 由扩展名推断，并且**会把推断说出来**
 ngm transform src/util.ts
-# note: loader "ts" inferred from .ts (pass --loader to override)
-
-# 产物落盘（由 ngm 写，不是引擎答应的）
 ngm transform src/util.ts --outfile=dist/util.js
-
-# 先看清它会怎么调引擎
 ngm transform src/util.ts --target=es2020 --dry-run
 ```
 
-规则（每一条都有验收测试钉着）：
+规则：
 
 | 规则 | 为什么 |
 |------|--------|
-| loader 按 **`--loader` → 文件扩展名 → `engines.transform.options.loader`** 的顺序取 | 三处来源各自的含义不同：命令行说得最明确、扩展名来自用户的输入、清单是团队声明 |
-| 扩展名不认识时**不猜**（不凭空造一个 `--loader=`） | 猜错的代价是语法错误或更糟的静默转换 |
-| "必须有 loader" **不是 ngm 的规则，是 esbuild 的**，由 adapter 判 | 自定义引擎可能压根不需要 loader。ngm 一度在 CLI 里复刻了这条规则，结果是**清单里声明好的 loader 被挡在门外**——与"声明了、没生效"同型 |
-| 给文件时 loader 由扩展名推断，**并打印出来** | "我替你选了一个"和"你选的那个生效了"是两件事（本项目在"相对路径按了 CWD"上栽过两次，都是同一类） |
-| `--outfile` 由 **ngm** 落盘 | transform 的引擎接口只有 stdout 一条出口（`TransformResult` 没有 outfile），所以这不是"引擎答应写的" |
-| `--dry-run` 在缺 loader 时**同样报错** | 让 dry-run 成功而真实调用失败，恰好把"先看清它会怎么调"这件事变成骗人的 |
-| **不解析导入** | 断言写着"import 仍在、被导入模块的代码不在产物里"；否则哪天它被实现成 bundle，用户会不知不觉拿到不一样的东西 |
+| loader 按 `--loader` → 文件扩展名 → `engines.transform.options.loader` 取 | 命令行最明确；扩展名来自输入；清单是团队声明 |
+| 扩展名不认识时**不猜** | 猜错的代价是语法错误或静默转换错 |
+| "必须有 loader"由引擎判，不是 ngm 的规则 | 自定义引擎可能不需要 loader，ngm 不复刻 esbuild 的限制 |
+| 给文件时把推断出的 loader 打印出来 | "我替你选了"与"你选的生效了"是两件事 |
+| `--outfile` 由 **ngm** 落盘 | transform 的引擎接口只有 stdout 一条出口 |
+| `--dry-run` 缺 loader 时同样报错 | 不能让预演成功、真实调用失败 |
+| 不解析导入 | 否则某天它被实现成 bundle，用户会悄悄拿到不同产物 |
 
-`--target` / `--format` / `--minify` / `--sourcemap` 会翻译成引擎参数并真的生效
-（`--sourcemap` 走内联：输出是 stdout，无法外链）。
-
----
+`--target` / `--format` / `--minify` / `--sourcemap` 会翻译成引擎参数并生效；`--sourcemap` 走内联，因为输出是 stdout、无法外链。
 
 ## mappings 文件
 
-ngm 生成 `ngm.mappings.json`，供外部构建工具读取：
+`ngm install` 生成 `ngm.mappings.json`，供外部构建工具读取。先让脚手架生成配置，它不覆盖已有文件（内容不同时 exit 3，由你决定怎么合）：
+
+```bash
+ngm integrations add vite   # 或 esbuild / deno / webpack
+ngm mappings validate
+```
+
+文件形态：
 
 ```json
 {
@@ -218,71 +105,31 @@ ngm 生成 `ngm.mappings.json`，供外部构建工具读取：
 }
 ```
 
-### 先试脚手架
-
-```bash
-ngm integrations add vite      # 或 esbuild / deno / webpack
-```
-
-它按下面的规则生成配置，并且**不会覆盖**你已有的配置文件：内容不同时报出差异并以 exit 3 结束，
-由你决定怎么合。下面的章节是它生成的内容与逐条理由，供已有配置的项目手工合并时对照。
-
-### 先算对"导入标识符"
-
-每种工具的配置都以**导入标识符**为键，而它不等于 `from`：`path` 存在时要拼上去。
-
-```js
-// 每个消费方都需要这一行——它是 mappings → 工具配置的桥
-const specifier = m => (m.path ? `${m.from}/${m.path}` : m.from)
-```
-
-| `path` | 导入标识符 |
-|--------|-----------|
-| 缺失 | `github:my-org/utils` |
-| `packages/core` | `github:my-org/monorepo/packages/core` |
-
-> **为什么键必须是"标识符"而不是 `from`**：同一个仓库的多个子路径**共用同一个 `from`**，
-> 而每个条目的 `to` 指向**各自子目录**。因此 `Object.fromEntries(m => [m.from, m.to])`
-> 这类写法在 monorepo 上是有损的：它只留下其中一行，而留下的 `to` 是**子目录**——
-> 实测（esbuild）会得到
-> `Could not resolve "./vendor/.../packages/core/packages/core"`。
-> 用标识符当键则在任何情况下都无歧义。
-
-### Vite 集成
+关键：**导入标识符 = `m.path ? m.from + "/" + m.path : m.from`**，它不等于 `from`。同一仓库的多个子路径共用 `from`、各有自己的 `to`，用 `from` 当键会丢行。字符串 alias 是前缀匹配，长标识符要排在短标识符之前，否则子路径被吞掉。
 
 ```ts
 // vite.config.ts
 import mappings from './ngm.mappings.json'
-
 const specifier = (m: { from: string; path?: string }) =>
   m.path ? `${m.from}/${m.path}` : m.from
-
 export default {
   resolve: {
     alias: [...mappings.mappings]
-      // 长标识符优先：字符串 alias 是**前缀**匹配，短键会吞掉子路径
       .sort((a, b) => specifier(b).length - specifier(a).length)
       .map(m => ({ find: specifier(m), replacement: m.to }))
   }
 }
 ```
 
-### esbuild 集成
-
 ```js
-// build.js
+// build.js（esbuild）
 import mappings from './ngm.mappings.json'
 import { build } from 'esbuild'
-
 const specifier = m => (m.path ? `${m.from}/${m.path}` : m.from)
-
 build({
   entryPoints: ['src/index.ts'],
   alias: Object.fromEntries(
     [...mappings.mappings]
-      // 同 Vite：esbuild 的 alias 也是**前缀替换**（实测：只给
-      // `github:demo/lib` 也能解析 `github:demo/lib/packages/core`），
-      // 所以短的键必须排在长的之后，否则子路径会被吞掉。
       .sort((a, b) => specifier(b).length - specifier(a).length)
       .map(m => [specifier(m), m.to])
   ),
@@ -291,15 +138,9 @@ build({
 })
 ```
 
-> **可以更省事的写法**：vendor 布局与仓库布局一致，因此把 `from` 直接指向
-> **依赖根**（而不是某个子目录）时，前缀替换会让所有子路径自动落到位
-> （实测可行）。但这要求从 `to` 里剥掉 `path` 才能得到"依赖根"——
-> 那正是 `path` 想替你省掉的推断。用上面的标识符键不需要任何推断。
-
-### Deno 集成
+Deno 用 `deno.json` 的 `imports` 做精确键，子路径多时可加尾部带 `/` 的前缀键：
 
 ```json
-// deno.json
 {
   "imports": {
     "github:my-org/utils": "./ngm.vendor/github.com/my-org/utils/index.ts",
@@ -308,17 +149,7 @@ build({
 }
 ```
 
-> Deno 的 import map 支持**精确**键与**前缀**键（尾部带 `/`）。
-> 子路径依赖用精确键最稳；若某仓库子路径很多，可用前缀键
-> `"github:my-org/monorepo/": "./ngm.vendor/github.com/my-org/monorepo/"` 一并覆盖。
-
-### TypeScript 类型解析
-
-TS 语言服务不识别 `github:` 前缀：需要在 `tsconfig.json` 的 `paths` 中映射到 vendor 路径，
-否则类型检查会报"找不到模块"。
-
-`ngm integrations add <tool>` 会把这些一次性生成好（见下），下面是它生成的内容——
-如果你已经有自己的配置文件，照着手工合并即可。
+TypeScript 语言服务不识别 `github:` 前缀，需在 `tsconfig.json` 的 `paths` 映射 vendor 路径；用 `*` 做通配可覆盖子路径。**不要写 `baseUrl`**（TypeScript 已移除该选项）。
 
 ```json
 {
@@ -326,38 +157,34 @@ TS 语言服务不识别 `github:` 前缀：需要在 `tsconfig.json` 的 `paths
     "moduleResolution": "bundler",
     "paths": {
       "github:my-org/utils": ["./ngm.vendor/github.com/my-org/utils/index.ts"],
-      "github:my-org/monorepo": ["./ngm.vendor/github.com/my-org/monorepo/packages/core/src/index.ts"],
       "github:my-org/monorepo/*": ["./ngm.vendor/github.com/my-org/monorepo/*"]
     }
   }
 }
 ```
 
-> 带 `*` 的那条是**通配**：它使子路径（如 `github:my-org/monorepo/packages/web`）
-> 无需逐条声明即可解析——已用真实 tsc 验证（导入根与子路径都不会报"找不到模块"，
-> 且故意制造的类型不匹配会指向 vendor 里的真实类型，证明解析确实生效）。
->
-> **不要写 `baseUrl`**：TypeScript 7 已移除该选项，写上去会直接报
-> `error TS5102: Option 'baseUrl' has been removed`；`paths` 单独就能工作。
+## 构建回执与确定性口径
 
----
+`ngm build --provenance` 写 `ngm.build.json`：输入摘要、引擎的 name/kind/version/字节摘要、排序后的 argv、mappingsDigest、产物摘要。不进 lock、不写时间戳、不写绝对路径。`ngm verify --receipt` 只读复验这份回执的**回执字节**，不重跑构建；产物不符 exit 2，缺引擎 exit 5，2 压过 5（[ADR-057](../adr/README.md)）。
 
-## 不在 ngm 范围内
+ngm 对压缩产物**只承诺一件事**：**同输入 / 同参数 / 同引擎** 时，esbuild 的 `--minify` 回执字节是确定的。重复同一条命令、同一份输入、同一个引擎二进制，`ngm.build.json` 记录的产物摘要应当逐字节一致。
 
-ngm 不做 HMR / Dev Server / 代码分割优化 / Source Map 完整链路 / 框架插件，全部交给 Vite 等专业工具；完整的能力归属矩阵见[能力矩阵](../internals/capability-matrix.md)。
+**不跨工具承诺**——这是刻意的边界：
 
----
+- 不承诺 esbuild / lightningcss / cssnano 等**不同压缩工具**之间字节一致；
+- 不承诺同一工具的**不同版本**（哪怕只差一个补丁）之间字节一致；
+- 不承诺跨操作系统 / 平台字节一致；回执记录的是这次实际使用的工具字节摘要，不是"可复现构建"认证。
 
-## 诚实说明
+边界由 [ADR-013 远程 adapter 的信任边界](../adr/README.md)固定：ngm 不自研引擎、压缩交给外部工具。可复现性探针 [`scripts/probe-reproducibility.sh`](../../scripts/probe-reproducibility.sh) 给出当前工具链下"同输入 / 同参数 / 同引擎 → 同字节"的实测路径；探针过了只说明那一次组合确定，不扩展上面的承诺范围。
 
-1. **ngm build 是薄封装**：本质是 spawn 外部引擎，不比直接调 esbuild 更快
-2. **ngm 的构建价值在依赖证明**：确保构建时用的 vendor 代码是可证明的
-3. **ngm 不追求构建性能**：Bun/esbuild/Vite 已经是标杆
+## 为什么这样设计 / 边界
 
----
+- ngm build 是薄封装：本质是 spawn 外部引擎，不比直接调 esbuild 更快；它的价值在于构建时用的 vendor 代码可证明。
+- 引擎外置：esbuild / tsc / postcss 不是 ngm 的自研实现，只是清单条目；工具缺失是 `exit 5`，不是"检查通过"（[ADR-025](../adr/README.md)）。
+- 不做 HMR / Dev Server / 代码分割优化 / 完整 Source Map 链路 / 框架插件，全部交给 Vite 等专业工具；完整归属见[能力矩阵](../internals/capability-matrix.md)。
+- 引擎清单的版本与摘要绑定见[配置详解](./configuration.md#engines)，底层接口见[引擎 adapter](../architecture/engine-adapter.md)。
 
 ## 相关文档
 
-- [配置详解](./configuration.md)
-- [架构：引擎 adapter](../architecture/engine-adapter.md)
-- [运行时模型](../architecture/runtime-model.md)
+- [快速上手](./quickstart.md) · [配置详解](./configuration.md) · [依赖管理](./dependency-management.md)
+- [CLI 参考](./cli.md) · [生态定位](./positioning.md) · [能力矩阵](../internals/capability-matrix.md)

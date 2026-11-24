@@ -82,6 +82,11 @@ func TestV097LinkImplementationsAgree(t *testing.T) {
 	}
 
 	// 真仓库：两边都应当为空，且 Go 侧确实扫到了链接（防"范围缩了"）。
+	//
+	// 阈值从 1000 降到 80：docs/ 已从 364 篇历史文档精简到约 25 篇（保留 README /
+	// guides / architecture / ADR 汇总 / 开发入口等），链接总数随之大幅下降。
+	// 这个下限仍远高于"空比"——若两侧都扫不到链接，对照就退化成"两边都报空"，
+	// 那条网就什么也没证明。80 只挡住这种退化，不再是旧文档规模的读数。
 	repo := repoRoot(t)
 	repoOut := runDocsLinks(t, bash, script, repo, "docs", "README.md")
 	if got := shellBrokenSet(t, repoOut); len(got) != 0 {
@@ -95,7 +100,7 @@ func TestV097LinkImplementationsAgree(t *testing.T) {
 	for _, list := range refs {
 		total += len(list)
 	}
-	if total < 1000 {
+	if total < 80 {
 		t.Errorf("真仓库只扫到 %d 处链接 —— 范围缩了（这条对照会变成空比）", total)
 	}
 }

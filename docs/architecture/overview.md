@@ -1,6 +1,7 @@
 # 架构总览
 
-ngm 的核心设计是**把 Git 依赖的可证明性做成默认闭环**，而不是又一个包管理器或一体化工具链。
+> **结论**：ngm 把"Git 依赖的可证明性"做成一条默认闭环——声明用 refType、锁定用 commit 与内容 digest、
+> 落地用 vendor、复核用 verify。它不是包管理器替代品；差异化在流程闭环与共享状态模型，不在单项性能。
 
 ---
 
@@ -10,110 +11,60 @@ ngm 的核心设计是**把 Git 依赖的可证明性做成默认闭环**，而�
 refType 声明 → commit 解析 → 内容 digest 锁定（archive / module）
   → vendor 落地（mirror / module cache / content store / link tree）
   → verify 漂移 + binding + 重放 + 落地四查
-  → OSV/白名单门禁 → 可复现构建
+  → OSV / 白名单门禁 → 可复现构建
 ```
 
-这条链路目前没有主流工具完整覆盖，但**ngm 的差异化不在单项能力，而在流程闭环与共享状态模型**。
+**数据流**：`ngm.json`（声明）经解析得到 commit，再从 mirror 的 commit tree 生成规范化清单与 digest，
+两者写进 `ngm.lock`；install 按下来的 lock 落地 vendor；verify 重新解析 ref、重放 digest 并校验落地，
+把结论交给退出码与报告。
+
+**状态**：真相在 lock（commit + digest + `subPath`），不在 tag/branch，也不在 `resolvedAt`（只用于审计）。
+同一仓库的不同子路径是两个独立条目（身份 `name#subPath`）。
+
+**失败语义**：ref 漂移 exit 1、digest 不匹配 exit 2、配置/lock 错误 exit 3、网络失败 exit 4、
+引擎不可用 exit 5、内部失败 exit 6；完整契约见[可观测性](./observability.md)。完整性与环境失败严格区分，
+CI 才不会把"依赖被篡改"读成"机器缺工具"。
+
+**边界**：只管 Git 来源依赖；registry 包、自研引擎、构建器、Dev Server 都不做（见[能力矩阵](../internals/capability-matrix.md)）。
 
 ---
 
 ## 三层运行时模型
 
-```
-┌─────────────────────────────┐
-│  Host runtime               │  Node.js / Deno
-│  （用户代码实际运行的环境）   │
-└────────────┬────────────────┘
-             │  ngm build / ngm typecheck
-             ▼
-┌─────────────────────────────┐
-│  Engine adapters            │  esbuild / tsc / deno / postcss
-│  embed / subprocess /       │
-│  wasm / remote              │
-└────────────┬────────────────┘
-             │
-             ▼
-┌─────────────────────────────┐
-│  ngm core (Go)              │  依赖图 / lock v2 / 内容证明 / vendor
-│  internal/core，无 JS 运行时 │  module cache / hardlink / verify / gate
-└─────────────────────────────┘
-```
+| 层 | 技术 | 职责 |
+|---|---|---|
+| **ngm core** | Go 单二进制 + `internal/core`（无 JS 运行时） | 依赖图 / lock / 内容证明 / vendor / module cache / verify / 门禁 |
+| **Engine adapters** | `embed` / `subprocess` / `wasm`（`remote` 按决定排除） | 调外部引擎；内置只有 esbuild（bundle/transform）与 `self` stub |
+| **Host runtime** | Node.js 或 Deno | 用户代码实际运行的环境 |
 
-详见 [运行时模型](./runtime-model.md)。
+core 做判定，adapter 只执行被交给它的那一个调用：引擎是子进程，必须能取消，且失败不静默改结论。
+详见[引擎 adapter](./engine-adapter.md)与[安全模型](./security-model.md)。
 
 ---
 
-## 核心子系统
+## 子系统
 
-| 子系统 | 职责 | 关键设计 |
-|--------|------|---------|
-| 依赖解析 | Git URL 归一化、refType 解析、commit 解析、模块目标 | refType 仅对完整 commit 窄默认；tag/branch 仍显式；4 种协议归一化 |
-| 模块集合 | 一个仓库多个模块；模块自己的依赖/版本 | 模块清单优先、根清单回退 warning；模块身份 `repo + subPath` |
-| 锁定机制 | commit + 内容 digest + resolvedAt | 根用 `archiveDigest`；模块用 `moduleDigest + subtreeOid`（lock v2） |
-| vendor / 缓存 | mirror / module cache / content store / hardlink tree / cache | partial clone 只服务 lock 钉住的模块；filter 不支持明确回退 |
-| 引擎层 | 统一 interface，第三方优先 | adapter 类型与内置清单唯一维护在[引擎 adapter](./engine-adapter.md)（内置 esbuild / typescript / postcss + wasm；`remote` 按 ADR-013 排除） |
-| 供应链策略 | JSON-first 策略引擎 + audit(OSV) + 白名单 | v0.2：白名单与 minimumReleaseAge 已生效；postinstall 执行入口收窄到 v0.3（[ADR-009](../adr/adr-009-supply-chain-policy.md)） |
-| 可观测性 | `verify`、`audit` / `why` / `tree` / `outdated` | verify 四查：ref / binding / digest / landing；区分预期漂移与非预期漂移 |
-
----
-
-## 与竞品的分界（诚实版）
-
-> 逐项对比（refType / archiveDigest / 漂移检测 / postinstall 等控制点的覆盖矩阵）的唯一事实源是
-> [竞品分析](../COMPETITIVE-ANALYSIS.md)；此处只保留分界结论，不复制明细。
-
-| 工具 | 已有能力 | ngm 不重复造 | ngm 的窄缺口 |
-|------|---------|-------------|-------------|
-| npm | Git commit 记录、signature、provenance、audit | npm 已是 registry 包标准答案 | refType + archiveDigest + verify 闭环 |
-| pnpm | content store、minimumReleaseAge、blockExoticSubdeps | pnpm 已是磁盘管理标杆 | 统一流程 + 共享状态模型 |
-| Yarn | approvedGitRepositories、checksum、immutable | Yarn 的 Git 审批已成熟 | archive 级策略 + 漂移复核 |
-| Bun | 一体化（install/build/test/docs/HMR/runtime） | Bun 已是速度/一体化标杆 | 供应链可证明性闭环 |
-| Vite | dev server + HMR + Rollup 生产构建 | Vite 是构建生态标杆 | ngm 只做依赖，构建交给 Vite |
-
-**ngm 的潜在价值**：把上述分散的控制点收束为同一默认流程。若这些策略只是分别调用外部命令，ngm 就只是配置与编排层。
-
----
-
-## 诚实边界
-
-- **性能优势已经商品化**：Bun 无变更重装约 12ms，Biome 格式化约快 35×，SWC 单线程约快 20×。"快"不是稀缺卖点
-- **vendor 不必然省磁盘**：pnpm 通过 content-addressable store 与 hardlink 复用，ngm 全量副本更易跨项目重复
-- **统一 Go interface 不等于底层引擎统一**：接口抽象若只覆盖命令执行，得到的只是薄封装
-- **"无 registry"不等于"去信任"**：仍需面对 Git host、凭证、force push、archive 一致性、私有 repo、postinstall 脚本
-- **ngm 是窄场景工具**：Git 依赖可证明性。不是通用包管理器替代品
-
----
-
-## 子系统文档
-
-- [运行时模型](./runtime-model.md)
-- [信任模型](./trust-model.md)
-- [模块集合](./module-collections.md)
-- [语言无关核心与适配器](./core-and-adapters.md)
-- [vendor / module cache 层](./vendor-layers.md)
-- [引擎 adapter](./engine-adapter.md)
-- [供应链防护](./supply-chain.md)
-- [依赖解析](./dependency-resolution.md)
-- [锁定机制](./locking.md)
-- [安全模型](./security-model.md)
-- [可观测性](./observability.md)
+| 子系统 | 数据流/状态 | 失败语义与边界 | 文档 |
+|--------|------------|---------------|------|
+| 依赖解析 | 4 种 Git URL → canonical；refType → commit；广度优先展开传递依赖 | 上游缺 refType 或传递冲突 → exit 3；不递归 `package.json` | [依赖解析](./dependency-resolution.md) |
+| 模块集合 | 身份 `repo + subPath`；模块清单优先、根清单缺失时回退并 warning | 不做共享 lock 的 workspace | [依赖解析 · 传递依赖](./dependency-resolution.md#传递性依赖) |
+| 锁定机制 | 根用 `archiveDigest`；模块用 `moduleDigest + subtreeOid`；`resolvedAt` 只审计 | 旧格式 MAJOR 不兼容时明确拒绝、重新 install；frozen 冲突 exit 3 | [锁定机制](./locking.md) |
+| vendor / 缓存 | mirror → module cache → content store（blob 池 + 树清单）→ link tree | filter 不支持时明确回退完整 mirror；离线未命中 exit 4 | [依赖解析 · 落地](./dependency-resolution.md#6-vendor-落地) |
+| 引擎层 | 统一 interface；选项→argv 映射按能力定义；`primary`/`fallbacks` 顺序尝试 | 未声明 exit 3；声明了但没装 exit 5；引擎自己失败 exit 1 | [引擎 adapter](./engine-adapter.md) |
+| 供应链策略 | 策略状态与依赖图共享；锁定 commit 的 committer date 作为时间源 | 超阈值漏洞 exit 1；空 `supplyChain` 段不门禁 | [供应链防护](./supply-chain.md) |
+| 可观测性 | 一份判定 → 退出码 / `--json` / 人类文本；渲染不新增判定 | 码 2 压过码 4；"没问到"不冒充漂移 | [可观测性](./observability.md) |
 
 ---
 
 ## 相关 ADR
 
-- [ADR-001：为什么用 Go](../adr/adr-001-go.md)
-- [ADR-002：为什么直接拉 Git 仓库](../adr/adr-002-git-direct.md)
-- [ADR-003：为什么纯 vendor/ 目录](../adr/adr-003-vendor.md)
-- [ADR-004：为什么声明用 refType 锁定用 commit](../adr/adr-004-reftype.md)
-- [ADR-005：为什么引擎统一接口动态选择](../adr/adr-005-engine-interface.md)
-- [ADR-006：为什么 lytd 并入 ngm](../adr/adr-006-lytd-merge.md)
-- [ADR-007：Node 还是 Deno？](../adr/adr-007-runtime-node-deno.md)
-- [ADR-008：archiveDigest 的定义](../adr/adr-008-archive-digest.md)
-- [ADR-031：一仓多模块](../adr/adr-031-module-collections.md)
-- [ADR-032：模块级内容证明](../adr/adr-032-scoped-content-proof.md)
-- [ADR-033：语言无关核心](../adr/adr-033-language-neutral-core.md)
-- [ADR-034：module cache 边界](../adr/adr-034-module-cache.md)
-- [ADR-035：refType 窄默认](../adr/adr-035-refType-narrow-default.md)
-- [ADR-036：证据式 refType 推断](../adr/adr-036-infer-ref-type-opt-in.md)
-- [ADR-037：逐模块 publish 覆盖](../adr/adr-037-per-module-publish-override.md)
+决策的当前结论集中在[ADR 汇总表](../adr/README.md)。与本页直接相关的：
+ADR-001（用 Go）、ADR-002（Git 直连）、ADR-003（纯 vendor 目录）、ADR-004（refType 声明 / commit 锁定）、
+ADR-005（统一引擎接口）、ADR-031（一仓多模块）、ADR-032（模块级内容证明）、ADR-033（语言无关核心）、
+ADR-038（不自研 Git）、ADR-042（项目脚本在沙箱外执行）、ADR-044（独立生态）。
+
+## 相关文档
+
+- [依赖解析](./dependency-resolution.md) · [锁定机制](./locking.md) · [引擎 adapter](./engine-adapter.md)
+- [安全模型](./security-model.md) · [供应链防护](./supply-chain.md) · [可观测性](./observability.md)
+- [能力矩阵](../internals/capability-matrix.md) · [开发者入口](../DEVELOPMENT.md)

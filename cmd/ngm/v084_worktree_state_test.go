@@ -88,6 +88,8 @@ func initSyntheticReleaseRepo(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	writeFileAt(t, dir, "docs/development/v0.1-retrospective.md", "# v0.1 复盘\n")
+	// 新契约：正式 tag 必须在 CHANGELOG 里有对应段落（预发布才豁免）。
+	writeFileAt(t, dir, "CHANGELOG.md", "# Changelog\n\n## [0.1.0]\n\n- 初始版本\n")
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "-q", "-m", "v0.1")
 	gitIn(t, dir, "tag", "-a", "v0.1.0", "-m", "v0.1.0")

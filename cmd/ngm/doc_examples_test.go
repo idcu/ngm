@@ -68,7 +68,8 @@ func TestV15DocExamplesAreRealInvocations(t *testing.T) {
 		}
 		display := strings.TrimPrefix(filepath.ToSlash(doc), "../../")
 
-		for _, cand := range docCommandCandidates(string(raw)) {
+		text := string(raw)
+		for _, cand := range docCommandCandidates(text) {
 			sub, flags, ok := parseNgmInvocation(cand)
 			if !ok {
 				continue
@@ -84,8 +85,15 @@ func TestV15DocExamplesAreRealInvocations(t *testing.T) {
 				}
 				continue
 			}
-			text, known := usage[sub]
+			usageText, known := usage[sub]
 			if !known {
+				// 新文档里有些**诚实负例**：句子明说某条 ngm 命令不存在（例如
+				// "`ngm test` 不存在"）。那是在声明边界，不是在给示例命令；
+				// 若在这里报"不是本 build 的命令"，等于把边界声明误判成错误示例。
+				// 只认同一句里**明确否定**的写法，不放宽对普通示例的检查。
+				if docHonestNegative(text, cand) {
+					continue
+				}
 				if idx, exempt := docExceptionFor(display, cand); exempt {
 					used[idx] = true
 					continue
@@ -98,7 +106,7 @@ func TestV15DocExamplesAreRealInvocations(t *testing.T) {
 				if rootFlags[f] {
 					continue
 				}
-				if mentionRe(f).MatchString(text) {
+				if mentionRe(f).MatchString(usageText) {
 					continue
 				}
 				// v0.54：**故意写出来的失败调用**走同一张例外表。
@@ -133,8 +141,10 @@ func TestV15DocExamplesAreRealInvocations(t *testing.T) {
 // **文档正是在说它不合法**。
 //
 // 为什么是一份名单、而不是把判据放宽到能容纳它们：这几处不是命令/flag 写错了，是**负例**
-// （"ngm 没有 test 命令"、"迁移命令尚不存在"、"这样的调用会被拒绝"）。
-// 判据一旦放宽到能容纳它们，就等于不再检查"命令名/flag 是否存在"——而那正是本网唯一的牙齿。
+// （"迁移命令尚不存在"、"这样的调用会被拒绝"）。判据一旦放宽到能容纳它们，
+// 就等于不再检查"命令名/flag 是否存在"——而那正是本网唯一的牙齿。
+// "某条命令根本不存在"这类**诚实负例**由 `docHonestNegative` 按同一句里的明确否定识别，
+// 不再占用名单条目。
 //
 // 名单**不会悄悄过期**：上面的断言要求每个条目在当前文档里**确实还能匹配到**，
 // 一旦那处示例被删改，测试会红并要求把条目一并删掉。
@@ -146,15 +156,29 @@ var docExampleExceptions = []struct {
 	text string
 	why  string
 }{
-	{"docs/guides/test.md", "ngm test", "散文明确写着 ngm 没有 test 命令——这一行是负例"},
 	{"docs/guides/configuration.md", "ngm lock migrate", `写明"迁移命令仍不存在"（v3 起旧格式直接废止、重新生成，见 ADR-052）`},
+	{"docs/guides/migration.md", "ngm lock migrate", `迁移指南里同样写明 "ngm lock migrate 这个命令并不存在"——新位置，旧例外不能丢`},
 	{"docs/guides/cli.md", "ngm verify --json --bogus",
 		"这一行是**实测记录**：散文说的是「解析阶段的失败也该有机器可读的形态」——" +
 			"那条调用会被拒绝，正是它的要点"},
-	{"docs/internals/progress.md", "ngm verify --json --bogus",
-		"同上：v0.54 那一行记的是**实测读数**（exit 3 · stdout 0 字节），" +
-			"这条调用被拒绝正是读数本身。2026-11-03 该行随 §2 逐版表搬到 progress.md，" +
-			"例外条目跟着搬——否则它会变成一条指向旧坐标的空规则"},
+}
+
+// docHonestNegative 认出"诚实负例"：文档在同一句里明确说这条 ngm 命令**不存在**
+// （`ngm test` 不存在 / 并不存在 / 不是命令 / 命令不存在）。这类代码跨度是边界声明，
+// 不是照着抄的示例，因此不需要进 docExampleExceptions——把整类写法变成判据的一部分，
+// 而不是留一张会随文档改写而腐烂的例外表。普通示例一个也不放宽。
+func docHonestNegative(doc, cand string) bool {
+	for _, pat := range []string{
+		"`" + cand + "` 不存在",
+		"`" + cand + "` 并不存在",
+		"`" + cand + "` 不是命令",
+		"`" + cand + "` 命令不存在",
+	} {
+		if strings.Contains(doc, pat) {
+			return true
+		}
+	}
+	return false
 }
 
 // docExceptionFor 返回命中的例外条目下标。

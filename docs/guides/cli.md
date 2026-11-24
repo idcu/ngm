@@ -1,197 +1,53 @@
 # CLI 参考
 
-> **版本号口径（2026-11-20）**：本文成熟度列里的 `v0.1` ~ `v0.101` 是**已打 tag 的发布版本**。
-> 正文里出现的 `v0.102` ~ `v0.136` 一类编号是**开发批次的内部任务号**（未打 tag，功能列在
-> 仓库根 `CHANGELOG.md` 的 `[Unreleased]`，以 `git tag` 的实际读数为准）——它们不是可下载的发布版。
-> 文中若写"v0.136 收紧"意为"本开发线（未打 tag）的某批改动"。
->
-> 成熟度列标注该命令自哪个版本可用；v0.1 ~ v0.4 的命令**均已实现**，v0.1 的由
-> [端到端验收](../development/v0.1-plan.md)守护，其后的由各版验收测试守护。
-> 未实现的命令不会静默成功——它们明确返回 `exit 3` 与可读提示。
->
-> **全局 flag 的作用域（v0.12 修 · v0.55 收紧）**：`ngm --help` / `ngm --version` 输出根帮助与版本，
-> **`ngm <command> --help` 输出该命令自己的用法**——而且**就是**它参数错误时打印的那份文本
-> （各命令的 `xxxUsage` 常量），不是另写的第二份帮助。判据是**位置**：`--help` 出现在子命令
-> **之前**才算根级，因此 `ngm verify --help` 给你 verify 的用法，不是根帮助。
-> v0.12 之前这条是坏的：根级扫描跨越**整条**参数，子命令帮助那一分支永远走不到——
-> 它打印的 "help not yet implemented" 没有任何人见过。
->
-> **根级只认 `--help` / `-h` / `--version` 这三个**（v0.55 起）。子命令**之前**的其他 token
-> 一律拒绝（`exit 3`，并提示"命令的 flag 写在命令**之后**"），不再静默丢弃。
->
-> 为什么收紧：从前它们**进得去、出不来**——实测在一个有 `lock` 的项目上：
->
-> ```text
-> $ ngm --json verify         # 用户要的是 JSON
-> exit 0 · stdout 是**人读文本** · stderr 0 字节
-> ```
->
-> 这是最坏的一种：**走错通道、还一声不响**——脚本拿到散文、退出码还是 0，
-> 连"出事了"都不知道。现在它 `exit 3`，而且因为用户提了 `--json`，
-> 机器那侧还会收到一份**错误信封**（v0.54）：
->
-> ```json
-> {"version":1,"error":{"code":"Usage","exitCode":3,"message":"unknown root flag: --json",
->   "hint":"root level accepts only --help/--version; a command's flags go after the command (e.g. `ngm verify --json`)"}}
-> ```
->
-> 校验与动手是**两个循环**：先全部核对、再执行——否则 `--version --bogus` 与
-> `--bogus --version` 会给不同结果，而"顺序敏感"不是一条能记住的规则。
-
----
+ngm 是单二进制 CLI：`ngm <command> [options]`。本文给出命令速览、全局约定与 `--json` 的机器接口形状。每条命令的完整参数以 `ngm <command> --help` 为准——它与该命令参数错误时打印的是同一份文本。
 
 ## 命令一览
 
-| 命令 | 作用 | 成熟度 | 主要来源文档 |
-|------|------|--------|-------------|
-| `ngm init <name> [--runtime=node\|deno] [--dir=<path>] [--force]` | 初始化项目（同时生成 `src/index.ts`，不覆盖已存在的） | v0.1 | [快速上手](./quickstart.md) |
-| `ngm adopt [--dir=<dir>] [--out=<file>] [--json] [--check=<file>]` | 为**已经被别人装好**的依赖（`node_modules`）出具内容证明，写 `ngm.proof.json`。**`--check` 是同一棵树的复核**：与一份早先的证明比较，只读、不写文件，有差异即 exit **2**（`--json` 时标准输出仍是单个文档，差异走 stderr）。它把快照变成**基线**——CI 里问"这棵树还是我们审过的那棵吗"，不需要 lock、不需要 `ngm install`，也不需要网络。**注意它复核的仍是快照**：没有 commit 绑定，持续保证依然只有 `ngm.lock` 能给。每个包用**与 `ngm verify` 的 `archiveDigest` 同一套清单格式**算一个内容摘要（同一函数、同一种记录编码），并按 `package-lock.json` 标注来源（git commit / registry integrity / unknown）。**但输入不同**：普通文件一律记 `100644`，**不看可执行位**——Windows 报告不了它，记进去会让同一棵树在两台机器上给出不同摘要（`--check` 的典型用法正是"本机写基线、CI 复核"）。代价是含可执行文件的包其摘要与 git 侧 `archiveDigest` **不相等**（git 记 `100755`），而 ngm 里没有任何命令会去比较这两者。**只读**：不安装、不写 `node_modules`、不改任何 lock；读不了 pnpm/yarn 的 lock 时**在 `notes` 与 `coverage.unknown` 里说出来**，不假装没有来源。它证明"磁盘上是这些字节"，**不**证明"这些代码无害"。**不是** registry 包管理的一环：registry 来源只认 `package-lock.json`，**不为 registry 条目**解析 pnpm/yarn 的 lock（理由见 ADR-040 决定 2 的注；v0.135 起 pnpm/yarn 的 Git 来源条目会被窄解析；v0.103 起 bun.lock（文本）与 deno.lock 的 Git 来源条目也按同一保守口径解析，binary bun.lockb 与无法映射的条目列入 `skipped`，见 ADR-054）——pnpm 项目接入 ngm 走的是**共存**：`node_modules/` 归 pnpm，`ngm.vendor/` 归 ngm，把那几个 Git 依赖用 `ngm add` 声明出来即可。**但 pnpm 的链接布局能读**（2026-11-07 修复）：`node_modules/<pkg>` 指向 `.pnpm/` 内真实目录时会跟随，且只跟随目标仍在 `node_modules` 之内的链接（workspace 指回项目源码的链接仍按"跳过"计数）；`packages[].path` 仍记**逻辑链接路径**。没有 lock 来源时照旧标 `unknown` | **v0.101 新增** | [ADR-040](../adr/adr-040-adopt-proof-layer.md) · [三条接入路径](../internals/intake-paths.md) |
-| `ngm migrate [--dir=<dir>] [--dry-run] [--json]` | 把 v1/v2 清单与 2.x lock 迁到 schemaVersion 3 / lockfileVersion 3.0.0；只搬能安全映射的字段，缺 digest 等条目列入 `skipped` 且全量不写。`--dry-run` 只输出变更与备份路径，写文件前把原件另存为 `.bak`。已 v3 时幂等返回 0（[ADR-055](../adr/adr-055-migrate-and-digest-audit.md)） | ✗ |
-| `ngm add <git-url>[@<ref>] [--ref-type=<type>] [--infer-ref-type] [--path=<子路径>] [--dry-run]` / `ngm add local:<name>[@<ref>] --ref-type=<local-git\|local-dir> --source-path=<dir> [--local-repo=<git-dir>]` | 添加依赖：git 来源 refType 通常必填（完整 40 位 commit 可省略，`--infer-ref-type` 用一次远端 ls-remote 消歧）；本地来源用 `local:<name>` + `--source-path`，local-dir 的 ref 默认 `auto`（[ADR-052](../adr/adr-052-local-sources.md)） | v0.1 / **v0.104 增 `--infer-ref-type`** / **v0.103 增本地来源** | [依赖管理](./dependency-management.md) |
-| `ngm install [--digest] [--json]` | 解析并安装依赖（有 lock 则尊重 lock）。`--json` **v0.66**：报告每个依赖解析/落地成了什么（含 `source`: resolved / store / fetched），人类文本改走 stderr | v0.1 | [依赖管理](./dependency-management.md) |
-| `ngm run <script> [--dir=<path>] [--if-present] [-- <args>]` / `ngm run --list [--json]` | 运行项目脚本（`package.json.scripts` 权威、`ngm.json.scripts` 回退）。pre/post 按 npm 约定（`pre<name>` / `post<name>`）；PATH 注入祖先目录的 `node_modules/.bin`；退出码原样透传（信号见 128+signal）。**项目脚本在沙箱外执行**，需要 `run:script` 授权，与 install 期的 `supplyChain.postInstallPolicy` 是两套闸门；父环境透传，但 `permissions.deny: ["env:X"]` 里的名字与整个 `npm_config_*` 前缀不会出现在脚本子进程里（前者与 git / 引擎 / 沙箱同一条策略，后者是 v0.136 的收紧：同一份脚本不该因为"从 npm 启动"而行为不同；ngm 自己的 `PATH` / `npm_lifecycle_*` 不受此治理） | **v0.120 新增** | [ADR-042](../adr/adr-042-run-outside-sandbox.md) |
-| `ngm update [<dep>] [--all] [--offline] [--digest] [--store] [--json]` | 更新 ref 与锁定。`--json` **v0.66**（与 install 同一形状；`dependencies` 覆盖整张图） | v0.1 | [依赖管理](./dependency-management.md) |
-| `ngm remove <dep>` | 移除依赖（只改声明） | v0.1 | [依赖管理](./dependency-management.md) |
-| `ngm doctor [--dir=<dir>] [--json]` | 诊断本地环境与项目：git、ngm.json、ngm.lock、`~/.ngm` 布局、mirror/module-cache/content-store、**vendor 树的 Git 可见性**（present / ignored-by-git / absent）、嵌套模块扫描。诊断失败写进报告但命令仍退 0；用法错误退 3 | **v0.104 新增**；`vendor` 读数 **v0.117** | [可观测性](../architecture/observability.md) |
-| `ngm modules list\|validate\|index [--dir=<dir>] [--json] [--limit=<n>] [--strict] [--index=<file>] [--out=<file>] [--dry-run] [--releases=false] [--shards] [--branch=<name>]` | 集合模块的发现、校验与索引：`list` 扫描嵌套 `ngm.json`，`validate` 检查 JSON、重名、索引一致性，`--strict` 还检查集合内同一依赖是否被钉到不同 ref（把消费者端冲突前移到生产者端），`index` 写确定性的 `ngm.collection.json`、从本地 tag 收集 `version → commit`（`--shards` 写 `releases/<module>.json`），并默认更新本地 `ngm-index` 分支（不推送；支持分片树）；`changed` 列出 `--since` 以来被改动过的模块，`plan` 进一步给出建议的下一个版本/ tag（只读，不提交不打 tag）。**版本规则只有一份**：`--strict` 与 `plan` 共用同一个解析器（`1.2.3-rc1` 是合法版本，但 `plan` 不做后缀判断的进位）；改写索引时读到的 origin remote 若无法解析，warning 里的地址经 `resolve.RedactURL` 脱敏（userinfo / query 丢弃，host/path 保留） | **v0.103 已实现**；**v0.104 增 `--shards`、分片分支、`changed` 与 `plan`**；解析与脱敏统一 **2026-11-07 评估后** | [模块集合](../architecture/module-collections.md) |
-| `ngm verify [<dep>...] [--offline] [--content \| --level=structure\|content] [--deep] [--json] [--format=sarif\|github] [--strict] [--allow-drift] [--sandbox] [--signatures] [--require-signed] [--receipt]` | ref 漂移 + digest 重放检查；`--content`（别名 `--level=content`；`--deep` 是兼容旧脚本的同义 flag）**重放 lock 的 archiveDigest/moduleDigest 并逐文件哈希 vendor 与 content store**，报告里给出依赖、文件路径、期望/实际哈希（终端截断、`--json` 全量）。默认仍是 **structure**：只比结构与大小，等长字节篡改检不出来（hardlink 下 vendor 与 blob 是同一 inode），汇总行会说明这一点。内容级在资源缺失（mirror/store 不全、无法重算）时退 **4**，只有确证内容不符才退 **2**。`--sandbox` 追加在 Deno 沙箱里执行依赖自带的 `verify.js`（缺 Deno 且确有脚本 → exit 5）；`--signatures` 追加报告 Git 签名状态（**未签名不是失败**），`--require-signed` 把它变成门槛（未签名/无法用你的密钥验证 → exit 2）。`--receipt`（W1）是另一条**只读**通道：不读 lock、不重跑构建、不启动引擎，只重算 `ngm.build.json` 记录的产物摘要并检查引擎工具；产物不符 exit **2**，缺引擎 exit **5**，两者同时按 ADR-039 由完整性压过资源缺失 | v0.1 / **v0.3 增 `--sandbox`** / **v0.4 增 `--signatures`、`--require-signed`** / **v0.102 增 `--content`/`--level`** / **W1 增 `--receipt`** | [信任模型](../architecture/trust-model.md) · [ADR-012](../adr/adr-012-sandbox.md) · [ADR-014](../adr/adr-014-self-report-signatures.md) |
-| `ngm build [<entry>] [--engine=<name>] [--outfile=<path>] [--production] [--dry-run] [--provenance] [--cache]` | 构建（adapter）。`--provenance`（W1/E4，默认关）在项目根写旁车 `ngm.build.json`：输入摘要、engine 的 name/kind/version/字节摘要、排序后的 argv、mappingsDigest、产物摘要；**不进 lock、不写时间戳、不承诺可复现构建认证**（ADR-057）。`--cache`（W1/E6）只做本地 `~/.ngm/build-cache`（NGM_HOME 可覆盖），键含输入+engine digest+argv+平台三元组+mappingsDigest；命中时回执写 `source: cache`，现场构建写 `source: built`；污染缓存失效并重建一次，仍不符 exit 2 | v0.1 / **W1 增 `--provenance`、`--cache`** | [构建](./build.md) · [ADR-057](../adr/adr-057-build-receipt.md) |
-| `ngm typecheck [<entry>] [--engine=<name>] [--tsconfig=<path>] [--dry-run]` | 类型检查（adapter） | v0.1 命令 / **v0.2 有引擎**（内置清单里是 `typescript` = tsc）。**需要声明**：`engines.typeCheck` 或 `--engine=typescript`——未声明是 `exit 3`，声明了但 `tsc` 未装才是 `exit 5` | [构建](./build.md) |
-| `ngm typedecl [<entry>] --outdir=<dir> [--engine=<name>] [--dry-run]` | 生成 `.d.ts` 声明（adapter）；**`--outdir` 必填**，并报告**实际出现**的文件 | **v0.4 已实现**（此前该能力只有 adapter 与单测，没有命令驱动它） | [构建](./build.md) |
-| `ngm transform [<file>] [--engine=<name>] [--outfile=<path>] [--loader=<name>] [--target=<es20xx>] [--format=<fmt>] [--minify] [--sourcemap] [--dry-run]` | **单文件**转换（adapter）；输入默认走 **stdin**，产物默认走 stdout。**不解析导入**——那是 `ngm build`。loader 按 `--loader` → 文件扩展名（推断会说出来）→ `engines.transform.options.loader` 的顺序取；都不适用时**不猜**，"必须有 loader" 由引擎自己判（esbuild 会） | **v0.5 已实现** | [构建](./build.md) |
-| `ngm css <input.css> [--engine=<name>] [--outfile=<path>] [--minify] [--dry-run]` | CSS 编译（adapter）；**只接受一个输入文件**，多给的位置参数会**明确报错**（v0.12 之前是静默只编第一个，而 `ngm css dist/*.css` 这种 glob 展开很容易中招） | v0.2 起适配 `postcss`。**本行此前写"v0.1（`esbuild`）"是错的**：实测 `ngm css --engine=esbuild` 报 **no css engine named esbuild**（可用：postcss、self）——esbuild 覆盖的是 bundle / transform。**需要声明**（`engines.css` 或 `--engine=postcss`），未声明 `exit 3`、未装 `exit 5`；它无内建压缩，`--minify` 会被明确告知忽略 | [构建](./build.md) |
-| `ngm mappings validate` | 校验 mappings 与 lock / vendor 一致性 | v0.1 | [P4 — 生态与协议](../modules/p4-ecosystem.md) |
-| `ngm cache clean` | 清空缓存层（不影响可证明性） | v0.1 | [vendor 4 层](../architecture/vendor-layers.md) |
-| `ngm store usage` | 报告 ngm 磁盘占用的**三层**：**层 1 mirror**（逐仓库体积、其中多少是 **packfile**、多少是**残骸**，并点名**一个 ref 都没有**——即被中断的克隆留下的那种"有体积却解析不出任何 commit"的目录）、**层 1.5 module cache**（partial clone 仓库数/体积/pack，点名不是 partial clone 的路径）与**层 2 content store**（blob 池，切成**共享 / 独占 / 孤儿**；v2 树清单；v1 遗留树；解包残骸），各来自哪个 `repo@commit`。**只读** | **v0.7 已实现**；v0.8 输出按布局分组；**v0.9 加共享/独占/孤儿**；**v0.100 报层 1**；**v0.104 报层 1.5** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-019](../adr/adr-019-content-addressed-blobs.md) · [ADR-030](../adr/adr-030-mirror-reclaim.md) · [ADR-034](../adr/adr-034-module-cache.md) |
-| `ngm store prune [--dry-run] [--orphans] [--older-than=<dur>]` | 清掉**中断留下的残骸**：层 2 的解包目录（`.unpack-*`）与**层 1 的临时包**（`objects/pack/tmp_*`，年龄门槛 **1 小时**）。**不碰任何内容树、也不碰任何对象**，并报告"留下了 N 份没动"。加 `--orphans` 时**额外**删掉"没有任何清单引用、且比门槛（默认 24h）更旧"的 blob | **v0.7 已实现**；`--orphans` **v0.11 已实现**；**层 1 残骸 v0.100** | [ADR-018](../adr/adr-018-store-reclaim.md) · [ADR-023](../adr/adr-023-orphan-reclaim.md) · [ADR-030](../adr/adr-030-mirror-reclaim.md) |
-| `ngm store gc [--dry-run]` | 对每个可用的 mirror 跑 `git gc`（整理历史本体：松散对象与多个包合并）。**不触网**、**不删内容**（默认的两周不可达对象保留期照旧）。没有 ref 的目录与不是裸仓库的路径**被跳过并点名报出**；某个 mirror 上 git 失败时**继续整理其余的**并退 4，已整理好的那些照样打印 | **v0.100 已实现** | [ADR-030](../adr/adr-030-mirror-reclaim.md) |
-| `ngm gc [--dir=<dir>] [--apply] [--dry-run] [--json]` | 按**当前项目的 `ngm.lock`** 标记可达对象，报告并回收 store / mirror / vendor 里不被它命名的对象。**默认是 dry-run**，只有显式 `--apply` 才删。可达对象一律不动：lock 里的 `archiveDigest` / `moduleDigest`、依赖对应的 mirror 仓库、以及 lock 的 `vendorPath`（含 monorepo 子路径；父目录只作为容器保留）。层 2 只回收候选树独占的 blob；比 1 分钟新的 blob 留下并报出来（`Put` 先写字节后发布清单）。global vendor 条目**无法判定是否被其它项目引用，一律保留并 warning**。逐对象删除失败会汇总、其余继续删，最终退 4 | **v0.102 新增** | [ADR-041](../adr/adr-041-project-scoped-gc.md) · [ADR-018](../adr/adr-018-store-reclaim.md) |
-| `ngm config validate\|show [--dir=<dir>]` | 配置校验与查看。**`validate` 校验 `--dir` 指向的项目**（v0.19 修：此前只认进程 CWD，且**没有 ngm.json 时照样打印 `ngm.json OK`**——CI 在错的目录里会拿到绿色假通过）；`show` 是查看，不设门禁 | v0.1（v0.19 修三处） | [配置详解](./configuration.md) |
-| `ngm engines list\|info\|validate [--json]` | 引擎管理。**`list` 是如实呈现**：探针被 `run:<engine>` 拒绝时逐行标 `probeDenied` / `runTarget`，**退出 0**；**`validate` 是结论通道**：拿不到探针结论就不能报成功——`probe-denied` 会作为显式条目计入 `issues` 与摘要，点名需要授予的 `run:<engine>`，并**退出 3** | v0.1；fail-closed 探针 **v0.109** | [配置详解](./configuration.md) |
-| `ngm sbom [--format=cyclonedx\|spdx] [--out=<file>] [--dir=<dir>] [--allow-stale]` | 从 `ngm.lock` 导出 **SBOM**：每个依赖带 commit、内容 digest（根条目 `archiveDigest` / 模块条目 `moduleDigest`）与 git purl。**只读 lock**——不触网、不重解析、不写项目。**lock 过期时默认 exit 3、不导出**；显式 `--allow-stale` 才导出描述过期 lock 的文档（事实写 stderr，不进产物字节，[ADR-046](../adr/adr-046-stale-export-gate.md)）。**不声称**构建溯源（那是 SLSA 的正交轴）与许可证清单（上游许可证 ngm 不知道，SPDX 输出写 `NOASSERTION` 而不是猜） | **v0.69 已实现** | [CLI](./cli.md) · [竞品对比](../COMPETITIVE-ANALYSIS.md) |
-| `ngm attest [--out=<file>] [--dir=<dir>] [--allow-stale] [--with-timestamps]` | 从 `ngm.lock` 导出 **in-toto Statement v1**（谓词 **SLSA provenance v1**）：subject = 每个依赖的 git purl + 内容 digest（根 `archiveDigest` / 模块 `moduleDigest`；注解写明它是**清单**的哈希、不是 tarball 的；模块条目另带 `ngm/subtree-oid` 与 `ngm/module-version`）；输入 = `ngm.json` / `ngm.lock` 的**字节** sha256；materials = 每个依赖的 commit（`gitCommit`）+ 声明的 ref。**未签名**——ngm 不自造签名体系（[ADR-014](../adr/adr-014-self-report-signatures.md)），用你自己的标准工具签（`cosign attest-blob`）。**只读 lock**；语句**默认确定性**（无时间戳、`invocationId` = lock 的哈希），因此可在 CI 里现场生成再签；`--with-timestamps` 显式开启才写 SLSA v1 的 `startedOn`/`finishedOn`（该产物放弃字节确定性，开启理由见 [ADR-027 补记](../adr/adr-027-attestation.md)）。**lock 过期时默认 exit 3、不导出**——这份语句要被签名，签下一份描述过期状态的证据最难被事后发现；显式 `--allow-stale` 才放行（[ADR-046](../adr/adr-046-stale-export-gate.md)） | **v0.70 已实现**；`--with-timestamps` 2026-11-21 增 | [ADR-027](../adr/adr-027-attestation.md) · [竞品对比 §6](../COMPETITIVE-ANALYSIS.md) |
-| `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook=<script.js>]` | OSV 漏洞扫描（按 **commit** 查询 + 24h 缓存）；`--hook` 在沙箱里跑团队自己的策略（报告从 stdin 进入，否决 → exit 1）。`--json --hook` 时 hook 的横幅与它自己的 stdout **走 stderr**，stdout 保持是单个 JSON 文档（v0.12 修） | **v0.2 已实现**；`--hook` **v0.3** | [供应链防护](../architecture/supply-chain.md) · [ADR-012](../adr/adr-012-sandbox.md) |
-| `ngm why <dep> [--json] [--all]` / `ngm why --digest=<sha256>` | 该依赖的来源路径（有多个父节点时列出多条）。**默认最多枚举 64 条**并写明"还有更多"；`--all` 解除（[ADR-024](../adr/adr-024-bounded-explanations.md)：路径数是指数的，而图形状来自上游清单）。`--digest` 是只读反查：输入完整或 ≥12 位前缀摘要，列出引用该摘要的 lock 条目、subPath 与 requiredBy，并报告是否歧义（[ADR-055](../adr/adr-055-migrate-and-digest-audit.md)） | **v0.2 已实现**（上界 **v0.17**；digest 反查 v0.103） | [可观测性](../architecture/observability.md) |
-| `ngm tree [--osv] [--offline] [--json] [--all]` | 依赖树 + 漂移（`⚠`）；漏洞（`✗`）需 `--osv`。**优先读 `ngm.lock` 的 `requiredBy` 图**（不读 mirror、不重解析）；旧 lock 没有图时才回退解析，并在输出与 `--json` 的 `source` 里标注来源。`--offline` 下**任何分支都不触网**：有图时解析失败的节点只标"未知"，旧 lock 回退解析遇冷 mirror 退 4（2026-11-07 修复）。**默认最多展开 4096 个条目**并写明"树不完整"；`--all` 解除 | **v0.2 已实现**（上界 **v0.17**；lock 图 **v0.102**） | [可观测性](../architecture/observability.md) |
-| `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 而非"最新"，**并在行下打印原因**（v0.12：原因此前只存在于 `--json` 的 `note` 字段）；`--offline` **不触网**——冷 mirror 时报"没有本地镜像"而不是去 clone（v0.12 修） | **v0.2 已实现** | [可观测性](../architecture/observability.md) |
-| `ngm install [--frozen-lockfile] [--offline]` | CI 模式：frozen 禁止解析新 ref / 改写 lock（不一致 exit 3）；offline 禁止联网（资源缺失 exit 4） | **v0.2 已实现** | [锁定机制](../architecture/locking.md) |
-| `ngm integrations add <tool> [--dry-run] [--json]` | 生成 `vite` / `esbuild` / `deno` / `webpack` 集成配置（**不覆盖已有文件**，冲突 exit 3） | **v0.3 已实现** | [P5 — 外部工具集成](../modules/p5-integrations.md) |
-**`engines list` 与 `engines validate` 的差别**（v0.109）：两者都受 `run:` 权限闸门约束，
-探针被拒绝时**都不 spawn**；但 `list` 的职责是**如实呈现**——逐行写 `probeDenied` /
-`runTarget`，退出 0，因为"没问"是一个事实而不是失败；`validate` 的职责是**给结论**——
-版本核对没有完成就不能报 `ok`，因此 `probe-denied` 是显式条目，进入 `issues` 与
-"N issue(s) found" 的计数，消息里点名要授予的 `run:<engine>`，进程退出 3。
-**闸门与是否配置无关**（2026-11-18 修）：即使 `~/.ngm/config.json` 完全不存在，
-探测同样按默认档位拒绝（nil Policy 在 `run:<engine>` 上是 fail-closed），
-不会比"配过权限"的用户更宽松。
-
-**两层磁盘的占用与回收**（[ADR-018](../adr/adr-018-store-reclaim.md) / [ADR-023](../adr/adr-023-orphan-reclaim.md) / [ADR-030](../adr/adr-030-mirror-reclaim.md)）：
-占用可见（`ngm store usage`，只读，**v0.7**；**v0.100 起连层 1 一起报**）、残骸可回收（`ngm store prune`，**v0.7**）、
-历史本体可整理（`ngm store gc`，**v0.100**）。
-**v0.11 起**多了一件：`prune --orphans` 可以删掉**没有任何清单引用**的 blob（带年龄门槛）。
-
-**层 1（mirror）的三个数**（**v0.100**）：一个"只用得到最新版却要为全历史付磁盘"的问题是这一层的
-正常提问，而它有三个不同的答案——分开报，是因为只看一个都会读错：
-
-| 数 | 回答的问题 | 口径 |
-|----|-----------|------|
-| **Bytes** | 这个 mirror 占了多少 | 整个仓库目录的字节（真实占用） |
-| **packed history** | 其中多少是历史本体 | `objects/pack/*.pack` 之和。**0 是合法的**：`git clone` 落的是松散对象，于是刚建的 mirror 常常是 `PackBytes=0` 而 `Bytes>0`——那不是"没有历史"，是"历史还没被收成包"（`ngm store gc` 就是那一步） |
-| **residue** | 其中多少是**纯浪费** | `objects/pack/tmp_*`：被中断的 clone/fetch 留下的临时包。git 自己不认它们（`git count-objects -v` 记在 `garbage` 里），而 git 自己的 `gc` **只清超过两周的**（实测：13 天存活、15 天被清）——`ngm store prune` 的门槛是 **1 小时** |
-
-外加一个**不是数字**的读数：`NO REFS`——那个目录里一个 ref 都没有，因此它**解析不出任何 commit**。
-一次被中断的 `git clone --mirror` 就是这个形状（本机实测到一个 **66.82 MiB** 的：对象库为空、
-`packed-refs` 不存在，而 `HEAD` / `objects/` / `refs/` / `core.bare=true` 全齐——所以它**长得像个**
-可用的 mirror）。ngm 不删它（那是一个目录，不是残骸文件），而是点名报出来，并在 `usage` 的
-note 里给出路：删掉那个目录 + 重跑 `ngm install`（它会重新克隆）。
-
-> **镜子仍然是全量的**（全历史 + 全部 refs）。这不是没做，是一个[决定](../adr/adr-030-mirror-reclaim.md)：
-> `--single-branch` 会让 `#v1.2.3` / `#branch=next` 这类声明在本地解析不到
-> （[ADR-004](../adr/adr-004-reftype.md)），部分克隆会把"离线 digest 重放"
-> （[ADR-008](../adr/adr-008-archive-digest.md)）变成"用到时才下载"。
-> 所以成本只能从**整理**与**残骸**两头削——而实测里的那 66.82 MiB 一个字节都不是历史，是残骸。
-
-两件事**仍然不做**，而且是有意的：
-
-- **没有自动/跨项目的可达性删除**：`ngm gc` 只在**显式 `--apply`** 且**以当前项目的 lock**为
-  可达性来源时删除；它不扫描磁盘、不猜"别的项目还要不要"。层 1/2 是全机共享的，被删的 mirror
-  要在下次 install 时重新 clone，content 要重新 install——可恢复，但离线 CI 会失败。
-  ADR-018 拒绝的是"后台自动、全局判定"的那一类；ADR-041 把可接受的那一类写成显式命令。
-- **没有自动回收**：回收是**显式的一步**，默认什么都不删——不带 `--orphans` 时
-  `prune` 的行为与 v0.7 完全一致，`gc` 不带 `--apply` 只打印。
-
-`--orphans` 的安全边界（写进实现的，不是承诺口吻）：
-
-| 约束 | 为什么 |
-|------|--------|
-| 只删"没有任何清单引用"的字节 | 由构造可判定，不需要注册表（与上一条的区别在这里） |
-| 年龄门槛（默认 24h） | `Put` 先写 blob、后发布清单，刚写下的东西必须不动 |
-| **有清单读不出来时拒绝删除** | 那时"无人引用"只是下界，删了可能破坏那份清单 |
-| `--dry-run` 同样拒绝 | 一份在那种状态下"将会删 X"的报告是误导 |
-| 输出必须报"留下多少"与"多少被引用的没动" | 删除类命令的安全声明该在的地方 |
-
-**三个数字，三个问题**（**v0.9**）：`store usage` 把 blob 池切开之后，这一层第一次能
-分开回答"去重省了多少"和"我还能回收多少"：
-
-| 数 | 回答的问题 | 口径 |
-|----|-----------|------|
-| **共享**（shared by 2+ trees） | 去重省了多少 | 被 2 棵及以上内容树引用的 blob 字节和（若不去重，这一块要乘以引用数） |
-| **独占**（exclusive） | 丢掉某一棵树能回收多少 | 只被**那棵**树引用的 blob；每棵树一行，**只算 blob**——所以 `exclusive <= logical`，且各树独占之和**恰好**等于池里那一块 |
-| **孤儿**（orphaned） | 有多少空间没有任何人需要 | 没有任何清单引用的 blob。**不是"垃圾"的同义词**（也可能来自被删掉的项目）。`prune` 不带 `--orphans` 时**不会**动它；带上才清，且只清比年龄门槛更旧的 |
-
-> 每行那两列也要分开读：`logical` 是**逻辑体积**（共享 blob 会被重复计算，把所有行加起来
-> 会比 store 还大），`exclusive` 才是"丢掉它能回收多少"。
-> 这三个数也是 ADR-018 将来判"要不要做 GC"所需的数据——在那之前，它们只是把
-> "没有人回收"从一句印象变成一个数字。
-
-真正能改变增长曲线的是**层 2 的写入侧去重**（**v0.8 已落地**，[ADR-019](../adr/adr-019-content-addressed-blobs.md)）：
-布局改为 blob 池 + 树清单，实测把同一场景的放大比从 **20×** 降到 **0.6×**
-（[metrics](../internals/metrics.md#磁盘增长内容寻址-storev06)）。
-**但这改的是斜率，不是终点**：blob 的**新增**仍然只增不减。**v0.11 起**，
-[ADR-023](../adr/adr-023-orphan-reclaim.md) 的 `prune --orphans` 能回收**无人引用**的 blob；
-**v0.102 起**，[ADR-041](../adr/adr-041-project-scoped-gc.md) 的 `ngm gc --apply` 能按当前
-lock 回收**不被这个项目引用**的 digest、mirror 与 vendor 子树（默认 dry-run，global vendor 不动）。
-
-**升级已有 store 时**：新装的依赖立刻用新布局，**老条目不会自动迁移**（`install` 见到
-`Has` 为真就短路——那是"无网络也能安装"的承诺）。`ngm store usage` 在存在老条目时会把
-出路打印出来：删掉整个 `sha256/` 再 `ngm install`（层 2 是派生物，可重建）。
-
-**内置引擎清单（v0.4 时点）**：`esbuild`（`bundle` + `transform`）、`typescript`（`typeCheck` + `typeDecl`，
-自带 `tsc --emitDeclarationOnly`，`optional`）、`postcss`（`css`，`optional`）、`self` stub；
-wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可用性**问题 → `exit 5`）。
-`remote` **按 [ADR-013](../adr/adr-013-remote-adapter.md) 决定不发布**，声明它会得到"按决定排除"而不是"待实现"。
-自行声明 subprocess 引擎的方法见 [配置详解](./configuration.md) 与 [P4 协议](../modules/p4-ecosystem.md)。
-
-**`transform` 自 v0.5 起有命令入口**（`ngm transform`，见下表）。在此之前它与 v0.4 之前的
-`typeDecl` 同型：能力在 adapter 层已实现，却没有任何命令驱动它——于是 `engines.transform`
-与 `engines.defaultTransform` 两个配置键对用户没有任何可观察的效果。补上入口时顺带修掉一处
-协议缺陷：`genericInvocation` 对 transform **只转发 loader 与 target**，
-`--format` / `--minify` / `--sourcemap` 会被静默丢弃（自定义引擎收不到它们）。
-
----
+| 命令 | 作用 | 主要文档 |
+|------|------|---------|
+| `ngm init <name> [--runtime=node\|deno] [--dir=<path>] [--force]` | 初始化项目，生成 `ngm.json` 与入口文件（已有入口不覆盖） | [快速上手](./quickstart.md) |
+| `ngm adopt [--dir] [--out] [--json] [--check]` | 为已装好的依赖只读出具内容证明，**不接管安装**；`--check` 与一份早先的证明比较，差异 exit 2 | [定位](./positioning.md) |
+| `ngm add <git-url>[@<ref>] [--ref-type] [--infer-ref-type] [--path] [--dir]` / `ngm add local:<name> --ref-type=<local-git\|local-dir> --source-path` | 添加 Git 或本地来源依赖；refType 通常必填 | [依赖管理](./dependency-management.md) |
+| `ngm install [--dir] [--digest] [--frozen-lockfile] [--offline] [--allow-fresh] [--json]` | 解析并安装；有 lock 则尊重 lock，不重新解析 ref | [依赖管理](./dependency-management.md) |
+| `ngm update [<dep>] [--all] [--offline] [--digest] [--store] [--json]` | 更新 ref 与锁定；`--json` 与 install 同形，覆盖整张图 | [依赖管理](./dependency-management.md) |
+| `ngm remove <dep>` | 只改声明，移除依赖 | [依赖管理](./dependency-management.md) |
+| `ngm verify [<dep>...] [--offline] [--content \| --level] [--strict] [--allow-drift] [--json] [--format] [--sandbox] [--signatures] [--require-signed]` | ref 漂移 + digest 重放；`--content` 逐文件哈希，`--receipt` 只读复验构建回执 | [依赖管理](./dependency-management.md) |
+| `ngm audit [<dep>...] [--json] [--offline] [--no-cache] [--hook]` | OSV 漏洞扫描（按 commit 查询 + 缓存）；`--hook` 在沙箱里跑团队策略 | [配置详解](./configuration.md) |
+| `ngm why <dep> [--json] [--all]` / `ngm why --digest=<sha256>` | 依赖的来源路径；`--digest` 只读反查引用该摘要的条目 | [依赖管理](./dependency-management.md) |
+| `ngm tree [--osv] [--offline] [--json] [--all]` | 依赖树 + 漂移；优先读 lock 的 `requiredBy` 图 | [依赖管理](./dependency-management.md) |
+| `ngm outdated [--offline] [--json]` | 有哪些新版本；查不到报 `unknown` 并说明原因 | [依赖管理](./dependency-management.md) |
+| `ngm typecheck [<entry>] [--engine] [--tsconfig] [--dry-run]` / `ngm typedecl [<entry>] --outdir=<dir> [--engine] [--dry-run]` | 类型检查 / 生成 `.d.ts`，由外部引擎执行 | [构建](./build.md) |
+| `ngm build [<entry>] [--engine] [--outfile] [--production] [--dry-run] [--dir]` | 构建（adapter）；`--dry-run` 只打印怎么调引擎 | [构建](./build.md) |
+| `ngm transform [<file>] [--engine] [--outfile] [--loader] [--target] [--format] [--minify] [--sourcemap] [--dry-run]` | 单文件转换，默认 stdin → stdout，**不解析导入** | [构建](./build.md) |
+| `ngm css <input.css> [--engine] [--outfile] [--minify] [--dry-run]` | CSS 编译；压缩需引擎显式支持，否则 exit 3 | [构建](./build.md) |
+| `ngm mappings validate` | 校验 mappings 与 lock / vendor 三方一致 | [配置详解](./configuration.md) |
+| `ngm integrations add <tool> [--dry-run] [--json]` | 生成 Vite / esbuild / Deno / webpack 集成配置，不覆盖已有文件 | [构建](./build.md) |
+| `ngm cache clean` | 清空可丢弃缓存，不影响可证明性 | [配置详解](./configuration.md) |
+| `ngm store usage` / `ngm store prune [--dry-run] [--orphans] [--older-than]` / `ngm store gc [--dry-run]` | 报告磁盘占用、清理残骸、整理 mirror；默认只读或 dry-run | [配置详解](./configuration.md) |
+| `ngm gc [--dir] [--apply] [--dry-run] [--json]` | 按当前项目 lock 回收不可达对象；默认 dry-run，global vendor 一律保留 | [配置详解](./configuration.md) |
+| `ngm config validate\|show [--dir]` | 校验 / 查看配置；目录里没有 `ngm.json` 时 validate 不是通过 | [配置详解](./configuration.md) |
+| `ngm engines list\|info\|validate [--json]` | 引擎目录探针；`list` 如实呈现，被权限拒绝时退出 0，`validate` 给结论，不可用时退出 3 | [配置详解](./configuration.md) |
+| `ngm modules list\|validate\|index [--dir] [--json] [--limit] [--strict] [--index] [--out] [--dry-run]` | 模块集合的发现、校验与索引；不做 semver 求解 | [生态定位](./positioning.md) |
+| `ngm sbom [--format=cyclonedx\|spdx] [--out] [--dir] [--allow-stale]` | 从 lock 导出 SBOM；只读、不联网，lock 过期默认 exit 3 | [快速上手](./quickstart.md) |
+| `ngm attest [--out] [--dir] [--allow-stale] [--with-timestamps]` | 导出未签名的 in-toto / SLSA v1 语句；默认逐字节确定 | [签名配方](./signing.md) |
+| `ngm run [--list] [--if-present] [--explain] [-- <args>]` | 运行项目脚本（package.json 权威、ngm.json 回退），沙箱外执行，需 `run:script` 授权；退出码原样透传 | [生态定位](./positioning.md) |
+| `ngm migrate [--dir] [--dry-run] [--json]` | 把 v1/v2 清单与 2.x lock 迁到 v3；`--dry-run` 预演并备份 | [迁移指南](./migration.md) |
+| `ngm doctor [--dir] [--json]` | 诊断 Git、配置、lock、`~/.ngm` 布局与 vendor 可见性 | [安装指南](./installation.md) |
 
 ## 全局约定
 
-- **退出码**：0 成功 / 1 策略失败（含引擎运行失败 · 漏洞超阈值 · 审计钩子否决）/ 2 完整性失败（**压过 4**：已确证的篡改优先于"没查成"，v0.105，[ADR-039](../adr/adr-039-exit-code-precedence.md)）/ 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用 / 6 **内部失败**（panic · 「结论算出来了却**送不到消费方**」——**两条通道同一条规则**：人读路径在 stdout 写失败时也退 6，v0.60 起；具体是写 stdout / 编码 JSON / 读 stdin 三种）；**例外**：管道被**对端关闭**（`ngm verify | head`）不算失败，安静退出，v0.61 起；**`--out` 写不进属于 3 而不属于 6**——那条通道是"文件"，路径与权限是调用方给的，把它算成内部失败会让人去找 bug 而不是改路径（`sbom` / `attest` / `adopt` 三个命令的用法里都写着 3）；完整定义见[可观测性](../architecture/observability.md) 与 [ADR-026](../adr/adr-026-exit-code-6-internal-failure.md)
-- **配置文件**：`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json` / `~/.ngm/config.json`，见[配置详解](./configuration.md)
-- **`--offline`**：禁止网络访问，只用本地 mirror / content store；资源未命中即失败（exit 4）。
-  适用于 `verify` / `tree` / `update` / `install` / `audit` / `outdated`。`tree --offline`
-  在两种 lock 分支上都不构造远端 URL：有图时只报漂移状态（冷 mirror 也**不会**联网补齐），
-  旧 lock 回退解析时冷 mirror 直接 **exit 4**。
-- **`--json`**：机器可读输出走 stdout，人类文本与诊断走 stderr；CI **不应**解析人类文本。
-  支持它的有 **14 个命令**：`verify` / `audit` / `tree` / `why` / `outdated` / `engines` /
-  `integrations` / `install` / `update` / `doctor` / `modules`（`list` / `validate` /
-  `index` / `changed` / `plan` 各自支持）/ `adopt` / `gc` / `run`（`--list`）。后几个是后续版本补上的：
-  `install` / `update` 自 v0.66（CI 最需要的两个写命令），`doctor` / `modules` 自
-  v0.104，`adopt` 自 v0.101，`gc` 自 v0.102，`run --list` 自 v0.120。
-  各命令的**顶层形状**见下一节。
-
----
+- **退出码**：0 成功 / 1 策略失败 / 2 完整性失败 / 3 配置错误 / 4 Git 网络失败 / 5 引擎不可用 / 6 内部失败
+  - 2 压过 4：已确证的篡改优先于"没查成"；`--out` 写不进属于 3，不属于 6。
+  - 管道被对端关闭（如 `ngm verify | head`）不算失败，安静退出。
+  - `ngm run` 透传脚本自己的退出码（信号见 `128 + signal`），不映射到 0–6。
+- **配置文件**：`ngm.json` / `ngm.lock` / `ngm.mappings.json` / `ngm.engines.json` / `~/.ngm/config.json`，见[配置详解](./configuration.md)。
+- **`--offline`**：禁止网络，只用本地 mirror / content store；资源未命中 exit 4。适用于 `verify` / `tree` / `update` / `install` / `audit` / `outdated`。
+- **`--json`**：机器可读报告走 stdout，人类文本与诊断走 stderr；CI 不应解析人类文本。命令的 flag 必须写在命令之后，`ngm --json verify` 这类根级写法会被拒绝（exit 3）。
 
 ## `--json` 的形状（机器接口）
 
-这些形状**是接口**，不是实现细节。下表是**实测**的顶层形状（在 v0.16 之前，
-它们只存在于代码里——用户侧一个字都没有，写脚本的人只能靠试）：
+写脚本时依赖的是**解码语义**（字段名、类型、`version`、错误信封、退出码），不是逐字节稳定。下表记录各命令的顶层形状；带退出码字段的命令，该字段等于进程退出码。
 
 | 命令 | 顶层形状 | 带退出码字段 |
 |------|---------|------------|
@@ -217,55 +73,18 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 | `ngm gc --json` | 对象：`version` · `dryRun` · `applied` · `project` · `lock` · `store` · `mirror` · `moduleCache`（层 1.5，partial clone） · `vendor` · `total`（`objects` · `bytes`） · `warnings`；四层的键：`root` · `exists` · `mode`（vendor） · `candidates`（元素键 `id` · `bytes`，store 另有 `layout`） · `objects` · `bytes` · `removed` · `bytesFreed` · `kept`（global vendor） · `keptYoungBlobs` / `keptYoungBytes`（store） · `errors` | ✗ |
 | `ngm run --list --json` | 对象：`version` · `project` · `scripts`；`scripts` 元素键：`name` · `command` · `source`（定义来自 package.json 还是 ngm.json） · `pre` · `post`（按 npm 约定存在的 `pre<name>` / `post<name>`，无则省略） | ✗ |
 
-> 那两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind。
-> 其余命令返回的是"一份报告"，所以是对象。本页只如实记录两者的差异——
-> **统一形状是破坏性变更**，要另立决定，不在文档里顺手改。
+两处**数组**不是笔误：`engines` 的两条命令返回的是"行"，而一个名字可以对应多种 kind；其余命令返回的是"一份报告"，所以是对象。统一形状是破坏性变更，不在这里顺手改。
 
-### 构建回执旁车 `ngm.build.json`（W1）
+### 构建回执旁车 `ngm.build.json`
 
-它不是 `--json` 输出，而是 `ngm build --provenance` 写在项目根的旁车文件；
-不进 `ngm.lock`，也不含时间戳或绝对路径。顶层键：
+`ngm build --provenance` 在项目根写旁车文件：不进 lock、不含时间戳与绝对路径。顶层键：`receiptVersion`、`inputs`（`path` + `digest`）、`engine`（`name` / `kind` / `version` / `digest`，摘要是**工具文件字节**而非路径）、`argv`（排序后）、`mappingsDigest`、`output`（`path` / `digest`）、`source`（`built` 或 `cache`）。`ngm verify --receipt` 只读复验它，不重跑构建，也不对跨工具/跨平台的字节一致性背书。
 
-| 键 | 内容 |
-|----|------|
-| `receiptVersion` | 固定 1 |
-| `inputs` | 元素键 `path`（相对项目根）· `digest`（sha256:…） |
-| `engine` | 键 `name` · `kind` · `version` · `digest`（**工具文件字节摘要**，不是路径） |
-| `argv` | 传给引擎的参数，按键排序 |
-| `mappingsDigest` | mappings 文件字节摘要；没有文件时是空串的固定摘要 |
-| `output` | 键 `path` · `digest`；走 stdout 时 path 是 `<stdout>` |
-| `source` | `built`（现场构建）或 `cache`（本地缓存命中），由 `--cache` 写入 |
+### 四条每次调用都成立的规矩
 
-`ngm verify --receipt` 只读复验这份文件（形状见上表 `ngm verify --json` 行），
-不重跑构建；它只回答"当前产物是否仍是回执记录的那一串字节"，
-不对跨工具/跨平台的字节一致性背书（ADR-057）。
-
-**"接下来做什么"在机器那一侧也有名字**（v0.50）：人读的报告里，
-每一条失败项都配了一行 `→ …` 或 `Fixed in: …`（v0.32 起的契约）。
-从 v0.50 起，**同一个句子**在 JSON 里也有落处，于是读 `--json` 的脚本
-不必去解析人读文本：
-
-| 报告 | 字段 | 何时出现 |
-|------|------|---------|
-| `verify` | `dependencies[].remediation` | 该依赖有可分类的漂移或操作性失败时 |
-| `audit` | `findings[].vulnerabilities[].remediation` | **该公告没有记录修复版本**时（有修复版本时是 `fixedIn`） |
-| `tree` | `remediation`（顶层） | 查到漏洞时 |
-| `engines validate` | `issues[].remediation` | 每一条问题都带 |
-
-两条纪律：① **同一条句子、两个通道同源**——`NoFixAdvice` / `VulnRemediation` /
-`issueAdvice` 各只有一处，人读与 JSON 都从它取；② 这条契约由
-`TestV50MachineReadableReportsCarryTheNextStepToo` 机械守住，而它查的是**内容**
-（人读那句话必须逐字出现在 JSON 里），不是"有没有某个字段"。
-
-四条**每次调用都成立**的规矩（由 `TestV16JSONReportsTellTheTruth` 在 **20 个状态**上机械守住：
-17 次"带 `--json` 与不带"的对照 + 3 条输入错误路径）：
-
-1. stdout 要么为空、要么是**恰好一份**合法 JSON 文档——**不会出现半份**；
-2. **`--json` 不改变退出码**：同一状态、同一夹具下，带与不带它退同一个码；
-3. 报告里若带 `exitCode` / `summary.exitCode`，它**等于进程退出码**——机器可读输出不许说谎；
-4. 失败时 stdout 是**报告**或**错误信封**（**v0.51 起**）：
-   - 有报告可给（如 `verify` 的漂移/完整性失败）⇒ 一份**完整报告**（exit 1/2 时 stdout 里有整份 JSON）；
-   - 没有报告可给（依赖不在图里、引擎不在目录里、工具名不合法）⇒ 一份**完整的错误信封**：
+1. stdout 要么为空、要么是**恰好一份**合法 JSON 文档，不会出现半份。
+2. `--json` 不改变退出码：同一状态、同一夹具下，带与不带退同一个码。
+3. 报告里若带 `exitCode` / `summary.exitCode`，它等于进程退出码。
+4. 失败时 stdout 是完整报告，或一份完整的错误信封：
 
 ```json
 {
@@ -279,87 +98,29 @@ wasm adapter 自 v0.3 起可用（模块路径写在清单里，缺失是**可�
 }
 ```
 
-   · `code` 是错误码的**显示名**（与人读那侧同一处产出：`NgmError.DisplayName`）；
-   · `exitCode` **等于进程退出码**（规矩 3 的同一件事）；
-   · `hint` 与人读那侧的 `hint:` 行**逐字相同**——两个通道说同一句话；
-   · **命令不接受 `--json` 时 stdout 仍为空**：出错时不假装有机器可读输出。
-   · **解析阶段的失败也给信封**（v0.54）：`ngm verify --json --bogus` 这类失败发生在
-     "命令还不知道 `--json`"之前——从**原始参数**里问一次，是用户提的就给一份信封
-     （`code` 是 `Usage`、`exitCode` 3、`message` 说清是哪个 flag 不认识）。
-     **前提是这条命令接受 `--json`**（v0.136）：不接受它的命令，无论失败发生在解析
-     阶段还是分流层（如空 `--dir` 的拒绝），stdout 一律为空——两处此前各答一半，
-     同一条命令的两种早期失败给出两个答案。
-     人读那侧不受影响：usage 照旧在 stderr，而且**只说一次**。
-
-   > 规矩 4 改过两次，两次都是**实测逼出来的**：
-   >
-   > · **v0.51**：原先要求"输入错误时 stdout **必须为空**"，后果是脚本拿到
-   >   "退出码 + 空 stdout + 一段人读文本"——**知道出了事，却读不出是什么事**。
-   >   精神没变（"我没有报告可给"不能用半份 JSON 表达），改的是：
-   >   **错误信封不是报告**，它说的正是"我失败了、原因与下一步在这里"。
-   > · **v0.54**：v0.51 的信封写在 `runErr` 里，而它只在**命令内部**被调用——
-   >   解析失败与"命令不存在"都发生在它之前。实测：`ngm verify --json --bogus`
-   >   → exit 3 · **stdout 0 字节** · stderr 3198 字节 usage。
-
----
+`code` 与人读文本用同一个错误名，`hint` 与人读那侧的 `hint:` 行逐字相同。解析阶段的失败也按原始参数判断：用户提了 `--json` 就给信封，例如 `ngm verify --json --bogus` 会得到 `code: Usage`、exit 3；命令本身不接受 `--json` 时 stdout 始终为空。
 
 ## 常用组合
 
-CI 门禁（v0.1 可用）：
-
 ```bash
-ngm install            # 有 ngm.lock → 尊重 lock，不重新解析 ref
-ngm verify --json      # 读 driftKind 与退出码：0 通过 / 1 非预期漂移 / 2 完整性失败
-ngm build --outfile=dist/app.js
-```
-
-PR 注解（不需要任何额外权限，失败项直接变成 PR 上的红叉）：
-
-```bash
-ngm verify --format=github
-```
-
-Code Scanning（SARIF 2.1.0；`sarif` 与 `github` 是同一通道的两种写法，不能和 `--json` 同时给）：
-
-```bash
-ngm verify --format=sarif > ngm.sarif
-```
-
-仓库根有一个 composite action（`action.yml`）把这条命令接到 PR 上。它**刻意不下载 ngm**——
-"用哪个版本、从哪校验"是使用者的一次决定，而供应链工具替你决定版本正是它最不该做的事。
-三个 `mode` 对应两条接入路径：`verify`（需要 `ngm.lock`）、`adopt` / `adopt-check`
-（只需要 `node_modules`，见[三条接入路径](../internals/intake-paths.md)）：
-
-```yaml
-- uses: actions/checkout@v4
-- run: echo ok   # 先把 ngm 装到 PATH（发布产物或源码构建都行）
-- uses: ./          # composite action 在本仓库时；外部用 idcu/ngm@<tag>
-  with:
-    mode: verify
-    args: "--deep --strict"
-```
-
-完全离线可复现（v0.2 已实现）：
-
-```bash
+# CI 门禁
 ngm install --frozen-lockfile --offline
 ngm verify --json
-```
 
-开发循环：
+# PR 注解 / Code Scanning（与 --json 互斥）
+ngm verify --format=github
+ngm verify --format=sarif > ngm.sarif
 
-```bash
-ngm add github:my-org/utils@main --ref-type branch
+# 开发循环
+ngm add github:my-org/utils@main --ref-type=branch
 ngm install
 ngm verify
-ngm build --dry-run    # 先看 ngm 会怎么调引擎
+ngm build --dry-run
 ```
 
----
+仓库根的 `action.yml` 是 composite action，刻意不下载 ngm——版本与校验和由使用者决定。它提供 `verify` / `adopt` / `adopt-check` 三种模式；`verify` 需要 `ngm.lock`，`adopt` 只需 `node_modules`。
 
 ## 相关文档
 
-- [快速上手](./quickstart.md)
-- [依赖管理](./dependency-management.md)
-- [构建](./build.md)
-- [配置详解](./configuration.md)
+- [快速上手](./quickstart.md) · [依赖管理](./dependency-management.md) · [构建](./build.md) · [配置详解](./configuration.md)
+- [可观测性](../architecture/observability.md) · [退出码契约](../../contracts/exit-codes.json)

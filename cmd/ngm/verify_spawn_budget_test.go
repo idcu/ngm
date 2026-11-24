@@ -86,7 +86,7 @@ func TestV06VerifySpawnBudget(t *testing.T) {
 					"over the budget of %d (%.2f per dependency).\n"+
 					"Every extra spawn is paid once per dependency (100 dependencies = 100 processes).\n"+
 					"If this is a deliberate change, raise the budget in this test *and* record why "+
-					"(see docs/development/v0.6-plan.md, group B).",
+					"in the commit message (historical plans are kept in git, not in docs/).",
 					got, deps, b.refType, float64(got)/deps, want, float64(b.perDep))
 			}
 

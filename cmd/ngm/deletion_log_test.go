@@ -19,7 +19,7 @@ import (
 //  2. 日期能解析、不晚于今天；
 //  3. 记录的路径不在 `git ls-files` 里（否则是**假删除**：账上删了、库里还在）。
 func TestV118DeletionLogIsComplete(t *testing.T) {
-	const logPath = "../../docs/development/deletions.md"
+	const logPath = "../../docs/deletions.md"
 	body, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("缺少删除记录 %s：%v", logPath, err)

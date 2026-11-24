@@ -41,7 +41,12 @@ func TestV228MinifyDeterminismScopeIsStated(t *testing.T) {
 	})
 
 	t.Run("evidence links are present", func(t *testing.T) {
-		for _, want := range []string{"probe-reproducibility.sh", "adr-013-remote-adapter.md"} {
+		// 单篇 ADR 已随历史文档清理移出工作树；ADR-013 现在的唯一入口是汇总表。
+		for _, want := range []string{
+			"probe-reproducibility.sh",
+			"ADR-013",
+			"../adr/README.md",
+		} {
 			if !strings.Contains(doc, want) {
 				t.Errorf("build.md must link %q as the evidence path", want)
 			}

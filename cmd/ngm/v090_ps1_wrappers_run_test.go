@@ -331,9 +331,15 @@ func syntheticDeliveredRepo(t *testing.T, n int) string {
 	gitIn(t, dir, "init", "-q", "-b", "main")
 	gitIn(t, dir, "config", "user.email", "test@example.com")
 	gitIn(t, dir, "config", "user.name", "test")
+	var changelog strings.Builder
+	changelog.WriteString("# Changelog\n")
 	for i := 1; i <= n; i++ {
 		writeFileAt(t, dir, fmt.Sprintf("docs/development/v0.%d-retrospective.md", i), "# retro\n")
+		// 新契约：每个正式 tag 都要有 CHANGELOG 段落（合成仓库只给 v0.1.0 打 tag，
+		// 其余段落没 tag 是允许的一(unreleased / 补发)）。
+		fmt.Fprintf(&changelog, "\n## [0.%d.0]\n\n- v0.%d\n", i, i)
 	}
+	writeFileAt(t, dir, "CHANGELOG.md", changelog.String())
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "-q", "-m", fmt.Sprintf("%d retrospectives", n))
 	return dir

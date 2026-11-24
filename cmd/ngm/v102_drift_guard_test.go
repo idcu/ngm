@@ -110,12 +110,19 @@ func driftRepo(t *testing.T) string {
 	gitIn(t, dir, "config", "user.name", "test")
 	// 用 v0.99/0.100/0.101：守卫显式排除 v0.5~v0.8 与 v0.65~v0.98 的
 	// 声明不回填区间，因此候选必须是 v0.99 之后的正式 tag。
+	var changelog strings.Builder
+	changelog.WriteString("# Changelog\n")
 	for _, minor := range []string{"99", "100", "101"} {
 		writeFileAt(t, dir, "docs/development/v0."+minor+"-retrospective.md", "# retro\n")
+		// 新契约：正式 tag 必须有 CHANGELOG 段落。
+		fmt.Fprintf(&changelog, "\n## [0.%s.0]\n\n- v0.%s\n", minor, minor)
 		gitIn(t, dir, "add", ".")
 		gitIn(t, dir, "commit", "-q", "-m", "v0."+minor)
 		gitIn(t, dir, "tag", "-a", "v0."+minor+".0", "-m", "v0."+minor+".0")
 	}
+	writeFileAt(t, dir, "CHANGELOG.md", changelog.String())
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "commit", "-q", "-m", "CHANGELOG sections")
 	return dir
 }
 

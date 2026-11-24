@@ -24,7 +24,7 @@ var skipSitePattern = regexp.MustCompile(`t\.Skipf?\(`)
 // 逐个改造成断言不现实（外部工具确实可能缺失），所以采用**预算**：
 //
 //   - 新增一处 skip → 本测试红，要求作者**显式**决定它属于哪一类边界，
-//     并在 docs/internals/test-skip-audit.md 里登记；
+//     并在本文件的 skipLedger 账本里登记；
 //   - 删除一处 skip → 也红（防止账本漂移成"只增不减"的摆设）；
 //   - 审计时发现"不是边界、而是跳过掩盖漂移"的，改成真断言并从账本里减掉。
 //
@@ -141,8 +141,8 @@ func TestV130EverySkipSiteIsAccountedFor(t *testing.T) {
 	}
 	if len(diffs) > 0 {
 		sort.Strings(diffs)
-		t.Fatalf("the t.Skip inventory drifted from docs/internals/test-skip-audit.md:\n  %s\n"+
-			"Decide whether each change is a real boundary (then register it in the audit doc "+
+		t.Fatalf("the t.Skip inventory drifted from the skipLedger in this file:\n  %s\n"+
+			"Decide whether each change is a real boundary (then register it in skipLedger "+
 			"and raise this ledger) or a skip that hides a gap (then assert instead).",
 			strings.Join(diffs, "\n  "))
 	}

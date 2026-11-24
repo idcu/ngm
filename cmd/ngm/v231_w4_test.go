@@ -107,10 +107,11 @@ func TestV231ThirdPartyEngineSampleShape(t *testing.T) {
 		t.Errorf("%s 的 command 未指向样例自带的脚本", catRel)
 	}
 
-	// ④ README 链回 P4 唯一契约，命令序列成形，且不偷用内置引擎名。
+	// ④ README 链回唯一契约，命令序列成形，且不偷用内置引擎名。
 	readme := readRepoFile(t, base+"/README.md")
-	if !strings.Contains(readme, "](../../docs/modules/p4-ecosystem.md)") {
-		t.Error("README 必须链回 P4 契约 docs/modules/p4-ecosystem.md")
+	const contractLink = "](../../docs/architecture/engine-adapter.md)"
+	if !strings.Contains(readme, contractLink) {
+		t.Error("README 必须链回引擎契约 " + contractLink)
 	}
 	for _, cmd := range []string{
 		"ngm engines validate",
